@@ -1,0 +1,168 @@
+{
+  "main": "5e9b640b92f7046842a22de0c986ecce1b7e43c0",
+  "parents": "5e9b640b92f7046842a22de0c986ecce1b7e43c0 58bd7120d1dc66f782b2fede9f9002e4c19e1541 13fb0ff107825c9a5ee81746b437e2dc4ddccf5d",
+  "cadOwned": [
+    {
+      "path": "apps/api/package.json",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-core-child.integration.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-core-child.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-geometry.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-geometry.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-sample-pipeline.integration.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-scene-builder.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-scene-builder.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-svg-renderer.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-svg-renderer.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-text-decoder.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-text-decoder.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/cad-text-layout.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/dxf-document-parser.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/dxf-document-parser.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/dxf-file-encoding.spec.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/dxf-file-encoding.ts",
+      "same": true
+    },
+    {
+      "path": "apps/api/src/floor-import/map-element-converter.spec.ts",
+      "same": true
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "same": true
+    }
+  ],
+  "ui": [
+    {
+      "path": "apps/web/src/App.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ControlView.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ControlView.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/floor-map/FloorMapViewport.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/floor-map/FloorMapViewport.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/FloorMap.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/FloorMap.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/MonitoringView.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/MonitoringView.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.tsx",
+      "same": true
+    }
+  ],
+  "bothParents": {
+    "docs/menus/monitoring.md": true,
+    "docs/project-status.md": true
+  },
+  "webTreeSame": true,
+  "sharedTreeSame": true,
+  "deploymentPlanSame": true,
+  "settingsMenuSameOwner": true,
+  "dirty": "M AGENTS.md",
+  "indexEmpty": true,
+  "userAgentsSHA": "832022567dd810c3668e5f9f1d3200988052e84fd8069554a3ab0db9976c04c6",
+  "all": true
+}

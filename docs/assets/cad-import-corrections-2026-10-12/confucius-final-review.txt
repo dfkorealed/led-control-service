@@ -1,0 +1,14 @@
+기존 독립 리뷰 최종 응답 보존. 새 리뷰는 실행하지 않았다.
+출처: 이 담당 세션의 multi_agent_v1.wait_agent 최종 결과
+검토자: Confucius / 01a12e65-fd26-7bd0-91fd-0c31bedfa3d8
+
+**최종 CAD 범위: 승인 가능. C/I/M 모두 0건입니다.**
+
+- 이전 인코딩 I finding은 해결된 상태로 유지됩니다.
+- [harness:111](/Users/kim-jh/Documents/led-control-service/.worktrees/cad-import-corrections-20261012/apps/api/src/floor-import/cad-sample-pipeline.integration.spec.ts:111)의 imports 전용 `enabled:true`는 적절합니다. worker는 `false`와 수동 `runOnce`를 유지하며 production admission gate를 변경하지 않습니다.
+- 새 worktree에서 helper·text decoder **42 PASS**, scoped `diff --check` 통과.
+- pipeline 로그 **2/2 PASS** 확인: 219·397 common 요소, 회사명 plain text 2건, apply 완료와 fresh-reader 정본·tile 검증.
+
+참고로 스키마 실패는 이번 단독 실행에서 재현되지 않았습니다. Jest **1 PASS/8 SKIP**, plain Node exit 0이므로 Jest 전용 실패 원인은 아직 확정할 수 없습니다. 실패 실행에서 `diff.stderr`, `diff.error`, `diff.signal`을 확인하는 것이 다음 진단입니다.
+
+전체 workspace 판정은 별도입니다. 파일·DB·commit 변경 없이 확인했습니다.

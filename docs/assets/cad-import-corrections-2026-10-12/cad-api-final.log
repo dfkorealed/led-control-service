@@ -1,0 +1,358 @@
+
+> @led-control/api@0.1.0 test /Users/kim-jh/Documents/led-control-service/.worktrees/cad-import-corrections-20261012/apps/api
+> jest "--maxWorkers=2"
+
+PASS src/mqtt/mqtt.service.spec.ts
+PASS src/automation/automation-schema.spec.ts
+PASS src/registration/registration.service.spec.ts
+PASS src/mqtt/outbox-publisher.service.spec.ts
+PASS src/mqtt/mqtt-v2-state.spec.ts
+PASS src/floor-editor/floor-editor.service.spec.ts
+PASS src/commands/commands.service.spec.ts
+PASS src/mesh-control-groups/mesh-control-group.service.spec.ts
+PASS src/floor-editor/floor-assets.service.spec.ts
+PASS src/floor-import/floor-import.service.spec.ts
+PASS src/floor-import/dxf-document-parser.spec.ts
+PASS src/floor-import/cad-scene-builder.spec.ts (14.086 s)
+PASS src/auth/auth.service.spec.ts
+PASS src/commands/command-status.service.spec.ts
+PASS src/floor-editor/map-document-reader.spec.ts
+PASS src/prisma/floor-cad-scene-migration.integration.spec.ts (19.374 s)
+PASS src/energy/fixture-state-ingestion.service.spec.ts
+PASS src/test-data/test-data.service.spec.ts
+  ● Console
+
+    console.info
+      energy history query counts { initialQueries: 5, repeatQueries: 3 }
+
+      at Object.<anonymous> (src/test-data/test-data.service.spec.ts:291:13)
+
+PASS src/automation/automation-mqtt-consumer.service.spec.ts
+PASS src/pki/certificate-revocation-reconciliation.service.spec.ts
+PASS src/mqtt/provisioning-device-outbox-publisher.service.spec.ts
+PASS src/prisma/operator-admin-migration.integration.spec.ts
+PASS src/automation/vehicle-sensor-capability.service.spec.ts
+[Nest] 28078  - 10/12/2026, 2:01:11 PM   ERROR [FloorImportWorkerService] Object(5) {
+  operation: 'background_job',
+  diagnosticCode: 'CAD_TEMP_STORAGE_LIMIT',
+  phase: 'render',
+  jobId: '7723277b-a7fa-4c38-a851-dd4c866c0044',
+  attemptCount: 3
+}
+[Nest] 28078  - 10/12/2026, 2:01:11 PM   ERROR [FloorImportWorkerService] Object(5) {
+  operation: 'background_job',
+  diagnosticCode: 'CAD_IMPORT_SOURCE_INVALID',
+  phase: 'download',
+  jobId: '6e53160a-6fbb-4041-9638-78431e385ddc',
+  attemptCount: 3
+}
+PASS src/floor-import/floor-import-worker.service.spec.ts
+PASS src/floor-import/map-element-converter.spec.ts (7.666 s)
+PASS src/floor-import/cad-region-detector.spec.ts (7.075 s)
+PASS src/mqtt/provisioning-device-terminal.service.spec.ts
+PASS test/domain-schema.test.ts
+PASS src/prisma/floor-cad-import-migration.integration.spec.ts (28.567 s)
+PASS src/floor-import/cad-core-executor.spec.ts (5.915 s)
+PASS src/energy/energy-aggregation.spec.ts
+PASS src/floor-import/cad-svg-renderer.spec.ts
+PASS src/prisma/cad-upgrade-safety-migration.integration.spec.ts (50.748 s)
+PASS src/storage/object-storage.service.spec.ts
+FAIL src/monitoring-incidents/monitoring-schema.integration.spec.ts (7.791 s)
+  ● monitoring refresh migration artifacts › keeps the request cooldown index name stable and below PostgreSQL's identifier limit
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      17 |       `--to-schema-datamodel=${schemaPath}`, "--script"], { cwd: apiRoot, encoding: "utf8" });
+      18 |
+    > 19 |     expect(diff.status).toBe(0);
+         |                         ^
+      20 |     expect(diff.stdout).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+      21 |     expect(migration).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+      22 |     expect(Buffer.byteLength(requestScopeIndexName, "utf8")).toBeLessThanOrEqual(63);
+
+      at Object.<anonymous> (src/monitoring-incidents/monitoring-schema.integration.spec.ts:19:25)
+
+PASS src/energy/reports/energy-report-jobs.service.spec.ts (7.852 s)
+PASS src/floor-editor/map-document-store.integration.spec.ts
+PASS src/commands/command-delivery-reliability.spec.ts
+PASS src/site-settings/site-settings.service.spec.ts
+PASS src/energy/reports/energy-report-worker.service.spec.ts (9.241 s)
+PASS src/sites/sites.service.spec.ts
+PASS src/energy/reports/energy-report-document.builder.spec.ts (16.473 s)
+PASS src/floor-import/map-element-converter.hatch.spec.ts
+PASS src/fixture-groups/fixture-groups.service.spec.ts
+PASS src/energy/energy.service.spec.ts
+PASS src/floor-editor/map-document-query.controller.spec.ts
+PASS src/fixtures/fixtures.service.spec.ts
+PASS src/pki/manufacturing-enrollment.service.spec.ts
+PASS src/prisma/floor-light-slot-migration.integration.spec.ts (15.954 s)
+PASS src/commands/command-recovery.service.spec.ts (6.717 s)
+[Nest] 28078  - 10/12/2026, 2:04:25 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:26 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:27 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:28 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:29 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:30 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:31 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:32 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:33 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:34 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:25 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:26 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:27 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:28 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:29 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:30 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:31 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:32 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:33 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+[Nest] 28078  - 10/12/2026, 2:04:34 PM   ERROR [BioSensorCatalogOutboxService] BIO catalog/preparation delivery failed
+PASS src/mqtt/mqtt-shutdown-coordinator.spec.ts
+PASS src/automation/schedules.service.spec.ts
+PASS src/site-users/site-users.service.spec.ts
+PASS src/monitoring-refresh/monitoring-refresh-ingestion.service.spec.ts
+PASS src/pki/gateway-certificate.service.spec.ts
+PASS src/auth/mfa.service.spec.ts
+PASS src/pki/certificate-lifecycle.service.spec.ts
+PASS src/operator-site-admins/operator-site-admins.service.spec.ts
+PASS src/operator-site-admins/site-deletion-cleanup.service.spec.ts (7.386 s)
+PASS src/fixtures/fixture-presence-ingestion.service.spec.ts
+PASS src/mqtt/provisioning-scan-outbox-publisher.service.spec.ts
+PASS src/floor-import/cad-scene-codec.spec.ts
+PASS src/floor-import/cad-core-child.integration.spec.ts
+PASS src/commands/command-timeout.service.spec.ts
+PASS src/landing-inquiries/landing-mail-oauth.service.spec.ts
+PASS src/automation/automation-outbox-publisher.service.spec.ts
+PASS src/floor-import/rule-based-lighting-symbol-detector.spec.ts
+PASS src/commands/command-verification.service.spec.ts
+PASS src/monitoring-refresh/monitoring-refresh-outbox.service.spec.ts
+PASS src/energy/reports/pdf-energy-report.semantic.spec.ts (198.683 s)
+PASS src/prisma/floor-import-attempt-cleanup-migration.integration.spec.ts (26.896 s)
+PASS src/floor-import/cad-canonical-spool.spec.ts
+PASS src/access/site-access.service.spec.ts
+PASS src/monitoring-refresh/monitoring-refresh.service.spec.ts
+PASS src/energy/reports/pdf-report-presentation.spec.ts (45.054 s)
+PASS src/floor-import/map-display-page-writer.spec.ts
+PASS src/floor-import/cad-converter.spec.ts
+PASS src/energy/energy-analytics-query.service.spec.ts
+PASS src/auth/auth.controller.spec.ts
+PASS src/mesh-control-groups/mesh-group-sync.worker.spec.ts
+PASS src/mqtt/command-set-mqtt.service.spec.ts
+PASS src/pki/vault-pki.provider.spec.ts
+PASS src/gateway-onboarding/gateway-onboarding.service.spec.ts
+PASS src/automation/bio-rule-qualification.spec.ts
+PASS src/automation/automation-snapshot.service.spec.ts
+PASS src/commands/commands.controller.spec.ts
+PASS src/monitoring-activity/monitoring-activity.service.spec.ts
+PASS src/setup/setup.service.spec.ts
+PASS src/prisma/login-id-contract-migration.integration.spec.ts
+PASS src/prisma/site-user-access-migration.integration.spec.ts
+PASS src/mqtt/broker-generation-fence.spec.ts
+PASS src/floor-import/cad-converter-spool.spec.ts
+PASS src/automation/bio-capability-qualification.spec.ts
+PASS src/floor-editor/editor-lease.service.spec.ts
+PASS src/energy/energy-heatmap.service.spec.ts
+PASS src/mqtt/legacy-status-check-publisher.service.spec.ts (6.27 s)
+PASS src/commands/command-recovery-ack.service.spec.ts
+PASS src/floor-import/floor-import-attempt-cleanup.service.spec.ts
+PASS src/monitoring-incidents/monitoring-incidents.service.spec.ts
+PASS src/floor-import/cad-display-tile-spool.spec.ts
+PASS src/floor-editor/floor-asset-cleanup.service.spec.ts
+PASS src/energy/reports/report-chart-image.renderer.spec.ts
+PASS src/energy/reports/energy-report-snapshot.service.spec.ts
+PASS src/mqtt/recovery-ack-routing.spec.ts
+PASS src/fixture-identify/fixture-identify.service.spec.ts
+PASS src/mqtt/command-clock-responder.service.spec.ts
+PASS src/floor-map/floor-map.service.spec.ts
+PASS src/floor-import/cad-region-preview-renderer.spec.ts
+PASS src/mqtt/recovery-outbox-publisher.service.spec.ts
+PASS src/observability/structured-logger.service.spec.ts
+PASS src/energy/energy-dimension-history.service.spec.ts
+PASS src/pki/pki.module.spec.ts
+PASS src/commands/command-late-set-ack.service.spec.ts
+PASS src/prisma/floor-light-slot-capacity-reconciliation.integration.spec.ts (7.059 s)
+PASS test/manufacturing-mtls.e2e-spec.ts (6.759 s)
+PASS src/mqtt/gateway-command-drain.service.spec.ts
+PASS src/energy/reports/report-visual-model.spec.ts
+PASS src/gateway-onboarding/gateway-recommission.service.spec.ts
+PASS src/automation/vehicle-event-rules.service.spec.ts
+PASS src/registration/registration.controller.spec.ts
+PASS src/retention/data-retention.service.spec.ts
+PASS src/floor-editor/map-display-builder.spec.ts
+PASS src/mesh-control-groups/mesh-control-group.schema.spec.ts
+PASS src/floor-import/floor-import-storage.spec.ts
+PASS src/energy/energy-observed-mean.service.spec.ts
+PASS src/commands/command-clock-refusal-ack.spec.ts
+PASS src/fixtures/fixture-freshness.service.spec.ts
+PASS src/api-tls-options.spec.ts
+PASS src/energy/energy-rankings.service.spec.ts
+PASS src/landing-inquiries/landing-inquiries.service.spec.ts
+PASS src/auth/session-management.service.spec.ts
+PASS src/commands/command-purge-barrier.service.spec.ts
+PASS src/floor-editor/floor-assets-map-privacy.spec.ts
+PASS src/floor-import/cad-viewport.spec.ts
+PASS src/floor-import/cad-geometry.spec.ts
+PASS src/sites/vehicle-event-source-view.spec.ts
+PASS src/monitoring-refresh/monitoring-refresh-expiry.service.spec.ts
+PASS src/api-tls-reloader.spec.ts
+PASS src/pki/crl-publisher.spec.ts
+PASS src/auth/login-rate-limit.service.spec.ts
+PASS src/mqtt/command-db-clock-health.service.spec.ts
+PASS src/pki/vault-token-lifecycle.spec.ts
+PASS src/observability/readiness.service.spec.ts
+PASS src/energy/reports/energy-csv-export.service.spec.ts
+PASS src/prisma/command-requester-outbox-migration.integration.spec.ts
+PASS src/monitoring-incidents/monitoring-conditions.spec.ts
+PASS src/floor-editor/map-document-bulk.spec.ts
+PASS src/auth/session-auth.guard.spec.ts
+PASS src/retention/log-date-range.spec.ts
+PASS src/energy/energy-comparison-query.spec.ts
+PASS src/commands/command-target-migration.spec.ts
+PASS src/commands/command-safety-digest.spec.ts
+PASS src/observability/request-context.middleware.spec.ts
+PASS src/commands/command-redacted-state.spec.ts
+PASS src/observability/api-observability-bootstrap.spec.ts
+PASS src/automation/automation-protocol-support.spec.ts
+PASS src/floor-editor/map-document-codec.spec.ts
+PASS src/landing-inquiries/landing-mail.transport.spec.ts
+PASS src/floor-editor/floor-editor.controller.spec.ts
+PASS src/mqtt/command-set-outbox-routing.spec.ts
+PASS src/floor-editor/editor-http.spec.ts
+PASS src/commands/command-history-rollout.spec.ts
+PASS src/monitoring-incidents/monitoring-incidents.dto.spec.ts
+PASS src/landing-inquiries/operator-landing-inquiries.controller.spec.ts
+PASS src/automation/dto/schedule.dto.spec.ts
+PASS src/energy/reports/report-list-filters.spec.ts
+PASS src/landing-inquiries/landing-mail.controller.spec.ts
+PASS src/floor-import/cad-map-preparation.spool.spec.ts
+PASS src/audit/audit.service.spec.ts
+PASS src/access/roles.guard.spec.ts
+PASS src/floor-editor/map-document-mutations.spec.ts
+PASS src/floor-editor/map-document-current-ref.spec.ts
+PASS src/floor-import/floor-import-module.spec.ts
+PASS src/storage/floor-rendered-asset-reconciler.spec.ts
+PASS src/observability/health.controller.spec.ts
+PASS src/auth/auth-challenge.store.spec.ts
+PASS src/registration/registration-allocation.service.spec.ts
+PASS src/registration/registration-domain-locks.spec.ts
+PASS src/landing-inquiries/landing-inquiries.controller.spec.ts
+PASS src/floor-editor/map-document-stage-decoder.spec.ts
+PASS src/pki/manufacturing-auth.guard.spec.ts
+PASS src/redis/redis.provider.spec.ts
+PASS src/gateway-onboarding/gateway-onboarding.controller.spec.ts
+PASS src/floor-editor/map-document-staging.retry.spec.ts
+[Nest] 28078  - 10/12/2026, 2:08:09 PM    WARN [MapDocumentStagingService] map stage preparation or activation failed
+[Nest] 28078  - 10/12/2026, 2:08:09 PM    WARN [MapDocumentStagingService] map stage preparation or activation failed
+PASS src/floor-editor/map-document-stage-contracts.spec.ts
+PASS src/mqtt/mqtt-identify.spec.ts
+PASS src/monitoring-incidents/monitoring-incident-dismissal.spec.ts
+PASS src/setup/setup.controller.spec.ts
+PASS src/observability/observability.module.spec.ts
+PASS src/retention/command-detail-redaction.spec.ts
+PASS src/retention/command-detail-retention.service.spec.ts
+PASS src/automation/dto/automation-list.dto.spec.ts
+PASS src/floor-map/cad-scene-evidence.service.spec.ts
+PASS src/observability/dependency-readiness.spec.ts
+PASS src/commands/command-legacy-get-ack.service.spec.ts
+PASS src/floor-import/map-display-element-sort.spec.ts
+PASS src/energy/energy.controller.spec.ts
+PASS src/automation/bio-sensor-eligibility.spec.ts
+PASS src/pki/csr-validator.spec.ts
+PASS src/auth/bootstrap-operator.spec.ts
+PASS src/access/site-user-policy.spec.ts
+PASS src/monitoring-activity/command-outcome-activity.spec.ts
+PASS src/floor-import/cad-core-display-spool.spec.ts
+PASS src/energy/reports/report-list-cursor.spec.ts
+PASS src/energy/energy-hourly-aggregation.spec.ts
+PASS src/pki/manufacturing-enrollment.controller.spec.ts
+PASS src/automation/bio-sensor-preparation-evidence.spec.ts
+PASS src/monitoring-incidents/monitoring-incident-personal-access.spec.ts
+PASS src/floor-import/cad-import-diagnostics.spec.ts
+PASS src/monitoring-activity/monitoring-activity.controller.spec.ts
+PASS src/auth/totp.service.spec.ts
+PASS src/landing-inquiries/landing-mail.worker.spec.ts
+PASS src/site-settings/site-settings.controller.spec.ts
+PASS src/monitoring-refresh/monitoring-refresh.controller.spec.ts
+PASS src/energy/energy-periods.spec.ts
+PASS src/commands/command-retention-worker.spec.ts (5.12 s)
+PASS src/api-lifecycle.spec.ts
+PASS src/auth/mfa-crypto.service.spec.ts
+PASS src/mqtt/gateway-event-time.spec.ts
+PASS src/pki/gateway-certificate.controller.spec.ts
+PASS src/registration/bio-classification-reconciliation.service.spec.ts
+PASS src/floor-import/cad-region-detector.integration.spec.ts
+PASS src/http/web-ingress-client-ip.spec.ts
+PASS src/commands/command-recovery-rollout.guard.spec.ts
+PASS src/floor-editor/map-document-snapshot.spec.ts
+PASS src/floor-import/cad-runtime-contract.spec.ts
+PASS src/auth/password.service.spec.ts
+PASS src/test-data/test-data.controller.spec.ts
+PASS src/energy/energy-retention.service.spec.ts
+PASS src/api-trust-proxy.spec.ts
+PASS src/auth/auth.module.spec.ts
+PASS src/fixtures/fixtures.controller.spec.ts
+PASS src/landing-inquiries/landing-inquiry-rate-limit.service.spec.ts
+PASS src/fixture-identify/fixture-identify.module.spec.ts
+PASS src/gateway-onboarding/device-certificate.guard.spec.ts
+PASS src/registration/bio-registration-revalidation.service.spec.ts
+PASS src/sites/sites.controller.spec.ts
+PASS src/automation/automation.controller.spec.ts
+PASS src/floor-import/cad-map-preparation.contract.spec.ts
+PASS src/floor-import/cad-candidate-region-digest.spec.ts
+PASS src/commands/command-dispatch.service.spec.ts
+PASS src/floor-editor/floor-editor-snapshot.spec.ts
+PASS src/mqtt/topic-scope.spec.ts
+PASS src/api-body-parser-landing.spec.ts
+PASS src/monitoring-refresh/monitoring-refresh.module.spec.ts
+PASS src/landing-inquiries/landing-mail-renderer.spec.ts
+PASS src/test-data/test-data-enabled.guard.spec.ts
+PASS src/mqtt/bio-registration-revalidation-publisher.service.spec.ts
+PASS src/retention/calendar-month-window.spec.ts
+PASS src/floor-editor/map-document-reset.service.spec.ts
+PASS src/observability/observability-metrics.service.spec.ts
+PASS src/floor-import/lighting-detector-registry.spec.ts
+PASS src/floor-import/disabled-ai-lighting-symbol-detector.spec.ts
+PASS src/fixture-groups/fixture-groups.controller.spec.ts
+PASS src/automation/bio-source-target-policy.spec.ts
+PASS src/registration/bio-registration-revalidation-binding.spec.ts
+PASS src/energy/reports/report-text.spec.ts
+PASS src/fixtures/fixtures.module.spec.ts
+PASS src/fixture-identify/fixture-identify-deadline.spec.ts
+PASS src/automation/automation-clock.spec.ts
+PASS src/mqtt/command-publish-epoch.service.spec.ts
+PASS src/floor-import/dxf-file-encoding.spec.ts
+PASS src/floor-import/cad-text-decoder.spec.ts
+PASS src/automation/automation.module.spec.ts
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+
+Summary of all failing tests
+FAIL src/monitoring-incidents/monitoring-schema.integration.spec.ts (7.791 s)
+  ● monitoring refresh migration artifacts › keeps the request cooldown index name stable and below PostgreSQL's identifier limit
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      17 |       `--to-schema-datamodel=${schemaPath}`, "--script"], { cwd: apiRoot, encoding: "utf8" });
+      18 |
+    > 19 |     expect(diff.status).toBe(0);
+         |                         ^
+      20 |     expect(diff.stdout).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+      21 |     expect(migration).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+      22 |     expect(Buffer.byteLength(requestScopeIndexName, "utf8")).toBeLessThanOrEqual(63);
+
+      at Object.<anonymous> (src/monitoring-incidents/monitoring-schema.integration.spec.ts:19:25)
+
+
+Test Suites: 1 failed, 84 skipped, 263 passed, 264 of 348 total
+Tests:       1 failed, 1209 skipped, 3265 passed, 4475 total
+Snapshots:   0 total
+Time:        479.104 s
+Ran all test suites.
+/Users/kim-jh/Documents/led-control-service/.worktrees/cad-import-corrections-20261012/apps/api:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @led-control/api@0.1.0 test: `jest "--maxWorkers=2"`
+Exit status 1

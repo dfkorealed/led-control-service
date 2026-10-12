@@ -1,0 +1,14 @@
+PASS src/floor-import/cad-scene-builder.spec.ts (17.817 s)
+PASS src/floor-import/dxf-document-parser.spec.ts
+PASS src/floor-import/map-element-converter.spec.ts (7.932 s)
+PASS src/floor-import/cad-svg-renderer.spec.ts
+PASS src/floor-import/cad-core-child.integration.spec.ts
+PASS src/floor-import/cad-geometry.spec.ts
+PASS src/floor-import/dxf-file-encoding.spec.ts
+PASS src/floor-import/cad-text-decoder.spec.ts
+
+Test Suites: 8 passed, 8 total
+Tests:       4 skipped, 224 passed, 228 total
+Snapshots:   0 total
+Time:        33.443 s
+Ran all test suites matching /src\/floor-import\/dxf-file-encoding.spec.ts|src\/floor-import\/dxf-document-parser.spec.ts|src\/floor-import\/cad-text-decoder.spec.ts|src\/floor-import\/cad-geometry.spec.ts|src\/floor-import\/cad-scene-builder.spec.ts|src\/floor-import\/cad-svg-renderer.spec.ts|src\/floor-import\/map-element-converter.spec.ts|src\/floor-import\/cad-core-child.integration.spec.ts/i.

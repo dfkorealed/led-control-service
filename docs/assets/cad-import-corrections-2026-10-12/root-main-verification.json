@@ -1,0 +1,89 @@
+{
+  "mainMerge": "5e9b640b92f7046842a22de0c986ecce1b7e43c0",
+  "validatedProduct": "be35ba1077e247941eecdc62bd78a8b6404c5ce9",
+  "ownerFinal": "13fb0ff107825c9a5ee81746b437e2dc4ddccf5d",
+  "pinnedNode": "22.23.3",
+  "pinnedPnpm": "9.15.0",
+  "postMergeStatic": [
+    {
+      "command": "env PATH=$PWD/.local/toolchains/node-v22.23.3-darwin-arm64/bin:$PATH corepack pnpm --filter @led-control/api typecheck",
+      "cwd": "/Users/kim-jh/Documents/led-control-service",
+      "exit": 0,
+      "log": "main-5e9-api-typecheck.log"
+    },
+    {
+      "command": "env PATH=$PWD/.local/toolchains/node-v22.23.3-darwin-arm64/bin:$PATH corepack pnpm --filter @led-control/api build",
+      "cwd": "/Users/kim-jh/Documents/led-control-service",
+      "exit": 0,
+      "log": "main-5e9-api-build.log"
+    }
+  ],
+  "typecheckRawSHA": "c01552759c060285a0eeb814eb3f0de0ad827f4d68240307cdf2b9bacd7176d0",
+  "buildRawSHA": "c2ccbb4c207d53b59fbae78189eeb228ca5e76442c6ca37893223b382f876872",
+  "originalCohortsNotRepeatedOrSummed": true,
+  "originalSourceEvidenceFiles": [
+    {
+      "path": "cad-api-final.log",
+      "bytes": 20001,
+      "sha256": "8c5577a7be83bb7fc1874fcd9b1757c4ffddde325e9dd64dbe786302fdcce074"
+    },
+    {
+      "path": "cad-api-green.log",
+      "bytes": 17752,
+      "sha256": "c511e6270b4ee50eddadf6c49af0ff796519385c37876413c7a066aab02e52a1"
+    },
+    {
+      "path": "cad-focused.log",
+      "bytes": 935,
+      "sha256": "189e9e9b06c70a87dbf95cd469ad7e04d641ad3ca854750ebffc9d697c7968ae"
+    },
+    {
+      "path": "cad-pipeline.log",
+      "bytes": 7157,
+      "sha256": "8717eec1837d5ce1c57b9306bdfc0b733de0bafbcb7ea93b3e9d87399e62289e"
+    },
+    {
+      "path": "cad-schema-diagnostics.log",
+      "bytes": 3405,
+      "sha256": "62759af841bfb79ed50fe322a653168899a34bfd5bfdb84e0b7e06ba6814dc96"
+    },
+    {
+      "path": "cad-schema-final.log",
+      "bytes": 1505,
+      "sha256": "fccb04bcce15e5411bbe9538d74f0dfaf2db2f19b6597ee42c85d066d4ba862f"
+    },
+    {
+      "path": "confucius-final-review.txt",
+      "bytes": 1320,
+      "sha256": "192f6e3daf76e799aa102b31e1ee431851d7db7ba02d3d600c392ef7186054a0"
+    },
+    {
+      "path": "main-5e9-api-build.log",
+      "bytes": 99,
+      "sha256": "c2ccbb4c207d53b59fbae78189eeb228ca5e76442c6ca37893223b382f876872"
+    },
+    {
+      "path": "main-5e9-api-typecheck.log",
+      "bytes": 105,
+      "sha256": "c01552759c060285a0eeb814eb3f0de0ad827f4d68240307cdf2b9bacd7176d0"
+    },
+    {
+      "path": "manifest.json",
+      "bytes": 3650,
+      "sha256": "846ac2b270df423bf17e0a96b7c931f80f746222c7df7fb98263967ce2f32f4e"
+    },
+    {
+      "path": "root-5e9-integration-proof.json",
+      "bytes": 4318,
+      "sha256": "4737c10e5ccfeca87e67f1f2f109714b2bfec45a906819e890e859c819ffc547"
+    }
+  ],
+  "allOriginalCopiesEqual": true,
+  "userAgentsSHA": "832022567dd810c3668e5f9f1d3200988052e84fd8069554a3ab0db9976c04c6",
+  "runtimeRestart": false,
+  "liveBrowserReimport": false,
+  "existingMapBackfill": false,
+  "remoteWrites": false,
+  "cadOwnerWorktreePreserved": true,
+  "review": "root-preservation-review.json"
+}

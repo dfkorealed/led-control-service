@@ -1,0 +1,24 @@
+{
+  "reviewSeat": "/root/comments_final_review_20261011",
+  "scope": "Preservation boundary only; no duplicate CAD product review or test execution",
+  "base": "58bd7120d1dc66f782b2fede9f9002e4c19e1541",
+  "head": "5e9b640b92f7046842a22de0c986ecce1b7e43c0",
+  "decision": "Preservation integration approved",
+  "newCritical": 0,
+  "newImportant": 0,
+  "newMinor": 0,
+  "confirmed": [
+    "Whole Web and Shared trees unchanged; all UI18 files preserved",
+    "CAD-owned files other than the two conflict documents equal validated 13fb",
+    "API non-owned files unchanged",
+    "All nonempty lines from both parents retained in monitoring menu and project status; five menu sections retained; no conflict markers",
+    "Deployment, PKI and AGENTS unchanged; user AGENTS SHA256 832022567dd810c3668e5f9f1d3200988052e84fd8069554a3ab0db9976c04c6 retained"
+  ],
+  "declined": [
+    "Duplicate CAD product review and recounting existing tests: owned by the original CAD reviewer",
+    "Merged fresh API typecheck/build: reported separately by the settings owner",
+    "Service restart, logged-in browser reimport and CAD cleanup: not performed or claimed by this preservation review"
+  ],
+  "mutations": 0,
+  "testsExecuted": 0
+}

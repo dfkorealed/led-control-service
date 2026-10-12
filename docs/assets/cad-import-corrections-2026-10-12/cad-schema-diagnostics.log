@@ -1,0 +1,43 @@
+
+> @led-control/api@0.1.0 test /Users/kim-jh/Documents/led-control-service/.worktrees/cad-import-corrections-20261012/apps/api
+> jest "src/monitoring-incidents/monitoring-schema.integration.spec.ts" "--runInBand"
+
+CAD_SCHEMA_DIAGNOSTIC {"status":1,"signal":null,"stderr":"[WARN] The \"pnpm\" field in package.json is no longer read by pnpm. The following keys were ignored: \"pnpm.overrides\". See https://pnpm.io/settings for the new home of each setting.\n[ERROR] This project is configured to use 9.15.0 of pnpm. Your current pnpm is v11.12.0\nCorepack invoked pnpm with this version, and pnpm does not switch versions when running under corepack.\nAlign the \"packageManager\" field in package.json with \"devEngines.packageManager\", or invoke pnpm directly (without corepack) so it can switch versions automatically.\nIf you want to bypass this version check, you can set the \"pmOnFail\" configuration to \"warn\" or \"ignore\" (e.g. via --pm-on-fail=ignore). If using \"devEngines.packageManager\", you can set its \"onFail\" to \"warn\" or \"ignore\"\n"}
+FAIL src/monitoring-incidents/monitoring-schema.integration.spec.ts (10.702 s)
+  monitoring refresh migration artifacts
+    ✕ keeps the request cooldown index name stable and below PostgreSQL's identifier limit (606 ms)
+  monitoring policy/incident migration
+    ○ skipped stores durable reported fixture state separately from operational freshness
+    ○ skipped adds policy defaults and the incident store to the migrated database
+    ○ skipped persists the monitoring refresh aggregate with durable constraints and relations
+    ○ skipped binds request aliases to one requester key and the refresh's exact site/floor scope
+    ○ skipped rejects an outbox with both command and monitoring-refresh owners and an unpublished completed batch
+    ○ skipped preserves existing Site rows while adding defaults in an isolated upgrade schema
+    ○ skipped adds BIO presence metadata, exact range checks, and an atomic checkpoint
+    ○ skipped backfills reported state without changing operational state or revisions and defaults new fixtures offline
+
+  ● monitoring refresh migration artifacts › keeps the request cooldown index name stable and below PostgreSQL's identifier limit
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      17 |       `--to-schema-datamodel=${schemaPath}`, "--script"], { cwd: apiRoot, encoding: "utf8" });
+      18 |
+    > 19 |     expect(diff.status).toBe(0);
+         |                         ^
+      20 |     expect(diff.stdout).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+      21 |     expect(migration).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+      22 |     expect(Buffer.byteLength(requestScopeIndexName, "utf8")).toBeLessThanOrEqual(63);
+
+      at Object.<anonymous> (src/monitoring-incidents/monitoring-schema.integration.spec.ts:19:25)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 8 skipped, 9 total
+Snapshots:   0 total
+Time:        11.143 s
+Ran all test suites matching /src\/monitoring-incidents\/monitoring-schema.integration.spec.ts/i.
+/Users/kim-jh/Documents/led-control-service/.worktrees/cad-import-corrections-20261012/apps/api:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @led-control/api@0.1.0 test: `jest "src/monitoring-incidents/monitoring-schema.integration.spec.ts" "--runInBand"`
+Exit status 1

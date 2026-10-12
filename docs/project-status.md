@@ -2,12 +2,18 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 설정 CAD — 별도 브랜치 검증 후 보존 로컬 병합 완료
+
+- 사용자 지시대로 원 설정 담당자의 별도 `codex/cad-import-corrections-20261012`에서 검증한제품be35/최종문서13fb를 UI완료58bd 위 정상로컬merge5e9b640b로통합했다. 총괄이24소유diff/6원로그SHA·집중224/실제첨부DWG2/2/전체3266PASS1209기존환경SKIP·원타입/빌드exit0와전담독립리뷰C/I/M0을대조했다. 원pnpm경로1FAIL은보존하며후속GREEN과합산/소급하지않는다.
+- 문서충돌2개는양쪽추가섹션원행모두보존했다. CAD API/lock=검증된13fb, 전체Web/Shared=UI완료58bd, 배포/PKI·사용자AGENTSsha83202256 불변·indexempty를확인했고 같은기존통합reviewer도보존경계새C/I/M0이다. 원담당이병합후MAIN 5e9에서 pinned Node22.23.3/pnpm9.15의fresh API타입/빌드2명령을exit0으로완료했고총괄이원출력/로그를대조했다. 전체API/실제DWG는반복하지않는다.
+- [기존 CAD 체크리스트·원 검증](superpowers/plans/2026-09-18-cad-native-map-rendering.md), [원 로그 manifest](assets/cad-import-corrections-2026-10-12/manifest.json), [실제 병합 보존증거](assets/cad-import-corrections-2026-10-12/root-5e9-integration-proof.json). 서버stop/restart/reload·운영/현장DB·기존맵backfill·remote0이다. 기존저장맵을바꾸려면별도재가져오기/적용이필요하고 실제로그인브라우저재적용/원AutoCAD육안충실도는완료주장하지않는다. CADworktree/원자료는원담당소유로유지하며 UI owncleanup과구분한다.
+
 ## 2026-10-12 지도 작업 공간 — UI 검증·로컬 병합·회복 가능한 정리 완료
 
 - 기존 모니터링·제어 UI 개선·UI/UX 세션이 신규8건과 승인된 단일 지도 하단 목록/More reader를 구현했다. 제품e35c0c20, 제어문서ea0019b1, same reviewer 새C/I/M0·UI scopedReadyYes다. 운영 인사이트/장비/원격은 변경하지 않았다.
 - 실제case1/2/4=2290·case3=e35·case5=f28·case6=4093PC/sourcecarry를 구분한다. 마지막320×600 case3는1PASS0FAIL/exit0/20.149886s,44hit·0/1008target·raw31·reader끝/초점·invalid첫Apply31복원0POST/documentoverflow0·최종지도247px≥240을 확인했다. 새e35six일괄PASS/전체Web/HIL/pointerSliderdrag/OSkeyboard로 확대하지 않는다. 직접81/정책79/타입포함build0은 별도cohort다.
 - 최신committedMAINa844를 UI별도branch에 정상통합한 후보7d48의 UI18blob=QAe35/upstream5blob=a844 및 양쪽문서행·userAGENTS 보존/fresh tsc0을 root와 동일reviewer가 확인했다. 배포 owner의 안전한 문서커밋e5f863ec도 별도branch에 정상통합했고 실제MAIN은 f566e997 정상로컬merge(부모e5+58b8) 완료다. 병합 후 fresh Webtsc exit0·Webtree=검증한7d48·UI18=QAe35/메뉴최종owner문서동일·배포status원행/plan보존·사용자AGENTSsha83202256불변/indexempty를 확인했다.
-- 사용자 지시대로 설정 담당CAD는 codex/cad-import-corrections-20261012 별도worktree로 분리했다. 원 배포담당은 자기소유2문서만커밋하고 공용문서쓰기창을 release했으며 배포/CI는 별도후보로 계속한다. 모니터링867a0c13·제어ea0019b1은 제품변경0의 최종 메뉴 증거다. root의foreignstage/stash/revert·서비스restart·remote변경0이다. 검증완료된 CAD는 원담당 최종증거 확인 뒤 UI와 별도 순서로 병합한다.
+- 사용자 지시대로 설정 담당CAD는 codex/cad-import-corrections-20261012 별도worktree로 분리했다. 원 배포담당은 자기소유2문서만커밋하고 공용문서쓰기창을 release했으며 배포/CI는 별도후보로 계속한다. 모니터링867a0c13·제어ea0019b1은 제품변경0의 최종 메뉴 증거다. root의foreignstage/stash/revert·서비스restart·remote변경0이다. 검증완료된 CAD는 위별도후속5e9로병합했고 UI제품은불변이다.
 - [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)와 [원자료·한계·Ruling3](assets/map-workspace-comments-2026-10-12/README.md)에 결과를 취합했다. exactownignored자료를 .superpowers/sdd/map-workspace-comments-backup-20261012.sHONIh로복사/recursivecompare0 후 cleanmerged UIworktree·branch만정리했다. 원자료는 Git와백업에서회복가능하며 다른worktree/서비스는그대로다. 아래준비/실패/재개문장은보존한이력이며 현재판정은이절을따른다.
 
 ## 2026-10-12 지도 작업 공간 신규 브라우저 주석 — 승인한 단일 하단 보조 패널 수리 재개

@@ -1,0 +1,22 @@
+
+> @led-control/api@0.1.0 test /Users/kim-jh/Documents/led-control-service/.worktrees/cad-import-corrections-20261012/apps/api
+> jest "src/monitoring-incidents/monitoring-schema.integration.spec.ts" "--runInBand"
+
+PASS src/monitoring-incidents/monitoring-schema.integration.spec.ts (6.933 s)
+  monitoring refresh migration artifacts
+    ✓ keeps the request cooldown index name stable and below PostgreSQL's identifier limit (1470 ms)
+  monitoring policy/incident migration
+    ○ skipped stores durable reported fixture state separately from operational freshness
+    ○ skipped adds policy defaults and the incident store to the migrated database
+    ○ skipped persists the monitoring refresh aggregate with durable constraints and relations
+    ○ skipped binds request aliases to one requester key and the refresh's exact site/floor scope
+    ○ skipped rejects an outbox with both command and monitoring-refresh owners and an unpublished completed batch
+    ○ skipped preserves existing Site rows while adding defaults in an isolated upgrade schema
+    ○ skipped adds BIO presence metadata, exact range checks, and an atomic checkpoint
+    ○ skipped backfills reported state without changing operational state or revisions and defaults new fixtures offline
+
+Test Suites: 1 passed, 1 total
+Tests:       8 skipped, 1 passed, 9 total
+Snapshots:   0 total
+Time:        7.114 s, estimated 11 s
+Ran all test suites matching /src\/monitoring-incidents\/monitoring-schema.integration.spec.ts/i.
