@@ -9,15 +9,17 @@
 
 ### 미구현
 
-- 최종 공통 Web 검증과 WebGL 브라우저 회귀 결과는 진행 중이다. 새로운 모니터링 기능·API·장비/HIL 작업은 추가하지 않는다.
+- 승인한 공통 renderer 범위의 검증을 마쳤다. 새로운 모니터링 기능·API·장비/HIL 작업은 추가하지 않으며 MAIN 반영은 총괄 조율 뒤 진행한다.
 
 ### 부족하거나 개선이 필요한 기능
 
 - 캐시 재사용은 전체 GPU 프레임 그리기가 사라짐을 뜻하지 않는다. 작은 합성 fixture의 계측을 실제 대형 CAD·iOS/Android WebView 성능 보장으로 확장하지 않는다.
+- Chromium 19/19에는 공통 맵 적용·저장·새로고침 뒤 PC/모바일 모니터링 픽셀·조명 합성·줌·이동 검증을 포함한다. WebGL 14/14도 별도로 통과했다. 전체 Web 3,641 PASS/기존 제어 5 FAIL/3 SKIP는 제품 소스 고정 cohort이며 전체 서비스/HIL 완료를 뜻하지 않는다.
 
 ### 관련 파일
 
 - `apps/web/src/features/map-scene/{map-raster-backend,map-raster-grid,MapSceneRenderer}`, `features/cad-scene/CadSceneRenderer`와 직접 unit·WebGL 회귀.
+- [검증 manifest·원 로그](../assets/editor-comments-2026-10-12/manifest.json).
 
 ### 갱신 규칙
 

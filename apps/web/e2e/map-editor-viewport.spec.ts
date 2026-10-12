@@ -29,6 +29,9 @@ test.beforeEach(async ({ page }) => {
       name: "관리자", role: "admin", status: "active"
     } } });
     if (path === "/sites") return route.fulfill({ json: [{ id: "site-2", name: "물류센터", customerName: "고객사" }] });
+    if (path === "/sites/site-2/monitoring-incidents") return route.fulfill({ json: {
+      incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null
+    } });
     if (path === "/sites/site-2/dashboard") return route.fulfill({ json: {
       capabilities: { read: true, control: true, manage: true, commission: true },
       site: { id: "site-2", name: "물류센터", customerName: "고객사", installationStatus: "installed", address: "서울", tariffKwhRate: 160, timeZone: "Asia/Seoul" },
@@ -79,11 +82,111 @@ async function expectBoundedPage(page: Page) {
   expect(canvas!.y + canvas!.height).toBeLessThanOrEqual((page.viewportSize()?.height ?? 0) - (page.viewportSize()!.width < 760 ? 68 : 0));
 }
 
+async function expectReachable(target: Locator) {
+  await expect(target).toBeVisible();
+  await expect(target).toBeInViewport({ ratio: 1 });
+  expect(await target.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  }), "control center must not be clipped or covered").toBe(true);
+}
+
+for (const width of [1039, 1434]) {
+  test(`map editor comments ${width}x909 keep shell and information bounded with internal history pagination`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 909 });
+    const historyRequests: string[] = [];
+    await page.route("**/api/floors/floor-b2/editor-revisions**", async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get("cursor");
+      historyRequests.push(cursor ?? "first");
+      return route.fulfill({ json: {
+        items: Array.from({ length: cursor ? 10 : 30 }, (_, index) => ({
+          revision: (cursor ? 10 : 40) - index, snapshotSha256: `history-${cursor ?? "first"}-${index}`,
+          changeSummary: { floorPlanChanged: true }, restoredFromRevision: null,
+          createdAt: "2026-08-06T03:00:00.000Z", actor: { displayName: "관리자" }
+        })), nextCursor: cursor ? null : 11
+      } });
+    });
+    await page.goto(editorPath);
+    await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-ready", "true");
+    const topbar = page.locator("[data-shell-topbar]");
+    const account = page.getByRole("region", { name: "내 계정", exact: true });
+    await expect(topbar).toBeVisible();
+    await expect(account).toBeVisible();
+    await expectReachable(account.getByRole("button", { name: "로그아웃", exact: true }));
+    await expectReachable(topbar.getByRole("link", { name: "내 계정 및 보안", exact: true }));
+    if (width < 1280) await page.getByRole("button", { name: "편집 정보 패널" }).click();
+    const information = page.getByRole("complementary", { name: "맵 편집 정보" });
+    await expect(information).toBeVisible();
+    for (const target of [topbar, account, information]) {
+      const box = (await target.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+      expect(box.y + box.height).toBeLessThanOrEqual(910);
+    }
+    const topbarBox = (await topbar.boundingBox())!;
+    const accountBox = (await account.boundingBox())!;
+    const panelBox = (await information.boundingBox())!;
+    expect(panelBox.y).toBeGreaterThanOrEqual(accountBox.y + accountBox.height);
+    expect(accountBox.y).toBeGreaterThanOrEqual(topbarBox.y + topbarBox.height);
+    for (const name of ["맵 너비", "맵 높이"]) {
+      const input = information.getByLabel(name);
+      await input.scrollIntoViewIfNeeded();
+      await expectReachable(input);
+      await input.focus();
+      await expect(input).toBeFocused();
+      await expectBoundedPage(page);
+    }
+    const applySettings = information.getByRole("button", { name: "맵 설정 적용", exact: true });
+    await applySettings.scrollIntoViewIfNeeded();
+    await expectReachable(applySettings);
+    await page.screenshot({ path: testInfo.outputPath(`comments-information-${width}.png`) });
+    await information.getByRole("tab", { name: "자료" }).click();
+    const history = information.getByRole("region", { name: "맵 버전", exact: true });
+    const list = history.getByTestId("editor-revision-list");
+    await expect(list.locator("li")).toHaveCount(30);
+    await history.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`comments-history-${width}.png`) });
+    // The history's scrollport must be inside the history region: scrolling the
+    // entire information panel would move its tabs out of reach.
+    const scrollport = await list.evaluate((node) => {
+      const region = node.closest('[aria-label="맵 버전"]')!;
+      for (let current: Element | null = node; current; current = current.parentElement) {
+        if (["auto", "scroll"].includes(getComputedStyle(current).overflowY)
+          && current.scrollHeight > current.clientHeight) {
+          if (!region.contains(current)) return null;
+          current.scrollTop = current.scrollHeight;
+          return { clientHeight: current.clientHeight, scrollHeight: current.scrollHeight, scrollTop: current.scrollTop };
+        }
+        if (current === region) break;
+      }
+      return null;
+    });
+    expect(scrollport, "long history must have its own internal scrollport").not.toBeNull();
+    expect(scrollport!.scrollTop).toBeGreaterThan(0);
+    await expectReachable(history.getByRole("button", { name: "리비전 11 복구", exact: true }));
+    const more = history.getByRole("button", { name: "이전 버전 더 보기", exact: true });
+    await more.scrollIntoViewIfNeeded();
+    await expectReachable(more);
+    await expectBoundedPage(page);
+    await more.click();
+    await expect.poll(() => historyRequests).toEqual(["first", "11"]);
+    await expect(list.locator("li")).toHaveCount(40);
+    await history.getByRole("button", { name: "리비전 1 복구", exact: true }).scrollIntoViewIfNeeded();
+    await expectReachable(history.getByRole("button", { name: "리비전 1 복구", exact: true }));
+    await expect(more).toHaveCount(0);
+    await expectBoundedPage(page);
+    await page.screenshot({ path: testInfo.outputPath(`comments-history-end-${width}.png`) });
+  });
+}
+
 for (const viewport of viewports) {
   test(`editor viewport ${viewport.width} confines long panels and preserves camera gestures`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.goto(editorPath);
     const canvas = page.getByTestId("floor-editor-canvas");
+    // Route hydration and WebGL document readiness are separate user stages.
+    await expect(page.getByRole("img", { name: "맵 도형", exact: true })).toBeVisible();
     await expect(canvas).toHaveAttribute("data-map-ready", "true");
     await expectBoundedPage(page);
     const narrow = viewport.width < 1280;
@@ -102,7 +205,7 @@ for (const viewport of viewports) {
     await expectBoundedPage(page);
     await page.screenshot({ path: testInfo.outputPath(`information-${viewport.width}.png`), fullPage: true });
     await information.getByRole("tab", { name: "자료" }).click();
-    await information.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await information.getByTestId("editor-revision-list").evaluate((node) => { node.scrollTop = node.scrollHeight; });
     await expect(page.getByRole("button", { name: "리비전 1 복구", exact: true })).toBeInViewport();
     if (narrow) {
       await information.focus();
@@ -114,17 +217,17 @@ for (const viewport of viewports) {
     }
     expect(await toolbar.boundingBox()).toEqual(toolbarBefore);
     const zoomBefore = Number(await canvas.getAttribute("data-zoom"));
-    await canvas.hover();
+    await canvas.hover({ position: { x: 20, y: 20 } });
     await page.mouse.wheel(0, -120);
     await expect.poll(async () => Number(await canvas.getAttribute("data-zoom"))).toBeGreaterThan(zoomBefore);
     if (narrow) await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
     await page.getByRole("button", { name: "이동", exact: true }).click();
     const box = (await canvas.boundingBox())!;
     const panBefore = Number(await canvas.getAttribute("data-pan-x"));
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.move(box.x + 30, box.y + 30);
     await page.mouse.down();
     await expect(canvas).toHaveCSS("cursor", "grabbing");
-    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 30);
+    await page.mouse.move(box.x + 70, box.y + 60);
     await page.mouse.up();
     await expect.poll(async () => Number(await canvas.getAttribute("data-pan-x"))).not.toBe(panBefore);
     await expect(canvas).toHaveCSS("background-image", "none");
@@ -137,9 +240,11 @@ test("compact text focus and panel toggles preserve unsaved edits and the leave 
   await page.setViewportSize(viewports[3]);
   await page.goto(editorPath);
   const canvas = page.getByTestId("floor-editor-canvas");
+  await expect(page.getByRole("img", { name: "맵 도형", exact: true })).toBeVisible();
   await expect(canvas).toHaveAttribute("data-map-ready", "true");
   await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
   await page.getByRole("button", { name: "텍스트", exact: true }).click();
+  await expect(page.locator("#editor-tools-panel")).toBeHidden();
   const box = (await canvas.boundingBox())!;
   await page.mouse.move(box.x + 50, box.y + 50);
   await page.mouse.down();
@@ -152,7 +257,7 @@ test("compact text focus and panel toggles preserve unsaved edits and the leave 
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "편집 정보 패널" }).click();
   await expect(text).toHaveValue("Viewport draft");
-  await page.getByRole("button", { name: "취소", exact: true }).click();
+  await page.getByRole("button", { name: "맵으로 돌아가기", exact: true }).click();
   await expect(page.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeVisible();
 });
 
@@ -184,8 +289,9 @@ for (const viewport of viewports.slice(2)) {
     await expect(page.getByTestId("floor-editor-canvas")).toBeVisible();
     const retry = page.getByRole("button", { name: "도면 다시 시도" });
     await expect(retry).toBeVisible();
+    await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"] [role="alert"]');
     await page.getByRole("button", { name: "편집 정보 패널" }).click();
-    const cancelGeometry = await page.getByRole("button", { name: "취소", exact: true }).evaluate((button) => {
+    const cancelGeometry = await page.getByRole("button", { name: "맵으로 돌아가기", exact: true }).evaluate((button) => {
       const rect = button.getBoundingClientRect();
       const hits = (x: number, y: number) => button.contains(document.elementFromPoint(x, y));
       return { width: rect.width, height: rect.height, radius: getComputedStyle(button).borderRadius,
@@ -194,7 +300,6 @@ for (const viewport of viewports.slice(2)) {
     });
     await testInfo.attach("cancel-hit-geometry.json", { body: JSON.stringify(cancelGeometry), contentType: "application/json" });
     await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-toolbar"]');
-    await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"] [role="alert"]');
     await expectMinimumTouchTargets(page, '[aria-label="편집 패널"]');
     await expect(page.getByRole("button", { name: "미니맵" })).toBeHidden();
     await expectBoundedPage(page);
@@ -272,8 +377,8 @@ test("resizing the editor and leaving it restores normal settings scrolling", as
     await expectBoundedPage(page);
   }
   await page.setViewportSize({ width: 390, height: 500 });
-  await page.getByRole("button", { name: "취소", exact: true }).click();
-  await page.getByRole("link", { name: "설정 개요" }).click();
+  await page.getByRole("button", { name: "맵으로 돌아가기", exact: true }).click();
+  await page.getByRole("navigation", { name: "모바일 주 메뉴" }).getByRole("link", { name: "설정", exact: true }).click();
   await expect(page).toHaveURL(/\/settings\?siteId=site-2$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
   await page.mouse.wheel(0, 1000);

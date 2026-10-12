@@ -2,7 +2,8 @@ import { expect, test, type Locator, type Page, type Route, type TestInfo } from
 import { resolve } from "node:path";
 import { buildCadSceneDescriptor, cadSceneManifestSchema, normalizeCadMapSize, type CadSceneState } from "@led-control/shared";
 import { mapDisplayManifestSchema } from "@led-control/shared/map-display-contracts";
-import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
+import type { MapDocumentRef, MapElement, MapOp } from "@led-control/shared/map-document-contracts";
+import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { encodeCadSceneTile, encodeMapDisplayTile, getCadSceneTileIntegrity } from "../../api/src/floor-import/cad-scene-codec";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 import type { FloorEditorState, FloorImportJob } from "../src/features/floor-editor/editor-types";
@@ -28,6 +29,183 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+async function expectCadPageBounded(page: Page) {
+  await expect.poll(() => page.evaluate(() => ({
+    width: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth,
+    height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - innerHeight,
+    x: window.scrollX, y: window.scrollY
+  }))).toEqual({ width: 0, height: 0, x: 0, y: 0 });
+}
+
+for (const width of [1039, 1434]) {
+  test(`map editor comments CAD ${width}x909 opens a centered import dialog and restores its trigger`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 909 });
+    const api = await installCadJourney(page, true);
+    await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+    const trigger = page.getByRole("button", { name: "CAD 가져오기", exact: true });
+    await page.screenshot({ path: testInfo.outputPath(`comments-cad-trigger-${width}.png`) });
+    await expect(trigger, "opening the import dialog must not require a preselected file").toBeEnabled();
+    await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
+    await expect(dialog).toBeVisible();
+    await expectCadPageBounded(page);
+    const box = (await dialog.boundingBox())!;
+    expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThanOrEqual(2);
+    expect(Math.abs(box.y + box.height / 2 - 909 / 2)).toBeLessThanOrEqual(2);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(box.y + box.height).toBeLessThanOrEqual(909);
+    const file = dialog.getByLabel("CAD 파일");
+    await file.setInputFiles({ name: "parking.dwg", mimeType: "application/dwg", buffer: Buffer.from("AC1027-e2e-cad") });
+    await page.screenshot({ path: testInfo.outputPath(`comments-cad-file-${width}.png`) });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(page.getByLabel("CAD 파일")).toHaveCount(0);
+    await expectCadPageBounded(page);
+    expect(api.applyPayloads()).toEqual([]);
+    expect(api.savePayloads()).toEqual([]);
+    expect(api.unhandledRequests).toEqual([]);
+  });
+
+  test(`map editor comments CAD ${width}x909 selects one preview and recovers failed apply with lease fence`, async ({ page }, testInfo) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width, height: 909 });
+    const api = await installCadJourney(page, true);
+    await page.route("**/api/floors/floor-1/editor-lease", route => json(route, {
+      editable: true, token: "comments-lease", fence: 73
+    }));
+    let releaseUpload!: () => void;
+    const uploadPending = new Promise<void>(resolve => { releaseUpload = resolve; });
+    await page.route("**/cad-e2e-upload", async route => {
+      await uploadPending;
+      await route.fulfill({ status: 200, body: "" });
+    });
+    const attempts: unknown[] = [];
+    await page.route(`**/api/floors/floor-1/import-jobs/${jobId}/apply`, async route => {
+      attempts.push(route.request().postDataJSON());
+      if (attempts.length === 1) return json(route, { message: "Fixture apply unavailable" }, 503);
+      return route.fallback();
+    });
+    await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+    await page.getByRole("button", { name: "CAD 가져오기", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
+    await dialog.getByLabel("CAD 파일").setInputFiles({
+      name: "parking.dwg", mimeType: "application/dwg", buffer: Buffer.from("AC1027-e2e-cad")
+    });
+    try {
+      await dialog.getByRole("button", { name: "파일 업로드", exact: true }).click();
+      const progress = dialog.getByRole("progressbar", { name: "CAD 가져오기 진행률" });
+      await expect(progress).toBeVisible();
+      await expect(progress).toHaveAttribute("max", "100");
+      const value = Number(await progress.getAttribute("value"));
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThan(100);
+      await expect(dialog.getByRole("status", { name: "CAD 가져오기 상태" })).toContainText("CAD 파일을 업로드하는 중");
+      await page.screenshot({ path: testInfo.outputPath(`comments-cad-progress-${width}.png`) });
+    } finally {
+      // Always release the synthetic upload even when a progress assertion fails.
+      releaseUpload();
+    }
+    const regions = dialog.getByRole("button", { name: "가져올 도면 영역", exact: true });
+    await expect(regions).toBeVisible();
+    const preview = dialog.getByRole("region", { name: "CAD 도면 미리보기" });
+    await expect(preview).toHaveCount(1);
+    await expect(preview.getByRole("img")).toHaveCount(1);
+    await expect(dialog.getByRole("radiogroup")).toHaveCount(0);
+    await expect(dialog.getByRole("radio")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: /미리보기 보기/ })).toHaveCount(0);
+    await expect(regions).toHaveText(/도면 영역 1/);
+    expect(api.regionPayloads()).toEqual([]);
+    await regions.click();
+    await page.getByRole("option", { name: "도면 영역 2", exact: true }).click();
+    await expect(preview.getByRole("img")).toHaveAttribute("src", "/api/floors/floor-1/assets/00000000-0000-4000-8000-000000000051/content");
+    await expect(preview.getByRole("img")).toHaveCount(1);
+    await regions.click();
+    await page.getByRole("option", { name: "도면 영역 1", exact: true }).click();
+    await expect(preview.getByRole("img")).toHaveAttribute("src", "/api/floors/floor-1/assets/00000000-0000-4000-8000-000000000050/content");
+    await expectCadPageBounded(page);
+    await page.screenshot({ path: testInfo.outputPath(`comments-cad-region-${width}.png`) });
+    await dialog.getByRole("button", { name: "선택 영역으로 장면 만들기" }).click();
+    await expect.poll(() => api.regionPayloads()).toEqual([{ regionId: "region-1" }]);
+    await expect(dialog.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
+    await expect(preview).toHaveCount(1);
+    await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+    const apply = dialog.getByRole("button", { name: "확인 및 적용", exact: true });
+    await expect(apply).toBeEnabled();
+    await expectCadPageBounded(page);
+    await page.screenshot({ path: testInfo.outputPath(`comments-cad-review-${width}.png`) });
+    await apply.click();
+    const reset = page.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    await expect(reset).toContainText("조명 2개가 미배치 상태로 변경됩니다.");
+    await expect(reset).toContainText("수동 도형 1개가 삭제됩니다.");
+    await expect(reset).toContainText("기존 CAD 슬롯 1개가 삭제됩니다.");
+    await reset.getByRole("button", { name: "취소", exact: true }).click();
+    await expect(reset).toBeHidden();
+    expect(attempts).toEqual([]);
+    expect(api.state().floor.mapRevision).toBe(1);
+    await expect(apply).toBeFocused();
+    await apply.click();
+    await reset.getByRole("button", { name: "교체 후 적용" }).click();
+    await expect.poll(() => attempts.length).toBe(1);
+    await expect(reset).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("서버 적용이 완료되지 않았습니다. 후보 선택을 확인한 뒤 다시 시도하세요.", { exact: true })).toBeVisible();
+    await expect(apply).toBeEnabled();
+    expect(api.state().floor.mapRevision).toBe(1);
+    expect(api.state().objects).toHaveLength(1);
+    await page.screenshot({ path: testInfo.outputPath(`comments-cad-apply-recovery-${width}.png`) });
+    await apply.click();
+    await reset.getByRole("button", { name: "교체 후 적용" }).click();
+    await expect.poll(() => attempts.length).toBe(2);
+    const expectedPayload = {
+      expectedRevision: 1, confirmMapReset: true, leaseToken: "comments-lease", leaseFence: 73,
+      candidateIds: ["00000000-0000-4000-8000-000000000031", "00000000-0000-4000-8000-000000000032"]
+    };
+    expect(attempts).toEqual([expectedPayload, expectedPayload]);
+    await expect(reset).toBeHidden();
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => api.state().floor.mapRevision).toBe(2);
+    expect(api.state().objects).toEqual([]);
+    expect(api.state().lightSlots).toHaveLength(2);
+    expect(api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
+    expect(api.savePayloads()).toEqual([]);
+    expect(api.unhandledRequests).toEqual([]);
+    expect(api.browserErrors).toEqual([]);
+    await expectCadPageBounded(page);
+    await page.screenshot({ path: testInfo.outputPath(`comments-cad-applied-${width}.png`) });
+  });
+}
+
+for (const lease of [
+  { name: "read-only", value: { editable: false, holderName: "다른 관리자" } },
+  { name: "missing-fence", value: { editable: true, token: "unfenced-lease", fence: 0 } }
+]) {
+  test(`map editor comments CAD ${lease.name} lease cannot mutate a recovered import`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1434, height: 909 });
+    const api = await installPreparedReview(page);
+    const mutations: string[] = [];
+    page.on("request", request => {
+      const path = new URL(request.url()).pathname;
+      if (path.startsWith("/api/floors/floor-1/") && request.method() !== "GET" && !path.endsWith("/editor-lease")) {
+        mutations.push(`${request.method()} ${path}`);
+      }
+    });
+    await page.route("**/api/floors/floor-1/editor-lease", route => json(route, lease.value));
+    await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+    const dialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("region", { name: "CAD 도면 미리보기" })).toHaveAttribute("data-preview-ready", "true");
+    await expect(dialog.getByRole("button", { name: "확인 및 적용", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "가져오기 취소", exact: true })).toBeDisabled();
+    await page.screenshot({ path: testInfo.outputPath(`comments-cad-${lease.name}.png`) });
+    expect(mutations).toEqual([]);
+    expect(api.payloads).toEqual([]);
+    expect(api.state().floor.mapRevision).toBe(1);
+  });
+}
+
 for (const native of [false, true]) {
   test(`${native ? "Native WebGL: region 선택부터" : "Legacy SVG: 기존 적용 맵부터"} 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)`, async ({ page }, testInfo) => {
     test.setTimeout(60_000);
@@ -41,20 +219,23 @@ for (const native of [false, true]) {
     if (native) {
     expect(api.state().objects).toHaveLength(1);
     expect(api.state().fixtures.filter(fixture => fixture.placementStatus === "placed")).toHaveLength(2);
-    if (native) await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [6, 182, 212]);
+    // The pre-conversion legacy map uses its compatibility image, not a common
+    // renderer. The newly applied prepared document is verified below.
+    await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-background-url", "/api/floors/floor-1/assets/rendered/content");
     const appliedStateRequestsAtStart = api.appliedStateRequestsBeforeApply();
 
+    await page.getByRole("button", { name: "CAD 가져오기", exact: true }).click();
+    const importDialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
     await page.getByLabel("CAD 파일").setInputFiles({
       name: "parking.dwg",
       mimeType: "application/dwg",
       buffer: Buffer.from("AC1027-e2e-cad")
     });
-    await page.getByRole("button", { name: "CAD 가져오기" }).click();
-    await expect(page.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveAttribute("value", "0");
-    await expect(page.getByRole("radiogroup", { name: "가져올 도면 영역" })).toBeVisible();
+    await importDialog.getByRole("button", { name: "파일 업로드", exact: true }).click();
+    await expect(importDialog.getByRole("button", { name: "가져올 도면 영역", exact: true })).toHaveText(/도면 영역 1/);
     const buildScene = page.getByRole("button", { name: "선택 영역으로 장면 만들기" });
-    await expect(buildScene).toBeDisabled();
-    await page.getByRole("radio", { name: "도면 영역 1 · 도형 3개", exact: true }).check();
+    await expect(buildScene).toBeEnabled();
+    expect(api.regionPayloads()).toEqual([]);
     await expect(page.getByRole("img", { name: "도면 영역 1 미리보기", exact: true })).toBeVisible();
     await buildScene.click();
     await expect.poll(() => api.regionPayloads()).toEqual([{ regionId: "region-1" }]);
@@ -62,44 +243,19 @@ for (const native of [false, true]) {
     await expect(page.getByText("선택한 도면 영역의 장면 생성이 완료되었습니다.")).toBeVisible();
 
     if (native) {
-      const reviewCanvas = page.getByTestId("floor-editor-canvas");
-      await expect(reviewCanvas).toHaveAttribute("data-background-url", "");
-      await expect(reviewCanvas).toHaveAttribute("data-map-width", String(nativeScene.manifest.width));
-      await expect(reviewCanvas).toHaveAttribute("data-map-height", String(nativeScene.manifest.height));
-      await expect(reviewCanvas).toHaveAttribute("data-rendered-fixture-count", "0");
-      await expect(reviewCanvas).toHaveAttribute("data-rendered-object-count", "0");
-      await expect(page.getByRole("img", { name: "맵 도형", exact: true })).toHaveCount(1);
-      await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(0);
-      await page.getByText("격자 스냅", { exact: true }).click();
-      await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
-      await expectEditorMapFits(page);
-      const fittedZoom = Number(await reviewCanvas.getAttribute("data-zoom"));
-      await page.getByRole("button", { name: "확대", exact: true }).click();
-      await expect.poll(async () => Number(await reviewCanvas.getAttribute("data-zoom"))).toBeGreaterThan(fittedZoom);
-      await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
-      await page.getByRole("button", { name: "축소", exact: true }).click();
-      await expect.poll(async () => Number(await reviewCanvas.getAttribute("data-zoom"))).toBeCloseTo(fittedZoom);
-      await page.getByRole("button", { name: "이동", exact: true }).click();
-      const from = await editorPoint(page, { x: 8192, y: 7800 });
-      const oldPan = Number(await reviewCanvas.getAttribute("data-pan-x"));
-      await page.mouse.move(from.x, from.y);
-      await page.mouse.down();
-      await page.mouse.move(from.x + 50, from.y + 25, { steps: 4 });
-      await page.mouse.up();
-      await expect.poll(async () => Number(await reviewCanvas.getAttribute("data-pan-x"))).toBeCloseTo(oldPan + 50);
-      await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
-      await page.getByRole("button", { name: "선택", exact: true }).click();
-      const candidate = page.getByRole("checkbox", { name: /후보 1\/2/ });
-      await expect(candidate).toBeChecked();
-      await reviewCanvas.click({ position: await editorPoint(page, nativePoints[0], false) });
-      await expect(candidate).not.toBeChecked();
-      await reviewCanvas.click({ position: await editorPoint(page, nativePoints[0], false) });
-      await expect(candidate).toBeChecked();
+      const preview = importDialog.getByRole("region", { name: "CAD 도면 미리보기" });
+      await expect(preview).toHaveAttribute("data-preview-ready", "true");
+      await expectImportPreviewFits(page);
+      await expectNativePixel(page, () => importPreviewPoint(page, nativePoints[2]), [225, 29, 72], preview);
+      await expect(importDialog.getByRole("checkbox")).toHaveCount(0);
+      // Import review is isolated from the committed editor until confirmation.
+      await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-rendered-fixture-count", "2");
+      await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-rendered-object-count", "1");
       await saveScreenshot(page, testInfo, "native-review-before-apply");
       expect(api.appliedStateRequestsBeforeApply()).toBe(appliedStateRequestsAtStart);
     }
 
-    const applyButton = page.getByRole("button", { name: "선택한 후보와 배경 적용" });
+    const applyButton = importDialog.getByRole("button", { name: "확인 및 적용", exact: true });
     await applyButton.click();
     let resetDialog = page.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
     await expect(resetDialog).toContainText("조명 2개가 미배치 상태로 변경됩니다.");
@@ -177,33 +333,36 @@ for (const native of [false, true]) {
       await saveScreenshot(page, testInfo, "native-editor-before-edit");
       const position = await editorPoint(page, nativePoints[2], false);
       await canvas.click({ position });
-      await expect(page.getByRole("complementary", { name: "CAD 그룹 속성" })).toContainText("group-1");
+      await expect(page.getByRole("region", { name: "선택 속성" }).getByRole("heading", { name: "3개 선택", exact: true })).toBeVisible();
       await canvas.dblclick({ position });
-      const properties = page.getByRole("complementary", { name: "CAD 요소 속성" });
-      await expect(properties).toContainText("native-3");
+      const properties = page.getByRole("complementary", { name: "도형 속성" });
+      await expect(properties.getByRole("heading")).toHaveText("사각형");
       await saveScreenshot(page, testInfo, "native-editor-primitive-selection");
       await properties.getByLabel("채우기 색상").fill("#06b6d4");
-      await properties.getByRole("button", { name: "CAD 속성 적용" }).click();
-      await expect.poll(() => api.cadPayloads()).toHaveLength(1);
-      expect(api.cadPayloads()[0]).toMatchObject({
+      await page.getByRole("button", { name: "저장", exact: true }).click();
+      await expect.poll(() => api.savePayloads()).toHaveLength(2);
+      expect(api.savePayloads()[1]).toMatchObject({
         expectedRevision: 3, leaseToken: "lease-floor-1", leaseFence: 1,
-        overrideMutations: [{ operation: "upsert", locator: { lod: 0, tileX: 18, tileY: 12, part: 0 }, value: { elementId: "native-3", fillColor: "#06b6d4" } }],
-        layerMutations: []
+        documentChanges: { generationId: "prepared-first", operations: [{ kind: "update",
+          element: expect.objectContaining({ id: "prepared-2", style: expect.objectContaining({ fillColor: "#06b6d4" }) }) }] }
       });
-      await expect(properties.getByRole("button", { name: "CAD 속성 적용" })).toBeEnabled();
+      await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(canvas).toBeVisible();
       await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
       await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [6, 182, 212]);
       await canvas.dblclick({ position: await editorPoint(page, nativePoints[2], false) });
-      await expect(page.getByRole("complementary", { name: "CAD 요소 속성" }).getByLabel("채우기 색상")).toHaveValue("#06b6d4");
+      await expect(page.getByRole("complementary", { name: "도형 속성" }).getByLabel("채우기 색상")).toHaveValue("#06b6d4");
       await saveScreenshot(page, testInfo, "native-editor-after-reload");
       await page.setViewportSize({ width: 390, height: 844 });
       await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
       await expectEditorMapFits(page);
       // At whole-map mobile scale the grid lines cover every native color pixel.
+      const mobileTools = page.getByRole("button", { name: "도구 및 조명 패널", exact: true });
+      await mobileTools.click();
       await page.getByText("격자 스냅", { exact: true }).click();
       await expect(page.getByRole("checkbox", { name: "격자 스냅" })).not.toBeChecked();
+      await mobileTools.click();
       await canvas.scrollIntoViewIfNeeded();
       await canvas.click({ position: { x: 12, y: 12 } });
       await canvas.evaluate(element => element.scrollIntoView({ block: "center" }));
@@ -232,7 +391,7 @@ for (const native of [false, true]) {
       await verifyMonitoringComposition(page, size);
       await saveScreenshot(page, testInfo, "native-monitor-desktop-pan-zoom");
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.getByRole("button", { name: "지도 화면 맞춤" }).click();
+      await page.getByRole("button", { name: /^지도 배율 \d+%$/ }).click();
       await verifyMonitoringComposition(page, size);
       await saveScreenshot(page, testInfo, "native-monitor-mobile-pan-zoom");
     }
@@ -316,60 +475,46 @@ for (const width of [1440, 390]) {
     const api = await installPreparedReview(page);
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
     const canvas = page.getByTestId("floor-editor-canvas");
+    const importDialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
+    const preview = importDialog.getByRole("region", { name: "CAD 도면 미리보기" });
     await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
-    await expect(page.getByRole("img", { name: "맵 도형", exact: true })).toBeVisible();
-    await expect(canvas).toHaveAttribute("data-background-url", "");
-    await expect(canvas).toHaveAttribute("data-rendered-object-count", "0");
-    await expect(canvas).toHaveAttribute("data-rendered-fixture-count", "0");
+    await expect(preview).toHaveAttribute("data-preview-ready", "true");
+    await expect(canvas).toHaveAttribute("data-background-url", "/api/floors/floor-1/assets/rendered/content");
+    await expect(canvas).toHaveAttribute("data-rendered-object-count", "1");
+    await expect(canvas).toHaveAttribute("data-rendered-fixture-count", "2");
     await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(0);
-    await expectEditorMapFits(page);
-    await page.getByText("격자 스냅", { exact: true }).click();
-    await expect(page.getByRole("checkbox", { name: "격자 스냅" })).not.toBeChecked();
-    // The edit workflow uses desktop panels; inspect the same preview under the
-    // narrow viewport policy without pretending hidden panels are touch controls.
+    await expectImportPreviewFits(page);
+    // The modal preview owns its fit on resize; the committed map and its
+    // camera stay untouched until the reset confirmation applies all candidates.
     await page.setViewportSize({ width, height: 900 });
-    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
-    await expectEditorMapFits(page);
-    await canvas.scrollIntoViewIfNeeded();
-    await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
+    await expectImportPreviewFits(page);
+    await preview.scrollIntoViewIfNeeded();
+    await expectNativePixel(page, () => importPreviewPoint(page, nativePoints[2]), [225, 29, 72], preview);
     await saveScreenshot(page, testInfo, `u13-prepared-${width}`);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
-    const fittedZoom = Number(await canvas.getAttribute("data-zoom"));
-    await page.getByRole("button", { name: "확대", exact: true }).click();
-    await expect.poll(async () => Number(await canvas.getAttribute("data-zoom"))).toBeGreaterThan(fittedZoom);
-    await canvas.scrollIntoViewIfNeeded();
-    await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
-    await page.getByRole("button", { name: "축소", exact: true }).click();
-    await page.getByRole("button", { name: "이동", exact: true }).click();
-    const from = await editorPoint(page, { x: 8192, y: 7800 });
-    const pan = Number(await canvas.getAttribute("data-pan-x"));
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(from.x + 20, from.y + 10, { steps: 4 });
-    await page.mouse.up();
-    await expect.poll(async () => Number(await canvas.getAttribute("data-pan-x"))).toBeCloseTo(pan + 20);
-    await page.getByRole("button", { name: "선택", exact: true }).click();
-    await canvas.click({ position: await editorPoint(page, nativePoints[0], false) });
-    await expect(page.getByRole("checkbox", { name: /후보 1\/2/ })).not.toBeChecked();
+    await expectImportPreviewFits(page);
+    await expect(importDialog.getByRole("checkbox")).toHaveCount(0);
+    // The committed map has its own source; reviewing must not replace it.
+    expect(api.state().floor.mapDocument).toBeUndefined();
     expect(api.requests.some(path => path.startsWith("/floors/floor-1/map-document"))).toBe(false);
     expect(api.requests.filter(path => path.includes("/map-document/tiles/")).length).toBeGreaterThan(0);
 
     // Recovery comes from the fixture's durable job, not a local editor draft.
     await page.reload();
     await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
-    await expectEditorMapFits(page);
-    await canvas.click({ position: await editorPoint(page, nativePoints[0], false) });
-    await expect(page.getByRole("checkbox", { name: /후보 1\/2/ })).not.toBeChecked();
-    await page.getByRole("button", { name: "선택한 후보와 배경 적용" }).click();
+    await expect(preview).toHaveAttribute("data-preview-ready", "true");
+    await expectImportPreviewFits(page);
+    await expect(importDialog.getByRole("checkbox")).toHaveCount(0);
+    await importDialog.getByRole("button", { name: "확인 및 적용", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
     await expect(dialog).toContainText("조명 2개가 미배치 상태로 변경됩니다.");
     expect(api.payloads).toHaveLength(0);
     await dialog.getByRole("button", { name: "교체 후 적용" }).click();
     await expect.poll(() => api.payloads.length).toBe(1);
-    expect(api.payloads[0]).toMatchObject({ candidateIds: [candidates[1].id], expectedRevision: 1,
+    expect(api.payloads[0]).toMatchObject({ candidateIds: [candidates[0].id, candidates[1].id], expectedRevision: 1,
       confirmMapReset: true, leaseToken: "lease-floor-1", leaseFence: 1 });
     await expect.poll(() => api.state().lightSlots).toEqual([
+      expect.objectContaining({ x: nativePoints[0].x, y: nativePoints[0].y, assignedFixtureId: null }),
       expect.objectContaining({ x: nativePoints[1].x, y: nativePoints[1].y, assignedFixtureId: null })
     ]);
     expect(api.state().objects).toEqual([]);
@@ -378,8 +523,9 @@ for (const width of [1440, 390]) {
     api.nextReview();
     await page.reload();
     await expect(page.getByText("조명 위치 후보 0개를 찾았습니다.")).toBeVisible();
-    await expectEditorMapFits(page);
-    await page.getByRole("button", { name: "선택한 후보와 배경 적용" }).click();
+    await expect(preview).toHaveAttribute("data-preview-ready", "true");
+    await expectImportPreviewFits(page);
+    await importDialog.getByRole("button", { name: "확인 및 적용", exact: true }).click();
     await dialog.getByRole("button", { name: "교체 후 적용" }).click();
     await expect.poll(() => api.payloads.length).toBe(2);
     expect(api.payloads[1]).toMatchObject({ candidateIds: [], expectedRevision: 2, confirmMapReset: true });
@@ -417,9 +563,10 @@ for (const order of ["hook-first", "renderer-first"]) {
       return route.fallback();
     });
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
-    const preview = page.getByRole("img", { name: "맵 도형", exact: true });
+    const preview = page.getByRole("dialog", { name: "CAD 가져오기", exact: true })
+      .getByRole("region", { name: "CAD 도면 미리보기" });
     // Sample a visible rectangle corner, away from the candidate's blue marker.
-    const pixel = () => editorPoint(page, { x: nativePoints[1].x + 140, y: nativePoints[1].y + 140 });
+    const pixel = () => importPreviewPoint(page, { x: nativePoints[1].x + 140, y: nativePoints[1].y + 140 });
     await expect(preview).toBeVisible();
     await expect.poll(() => pending.has(2)).toBe(true);
     await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
@@ -429,23 +576,19 @@ for (const order of ["hook-first", "renderer-first"]) {
     pending.get(first)!();
     await (await completed).finished();
     pending.get(first === 3 ? 2 : 3)!();
-    await page.getByText("격자 스냅", { exact: true }).click();
-    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
-    await page.getByTestId("floor-editor-canvas").scrollIntoViewIfNeeded();
-    await expectNativePixel(page, pixel, [225, 29, 72]);
+    await expect(preview).toHaveAttribute("data-preview-ready", "true");
+    await expectNativePixel(page, pixel, [225, 29, 72], preview);
     await expect(page.getByRole("button", { name: "도면 다시 불러오기" })).toHaveCount(0);
     await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(0);
-    await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-background-url", "");
+    await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-background-url", "/api/floors/floor-1/assets/rendered/content");
 
     overlap = false;
     failRenderer = true;
     manifestRequests = 0;
     await page.reload();
     await page.getByRole("button", { name: "도면 다시 불러오기" }).click();
-    await page.getByText("격자 스냅", { exact: true }).click();
-    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
-    await page.getByTestId("floor-editor-canvas").scrollIntoViewIfNeeded();
-    await expectNativePixel(page, pixel, [225, 29, 72]);
+    await expect(preview).toHaveAttribute("data-preview-ready", "true");
+    await expectNativePixel(page, pixel, [225, 29, 72], preview);
     await expect(page.getByRole("button", { name: "도면 다시 불러오기" })).toHaveCount(0);
     expect(api.payloads).toEqual([]);
     expect(api.browserErrors).toEqual([]);
@@ -525,6 +668,8 @@ async function installCadJourney(page: Page, native = false) {
   const regionPayloads: unknown[] = [];
   const cadPayloads: unknown[] = [];
   const state = initialState();
+  let appliedElements = preparedElements("#06b6d4");
+  const appliedOperations: MapOp[] = [];
   const oldSceneId = "00000000-0000-4000-8000-000000000080";
   const oldJobId = "00000000-0000-4000-8000-000000000081";
   const oldDescriptor = { ...nativeScene.descriptor, id: oldSceneId, sourceImportJobId: oldJobId,
@@ -556,6 +701,26 @@ async function installCadJourney(page: Page, native = false) {
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname.replace(/^\/api/, "");
     if (native && await servePreparedAsset(route, path, jobId, preparedScene.ref)) return;
+    const document = state.floor.mapDocument;
+    if (native && document && path.startsWith("/floors/floor-1/map-document")) {
+      if (path.endsWith("/elements")) {
+        const ids = request.postDataJSON().ids as string[];
+        return json(route, appliedElements.filter(element => ids.includes(element.id)));
+      }
+      if (path.endsWith("/selection")) {
+        const query = request.postDataJSON();
+        return json(route, { generationId: document.generationId, revision: document.revision,
+          ids: appliedElements.filter(element => {
+            if (query.groupId && element.groupId !== query.groupId) return false;
+            if (!query.bounds) return true;
+            const bounds = getMapElementBounds(element);
+            return bounds.minX <= query.bounds.maxX && bounds.maxX >= query.bounds.minX
+              && bounds.minY <= query.bounds.maxY && bounds.maxY >= query.bounds.minY;
+          }).map(element => element.id), nextCursor: null });
+      }
+      if (await servePreparedAsset(route, path, undefined, document,
+        applied ? preparedScene : createPreparedScene("#06b6d4"), appliedOperations)) return;
+    }
     if (native && path === nativeScene.descriptor.statePath) {
       if (!applied) appliedStateRequestsBeforeApply += 1;
       if (!applied) return json(route, { revision: state.floor.mapRevision, scene: oldDescriptor,
@@ -576,6 +741,12 @@ async function installCadJourney(page: Page, native = false) {
     if (native && (await serveNativeAsset(route, path) || await serveNativeAsset(route, path, oldScene))) return;
     if (path === "/auth/me") return json(route, { user: { id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active" } });
     if (path === "/sites") return json(route, [{ id: "site-1", name: "검증 현장" }]);
+    if (path === "/sites/site-1/monitoring-incidents") return json(route, {
+      incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null
+    });
+    if (path === "/sites/site-1/floors/floor-1/monitoring-activity") return json(route, {
+      generatedAt: new Date().toISOString(), retainedFrom: now, items: [], nextCursor: null
+    });
     if (path === "/sites/site-1/dashboard") return json(route, dashboard(state));
     if (path === "/sites/site-1/floors/floor-1/fixtures") return json(route, { items: staleMonitoringFixtures(state), nextCursor: null, generatedAt: new Date().toISOString() });
     if (path === "/sites/site-1/floors/floor-1/map-snapshot") {
@@ -587,7 +758,7 @@ async function installCadJourney(page: Page, native = false) {
         const payload = request.postDataJSON();
         savePayloads.push(payload);
         for (const update of payload.fixtureUpdates) Object.assign(state.fixtures.find(fixture => fixture.id === update.id)!, update);
-        const lightSlotUpdates = new Map(
+        const lightSlotUpdates = new Map<string, string | null>(
           payload.slotAssignments.map((update: { slotId: string; assignedFixtureId: string | null }) => [update.slotId, update.assignedFixtureId])
         );
         state.lightSlots = state.lightSlots.map(slot => ({
@@ -595,6 +766,14 @@ async function installCadJourney(page: Page, native = false) {
           assignedFixtureId: lightSlotUpdates.has(slot.id) ? lightSlotUpdates.get(slot.id)! : slot.assignedFixtureId
         }));
         state.floor.mapRevision += 1;
+        if (state.floor.mapDocument) {
+          state.floor.mapDocument.revision = state.floor.mapRevision;
+          for (const operation of (payload.documentChanges?.operations ?? []) as MapOp[]) {
+            appliedOperations.push(operation);
+            if (operation.kind === "update") appliedElements = appliedElements.map(element =>
+              element.id === operation.element.id ? operation.element : element);
+          }
+        }
       }
       return json(route, state);
     }
@@ -642,7 +821,12 @@ async function installCadJourney(page: Page, native = false) {
       state.lightSlots = accepted.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x, y: candidate.y, rotation: candidate.rotation, assignedFixtureId: null }));
       state.floor.mapRevision = 2;
       state.floor.floorPlan = floorPlan(native);
-      if (native) state.floor.cadScene = nativeScene.descriptor;
+      if (native) {
+        state.floor.cadScene = null;
+        state.floor.mapDocument = { ...preparedScene.ref, revision: 2 };
+        appliedElements = preparedElements("#e11d48");
+        appliedOperations.length = 0;
+      }
       const { version: _version, ...appliedFloorPlan } = floorPlan(native);
       return json(route, {
         jobId, status: "completed", revision: 2, acceptedCandidateIds: accepted.map(candidate => candidate.id),
@@ -741,7 +925,7 @@ function mapSnapshot(state: FloorEditorState) {
   return {
     floorId: "floor-1", revision: state.floor.mapRevision,
     width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800,
-    floorPlan: state.floor.floorPlan, cadScene: state.floor.cadScene, objects: state.objects,
+    floorPlan: state.floor.floorPlan, cadScene: state.floor.cadScene, mapDocument: state.floor.mapDocument, objects: state.objects,
     fixtures: state.lightSlots.flatMap(slot => {
       if (!slot.assignedFixtureId) return [];
       const fixture = state.fixtures.find(candidate => candidate.id === slot.assignedFixtureId);
@@ -752,7 +936,8 @@ function mapSnapshot(state: FloorEditorState) {
 
 async function currentState(page: Page) {
   return page.evaluate(async () => {
-    const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+    const path = "/src/features/floor-editor/editor-store.ts";
+    const { useFloorEditorStore } = await import(/* @vite-ignore */ path);
     return useFloorEditorStore.getState().state as FloorEditorState;
   });
 }
@@ -849,7 +1034,17 @@ function createNativeScene() {
   return { manifest, descriptor, tiles };
 }
 
-function createPreparedScene() {
+function preparedElements(fillColor: string): MapElement[] {
+  return nativePoints.map(({ x, y }, index) => ({
+    id: `prepared-${index}`, groupId: "group-1", layerId: "walls", zIndex: index,
+    visible: true, locked: false, provenance: { importJobId: jobId, sourceId: `native-${index + 1}` },
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    style: { strokeColor: "#111827", fillColor, strokeWidth: 4, opacity: 1 },
+    type: "rectangle", geometry: { origin: { x: x - 200, y: y - 200 }, width: 400, height: 400 }
+  }));
+}
+
+function createPreparedScene(fillColor = "#e11d48") {
   const { sceneId, manifestAssetId, width, height, gridSize } = nativeScene.manifest;
   const tiles = nativePoints.map(({ x, y }, index) => {
     const tileX = Math.floor(x / 512);
@@ -858,7 +1053,7 @@ function createPreparedScene() {
       elementId: `prepared-${index}`, groupId: "group-1", layerName: "WALLS", sourceType: "LWPOLYLINE",
       zIndex: index, fragmentOrder: 0,
       bounds: { minX: x - 200, minY: y - 200, maxX: x + 200, maxY: y + 200 }, clipBounds: null,
-      style: { strokeColor: "#111827", fillColor: "#e11d48", strokeWidth: 4, opacity: 1 },
+      style: { strokeColor: "#111827", fillColor, strokeWidth: 4, opacity: 1 },
       type: "rectangle", geometry: { origin: { x: x - 200, y: y - 200 }, width: 400, height: 400, rotation: 0 }
     }]);
     return { payload, descriptor: { version: 2 as const, sceneId, tileX, tileY, lod: 0 as const, part: 0,
@@ -877,7 +1072,8 @@ function createPreparedScene() {
   return { ref, display, tiles };
 }
 
-async function servePreparedAsset(route: Route, path: string, importJobId: string | undefined, ref: MapDocumentRef) {
+async function servePreparedAsset(route: Route, path: string, importJobId: string | undefined, ref: MapDocumentRef,
+  scene = preparedScene, operations: MapOp[] = []) {
   const prefix = `/floors/floor-1${importJobId ? `/import-jobs/${importJobId}` : ""}/map-document`;
   if (!path.startsWith(prefix)) return false;
   if (path === prefix) await json(route, ref);
@@ -886,14 +1082,14 @@ async function servePreparedAsset(route: Route, path: string, importJobId: strin
     expect(query.get("generationId")).toBe(ref.generationId);
     expect(query.get("revision")).toBe(String(ref.revision));
     if (path === `${prefix}/manifest`) await json(route, { generationId: ref.generationId, revision: ref.revision,
-      canonical: ref.manifest, display: preparedScene.display,
+      canonical: ref.manifest, display: scene.display,
       groups: [{ id: "group-1", parentId: null, name: "Prepared", visible: true, locked: false }],
       layers: [{ id: "walls", name: "WALLS", order: 0, visible: true, locked: false }],
       displayLayerBindings: [{ layerName: "WALLS", layerId: "walls" }] });
     else if (path === `${prefix}/changes`) await json(route, { generationId: ref.generationId, revision: ref.revision,
-      operations: [], nextCursor: null });
+      operations, nextCursor: null });
     else {
-      const tile = preparedScene.tiles.find(tile => path === `${prefix}/tiles/${tile.descriptor.assetId}`);
+      const tile = scene.tiles.find(tile => path === `${prefix}/tiles/${tile.descriptor.assetId}`);
       if (!tile) return false;
       await route.fulfill({ contentType: "application/octet-stream", body: tile.payload });
     }
@@ -928,6 +1124,30 @@ async function editorPoint(page: Page, point: { x: number; y: number }, absolute
   }, { point, absolute });
 }
 
+async function importPreviewPoint(page: Page, point: { x: number; y: number }) {
+  return page.getByRole("dialog", { name: "CAD 가져오기", exact: true })
+    .getByRole("region", { name: "CAD 도면 미리보기" }).evaluate((element, { point, size }) => {
+      const bounds = element.getBoundingClientRect();
+      const zoom = Number((element as HTMLElement).dataset.zoom);
+      return {
+        x: bounds.left + (bounds.width - size.width * zoom) / 2 + point.x * zoom,
+        y: bounds.top + (bounds.height - size.height * zoom) / 2 + point.y * zoom
+      };
+    }, { point, size: { width: nativeScene.manifest.width, height: nativeScene.manifest.height } });
+}
+
+async function expectImportPreviewFits(page: Page) {
+  const preview = page.getByRole("dialog", { name: "CAD 가져오기", exact: true })
+    .getByRole("region", { name: "CAD 도면 미리보기" });
+  await expect.poll(() => preview.evaluate((element, size) => {
+    const bounds = element.getBoundingClientRect();
+    const zoom = Number((element as HTMLElement).dataset.zoom);
+    return zoom > 0 && size.width * zoom <= bounds.width - 48 + 1 && size.height * zoom <= bounds.height - 48 + 1;
+  }, { width: nativeScene.manifest.width, height: nativeScene.manifest.height }), {
+    message: "the complete prepared map fits the import dialog preview"
+  }).toBe(true);
+}
+
 async function expectEditorMapFits(page: Page) {
   await expect.poll(() => page.getByTestId("floor-editor-canvas").evaluate(element => {
     const { width, height } = element.getBoundingClientRect();
@@ -953,8 +1173,8 @@ async function monitoringPoint(page: Page, point: { x: number; y: number }, size
   }, { point, size: { width: size.width, height: size.height } });
 }
 
-async function expectNativePixel(page: Page, locatePoint: () => Promise<{ x: number; y: number }>, rgb: number[]) {
-  const canvas = page.locator('[data-testid="cad-scene-canvas"], [role="img"][aria-label="맵 도형"] canvas');
+async function expectNativePixel(page: Page, locatePoint: () => Promise<{ x: number; y: number }>, rgb: number[], root: Page | Locator = page) {
+  const canvas = root.locator('[data-testid="cad-scene-canvas"], [role="img"][aria-label="맵 도형"] canvas');
   await expect(canvas).toBeVisible();
   await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => Boolean(element.getContext("webgl2") ?? element.getContext("webgl")))).toBe(true);
   // Sampling the composited screenshot (rather than readPixels after presentation)
@@ -981,7 +1201,7 @@ async function expectNativePixel(page: Page, locatePoint: () => Promise<{ x: num
   }, { message: `visible native CAD pixels with RGB ${rgb.join(",")}` }).toBeGreaterThan(0);
 }
 
-async function verifyMonitoringComposition(page: Page, size = nativeScene.manifest, rgb = [6, 182, 212]) {
+async function verifyMonitoringComposition(page: Page, size: { width: number; height: number } = nativeScene.manifest, rgb = [6, 182, 212]) {
   const region = page.getByRole("region", { name: "층 도면" });
   await region.scrollIntoViewIfNeeded();
   const verify = async () => {
@@ -998,10 +1218,18 @@ async function verifyMonitoringComposition(page: Page, size = nativeScene.manife
   const beforePan = await monitoringPoint(page, nativePoints[2]);
   const panStart = await monitoringPoint(page, { x: nativePoints[2].x + 500, y: nativePoints[2].y });
   expect(await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest("button")), panStart)).toBe(false);
+  // Manual CAD navigation owns keyboard input on the inner gesture viewport,
+  // not the outer floor-map region used for composition assertions.
+  const viewport = page.getByTestId("monitoring-map-viewport");
+  await viewport.focus();
+  await expect(viewport).toBeFocused();
+  await page.keyboard.down("Space");
   await page.mouse.move(panStart.x, panStart.y);
   await page.mouse.down();
-  await page.mouse.move(panStart.x + 22, panStart.y + 14, { steps: 6 });
+  // Drag toward increasing scroll offsets; the fitted view may start at zero.
+  await page.mouse.move(panStart.x - 22, panStart.y - 14, { steps: 6 });
   await page.mouse.up();
+  await page.keyboard.up("Space");
   await expect.poll(async () => {
     const afterPan = await monitoringPoint(page, nativePoints[2]);
     return Math.hypot(afterPan.x - beforePan.x, afterPan.y - beforePan.y);

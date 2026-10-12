@@ -1,0 +1,107 @@
+
+[WebServer] (node:41250) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:41265) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:41289) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:41358) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 19 tests using 1 worker
+
+
+(node:41366) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/19] [chromium] › e2e/cad-import-journey.spec.ts:41:3 › map editor comments CAD 1039x909 opens a centered import dialog and restores its trigger
+[2/19] [chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1039x909 selects one preview and recovers failed apply with lease fence
+
+[chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1039x909 selects one preview and recovers failed apply with lease fence
+CAD browser console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)
+[3/19] [chromium] › e2e/cad-import-journey.spec.ts:41:3 › map editor comments CAD 1434x909 opens a centered import dialog and restores its trigger
+[4/19] [chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1434x909 selects one preview and recovers failed apply with lease fence
+
+[chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1434x909 selects one preview and recovers failed apply with lease fence
+CAD browser console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)
+[5/19] [chromium] › e2e/cad-import-journey.spec.ts:185:3 › map editor comments CAD read-only lease cannot mutate a recovered import
+[6/19] [chromium] › e2e/cad-import-journey.spec.ts:185:3 › map editor comments CAD missing-fence lease cannot mutate a recovered import
+[7/19] [chromium] › e2e/cad-import-journey.spec.ts:210:3 › Legacy SVG: 기존 적용 맵부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)
+[8/19] [chromium] › e2e/cad-import-journey.spec.ts:210:3 › Native WebGL: region 선택부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)
+  1) [chromium] › e2e/cad-import-journey.spec.ts:210:3 › Native WebGL: region 선택부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture) 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: '지도 화면 맞춤' })
+
+
+      392 |       await saveScreenshot(page, testInfo, "native-monitor-desktop-pan-zoom");
+      393 |       await page.setViewportSize({ width: 390, height: 844 });
+    > 394 |       await page.getByRole("button", { name: "지도 화면 맞춤" }).click();
+          |                                                            ^
+      395 |       await verifyMonitoringComposition(page, size);
+      396 |       await saveScreenshot(page, testInfo, "native-monitor-mobile-pan-zoom");
+      397 |     }
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/e2e/cad-import-journey.spec.ts:394:60
+
+    attachment #1: native-review-before-apply (image/png) ──────────────────────────────────────────
+    ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/attachments/native-review-before-apply-b5a01fa71f11f9dd2895cd4434424349cde8a6ac.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: native-editor-before-edit (image/png) ───────────────────────────────────────────
+    ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/attachments/native-editor-before-edit-8b105661d67012d86d584ab151901c05e87a2741.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: native-editor-primitive-selection (image/png) ───────────────────────────────────
+    ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/attachments/native-editor-primitive-selection-a7e5e59fd320c431995d0e51db61a0438f0f8b36.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: native-editor-after-reload (image/png) ──────────────────────────────────────────
+    ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/attachments/native-editor-after-reload-f5e2f367f039d0a7bf0c8050275cbc870696d2b6.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: native-editor-mobile-fit (image/png) ────────────────────────────────────────────
+    ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/attachments/native-editor-mobile-fit-939793bdc89ca44518f020afc492c1ae251e1cbf.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: native-monitor-desktop-pan-zoom (image/png) ─────────────────────────────────────
+    ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/attachments/native-monitor-desktop-pan-zoom-b18df71fff16ddabd3927c156301ad0c0df59d12.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #7: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../../../../../../../tmp/editor-comments-browser-final3/cad-import-journey-Native--4b113--새로고침-모니터링까지-route-fixture--chromium/error-context.md
+
+
+
+(node:41567) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[9/19] [chromium] › e2e/cad-import-journey.spec.ts:467:3 › U13 prepared common import recovery and zero-candidate replacement 1440 (route fixture)
+[10/19] [chromium] › e2e/cad-import-journey.spec.ts:467:3 › U13 prepared common import recovery and zero-candidate replacement 390 (route fixture)
+[11/19] [chromium] › e2e/cad-import-journey.spec.ts:545:3 › U13 R1 import UI manifest completion hook-first and retry (route fixture)
+
+[chromium] › e2e/cad-import-journey.spec.ts:545:3 › U13 R1 import UI manifest completion hook-first and retry (route fixture)
+CAD browser console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)
+[12/19] [chromium] › e2e/cad-import-journey.spec.ts:545:3 › U13 R1 import UI manifest completion renderer-first and retry (route fixture)
+
+[chromium] › e2e/cad-import-journey.spec.ts:545:3 › U13 R1 import UI manifest completion renderer-first and retry (route fixture)
+CAD browser console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)
+[13/19] [chromium] › e2e/floor-editor-layout.spec.ts:226:1 › legacy object movement shows presentation-style alignment guides
+[14/19] [chromium] › e2e/map-editor-viewport.spec.ts:95:3 › map editor comments 1039x909 keep shell and information bounded with internal history pagination
+[15/19] [chromium] › e2e/map-editor-viewport.spec.ts:95:3 › map editor comments 1434x909 keep shell and information bounded with internal history pagination
+[16/19] [chromium] › e2e/map-editor-viewport.spec.ts:184:3 › editor viewport 320 confines long panels and preserves camera gestures
+[17/19] [chromium] › e2e/map-editor-viewport.spec.ts:239:1 › compact text focus and panel toggles preserve unsaved edits and the leave guard
+[18/19] [chromium] › e2e/map-editor-viewport.spec.ts:317:5 › mobile 390 fixture drag reaches canvas center and restores tools after drop and cancel
+[19/19] [chromium] › e2e/map-editor-viewport.spec.ts:281:3 › mobile 320 toolbar has continuous reachable touch targets
+  1 failed
+    [chromium] › e2e/cad-import-journey.spec.ts:210:3 › Native WebGL: region 선택부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture) 
+  18 passed (1.4m)
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test e2e/cad-import-journey.spec.ts e2e/map-editor-viewport.spec.ts e2e/floor-editor-layout.spec.ts --grep route fixture|map editor comments|editor viewport 320|legacy object movement|mobile 320 toolbar|mobile 390 fixture drag|compact text --project=chromium --workers=1 --retries=0 --reporter=line --output=/tmp/editor-comments-browser-final3

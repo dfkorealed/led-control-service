@@ -1,0 +1,912 @@
+
+ RUN  v2.1.9 /private/tmp/led-editor-comments-baseline-20261012/apps/web
+
+ ✓ src/features/control/ControlView.test.tsx > ControlView 대상 선택 > reopens historical detail with one close action in single-column=false without issuing physical control 2747ms
+ × src/features/control/ControlView.test.tsx > ControlView 대상 선택 > reopens historical detail with one close action in single-column=true without issuing physical control 1106ms
+   → Unable to find role="button" and name `/00000000-0000-4000-8000-000000009006/`
+
+Ignored nodes: comments, script, style
+...
+
+Ignored nodes: comments, script, style
+...
+ × src/features/control/ControlView.test.tsx > ControlView 대상 선택 > preserves only the focused close action across single-column=false transitions 370ms
+   → Unable to find an accessible element with the role "button" and name "명령 상세 닫기"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "알람센터, 현장 미선택":
+  ...
+
+  Name "표시 층":
+  ...
+
+  Name "선택 범위":
+  ...
+
+  Name "조명 목록":
+  ...
+
+  Name "B2-L001 정상 70%":
+  ...
+
+  Name "B2-L002 정상 60%":
+  ...
+
+  Name "B2-L003 오프라인 0% 선택 불가: 게이트웨이가 오프라인입니다.":
+  ...
+
+  Name "지도 축소":
+  ...
+
+  Name "지도 배율 100%":
+  ...
+
+  Name "지도 확대":
+  ...
+
+  Name "지도 화면 맞춤":
+  ...
+
+  Name "전체 보기":
+  ...
+
+  Name "밝기 적용":
+  ...
+
+  Name "더보기":
+  ...
+
+  Name "브라우저 뒤로":
+  ...
+
+  Name "브라우저 앞으로":
+  ...
+
+  --------------------------------------------------
+  region:
+
+  Name "알림":
+  ...
+
+  Name "제어 대상 지도":
+  ...
+
+  Name "공간 대상 선택":
+  ...
+
+  Name "B2 도면":
+  ...
+
+  Name "선택 대상 목록":
+  ...
+
+  Name "제어 대상":
+  ...
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 제어":
+  ...
+
+  Name "선택 조명 0개":
+  ...
+
+  Name "제어 대상":
+  ...
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  ...
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "수동 제어":
+  ...
+
+  --------------------------------------------------
+  group:
+
+  Name "지도 확대 축소":
+  ...
+
+  Name "밝기":
+  ...
+
+  --------------------------------------------------
+  complementary:
+
+  Name "밝기 실행":
+  ...
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  ...
+
+  --------------------------------------------------
+  textbox:
+
+  Name "밝기 수치":
+  ...
+
+  --------------------------------------------------
+  slider:
+
+  Name "밝기":
+  ...
+
+  --------------------------------------------------
+  status:
+
+  Name "제어 중요 상태":
+  ...
+
+  Name "":
+  ...
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+...
+ × src/features/control/ControlView.test.tsx > ControlView 대상 선택 > preserves only the focused close action across single-column=true transitions 1085ms
+   → Unable to find role="button" and name `/00000000-0000-4000-8000-000000009006/`
+
+Ignored nodes: comments, script, style
+...
+
+Ignored nodes: comments, script, style
+...
+ × src/features/control/ControlView.test.tsx > ControlView 대상 선택 > group URL and roving focus survive back forward and theme
+   → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-controls="control-mode-panel-group"
+  aria-selected="true"
+  class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"
+  data-variant="ghost"
+  id="control-mode-group"
+  role="tab"
+  tabindex="0"
+  type="button"
+>
+  <span
+    class="inline-flex items-center justify-center gap-2"
+  >
+    <span
+      aria-hidden="true"
+      class="inline-flex shrink-0"
+    >
+      <svg
+        class="lucide lucide-layers"
+        fill="none"
+        height="18"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="18"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+        />
+        <path
+          d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+        />
+        <path
+          d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+        />
+      </svg>
+    </span>
+    <span>
+      그룹/구역
+    </span>
+  </span>
+</button>
+Received element with focus:
+  <body>
+  <div>
+    <section
+      class="grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col"
+      data-control-screen=""
+    >
+      <h1
+        class="text-section-title font-bold text-content-primary sr-only m-0"
+      >
+        조명 제어
+      </h1>
+      <div
+        aria-label="제어 방식"
+        class="w-full min-w-0 max-w-full self-start overflow-x-auto"
+        role="tablist"
+      >
+        <div
+          class="flex w-max min-w-full gap-2 pb-2"
+          data-navigation-track="true"
+        >
+          <button … />
+          <button … />
+          <button … />
+          <button … />
+        </div>
+      </div>
+      <div
+        aria-labelledby="control-mode-group"
+        class="grid min-h-0 min-w-0 flex-1"
+        id="control-mode-panel-group"
+        role="tabpanel"
+      >
+        <section
+          class="rounded-panel border bg-surface-panel border-border-default flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain p-4"
+          data-variant="default"
+        >···················
+          <div … />
+          <p … />
+        </section>
+      </div>
+    </section>
+    <output
+      data-testid="control-location"
+    >
+      /control?siteId=00000000-0000-4000-8000-000000000003&mode=group&keep=literal%25#section
+    </output>
+    <button
+      type="button"
+    >
+      브라우저 뒤로
+    </button>
+    <button
+      type="button"
+    >
+      브라우저 앞으로
+    </button>
+    <button
+      type="button"
+    >
+      Task8 테마 변경
+    </button>
+  </div>
+</body>
+ × src/features/control/ControlView.test.tsx > ControlView 대상 선택 > uses roving tab focus and selects modes with circular arrow, Home, and End keys
+   → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-controls="control-mode-panel-group"
+  aria-selected="false"
+  class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+  data-variant="ghost"
+  id="control-mode-group"
+  role="tab"
+  tabindex="-1"
+  type="button"
+>
+  <span
+    class="inline-flex items-center justify-center gap-2"
+  >
+    <span
+      aria-hidden="true"
+      class="inline-flex shrink-0"
+    >
+      <svg
+        class="lucide lucide-layers"
+        fill="none"
+        height="18"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="18"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+        />
+        <path
+          d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+        />
+        <path
+          d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+        />
+      </svg>
+    </span>
+    <span>
+      그룹/구역
+    </span>
+  </span>
+</button>
+Received element with focus:
+  <body>
+  <div>
+    <div
+      class="relative shrink-0"
+    >
+      <button
+        aria-expanded="false"
+        aria-haspopup="dialog"
+        aria-label="알람센터, 현장 미선택"
+        class="inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"
+        data-variant="ghost"
+        title="알람센터, 현장 미선택"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-bell"
+          fill="none"
+          height="20"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="20"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path … />
+          <path … />
+        </svg>
+      </button>
+    </div>
+    <section
+      aria-label="알림"
+      class="pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"
+      data-toast-placement="overlay"
+    />
+    <section
+      class="grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col"
+      data-control-screen=""
+    >
+      <h1
+        class="text-section-title font-bold text-content-primary sr-only m-0"
+      >
+        조명 제어
+      </h1>
+      <div
+        aria-label="제어 방식"
+        class="w-full min-w-0 max-w-full self-start overflow-x-auto"
+        role="tablist"
+      >
+        <div
+          class="flex w-max min-w-full gap-2 pb-2"
+          data-navigation-track="true"
+        >
+          <button … />
+          <button … />
+          <button … />
+          <button … />
+        </div>
+      </div>
+      <div
+        aria-labelledby="control-mode-group"
+        class="grid min-h-0 min-w-0 flex-1"
+        id="control-mode-panel-group"
+        role="tabpanel"
+      >
+        <section
+          class="rounded-panel border bg-surface-panel border-border-default flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain p-4"
+          data-variant="default"
+        >···················
+          <div … />
+          <p … />
+        </section>
+      </div>
+    </section>
+    <output
+      data-testid="control-location"
+    >
+      /control?siteId=00000000-0000-4000-8000-000000000003&mode=group
+    </output>
+    <button
+      type="button"
+    >
+      브라우저 뒤로
+    </button>
+    <button
+      type="button"
+    >
+      브라우저 앞으로
+    </button>
+  </div>
+</body>
+ ✓ src/features/control/automation/VehicleEventControlPanel.test.tsx > VehicleEventControlPanel > gives a new event list 401 priority over an older visible-page 503 3188ms
+ ✓ src/features/control/automation/VehicleEventControlPanel.test.tsx > VehicleEventControlPanel > gives a new event list 403 priority over an older visible-page 503 3082ms
+ ✓ src/features/control/automation/VehicleEventControlPanel.test.tsx > VehicleEventControlPanel > gives a new event list 404 priority over an older visible-page 503 3073ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > reopens historical detail with one close action in single-column=true without issuing physical control
+TestingLibraryElementError: Unable to find role="button" and name `/00000000-0000-4000-8000-000000009006/`
+
+Ignored nodes: comments, script, style
+...
+
+Ignored nodes: comments, script, style
+...
+ ❯ waitForWrapper ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/control/ControlView.test.tsx:956:30
+    954|     mocks.useCommandStatus.mockImplementation((id) => ({ data: id === …
+    955|     renderControl("admin", dashboard.site.id, USER_A, undefined, singl…
+    956|     const row = await screen.findByRole("button", { name: new RegExp(c…
+       |                              ^
+    957|     fireEvent.click(row);
+    958|     expect(await screen.findByText("요청한 밝기가 이미 적용되어 있습니…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > preserves only the focused close action across single-column=false transitions
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "명령 상세 닫기"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "알람센터, 현장 미선택":
+  ...
+
+  Name "표시 층":
+  ...
+
+  Name "선택 범위":
+  ...
+
+  Name "조명 목록":
+  ...
+
+  Name "B2-L001 정상 70%":
+  ...
+
+  Name "B2-L002 정상 60%":
+  ...
+
+  Name "B2-L003 오프라인 0% 선택 불가: 게이트웨이가 오프라인입니다.":
+  ...
+
+  Name "지도 축소":
+  ...
+
+  Name "지도 배율 100%":
+  ...
+
+  Name "지도 확대":
+  ...
+
+  Name "지도 화면 맞춤":
+  ...
+
+  Name "전체 보기":
+  ...
+
+  Name "밝기 적용":
+  ...
+
+  Name "더보기":
+  ...
+
+  Name "브라우저 뒤로":
+  ...
+
+  Name "브라우저 앞으로":
+  ...
+
+  --------------------------------------------------
+  region:
+
+  Name "알림":
+  ...
+
+  Name "제어 대상 지도":
+  ...
+
+  Name "공간 대상 선택":
+  ...
+
+  Name "B2 도면":
+  ...
+
+  Name "선택 대상 목록":
+  ...
+
+  Name "제어 대상":
+  ...
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 제어":
+  ...
+
+  Name "선택 조명 0개":
+  ...
+
+  Name "제어 대상":
+  ...
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  ...
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "수동 제어":
+  ...
+
+  --------------------------------------------------
+  group:
+
+  Name "지도 확대 축소":
+  ...
+
+  Name "밝기":
+  ...
+
+  --------------------------------------------------
+  complementary:
+
+  Name "밝기 실행":
+  ...
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  ...
+
+  --------------------------------------------------
+  textbox:
+
+  Name "밝기 수치":
+  ...
+
+  --------------------------------------------------
+  slider:
+
+  Name "밝기":
+  ...
+
+  --------------------------------------------------
+  status:
+
+  Name "제어 중요 상태":
+  ...
+
+  Name "":
+  ...
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+...
+ ❯ Object.getElementError ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/control/ControlView.test.tsx:985:26
+    983|     const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    984|     rerender(controlElement(dashboard.site.id, "admin", USER_A, undefi…
+    985|     const close = screen.getByRole("button", { name: "명령 상세 닫기" …
+       |                          ^
+    986|     expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).…
+    987|     expect(close).toHaveFocus();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > preserves only the focused close action across single-column=true transitions
+TestingLibraryElementError: Unable to find role="button" and name `/00000000-0000-4000-8000-000000009006/`
+
+Ignored nodes: comments, script, style
+...
+
+Ignored nodes: comments, script, style
+...
+ ❯ waitForWrapper ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../../../../Users/kim-jh/Documents/led-control-service/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/control/ControlView.test.tsx:979:34
+    977|     mocks.useCommandStatus.mockImplementation(id => ({ data: id === st…
+    978|     const { rerender } = renderControl("admin", dashboard.site.id, USE…
+    979|     fireEvent.click(await screen.findByRole("button", { name: new RegE…
+       |                                  ^
+    980|     expandRecentDetails();
+    981|     const oldClose = screen.getByRole("button", { name: "명령 상세 닫…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > group URL and roving focus survive back forward and theme
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-controls="control-mode-panel-group"
+  aria-selected="true"
+  class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"
+  data-variant="ghost"
+  id="control-mode-group"
+  role="tab"
+  tabindex="0"
+  type="button"
+>
+  <span
+    class="inline-flex items-center justify-center gap-2"
+  >
+    <span
+      aria-hidden="true"
+      class="inline-flex shrink-0"
+    >
+      <svg
+        class="lucide lucide-layers"
+        fill="none"
+        height="18"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="18"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+        />
+        <path
+          d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+        />
+        <path
+          d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+        />
+      </svg>
+    </span>
+    <span>
+      그룹/구역
+    </span>
+  </span>
+</button>
+Received element with focus:
+  <body>
+  <div>
+    <section
+      class="grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col"
+      data-control-screen=""
+    >
+      <h1
+        class="text-section-title font-bold text-content-primary sr-only m-0"
+      >
+        조명 제어
+      </h1>
+      <div
+        aria-label="제어 방식"
+        class="w-full min-w-0 max-w-full self-start overflow-x-auto"
+        role="tablist"
+      >
+        <div
+          class="flex w-max min-w-full gap-2 pb-2"
+          data-navigation-track="true"
+        >
+          <button … />
+          <button … />
+          <button … />
+          <button … />
+        </div>
+      </div>
+      <div
+        aria-labelledby="control-mode-group"
+        class="grid min-h-0 min-w-0 flex-1"
+        id="control-mode-panel-group"
+        role="tabpanel"
+      >
+        <section
+          class="rounded-panel border bg-surface-panel border-border-default flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain p-4"
+          data-variant="default"
+        >···················
+          <div … />
+          <p … />
+        </section>
+      </div>
+    </section>
+    <output
+      data-testid="control-location"
+    >
+      /control?siteId=00000000-0000-4000-8000-000000000003&mode=group&keep=literal%25#section
+    </output>
+    <button
+      type="button"
+    >
+      브라우저 뒤로
+    </button>
+    <button
+      type="button"
+    >
+      브라우저 앞으로
+    </button>
+    <button
+      type="button"
+    >
+      Task8 테마 변경
+    </button>
+  </div>
+</body>
+ ❯ src/features/control/ControlView.test.tsx:2345:19
+    2343|     manual.focus(); fireEvent.keyDown(manual, { key: "End" });
+    2344|     const group = screen.getByRole("tab", { name: "그룹/구역" });
+    2345|     expect(group).toHaveFocus(); expect(group).toHaveAttribute("aria-c…
+       |                   ^
+    2346|     expect(await screen.findByRole("tabpanel", { name: "그룹/구역" }))…
+    2347|     expect(screen.getByTestId("control-location")).toHaveTextContent(`…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > uses roving tab focus and selects modes with circular arrow, Home, and End keys
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-controls="control-mode-panel-group"
+  aria-selected="false"
+  class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+  data-variant="ghost"
+  id="control-mode-group"
+  role="tab"
+  tabindex="-1"
+  type="button"
+>
+  <span
+    class="inline-flex items-center justify-center gap-2"
+  >
+    <span
+      aria-hidden="true"
+      class="inline-flex shrink-0"
+    >
+      <svg
+        class="lucide lucide-layers"
+        fill="none"
+        height="18"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="18"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+        />
+        <path
+          d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+        />
+        <path
+          d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+        />
+      </svg>
+    </span>
+    <span>
+      그룹/구역
+    </span>
+  </span>
+</button>
+Received element with focus:
+  <body>
+  <div>
+    <div
+      class="relative shrink-0"
+    >
+      <button
+        aria-expanded="false"
+        aria-haspopup="dialog"
+        aria-label="알람센터, 현장 미선택"
+        class="inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"
+        data-variant="ghost"
+        title="알람센터, 현장 미선택"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-bell"
+          fill="none"
+          height="20"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="20"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path … />
+          <path … />
+        </svg>
+      </button>
+    </div>
+    <section
+      aria-label="알림"
+      class="pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"
+      data-toast-placement="overlay"
+    />
+    <section
+      class="grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col"
+      data-control-screen=""
+    >
+      <h1
+        class="text-section-title font-bold text-content-primary sr-only m-0"
+      >
+        조명 제어
+      </h1>
+      <div
+        aria-label="제어 방식"
+        class="w-full min-w-0 max-w-full self-start overflow-x-auto"
+        role="tablist"
+      >
+        <div
+          class="flex w-max min-w-full gap-2 pb-2"
+          data-navigation-track="true"
+        >
+          <button … />
+          <button … />
+          <button … />
+          <button … />
+        </div>
+      </div>
+      <div
+        aria-labelledby="control-mode-group"
+        class="grid min-h-0 min-w-0 flex-1"
+        id="control-mode-panel-group"
+        role="tabpanel"
+      >
+        <section
+          class="rounded-panel border bg-surface-panel border-border-default flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain p-4"
+          data-variant="default"
+        >···················
+          <div … />
+          <p … />
+        </section>
+      </div>
+    </section>
+    <output
+      data-testid="control-location"
+    >
+      /control?siteId=00000000-0000-4000-8000-000000000003&mode=group
+    </output>
+    <button
+      type="button"
+    >
+      브라우저 뒤로
+    </button>
+    <button
+      type="button"
+    >
+      브라우저 앞으로
+    </button>
+  </div>
+</body>
+ ❯ src/features/control/ControlView.test.tsx:2530:22
+    2528|     fireEvent.keyDown(manualTab, { key: "ArrowLeft" });
+    2529|     await waitFor(() => expect(screen.getByTestId("control-location"))…
+    2530|     expect(groupTab).toHaveFocus();
+       |                      ^
+    2531|     expect(groupTab).toHaveAttribute("aria-selected", "true");
+    2532| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  5 failed | 4 passed | 240 skipped (249)
+   Start at  16:02:28
+   Duration  17.86s (transform 849ms, setup 77ms, collect 2.06s, tests 14.77s, environment 522ms, prepare 129ms)
+
+undefined
+/private/tmp/led-editor-comments-baseline-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx src/features/control/automation/VehicleEventControlPanel.test.tsx -t reopens historical detail|preserves only the focused close action|group URL and roving focus|uses roving tab focus|gives a new event list --maxWorkers=1 --minWorkers=1 --reporter=verbose

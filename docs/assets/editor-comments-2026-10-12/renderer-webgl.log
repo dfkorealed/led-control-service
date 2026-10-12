@@ -1,0 +1,25 @@
+[WebServer] (node:17578) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:17580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 14 tests using 1 worker
+
+(node:17613) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › src/features/cad-scene/cad-scene-webgl.smoke.ts:3:1 › display text preserves the native width of narrow glyphs (928ms)
+  ✓   2 [chromium] › src/features/cad-scene/cad-scene-webgl.smoke.ts:54:1 › renders, pans, and restores display coverage in another region after real WebGL loss (941ms)
+  ✓   3 [chromium] › src/features/map-scene/map-scene-camera.smoke.ts:6:33 › ordinary drawing reuses pan coverage and refreshes zoom detail at 768px (3.0s)
+  ✓   4 [chromium] › src/features/map-scene/map-scene-camera.smoke.ts:6:33 › ordinary drawing reuses pan coverage and refreshes zoom detail at 320px (2.8s)
+  ✓   5 [chromium] › src/features/map-scene/map-scene-hatch.smoke.ts:17:3 › source HATCH compound contour 0 holes across cells at DPR 1 (2.1s)
+  ✓   6 [chromium] › src/features/map-scene/map-scene-hatch.smoke.ts:17:3 › source HATCH compound contour 0 holes across cells at DPR 2 (2.2s)
+  ✓   7 [chromium] › src/features/map-scene/map-scene-hatch.smoke.ts:17:3 › source HATCH compound contour 1 holes across cells at DPR 1 (2.2s)
+  ✓   8 [chromium] › src/features/map-scene/map-scene-hatch.smoke.ts:17:3 › source HATCH compound contour 1 holes across cells at DPR 2 (2.4s)
+  ✓   9 [chromium] › src/features/map-scene/map-scene-hatch.smoke.ts:17:3 › source HATCH compound contour 2 holes across cells at DPR 1 (2.1s)
+  ✓  10 [chromium] › src/features/map-scene/map-scene-hatch.smoke.ts:17:3 › source HATCH compound contour 2 holes across cells at DPR 2 (2.3s)
+  ✓  11 [chromium] › src/features/map-scene/map-scene-order.smoke.ts:9:27 › canonical painter coverage across cells and draft z at DPR 1 (2.0s)
+  ✓  12 [chromium] › src/features/map-scene/map-scene-order.smoke.ts:9:27 › canonical painter coverage across cells and draft z at DPR 2 (2.1s)
+  ✓  13 [chromium] › src/features/map-scene/map-scene-webgl.smoke.ts:5:34 › common map compact worker, draft holes and context recovery at 1024px (843ms)
+  ✓  14 [chromium] › src/features/map-scene/map-scene-webgl.smoke.ts:5:34 › common map compact worker, draft holes and context recovery at 320px (742ms)
+
+  14 passed (29.4s)

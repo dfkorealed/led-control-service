@@ -2,6 +2,21 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 맵 편집 패널·CAD 팝업·이동 렌더링 개선: 구현·검증 완료, 통합 대기
+
+- 현재 판정: 승인한 E1–E4를 완료했다. 오른쪽 패널·변경 기록 내부 스크롤, 중앙 CAD 단일 큰 미리보기와 확인/적용, 기존 타일 재사용 및 작은 화면 입력 보완을 마쳤다. PixiJS/Konva를 유지했고 서버·DB·장비·현재 맵은 변경하지 않았다.
+- 제품 소스 고정 Chromium 19/19 PASS(exit0)와 Web 전체 3,641 PASS/기존 Control 5 FAIL/3 SKIP(exit1)를 확인했다. 이후 테스트 조회 옵션 2줄만 타입에 맞게 바꾼 집중 195/195 PASS·fresh typecheck/build exit0·UI 정책 0/0·독립 추가 P1/P2 0이다. 전체 Web GREEN, 실제 대형 CAD/WebView/HIL 완료로 표현하지 않는다.
+- 렌더링 `76155d80`·UI `6f36a7e6`과 후속 QA 커밋은 `codex/editor-comments-20261012`에 보존한다. MAIN 병합은 총괄 별도 조율 전 하지 않으며 ROOT의 사용자 AGENTS·기존 개발 서버·다른 담당자 변경을 유지한다. [원 로그·소스 SHA manifest](assets/editor-comments-2026-10-12/manifest.json)에 검증을 보존하고 기존 Control 정확한 실패명은 아래 연결된 E 체크리스트에 기록한다.
+
+### 중간 검증 이력
+
+- 사용자가 브라우저 주석 4건과 대표 도면 하나/선택 목록 방식을 승인했다. UI·렌더링·브라우저 QA 담당을 나눠 작업한다. 25개 Web WIP의 exact SHA 복사·ROOT 소유 변경 복구 후 `codex/editor-comments-20261012`에서 진행하며 사용자 AGENTS/다른 담당의 런타임 작업은 보존한다.
+- [기존 맵 실행 체크리스트 E1–E4](superpowers/plans/2026-09-18-cad-native-map-rendering.md)가 정본이다. 중간 실제 1039px 레이아웃과 중앙 팝업 열기는 확인했으나 CAD 복구/preview·WebGL HATCH·최종 QA는 미완료다. 렌더링 기술 교체·DB 초기화·실장비 변경은 이번 작업에서 하지 않는다.
+- E1/E3 구현·직접 검증을 완료하고 E2/E4 최종 검증 중이다. UI 집중355 PASS·렌더링202 PASS/기존2 SKIP·실제WebGL14/14 PASS와 P2 두 건의 paint readiness/pending wanted 보호 보완을 확보했다. 전체 첫 cohort의 9FAIL은 보존하고 최종소스 전체 Web·QA·독립 리뷰를 다시 진행한다. 그중 Control5는 동일 의존성의 clean416785d0에서도 동일 재현한 기존 실패이며 이번 제품 변경과 분리한다.
+- 재개 후 전체 pre-camera-memo cohort는3,628 PASS/기존 Control5 FAIL/3 SKIP로 종료했다. 브라우저33건의20 PASS/13 FAIL 중 native preview readiness 반복은 camera `useMemo`와 RED→GREEN17로 보완했고 최신 빌드 exit0·독립 critical 리뷰 열린P1/P2 0이다. 해당 전체 cohort를 후속 수정의 전체검증으로 확대하지 않는다. 최신 CAD 정상 흐름·props selection·320px/hit QA와 기존 실패 대조를 진행하며 Control/MAIN 변경은 총괄 별도 조율을 기다린다. 원 로그·exact 실패명은 E4 기록에 유지한다.
+- 중단 후 재개: 중복 double-click pick을 제거한 UI 집중399 PASS를 취합했다. 최신 Native 브라우저는 그룹 진입·속성 변경·저장·새로고침 후 픽셀 보존까지 통과했으나, 새로고침 직후 단독 double-click의 선택 소실이 남아 후속 수정 중이다. 320px의 최종 canvas 높이는178px로 0이 아니며 metadata readiness 실패는 renderer platform 전환 시 초기화 경로를 조사한다. 이 두 정상 흐름 관문이 통과하기 전 완료·MAIN 반영으로 표시하지 않는다.
+- 후속 수리: renderer platform 변경의 document/camera/promotion effect를 함께 재실행(RED3→GREEN9), 비동기 pick을 직렬화해 busy 반환과 실제 miss를 분리(집중412 PASS)했다. renderer 전체 집중208 PASS/기존2 SKIP·WebGL14/14 PASS·타입 exit0을 확인하고 `76155d80`으로 보존했다. 추가 정상 사용 QA에서 드래그 종료의 RAF 보정 전 좌표 저장과 모바일 저장·재시도 버튼 hit 문제를 확인하여 두 파일만 보완했고 직접 RED2→120 PASS를 확보했다. 최종 브라우저 및 전체 Web/빌드는 후속 관문이다. 이전 전체검증 재시작은 소스 후속 수정 때문에 Ctrl-C(exit130)로 중지했으며 전체검증 결과로 집계하지 않는다.
+
 ## 2026-10-12 설정 CAD — 별도 브랜치 검증 후 보존 로컬 병합 완료
 
 - 사용자 지시대로 원 설정 담당자의 별도 `codex/cad-import-corrections-20261012`에서 검증한제품be35/최종문서13fb를 UI완료58bd 위 정상로컬merge5e9b640b로통합했다. 총괄이24소유diff/6원로그SHA·집중224/실제첨부DWG2/2/전체3266PASS1209기존환경SKIP·원타입/빌드exit0와전담독립리뷰C/I/M0을대조했다. 원pnpm경로1FAIL은보존하며후속GREEN과합산/소급하지않는다.

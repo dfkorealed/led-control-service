@@ -1,0 +1,312 @@
+{
+  "task": "맵 편집 브라우저 주석 4건",
+  "branch": "codex/editor-comments-20261012",
+  "workspace": "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012",
+  "rendererCommit": "76155d80",
+  "uiCommit": "6f36a7e689c07d0b52003823ae0911aead4df990",
+  "runtime": {
+    "node": "v22.23.3",
+    "pnpm": "9.15.0"
+  },
+  "results": {
+    "browser": {
+      "passed": 19,
+      "failed": 0,
+      "exitCode": 0
+    },
+    "webFull": {
+      "passed": 3641,
+      "failed": 5,
+      "skipped": 3,
+      "exitCode": 1,
+      "note": "제품 소스 고정 전체 cohort. 이후 테스트 조회 옵션 exact 2줄만 anchored name 정규식으로 교정했고 focused-final 195 PASS로 검증. 기존 Control 5 실패를 clean416785d0에서도 재현. 전체 GREEN 아님."
+    },
+    "focusedFinal": {
+      "passed": 195,
+      "failed": 0,
+      "exitCode": 0
+    },
+    "rendererFocused": {
+      "passed": 208,
+      "skipped": 2,
+      "exitCode": 0
+    },
+    "webgl": {
+      "passed": 14,
+      "failed": 0,
+      "exitCode": 0
+    },
+    "typecheck": {
+      "exitCode": 0
+    },
+    "build": {
+      "exitCode": 0
+    },
+    "uiPolicy": {
+      "existingViolations": 0,
+      "newViolations": 0,
+      "exitCode": 0
+    },
+    "review": {
+      "additionalP1": 0,
+      "additionalP2": 0
+    }
+  },
+  "limits": [
+    "MAIN 통합은 별도 총괄 조율",
+    "합성 route fixture/WebGL 검사이며 실제 대형 DWG/WebView/HIL 검증 아님",
+    "metadata 준비는 문서 도착과 분리한 단계이며 원 단일 시간 예산과 같다고 보고하지 않음",
+    "GPU 프레임 그리기 자체가 없어짐을 보장하지 않음"
+  ],
+  "logs": [
+    {
+      "file": "web-full.log",
+      "sha256": "c2adc986c6f5e97d29781d6db1dac0cd600597b8cdb209e5292ad76347a50166",
+      "bytes": 211338,
+      "exitCode": 1
+    },
+    {
+      "file": "control-baseline.log",
+      "sha256": "79ba863879e5a73329ad6ef591ebe9c3676753d97a6b3b83dab2b1835e800587",
+      "bytes": 27253,
+      "exitCode": 1
+    },
+    {
+      "file": "browser-final.log",
+      "sha256": "72e950b5f793e66a4fe4ef095cfe7b811d6f90107e832a0e9d90ad4daaca3ae0",
+      "bytes": 4809,
+      "exitCode": 0
+    },
+    {
+      "file": "browser-before-entry-fix.log",
+      "sha256": "7ae48df2d7142f57e7f0be6e1960b2198e9e72fc1b9ade76647825fbc6fa95b6",
+      "bytes": 11799,
+      "exitCode": 1
+    },
+    {
+      "file": "build-before-test-type-fix.log",
+      "sha256": "681a595e4c475b6e5bf1cd963a122e08642800710e848c1b5d524e4c385df82b",
+      "bytes": 1468,
+      "exitCode": 2
+    },
+    {
+      "file": "build-final.log",
+      "sha256": "d487f2bb877abe55165cd4b027aea62f661c723a46317ef0befab3f3ed6a82cc",
+      "bytes": 6515,
+      "exitCode": 0
+    },
+    {
+      "file": "typecheck-final.log",
+      "sha256": "21adc37a3fe145de093bbef39de641deb418b00eeb46b0e191355eacda820730",
+      "bytes": 141,
+      "exitCode": 0
+    },
+    {
+      "file": "ui-policy-final.log",
+      "sha256": "bea9e51baec3028fa00f422506edaad5b702531314dc230af24b88313cec6eae",
+      "bytes": 216,
+      "exitCode": 0
+    },
+    {
+      "file": "focused-final.log",
+      "sha256": "00d6579d1c5679a94c6257dc6ab10e01906d3b335e846bdbfe56e524e04e2400",
+      "bytes": 983,
+      "exitCode": 0
+    },
+    {
+      "file": "renderer-focused.log",
+      "sha256": "a9885c110595444815fb2baeccaa46e7693c74f2ea6acbaf758591425abd8dc0",
+      "bytes": 2525,
+      "exitCode": 0
+    },
+    {
+      "file": "renderer-webgl.log",
+      "sha256": "854d1ce363766ee3d1bd2ff1eb3155bfd24b4468af98a41f2cc0926d78deae2e",
+      "bytes": 2753,
+      "exitCode": 0
+    },
+    {
+      "file": "compact-header-red.log",
+      "sha256": "470355ba1ea1a395b7e6abf7d38002d2988f88d7417b585b9f6ca32e7ae0b04d",
+      "bytes": 5051,
+      "exitCode": 1
+    }
+  ],
+  "sourceHashes": [
+    {
+      "path": "apps/web/src/components/ui/ModalDialog.tsx",
+      "sha256": "1c311f0b142034b8c4862b779750522c499aec1bd407807a10bb9c7e3554ecb1"
+    },
+    {
+      "path": "apps/web/src/components/ui/overlays/DialogBase.tsx",
+      "sha256": "d29861e7370faf6ea02b4416eb80ff99844f24a3a49017d3ae35da734b927f32"
+    },
+    {
+      "path": "apps/web/src/components/ui/overlays/overlays.test.tsx",
+      "sha256": "3224309cabccd47667636f3525a46cc17b8bd76e5cefc6ad76ff5e7f05b2601f"
+    },
+    {
+      "path": "apps/web/src/features/cad-scene/CadSceneRenderer.ts",
+      "sha256": "6e0ce3e70965c8fb93f3b73dd0e9b17e8ece5711a939e7ff8f7bf2ff7c495d47"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/CadImportPanel.test.tsx",
+      "sha256": "a320716aaaf93ae7bd1e71b6b5f1efcce450a35ecd657c62024393f1e7ca795e"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/CadImportPanel.tsx",
+      "sha256": "cde6ffdd653d2e13f61356d5272260ea6d0d3106ec6e76f0868db1742744b2fc"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/CadImportPreview.test.tsx",
+      "sha256": "02e0dfa580d0c4fdb044cd1f527a9629723e1dc26b2353a502bb5ebdc5636999"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/CadImportPreview.tsx",
+      "sha256": "7c5ef2b93ab8433b0536adb24d4bbe9e3b9d3ab7558146d4626b824553327721"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/CadImportSceneCanvas.test.tsx",
+      "sha256": "c41c477917e7125dcd63c2a13dc8213e7d0eee3d31f33511d173ea3411a1afdd"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/CadImportSceneCanvas.tsx",
+      "sha256": "975d953af9c06a6f43f8897a5fcc50f825f36713ff58c2f220baf02ef2d74ed6"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/FloorEditorCanvas.common-map.test.tsx",
+      "sha256": "a0ad9d5ae3cfdea4d3d36f343d22caf20fc3e69daf556f8040da0a10824435fc"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/FloorEditorCanvas.tsx",
+      "sha256": "f66508232bfc60773fed98c2c3e3cb2721551297e752435c957d8e1ab4e4361a"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/FloorEditorView.test.tsx",
+      "sha256": "6f15cc8a8f782188d1ac1ab53b45bc38947db4abbf101fe03c249dc573a0644d"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/FloorEditorView.tsx",
+      "sha256": "f1b484c9fb7983f9f912accfc87dad429adcf77363c83a6e012a765320b72e96"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/MapDocumentInitialization.tsx",
+      "sha256": "c1861b1a69600a683f4b838775267e4d7a1076542e3323d9b645a90d50844cda"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/use-map-editor.test.tsx",
+      "sha256": "df9ac03f136b3c622ddca2285d92693597081e64d17637d6e4300ec35571b7dd"
+    },
+    {
+      "path": "apps/web/src/features/floor-editor/use-map-editor.ts",
+      "sha256": "52a139009fa9060d03f5ddbbb9b2a27f6903d1d7966aedc8aca0faeaf0e2039b"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/MapSceneCanvas.test.tsx",
+      "sha256": "758bad98d22f9bcba12f63e4c8f32c4f7986674110529fd9d926fb40db6c4fd9"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/MapSceneCanvas.tsx",
+      "sha256": "8955e6e9b39cd2a9b61904d7487e9189f00ec374cd1d8d24c3e7a936a52cf59d"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/MapSceneRenderer.paint-ready.test.ts",
+      "sha256": "2ffcde363b36caa7774f845327053129b5223785219fc2266a93a4be44fa658b"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/MapSceneRenderer.ts",
+      "sha256": "5a66f97b85f33678cc4d42b23d315d3e7f7825f5c0d436de30c9e608d5b4759d"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/map-raster-backend.test.ts",
+      "sha256": "001b4710cf098a3cf2ffbaf3edfc2e1186889ab7fe55f5c2117d338e850fdce9"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/map-raster-backend.ts",
+      "sha256": "a29f956581312dc5b1ff6e976e9e5cbd84ce542dda3b51844de168cd977e5731"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/map-raster-grid.ts",
+      "sha256": "93c5a14446ad0587c804eef42d6bbc0ea2371eed50834809af4c8fbae0928217"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/map-scene-camera.smoke.ts",
+      "sha256": "280da7d41c64a7bbe61aeff7d9f6c9940019ff1d64dc7efeff26318f4038e621"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/map-scene-hatch.smoke.ts",
+      "sha256": "1a8539ac2ce0f6988dc1477ac51918b27ead3a108db8314408fda337f2e826c3"
+    },
+    {
+      "path": "apps/web/src/features/map-scene/playwright.config.ts",
+      "sha256": "7d79ad67580cadc363f63676f17c3c8b0e291f978d249ff8d88d87faf8e5f6cd"
+    },
+    {
+      "path": "apps/web/src/features/settings/SettingsShell.test.tsx",
+      "sha256": "67da10dbd168cd15365353552c111c7f40ef213693436a90edc089a7bb04e32d"
+    },
+    {
+      "path": "apps/web/src/features/settings/SettingsShell.tsx",
+      "sha256": "2a3b4e4853f162ad28d66d4f61b279f8078dbc22d412de267cee986f50ede59a"
+    },
+    {
+      "path": "apps/web/src/features/settings/floor-plans/FloorEditorRoute.test.tsx",
+      "sha256": "61cf2a469c1cd129afdc97667e8c1237e952106f87dcb33d109078d696b3a51f"
+    },
+    {
+      "path": "apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx",
+      "sha256": "8ae3d395b2b487008147c9b63758a45ff07cf7993e731a053d973557bb6bd408"
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.monitoring.test.tsx",
+      "sha256": "83676b15e2acae6c80ff3a3574be32e966a73fbe22d517676be3584241b59be2"
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.test.tsx",
+      "sha256": "aadc9d2e64f5bf4758ac70d07d45f0ca23269cb75815e0e2b0dc56a15c3adeb9"
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.tsx",
+      "sha256": "cd55777af1c8ad4b9e000f12f2ed78923226146dc1aa49f06e230f665c6448f8"
+    },
+    {
+      "path": "apps/web/e2e/cad-import-journey.spec.ts",
+      "sha256": "76975c891ab070a9a24dbf9ecb99be8ff27ad512b3ca822c0897262212072ff6"
+    },
+    {
+      "path": "apps/web/e2e/floor-editor-layout.spec.ts",
+      "sha256": "052c5b16b972470cdafd67346dbe7721f80c61435f14390e12f5363d42654e9c"
+    },
+    {
+      "path": "apps/web/e2e/map-editor-viewport.spec.ts",
+      "sha256": "75b17cfdffa9fcd41b61aa08edd8e0f343e98f6b5080b20b1de8127d77a32e36"
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "renderer-execution-records.json",
+      "sha256": "ee43e4b6665f77bf657fa9261299a9366dedfc0e5e32f4af29fcb2d469b5f98c",
+      "bytes": 18386
+    },
+    {
+      "file": "renderer-webgl-report.json",
+      "sha256": "662a0f4b20f73acdfbcaed5847cfd1cf9d4a86d4498c66516747d6054d6694be",
+      "bytes": 52715
+    },
+    {
+      "file": "panel-1039.png",
+      "sha256": "fcdf39b1140ede8cfb69a59a967f806295824eb85e49c45aa0691400b84f7dd5",
+      "bytes": 99993
+    },
+    {
+      "file": "cad-review-1039.png",
+      "sha256": "1fcba966d6f14acad962b21a9458fa61b93edc942bd14da129fad8d834105985",
+      "bytes": 48424
+    },
+    {
+      "file": "history-1434.png",
+      "sha256": "5e810fe2fff568fb7062afe718b24519d343b2b0fdfb583557863dd363f1a05f",
+      "bytes": 131259
+    }
+  ]
+}
