@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button, NumberField, Slider, Text } from "../../components/ui";
 
 export interface ManualExecutionPanelProps {
@@ -8,10 +8,17 @@ export interface ManualExecutionPanelProps {
   applyLabel: string;
   onBrightnessChange: (value: number) => void;
   onSubmit: () => void;
+  /** Manual mobile presentation only; desktop/default consumers keep all controls expanded. */
+  compact?: boolean;
+  moreContent?: ReactNode;
+  importantStatus?: ReactNode;
 }
 
 /** Draft presentation only: the parent retains command ownership and eligibility. */
-export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit }: ManualExecutionPanelProps) {
+export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus }: ManualExecutionPanelProps) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreId = useId();
+  const moreRef = useRef<HTMLButtonElement>(null);
   const [invalidDraft, setInvalidDraft] = useState(false);
   const [restored, setRestored] = useState("");
   const [inputRevision, setInputRevision] = useState(0);
@@ -50,14 +57,20 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
     setInputRevision(revision => revision + 1); onBrightnessChange(value);
   }
 
-  // Execution reserves intrinsic height; only the independent safety region
-  // consumes residual desktop space, so Apply never shares a fractional pane.
-  return <div className="grid min-h-0 flex-none content-start gap-3 overflow-y-auto overscroll-contain" data-control-panel-body=""
+  // One editable input stays mounted while auxiliary content is disclosed.
+  // Blur/Enter and the first invalid Apply guard remain owned by this draft.
+  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? "h-11 min-h-11! min-w-0 px-2 text-caption" : "max-compact:scroll-mb-shell-navigation-safe"}
+    aria-label={applyLabel} onClick={() => {
+      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
+      if (!rawValid.current || restoring.current || !canSubmit) return;
+      onSubmit();
+    }} disabled={!canSubmit || invalidDraft} data-control-submit="">{compact ? "적용" : applyLabel}</Button>;
+  return <div className={`grid min-h-0 min-w-0 flex-none content-start ${compact ? "gap-1" : "gap-3"}`} data-control-panel-body=""
     onPointerDownCapture={event => {
       if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
     }}>
-    <div className="grid gap-2 border-t border-border-default pt-3" data-control-brightness-card="">
-      <div className="flex items-baseline justify-between gap-3" onInputCapture={captureDraft} onChangeCapture={captureDraft}
+    <div className={`grid min-w-0 ${compact ? "grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1" : "gap-2 border-t border-border-default pt-3"}`} data-control-execution-row="">
+      <div className={`flex min-w-0 ${compact ? "items-center" : "items-baseline justify-between gap-3"}`} onInputCapture={captureDraft} onChangeCapture={captureDraft}
         onBlurCapture={event => {
           if (event.target instanceof HTMLInputElement) {
             if (!rawValid.current && event.relatedTarget === applyRef.current) invalidApplyAttempt.current = true;
@@ -67,29 +80,35 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
         onKeyDownCapture={event => {
           if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
         }}>
-        <Text as="span" variant="label">밝기</Text>
+        <Text as="span" variant="label" className={compact ? "sr-only" : undefined}>밝기</Text>
         <div className="flex min-w-0 items-baseline gap-1">
-          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
-            className="w-20" inputClassName="px-1 text-body text-right"
+          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size={compact ? "sm" : "lg"}
+            className={compact ? "w-12" : "w-20"} inputClassName="px-1 text-body text-right"
             minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
             onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
-          <Text as="span" variant="body" aria-hidden="true">%</Text>
+          <Text as="span" variant="caption" aria-hidden="true">%</Text>
         </div>
       </div>
-      {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
-      {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
-      <Slider aria-label="밝기" presentation="bare" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
+      <Slider aria-label="밝기" presentation="bare" className="min-w-0" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
+      {apply}
+      <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? "h-11 min-h-11! min-w-11 px-2 text-caption" : "hidden"}
+        aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen(value => !value)}>더보기</Button>
+    </div>
+    {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
+    {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
+    {/* Essential warnings stay readable/live even when lengthy recovery UI is closed. */}
+    {compact ? <div hidden={moreOpen}>{importantStatus}</div> : null}
+    {/* Explicit display also honors hidden in the real CSS cascade: a grid
+        utility must not override the browser hidden-attribute default. */}
+    <div id={moreId} hidden={compact && !moreOpen} className={compact && !moreOpen ? "hidden" : compact ? "grid max-h-[25dvh] min-h-0 min-w-0 gap-2 overflow-y-auto overscroll-contain" : "grid min-h-0 gap-3"}
+      data-control-more-content="" onKeyDown={event => {
+        if (compact && event.key === "Escape") { event.stopPropagation(); setMoreOpen(false); moreRef.current?.focus({ preventScroll: true }); }
+      }}>
       <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
         {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className="whitespace-nowrap px-2" aria-pressed={brightness === value && !invalidDraft}
           disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}
       </div>
+      {moreContent}
     </div>
-    <Button ref={applyRef} variant="primary" type="button" className="max-compact:scroll-mb-shell-navigation-safe" onClick={() => {
-      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
-      if (!rawValid.current || restoring.current || !canSubmit) return;
-      onSubmit();
-    }} disabled={!canSubmit || invalidDraft} data-control-submit="">
-      {applyLabel}
-    </Button>
   </div>;
 }

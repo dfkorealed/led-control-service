@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -56,6 +56,7 @@ import {
 } from "./active-command-session";
 import { SpatialTargetSelector } from "./target-selection/SpatialTargetSelector";
 import { ManualExecutionPanel } from "./ManualExecutionPanel";
+import { ManualSelectionPanel } from "./target-selection/ManualSelectionPanel";
 
 const ScheduleControlPanel = lazy(async () => {
   const module = await import("./automation/ScheduleControlPanel");
@@ -560,6 +561,20 @@ export function ControlView({
     void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
   }
 
+  // Command safety outranks an empty/current picker; recovery belongs to the
+  // frozen request even after a site refresh removes its selected fixtures.
+  const importantManualStatus = storageError || verificationError || (hasMismatchedCommandStatus
+    ? "명령 상태 식별자가 일치하지 않아 제어 잠금을 유지합니다."
+    : missingCommand ? "명령 원본 확인 필요 · 제어 잠금을 유지합니다."
+    : detailCommandId && commandQuery.retentionExpired ? "명령 상세 보관 기한이 지나 서버 확인이 필요합니다."
+    : detailCommandId && commandQuery.error && !matchingCommandIsTerminal ? "명령 상태를 불러오지 못했습니다. 더보기에서 다시 조회하세요."
+    : restorePending ? "명령 복구 확인 중"
+    : reconciledOriginalCommandId ? "차단 해제를 확인할 때까지 새 제어는 잠겨 있습니다."
+    : scopedActiveRequest && !scopedCommandId ? (replayRejected ? "안전을 위해 재전송할 수 없습니다. 더보기에서 확인하세요." : "응답을 확인하지 못했습니다. 더보기에서 동일 요청을 확인하세요.")
+    : displayedStatus ? manualCommandSummary(displayedStatus)
+    : isSubmitting ? "명령 전송 중"
+    : message || (readOnly ? "조회 전용" : blockMessage || (controlsLocked ? "새 제어 잠금 · 더보기에서 상태를 확인하세요." : "")));
+
   const modeTabs = <><Heading as="h1" className="sr-only">조명 제어</Heading><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
 
@@ -632,60 +647,13 @@ export function ControlView({
     </section>;
   }
 
-  return (
-    <section className={controlScreenClassName} data-control-screen="">
-      {modeTabs}
-      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)_auto]" data-control-layout="">
-        {/* Subgrid shares the toolbar row without reparenting the live map or
-            command owner across breakpoints; map chrome and aside start together. */}
-        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:overflow-visible compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
-          <SpatialTargetSelector
-            key={data.site.id}
-            siteId={data.site.id}
-            dashboard={data}
-            selection={selection}
-            disabled={controlsLocked}
-            hideEmbeddedSummary
-            presentation="manual-workspace"
-            inspectionPanel={<section aria-label="선택 대상 목록" className="grid min-h-0 gap-3 rounded-panel border border-border-default bg-surface-panel p-3">
-              <div className="flex items-center justify-between gap-2">
-                <Heading as="h3" variant="customer-card-title">선택 조명</Heading>
-                <Button type="button" variant="ghost" disabled={controlsLocked || selectedFixtures.length === 0}
-                  onClick={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }}>선택 해제</Button>
-              </div>
-              {selectedFixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
-                {selectedFixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
-              </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
-            </section>}
-            onChange={(nextSelection) => {
-              setSelection(nextSelection);
-              const nextResolved = resolveControlSelection(data, nextSelection);
-              if (nextSelection.mode === "fixtures" && nextResolved.fixtureIds.length === 1) {
-                const [fixture] = nextResolved.fixtures;
-                if (fixture) setBrightness(fixture.brightness);
-              }
-              setMessage("");
-            }}
-          />
-        </Card>
-
-        <SidePanel className="flex min-h-0 w-full flex-col gap-3 p-3 compact:col-start-2 compact:row-start-2 compact:overflow-hidden" aria-label="밝기 실행" data-control-panel="">
-          <section aria-label="제어 대상" className="grid flex-none gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Text as="strong" variant="customer-metric" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
-              <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
-            </div>
-          </section>
-          <ManualExecutionPanel brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
-                applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
-                onBrightnessChange={setBrightness} onSubmit={submitCommand} />
-          {/* Selection warnings belong below the fixed execution controls so
-              late health/capability text cannot move the dial or Apply action. */}
-          <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:flex-1 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
+  const importantStatus = <div role="status" aria-label="제어 중요 상태" aria-live="polite" aria-atomic="true" className="max-h-20 overflow-y-auto overscroll-contain text-caption">
+                  {importantManualStatus}
+                </div>;
+  const auxiliaryContent = <>
+          {/* Auxiliary recovery stays mounted; the independent live summary
+              above preserves essential warnings while this region is closed. */}
+          <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
           {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
           {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
           <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
@@ -699,14 +667,62 @@ export function ControlView({
             hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
             isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
           </div>
-        </SidePanel>
         <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
           timeZone={data.site.timeZone}
           onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
           disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
           onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
           verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
-          compactDisclosure className="compact:col-span-full compact:row-start-3" />
+          compactDisclosure />
+                </>;
+
+  return (
+    <section className={cn(controlScreenClassName, singleColumnLayout && "h-full gap-1")} data-control-screen="">
+      {modeTabs}
+      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
+      <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
+        {/* Subgrid shares the toolbar row without reparenting the live map or
+            command owner across breakpoints; map chrome and aside start together. */}
+        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
+          <SpatialTargetSelector
+            key={data.site.id}
+            siteId={data.site.id}
+            dashboard={data}
+            selection={selection}
+            disabled={controlsLocked}
+            hideEmbeddedSummary
+            presentation="manual-workspace"
+            compactWorkspace={singleColumnLayout}
+            inspectionPanel={<ManualSelectionPanel key={`${userId}:${data.site.id}:${selection.mode}`} fixtures={selectedFixtures}
+              compact={singleColumnLayout} locked={controlsLocked}
+              onClear={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }} />}
+            onChange={(nextSelection) => {
+              setSelection(nextSelection);
+              const nextResolved = resolveControlSelection(data, nextSelection);
+              if (nextSelection.mode === "fixtures" && nextResolved.fixtureIds.length === 1) {
+                const [fixture] = nextResolved.fixtures;
+                if (fixture) setBrightness(fixture.brightness);
+              }
+              setMessage("");
+            }}
+          />
+        </Card>
+
+        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
+          <section aria-label="제어 대상" className={singleColumnLayout ? "sr-only" : "grid flex-none gap-3"}>
+            <div className="flex items-center justify-between gap-2">
+              <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Text as="strong" variant="customer-metric" aria-live={singleColumnLayout ? undefined : "polite"} aria-atomic="true">{selectedFixtures.length}개 선택</Text>
+              <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
+            </div>
+          </section>
+          <ManualExecutionPanel key={`${userId}:${data.site.id}`} compact={singleColumnLayout} importantStatus={importantStatus}
+            moreContent={auxiliaryContent} brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+                applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+                onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+        </SidePanel>
       </div>
       <CommandVerificationCases key={`${userId}:${data.site.id}`} open={verificationCasesOpen} siteId={data.site.id} userId={userId}
         canControl={canControl} canManage={canManage} originalCommandId={missingCommand ? scopedCommandId ?? undefined : undefined}
@@ -717,6 +733,12 @@ export function ControlView({
       </div>
     </section>
   );
+}
+
+function manualCommandSummary(status: CommandStatusResponse) {
+  const result = presentRecentCommandResult(status);
+  return result.kind === "completed" ? result.label : result.kind === "pending" ? "명령 처리 중"
+    : result.kind === "verification" ? "실제 상태 확인 필요" : "결과 미확정 · 실제 상태를 확인해 주세요.";
 }
 
 function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolean, readOnly: boolean, selectedFixtureCount: number) {
@@ -781,16 +803,10 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
   const result = presentRecentCommandResult(displayedStatus);
   const hasFeedback = Boolean(scopedActiveRequest || scopedCommandId || isSubmitting || message || verificationError
     || displayedStatus || hasMismatchedCommandStatus || (detailCommandId && (missingCommand || retentionExpired || commandError)));
-  // The two-column workspace reserves space for execution controls above.
-  // Contain only desktop feedback sizing so long results cannot enlarge that
-  // row; all warnings/actions remain reachable by scrolling this positive-height
-  // pane. Single-column layouts retain their original natural document flow.
-  // Max-content rows prevent the status actions shrinking under inline details;
-  // overflow is handled by the pane, never by overlapping or clipping buttons.
-  // Size-query units give the nested detail the actual residual pane height,
-  // not its max-content grid row height. The outer pane still scrolls all
-  // warnings/actions; the inner viewport must fit wholly inside that pane.
-  return <div className={`grid min-h-0 min-w-0 flex-none content-start gap-3 ${hasFeedback ? "compact:min-h-40" : ""} compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[container-type:size]`} data-control-panel-feedback="">
+  // This component stays mounted in More. Its owner/query/UUID and detail
+  // disclosure survive closing the presentation; the containing scrollport
+  // owns long recovery content instead of hiding it with an overflow clip.
+  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3" data-control-panel-feedback="">
     {hasFeedback ? <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading> : null}
     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
       {scopedActiveRequest && !scopedCommandId && !replayRejected ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>

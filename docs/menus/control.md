@@ -1,5 +1,36 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 신규 지도 의견 C6–8 — 수동 제어
+
+### 구현 완료
+
+- 수동 제어 PC의 선택 대상 패널은 empty 상태에도 지도 행 높이를 소비하도록 구성하며, 선택 이름 목록은 해당 패널 내부 스크롤로 제한한다. 기존 resolved selection/UUID/clear/lock을 소비한다.
+- 모바일은 지도 아래 `선택 조명 N개`와 바로 다음 `전체 보기`로 같은 패널의 이름 목록을 인라인으로 펼친다. 목록을 닫거나 Escape로 닫으면 opener로 포커스를 복원하고, 현장·주체·층·선택 방식 경계에서 펼침을 초기화한다. 이 펼침을 위해 새 drawer/query를 만들지 않는다. 기존 전체 조명 목록 버튼의 drawer는 유지한다.
+- 권한이 확인된 manual-active 모바일만 finite h-dvh/min-h-0 shell과 기존 navigation safe reserve를 소비한다. 선택 toolbar는 층/선택 범위 dropdown/목록 icon 한 행, 실행은 숫자/slider/적용/더보기 한 행으로 구성한다. 자동화·그룹 관리·editor·embedded의 높이/renderer 기본 정책은 유지한다.
+- 빠른 값·이력·긴 복구 상세는 `더보기` 내부 스크롤에 유지하며, 접어도 명령 소유자/query/UUID를 제거하지 않는다. 중요한 조회 오류·불확정·확인 필요·잠금 상태는 접힌 상태에도 live summary로 남긴다. raw draft31·invalid blur/Enter·첫 invalid Apply 차단·별도 explicit Apply를 유지한다.
+- 선택적 `FloorMapViewport.compactChrome`은 수동 모바일 caller만 소비한다. 축소·100%·확대·화면 맞춤의 기존 동작, camera/renderer/gesture 수명과 기본 footer 최소240은 유지한다. compact caller는 실제 남은 높이를 사용하며 작은 화면에 강제 최소 높이를 두고 부모에서 잘라내지 않는다.
+
+### 미구현
+
+- 실제 브라우저의 PC panel full-row/empty/long list, 320·390×600 canvas240 목표, map 우세 비율·nav reserve·44px hit·한 행·document scroll0 검증은 총괄의 한정 Task3 QA 관문이다.
+- 물리 WebView/touch/safe-area·Gateway/RF/HIL 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 현재 검증은 직접 React 소비자의 명령·draft·selection·scope·default 수명 계약이다. CSS class 문자열 확인이나 JSDOM 크기를 실제 기하 통과로 해석하지 않는다. compact viewport는 min-h-0이므로 실제 chrome이 남긴 공간이240보다 작을 수 있으며 QA에서 수치와 모든 끝 내용의 도달을 확인해야 한다.
+- desktop 이력은 단일 실행 보조 영역에 유지하고 모바일에 같은 노드를 더보기로 접는다. query/명령 소유자를 복제하지 않았다. 동시에 선택 목록·More를 펼친 짧은 화면, 큰 글꼴·긴 오류·층/구역 목록·본문 마지막 action과 drawer 반환 focus는 실제 QA가 남아 있다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`, `ManualExecutionPanel.tsx` 및 직접 테스트.
+- `apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx`, `SpatialTargetSelector.tsx`, `TargetSelectionToolbar.tsx` 및 직접 테스트.
+- `apps/web/src/features/shells/CustomerShell.tsx`, `features/floor-map/FloorMapViewport.tsx` 및 직접 테스트.
+
+### 갱신 규칙
+
+- 수동 모바일 finite shell/선택 펼침/More 변경은 raw draft·explicit Apply·명령 복구/UUID·권한·scope/camera 수명을 함께 확인한다. 기본 embedded/자동화/다른 route에 compact 정책을 퍼뜨리지 않는다.
+- source/direct test 완료와 실제 browser 기하·최종 QA·독립 review·MAIN 통합 상태를 구분하고, 실제 검증 뒤240 목표·44px·문서/내부 scroll 결과를 기록한다.
+
 ## 2026-10-11 신규 조작 의견 — 현장명 단순화
 
 ### 구현 완료

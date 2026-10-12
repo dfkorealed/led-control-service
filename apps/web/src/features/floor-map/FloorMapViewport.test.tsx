@@ -17,6 +17,20 @@ const snapshot: FloorMapSnapshot = {
 describe("FloorMapViewport", () => {
   afterEach(() => cleanup());
 
+  it("C6-8 optional compact chrome preserves the live viewport and default footer contract", () => {
+    const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="compact map" controlsPlacement="footer" footerStart={<span>범례</span>} compactChrome><span /></FloorMapViewport>);
+    const viewport = screen.getByRole("region", { name: "compact map" });
+    const surface = viewport.querySelector("[data-floor-map-surface]");
+    expect(surface).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+    view.rerender(<FloorMapViewport snapshot={snapshot} ariaLabel="compact map" controlsPlacement="footer" footerStart={<span>범례</span>}><span /></FloorMapViewport>);
+    expect(screen.getByRole("region", { name: "compact map" })).toBe(viewport);
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+    expect(viewport.querySelector("[data-floor-map-surface]")).toBe(surface);
+    expect(screen.getByRole("button", { name: "지도 화면 맞춤" })).toBeInTheDocument();
+  });
+
   it.each(["touch", "mouse"])("manual-cad pans from a marker with %s navigation without a ghost click", pointerType => {
     const toggle = vi.fn(), select = vi.fn();
     render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);

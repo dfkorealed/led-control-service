@@ -73,6 +73,8 @@ export interface FloorMapViewportProps {
   showControls?: boolean;
   controlsPlacement?: "overlay" | "footer";
   footerStart?: ReactNode;
+  /** Opt-in manual mobile chrome; geometry/gesture defaults are unchanged. */
+  compactChrome?: boolean;
   wheelZoomWithoutModifier?: boolean;
   showFitControl?: boolean;
   resetControlFits?: boolean;
@@ -114,6 +116,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   showControls = true,
   controlsPlacement = "overlay",
   footerStart,
+  compactChrome = false,
   wheelZoomWithoutModifier = false,
   showFitControl = true,
   resetControlFits = false,
@@ -708,21 +711,21 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   // retain their placement. The viewport/renderer subtree never changes owner.
   const combinedFooter = controlsPlacement === "footer" && footerStart != null;
   const cameraControls = showControls ? (
-    <div className={cn("flex items-center gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
-      <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
-      <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
-      <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
+    <div className={cn("flex items-center", compactChrome ? "gap-0" : "gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
+      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
+      <Button type="button" variant="ghost" size="sm" className={compactChrome ? "min-h-11! min-w-11 px-1" : "min-w-14 px-2 max-compact:min-h-13"} aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
+      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
       {controlAfterZoom}
-      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
+      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
     </div>
   ) : null;
 
   return (
     <FloorMapViewportOverlayContext.Provider value={overlayContext}>
-    <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && "flex min-h-min flex-col")}>
+    <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && `flex ${compactChrome ? "min-h-0" : "min-h-min"} flex-col`)}>
       <div
         ref={viewportRef}
-        className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && "min-h-[240px] flex-1 [contain:size]")}
+        className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && `${compactChrome ? "min-h-0" : "min-h-[240px]"} flex-1 [contain:size]`)}
         data-testid={viewportTestId}
         onKeyDown={event => {
           if (event.target === event.currentTarget) {
@@ -772,7 +775,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
           </div>
         </div>
       </div>
-      {combinedFooter ? <div data-floor-map-footer="" className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5">
+      {combinedFooter ? <div data-floor-map-footer="" className={cn("flex min-w-0 shrink-0 items-center justify-between border-t border-border-default bg-surface-panel", compactChrome ? "gap-1 px-1 py-1" : "flex-wrap gap-2 px-3.5 py-2.5")}>
         <div className="min-w-0">{footerStart}</div>{cameraControls}
       </div> : cameraControls}
     </div>
