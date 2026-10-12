@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 실제 INPUT continuous44 실패 후 compact 부모 모서리 보완
+
+### 구현 완료
+
+- 수동 모바일 실행 SidePanel만 `rounded-none!`을 사용한다. padding0/border0인 부모의14px card 모서리가 가장자리 숫자 입력·더보기 hit를 잘라내는 예외를 제거한다. 공통 SidePanel/Card·PC/default 모서리·배경·scroll owner와 실행 행/지도 높이는 유지한다.
+- 앞선 compact Slider 양끝28px 여백과 숫자 입력 사각 모서리를 유지한다. handler·native input/ref·draft/invalid 복원·첫 Apply 차단·명령 UUID/frozen request/query는 변경하지 않았다.
+
+### 미구현
+
+- 새 source의320×600 INPUT·thumb0/100·Apply/More continuous44, 지도240+·aux/invalid 후속 stage actual은 총괄 source freeze 뒤 case3 한정 UX 관문이다. 본 담당 browser 실행0, 이미 통과한 case5 재검사0.
+
+### 부족하거나 개선이 필요한 기능
+
+- f28ea638 실제 case3에서 INPUT `밝기 수치` x8/y480/48×44 continuous44=false가 확정됐다. thumb0은 입력과 분리됐지만 outer SidePanel rounded14px/overflow clipping이 남았다. 44높이에 세로 여유0·48너비에 가로 여유4px이므로 맨 위 radius edge 약10px를 피하는44 정사각형을 확보할 수 없다.
+- source·원본 PNG·실측 좌표 대조를 바탕으로 최소 수리했다. 직접 React 동작 회귀·class 선언은 실제 geometry GREEN이 아니다. 원 actual RED와 미도달 stage를 보존하고 실제 OS touch/keyboard·장비/HIL 검증은 별도로 남긴다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`의 수동 실행 SidePanel caller와 Control/ManualExecution/Shell/Spatial/Viewport 직접 소비자 회귀.
+- 무변경 공통 `apps/web/src/components/ui/{SidePanel,Card}.tsx`, `styles/theme.css`의 radius token 및 `features/control/ManualExecutionPanel.tsx`.
+
+### 갱신 규칙
+
+- 가장자리 control의 actual continuous44는 input/button 자체뿐 아니라 rounded/overflow ancestor를 함께 확인한다. 공통/default card 정책을 변경하지 않고 compact caller의 예외를 주석으로 남긴다.
+- 원 f28 INPUT RED·source/hash/cohort·후속 실제 case3 판정을 분리한다. 지도 높이·scroll owner·raw/첫 Apply·UUID/frozen 복구 계약을 유지한다.
+
 ## 2026-10-12 실제 Home→0 실패 후 수동 compact 슬라이더 양끝 보완
 
 ### 구현 완료

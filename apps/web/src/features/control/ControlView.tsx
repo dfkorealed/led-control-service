@@ -726,7 +726,10 @@ export function ControlView({
           />
         </Card>
 
-        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
+        {/* With compact padding removed, the card radius clips the edge
+            inputs/buttons below a continuous 44px hit area. Square only this
+            mobile surface; retain the shared scroll owner and desktop card. */}
+        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 rounded-none! border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
           <section aria-label="제어 대상" className={singleColumnLayout ? "sr-only" : "grid flex-none gap-3"}>
             <div className="flex items-center justify-between gap-2">
               <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
