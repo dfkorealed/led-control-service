@@ -6,6 +6,8 @@
 
 - 사용자 신규 C1–8의 모니터링 제스처·알람센터·한 행 도구·지도 하단 상세, 수동 제어 선택 목록·지도 우선 모바일·간소화 밝기 구성을 승인받았다. 기존 모니터링/제어/UI·UX 담당 audit와 [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)를 기준으로 순차 구현한다.
 - clean MAIN `f31e56fa`에서 `.worktrees/map-workspace-comments-20261012` / `codex/map-workspace-comments-20261012`을 만들었다. 구현·직접 테스트·실제 UI/UX 검증·로컬 병합은 아직이다. 운영 인사이트·다른 메뉴/API/DB/실장비/기존 서비스/원격 변경은 없다. 과거 완료 증거와 이번 관문을 합산하지 않는다.
+- frozen offline install/workspace prepare exit0·계획 자기 점검·독립 Task1 brief 준비를 확인했다. 모니터링 담당이 C1–5 단독 writer로 구현하고 QA 담당은 기존 harness의 한정 case 구성만 감사한다. 제어 구현·실제 browser·UI/UX·최종 review/머지는 아직이다.
+- 사용자가 담당자는 기존 앱의 별도 페이지 세션이라고 정정하여 내부 추가 구현을 중단했다. `모니터링 페이지 담당자`/`제어 페이지 담당자`/`UI/UX 디자이너`에 직접 인계했다. 내부 모니터링 checkpoint `ac323a3d` 소유5파일과 원 실패·126PASS/1FAIL 뒤 경계/시각/gesture 국소 GREEN을 보존(최종127 일괄PASS 아님)했고 원 세션이 이를 인수해 진행한다. 내부 제어 제품diff0/QA실행0이며 실제검수·최종관문·머지는 아직이다. 제어 세션의 별도 장비 작업은 안전한 경계와 기존 승인 관문을 보존한다.
 
 ## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증·승인된 로컬 통합 완료
 
