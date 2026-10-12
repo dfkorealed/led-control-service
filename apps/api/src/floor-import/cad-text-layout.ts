@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
+import { decodeCadMText } from "./cad-text-decoder";
 
 interface CadFontData {
   font: ReturnType<typeof fontkit.create>;
@@ -20,6 +21,7 @@ export interface CadTextGlyph {
 export interface CadTextWalkOptions {
   maxGlyphs?: number;
   consumeGlyph?: () => void;
+  textFormat?: "text" | "mtext";
 }
 
 let fonts: CadFontData[] | undefined;
@@ -70,6 +72,10 @@ export function sanitizeCadText(value: string): string {
   }).join("").replace(/[\r\n]/g, " ");
 }
 
+export function prepareCadText(value: string, format: "text" | "mtext" = "text"): string {
+  return sanitizeCadText(format === "mtext" ? decodeCadMText(value) : value);
+}
+
 function loadFonts(): CadFontData[] {
   fonts ??= ["NotoSansKR-Regular.ttf", "NotoEmoji.ttf"].map(filename => {
     const font = fontkit.create(readFileSync(join(__dirname, "../assets/fonts", filename)));
@@ -88,7 +94,7 @@ export function forEachCadTextGlyph(
   if (!Number.isFinite(height) || height <= 0) throw new Error("Invalid CAD text height");
   const maxGlyphs = options.maxGlyphs ?? DEFAULT_MAX_GLYPHS;
   if (!Number.isInteger(maxGlyphs) || maxGlyphs < 1) throw new Error("Invalid CAD text glyph limit");
-  const text = sanitizeCadText(value);
+  const text = prepareCadText(value, options.textFormat);
   const availableFonts = loadFonts();
   let penX = 0;
   let penY = 0;

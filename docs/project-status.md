@@ -26,6 +26,13 @@
 
 - 사용자 후속 답변으로 ‘지도 크기 유지 + 목록/More를 한 번에 하나씩 여는 지도 하단 보조 패널’을 승인받았다. 기존 표현 선택 대기는 당시 이력이며 지정 `제어 UI 개선 담당자`만 모바일 기본 지도 확대·상호배타 패널 수리를 재개한다. UX 원 세션은 동일6고유 case 준비만 갱신하고 최종 source 인계 후 실제 재검증한다. PC/다른모드·원 command/query/draft/renderer·44px/중요 상태/nav는 보존한다. 아직 수리 완료·실측 통과·최종 review·MAIN 병합 주장은 없다.
 
+## 2026-10-12 CAD 가져오기·치수·문자 보완 — 구현·검증 완료, 총괄 로컬 병합 대기
+
+- 첫 파일은 실제 CP949 bytes를 UTF-8로 강제 해석하던 제품 child 오류였다. bounded 파일 입력·엄격한 CP949 확장 문자·UTF-8 우선 정책으로 교정했고 잘못된/중복된 선언은 거부한다. 두 번째 파일은 DIMENSION 정의점의 중복 이동과 MTEXT 서식 literal 표시를 교정했다. 파일 이름별 예외 처리는 없다.
+- CAD 집중 8 suites 224 PASS/기존 opt-in 4 SKIP, API typecheck/build 및 독립 리뷰 C/I/M0을 확인했다. 격리 PostgreSQL·MinIO를 사용한 두 첨부 DWG의 변환→공통 맵 적용→fresh editor/readonly reader 재조회는 2/2 PASS(219/397 요소, `디에프코리아` plain text 2개)다. 원본 SHA256·실제 장비 개수는 보존한다.
+- 사람의 총괄 지시에 따라 `codex/cad-import-corrections-20261012`로 소유 변경을 분리하고 MAIN 외부 문서·서버를 보존했다. 고정 `be35ba10`의 마지막 API 전체 검사는 264 suites/3,266 tests PASS·기존 환경 84 suites/1,209 tests SKIP·FAIL0·exit0이다. 앞선 전체의 pnpm11/9.15 하위 경로 오류 1 FAIL을 보존하고, 공식 로컬 shim 정합성 수정 후 동일 검사와 전체 GREEN으로 재검증했다. 최초 Prisma 생성 불일치·수정 중 module cache·분리 의존성 누락은 완료 근거에서 제외한다. [기존 실행 계획](superpowers/plans/2026-09-18-cad-native-map-rendering.md)에 원 결과·실행 명령·최종 증거·리뷰를 기록했다. 정상 로컬 병합·API reload·실제 로그인 브라우저 재적용은 총괄이 진행하며 이 담당자는 MAIN·서비스를 직접 변경하지 않는다.
+- 기존 저장 맵은 자동 backfill하지 않으며 재가져오기/적용이 필요하다. 원래 글꼴·MTEXT attachment/다중행 배치·SOLID 화살표·비평면 OCS의 완전한 시각적 재현과 실제 로그인 브라우저 재적용은 이번 자동 검증으로 완료 처리하지 않는다. DB migration·현장 초기화·장비/운영 변경은 없다.
+
 ## 2026-10-12 AWS Agent Toolkit — 로컬 설정·실제 연결 검증 완료
 
 - [x] `uv 0.13.0`·AWS CLI `2.37.12` 설치를 확인했다. `kinda` 프로필의 선택 리전은 `ap-southeast-2`이며, CLI STS 접근과 자격 증명 출처 `login`을 확인했다. 이전 대기 요청의 만료로 닫힌 loopback 콜백 페이지와 현재 사용 가능한 인증 상태를 구분한다.

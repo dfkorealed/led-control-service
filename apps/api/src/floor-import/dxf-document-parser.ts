@@ -1,4 +1,6 @@
 import { Buffer } from "node:buffer";
+import { open } from "node:fs/promises";
+import { createStrictDxfDecoder, decodeDxfBuffer, detectDxfFileEncoding, DXF_ENCODING_CHUNK_BYTES } from "./dxf-file-encoding";
 import {
   CAD_MAX_PARSED_COORDINATES,
   CAD_MAX_PARSED_ENTITIES,
@@ -100,9 +102,10 @@ async function* readStreamingPairs(
   input: AsyncIterable<Buffer | string> | Iterable<Buffer | string>,
   limits: DxfParserLimits,
   checkBudget: () => void,
-  ignoreRemaining: () => boolean = () => false
+  ignoreRemaining: () => boolean = () => false,
+  encoding = "utf-8"
 ): AsyncGenerator<DxfPair> {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const decoder = createStrictDxfDecoder(encoding);
   let pending = "";
   let bytesRead = 0;
   let codeLine: { code: number; line: number } | null = null;
@@ -811,9 +814,9 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
   const limits = resolveLimits(options);
   const bytes = typeof input === "string" ? Buffer.byteLength(input, "utf8") : input.byteLength;
   if (bytes > limits.maxInputBytes) throw new Error("DXF input limit exceeded");
-  const source = typeof input === "string" ? input : input.toString("utf8");
-  if (source.includes("\0")) throw new Error("Malformed DXF input contains NUL");
   const checkBudget = createBudgetCheck(limits);
+  const source = typeof input === "string" ? input : decodeDxfBuffer(input, limits.maxInputBytes, checkBudget);
+  if (source.includes("\0")) throw new Error("Malformed DXF input contains NUL");
   const builder = new DxfDocumentBuilder(limits, checkBudget);
   for (const pair of readBufferedPairs(source, limits, checkBudget)) {
     builder.accept(pair);
@@ -822,14 +825,43 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
   return builder.finish();
 }
 
-export async function parseAsciiDxfStream(
-  input: AsyncIterable<Buffer | string> | Iterable<Buffer | string>, options: Partial<DxfParserLimits> = {}
+async function parseDxfStream(
+  input: AsyncIterable<Buffer | string> | Iterable<Buffer | string>, limits: DxfParserLimits,
+  checkBudget: () => void, encoding: string
 ): Promise<NormalizedCadDocument> {
-  const limits = resolveLimits(options);
-  const checkBudget = createBudgetCheck(limits);
   const builder = new DxfDocumentBuilder(limits, checkBudget);
-  for await (const pair of readStreamingPairs(input, limits, checkBudget, () => builder.isOpaqueTail())) {
+  for await (const pair of readStreamingPairs(input, limits, checkBudget, () => builder.isOpaqueTail(), encoding)) {
     builder.accept(pair);
   }
   return builder.finish();
+}
+
+export interface DxfStreamParserOptions extends Partial<DxfParserLimits> {
+  encoding?: string;
+}
+
+export async function parseAsciiDxfStream(
+  input: AsyncIterable<Buffer | string> | Iterable<Buffer | string>, options: DxfStreamParserOptions = {}
+): Promise<NormalizedCadDocument> {
+  const limits = resolveLimits(options);
+  return parseDxfStream(input, limits, createBudgetCheck(limits), options.encoding ?? "utf-8");
+}
+
+export async function parseAsciiDxfFile(path: string, options: Partial<DxfParserLimits> = {}): Promise<NormalizedCadDocument> {
+  const limits = resolveLimits(options);
+  const checkBudget = createBudgetCheck(limits);
+  const handle = await open(path, "r");
+  try {
+    checkBudget();
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error("DXF input must be a regular file");
+    if (stat.size > limits.maxInputBytes) throw new Error("DXF input limit exceeded");
+    // Reuse the same read-only descriptor across both passes. Memory is bounded
+    // to stream chunks + HEADER prefix; both passes share wall/CPU budgets.
+    const stream = () => handle.createReadStream({ start: 0, autoClose: false, highWaterMark: DXF_ENCODING_CHUNK_BYTES });
+    const encoding = await detectDxfFileEncoding(stream(), limits.maxInputBytes, checkBudget);
+    return await parseDxfStream(stream(), limits, checkBudget, encoding);
+  } finally {
+    await handle.close();
+  }
 }

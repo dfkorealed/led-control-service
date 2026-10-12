@@ -1,8 +1,7 @@
-import { createReadStream } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { CAD_RENDERED_SVG_MAX_BYTES, renderCadDocumentSvgFile } from "./cad-svg-renderer";
-import { parseAsciiDxfStream } from "./dxf-document-parser";
+import { parseAsciiDxfFile } from "./dxf-document-parser";
 import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
 import { createCadViewport, measureCadCandidateSvgTransformMatch, projectCadPointToViewport } from "./cad-viewport";
 import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "./lighting-detector-registry";
@@ -40,7 +39,7 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
   if (!rules.profileVersion || !rules.profileDigest || rules.profileId !== request.profileId) {
     throw new Error("CAD detector profile metadata mismatch");
   }
-  const document = await parseAsciiDxfStream(createReadStream(request.dxfPath));
+  const document = await parseAsciiDxfFile(request.dxfPath);
   const ruleCandidates = await rules.detect(document);
   const aiCandidates = await new DisabledAiLightingSymbolDetector().detect(document);
   const detectedCandidates = [...ruleCandidates, ...aiCandidates];

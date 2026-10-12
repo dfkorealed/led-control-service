@@ -70,6 +70,9 @@ importers:
       earcut:
         specifier: 2.2.4
         version: 2.2.4
+      iconv-lite:
+        specifier: 0.7.3
+        version: 0.7.3
       ioredis:
         specifier: ^5.4.2
         version: 5.11.1

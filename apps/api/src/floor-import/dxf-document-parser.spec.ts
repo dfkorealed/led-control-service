@@ -1,6 +1,8 @@
 import { createReadStream, readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_DXF_PARSER_LIMITS, parseAsciiDxf, parseAsciiDxfStream } from "./dxf-document-parser";
+import { DEFAULT_DXF_PARSER_LIMITS, parseAsciiDxf, parseAsciiDxfFile, parseAsciiDxfStream } from "./dxf-document-parser";
 import { createCadViewport, projectCadPointToViewport } from "./cad-viewport";
 
 const pair = (code: number, value: string | number) => `${code}\n${value}\n`;
@@ -26,6 +28,140 @@ function syntheticDxf(): string {
 }
 
 describe("ASCII DXF document parser", () => {
+  describe("byte encoding", () => {
+    const encodedFixture = (name: Buffer, version = "AC1015", codepage = "ANSI_949") => Buffer.concat([
+      Buffer.from([pair(0, "SECTION"), pair(2, "HEADER"), pair(9, "$ACADVER"), pair(1, version),
+        pair(9, "$DWGCODEPAGE"), pair(3, codepage), pair(0, "ENDSEC"),
+        pair(0, "SECTION"), pair(2, "ENTITIES"), pair(0, "LINE"), pair(5, "L1"), "8\n"].join("")),
+      name, Buffer.from(["\n", pair(10, 0), pair(20, 0), pair(11, 10), pair(21, 10),
+        pair(0, "ENDSEC"), pair(0, "EOF")].join(""))
+    ]);
+    const korean = Buffer.from([0xb0, 0xa1, 0x81, 0x41]);
+
+    it("decodes declared CP949 instead of silently replacing invalid UTF-8", () => {
+      expect(parseAsciiDxf(encodedFixture(korean)).entities[0].layer).toBe("\uac00\uac02");
+    });
+
+    it("prioritizes actual UTF-8 bytes over a LibreDWG ANSI_949 declaration", async () => {
+      const bytes = encodedFixture(Buffer.from("\uac00\uac02"));
+      expect(parseAsciiDxf(bytes).entities[0].layer).toBe("\uac00\uac02");
+      expect((await parseAsciiDxfStream([...bytes].map(byte => Buffer.from([byte])))).entities[0].layer).toBe("\uac00\uac02");
+    });
+
+    it("supports explicit legacy stream encoding across every byte boundary", async () => {
+      const options = { encoding: "euc-kr", maxInputBytes: DEFAULT_DXF_PARSER_LIMITS.maxInputBytes };
+      const chunks = [...encodedFixture(korean)].map(byte => Buffer.from([byte]));
+      expect((await parseAsciiDxfStream(chunks, options)).entities[0].layer).toBe("\uac00\uac02");
+    });
+
+    it("keeps generic streams strict UTF-8 without automatic fallback", async () => {
+      await expect(parseAsciiDxfStream([encodedFixture(korean)])).rejects.toThrow(/encoding|UTF-8/i);
+    });
+
+    it.each(["AC1021", "AC1032"])("forces UTF-8 for %s despite an ANSI_949 declaration", version => {
+      expect(() => parseAsciiDxf(encodedFixture(korean, version))).toThrow(/UTF-8/i);
+    });
+
+    it("rejects unsupported declared codepages for invalid UTF-8", () => {
+      expect(() => parseAsciiDxf(encodedFixture(korean, "AC1015", "ANSI_9999"))).toThrow(/code.?page|encoding/i);
+    });
+
+    it("rejects malformed UTF-8 without a HEADER instead of preserving replacement characters", () => {
+      const bytes = Buffer.concat([Buffer.from("0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n"),
+        Buffer.from([0xff]), Buffer.from("\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDSEC\n0\nEOF\n")]);
+      expect(() => parseAsciiDxf(bytes)).toThrow(/encoding|UTF-8/i);
+    });
+
+    it("strictly rejects incomplete CP949 sequences even with a supported header", () => {
+      expect(() => parseAsciiDxf(encodedFixture(Buffer.from([0x81])))).toThrow(/encoding/i);
+    });
+
+    it("decodes supported Windows-1252 bytes only after UTF-8 fails", () => {
+      expect(parseAsciiDxf(encodedFixture(Buffer.from([0x63, 0x61, 0x66, 0xe9]), "AC1015", "ANSI_1252"))
+        .entities[0].layer).toBe("caf\u00e9");
+    });
+
+    async function withFile(bytes: Buffer, check: (path: string) => Promise<void>): Promise<void> {
+      const directory = await mkdtemp(join(tmpdir(), "dxf-file-encoding-"));
+      try {
+        const path = join(directory, "input.dxf");
+        await writeFile(path, bytes);
+        await check(path);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+
+    it.each([
+      ["CP949", korean], ["actual UTF-8", Buffer.from("\uac00\uac02")]
+    ])("keeps %s file and buffered names identical under ANSI_949", async (_name, name) => {
+      const bytes = encodedFixture(name);
+      await withFile(bytes, async path => {
+        const parsed = await parseAsciiDxfFile(path);
+        expect(parsed.entities[0].layer).toBe("\uac00\uac02");
+        expect(parsed).toEqual(parseAsciiDxf(bytes));
+      });
+    });
+
+    it.each([65533, 65535])("preserves CP949 characters starting at byte %i across the production chunk boundary", async offset => {
+      const header = Buffer.from("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$DWGCODEPAGE\n3\nANSI_949\n0\nENDSEC\n");
+      const beforeName = Buffer.from("\n0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n");
+      const padding = Buffer.from(("999\n" + "x".repeat(1000) + "\n").repeat(64));
+      const remainder = offset - header.length - padding.length - beforeName.length - Buffer.byteLength("999\n");
+      const bytes = Buffer.concat([header, padding, Buffer.from("999\n" + "x".repeat(remainder)), beforeName,
+        korean, Buffer.from("\n10\n0\n20\n0\n11\n10\n21\n10\n0\nENDSEC\n0\nEOF\n")]);
+      await withFile(bytes, async path => {
+        expect((await parseAsciiDxfFile(path)).entities[0].layer).toBe("\uac00\uac02");
+      });
+    });
+
+    it.each(["AC1021", "AC1032"])("rejects legacy bytes in %s files", async version => {
+      await withFile(encodedFixture(korean, version), async path => {
+        await expect(parseAsciiDxfFile(path)).rejects.toThrow(/UTF-8/i);
+      });
+    });
+
+    it("rejects unsupported codepages in files", async () => {
+      await withFile(encodedFixture(korean, "AC1015", "ANSI_9999"), async path => {
+        await expect(parseAsciiDxfFile(path)).rejects.toThrow(/code.?page|encoding/i);
+      });
+    });
+
+    it("does not replace invalid bytes in headerless files", async () => {
+      await withFile(Buffer.concat([Buffer.from("0\nEOF\n999\n"), Buffer.from([0xff])]), async path => {
+        await expect(parseAsciiDxfFile(path)).rejects.toThrow(/encoding|UTF-8/i);
+      });
+    });
+
+    it("enforces strict fallback decoding and line limits on the second pass", async () => {
+      await withFile(encodedFixture(Buffer.from([0x81])), async path => {
+        await expect(parseAsciiDxfFile(path)).rejects.toThrow(/encoding/i);
+      });
+      await withFile(encodedFixture(Buffer.concat([Buffer.alloc(65, 0x61), korean])), async path => {
+        await expect(parseAsciiDxfFile(path, { maxLineBytes: 64 })).rejects.toThrow(/line byte limit/i);
+      });
+    });
+
+    it("bounds file bytes without charging the two passes as twice the input size", async () => {
+      const bytes = encodedFixture(korean);
+      await withFile(bytes, async path => {
+        await expect(parseAsciiDxfFile(path, { maxInputBytes: bytes.length - 1 })).rejects.toThrow(/input limit/i);
+        expect((await parseAsciiDxfFile(path, { maxInputBytes: bytes.length })).entities[0].layer).toBe("\uac00\uac02");
+      });
+    });
+
+    it.each(["wall", "CPU"])("shares the %s budget across validation and parsing", async kind => {
+      await withFile(encodedFixture(korean), async path => {
+        // A small file has six budget checks in validation/setup. Advancing the
+        // shared clock only after those checks detects any second-pass reset.
+        let checks = 0;
+        const clock = () => ++checks <= 7 ? 0 : 2;
+        const options = kind === "wall" ? { maxDurationMs: 1, now: clock } : { maxCpuMs: 1, cpuNow: clock };
+        await expect(parseAsciiDxfFile(path, options)).rejects.toThrow(new RegExp(`${kind}.*limit`, "i"));
+      });
+    });
+  });
+
   it.each([0, 1, 2])("preserves HATCH style %i and full boundary flags in buffered/streaming parsing", async hatchStyle => {
     const rings = [7, 22, 66].map((flags, i) => [pair(92, flags), pair(73, 1), pair(93, 3),
       pair(10, i), pair(20, i), pair(10, i + 10), pair(20, i), pair(10, i), pair(20, i + 10)].join(""));
@@ -268,7 +404,7 @@ describe("ASCII DXF document parser", () => {
       .toThrow(/normalized output limit/i);
   });
 
-  it("applies DIMENSION group 12 and block base point to anonymous block bounds", () => {
+  it("applies DIMENSION group 12 and block base point without adding definitionPoint to anonymous block bounds", () => {
     const dxf = [
       pair(0, "SECTION"), pair(2, "BLOCKS"), pair(0, "BLOCK"), pair(2, "*D1"), pair(10, 2), pair(20, 3),
       pair(0, "LINE"), pair(5, "DL"), pair(10, 2), pair(20, 3), pair(11, 12), pair(21, 3),
@@ -280,7 +416,7 @@ describe("ASCII DXF document parser", () => {
 
     const parsed = parseAsciiDxf(dxf);
     expect(parsed.entities[0]).toMatchObject({ type: "dimension", blockPosition: { x: 5, y: -10, z: 0 } });
-    expect(parsed.bounds).toEqual({ minX: 105, minY: 190, maxX: 115, maxY: 190 });
+    expect(parsed.bounds).toEqual({ minX: 5, minY: -10, maxX: 15, maxY: -10 });
   });
 
   it("validates WIPEOUT and HATCH declared boundary counts", () => {
