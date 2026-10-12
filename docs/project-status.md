@@ -6,8 +6,9 @@
 
 - 사용자가 수동 배포 지시를 변경하고 서울 리전의 직접 배포를 요청했다. `kinda.dfkorealed.com`, 호스팅케이알 DNS 유지, `WEB_DEPLOY_MODE=landing` 범위를 유지하며 [실행 체크리스트 Task5](superpowers/plans/2026-10-11-web-deploy-mode.md)와 동기화한다.
 - AWS CLI 2.37.12의 `kinda` 임시 로그인과 STS 회사 계정 확인은 완료했다. 현재 AWS Settings의 `Try Catch Finally` 프로젝트는 신규 AWS 경험의 무료 플랜이며 `ap-southeast-2`에 지정되어 있다. 해당 리전 `cloudformation:ListStacks`는 빈 목록으로 성공했지만 서울 `ap-northeast-2`의 같은 읽기 호출은 조직 SCP의 explicit deny로 실패했다. 로그인도 프로젝트 리전으로만 연결됐으며 이를 서울 배포 성공으로 해석하지 않는다.
-- 서울 사용에는 유료 플랜 전환·되돌릴 수 없는 고급 기능 활성화 및 조직 리전 정책 검토가 필요하다. 사용자는 지금 무료 플랜을 유지하고 크레딧 소진 뒤 서울 이전을 선택했다. 현재 공개 배포 리전은 기존 `ap-southeast-2`이며 고급 기능 활성화·과금 플랜 변경·SCP 변경은 하지 않는다. 추후 서울 이전은 리전 플래그만 바꾸는 작업이 아니라 새 리소스 provision·검증·DNS 전환이며 자동 예약하지 않는다. `us-east-1` ACM 목록은 비어 있고, 도메인 NS는 호스팅케이알이며 `kinda` CNAME은 조회되지 않았다. 인증서/stack/S3/CloudFront 생성과 DNS 쓰기는 아직 수행하지 않았다.
-- 배포 source는 `ad851653`이고 기본 브랜치는 clean·원격보다 377 commits ahead였다. 정확한 커밋의 canonical CI 성공은 아직 미확인이다. 원격 push/새 release build/공개 접속 smoke도 미완료다. 이전 한정 Node 계약 통과를 전체 CI나 실제 배포 증거로 확대하지 않는다.
+- 서울 사용에는 유료 플랜 전환·되돌릴 수 없는 고급 기능 활성화 및 조직 리전 정책 검토가 필요하다. 사용자는 지금 무료 플랜을 유지하고 크레딧 소진 뒤 서울 이전을 선택했다. 현재 공개 배포 리전은 기존 `ap-southeast-2`이며 고급 기능 활성화·과금 플랜 변경·SCP 변경은 하지 않는다. 추후 서울 이전은 리전 플래그만 바꾸는 작업이 아니라 새 리소스 provision·검증·DNS 전환이며 자동 예약하지 않는다.
+- Node 22.23.3 공식 archive의 SHA-256을 확인하고 pnpm 9.15.0 frozen install, fresh landing build, 공개 배포 계약 23/23을 통과했다. 새 원격 브랜치 `codex/kinda-landing-deploy-20261012`에 정확한 source `3540ea41a70ffe497360606e6c799e414f0aae9f`를 push했다. 실제 canonical 저장소는 `dfkorealed/led-control-service`다. [Software CI](https://github.com/dfkorealed/led-control-service/actions/runs/38194736652)는 quality 성공·unit 실패·후속 네 단계 skipped다. Ubuntu의 Compose normalized bind 출력과 OpenSSL fixture 두 실패를 격리 단일 writer로 재현·최소 수정 중이며 CI 관문을 생략하지 않는다.
+- 같은 계정의 `us-east-1` ACM 인증서 `b06ca334-e043-47d1-9954-2c89513f32a2`를 요청하고 호스팅케이알에 실제 검증 CNAME 하나를 저장했다. 권한 NS의 응답과 ACM `ISSUED`를 확인했다. 기존 회사 A/MX/TXT/NS는 보존했다. 검증 CNAME은 갱신용으로 유지한다. `.local/landing-aws.json`의 Sydney 전용 stack/bucket 설정과 실제 AWS validate-template은 준비됐지만 stack/S3/CloudFront 생성, release 게시, 서비스 `kinda` CNAME 연결과 HTTPS smoke는 아직이다. CI 실패를 해결하기 전 공개하지 않는다.
 
 ## 2026-10-12 호스팅케이알 사용자 도메인 — 로컬 구현·검토·반영 완료
 
