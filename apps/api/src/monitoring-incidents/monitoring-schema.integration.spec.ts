@@ -13,7 +13,9 @@ describe("monitoring refresh migration artifacts", () => {
     const schemaPath = join(apiRoot, "prisma/schema.prisma");
     const migration = readFileSync(join(apiRoot,
       "prisma/migrations/20260918100000_monitoring_manual_refresh/migration.sql"), "utf8");
-    const diff = spawnSync("pnpm", ["exec", "prisma", "migrate", "diff", "--from-empty",
+    // Resolve the installed CLI in the owned CI workspace; runner-home pnpm
+    // shims may be inaccessible to its fresh UID. CLI arguments stay identical.
+    const diff = spawnSync(process.execPath, [require.resolve("prisma/build/index.js"), "migrate", "diff", "--from-empty",
       `--to-schema-datamodel=${schemaPath}`, "--script"], { cwd: apiRoot, encoding: "utf8" });
 
     expect(diff.status).toBe(0);

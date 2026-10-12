@@ -145,11 +145,14 @@ test("API default launcher executes the same Jest argv and preserves failure sta
     await mkdir(scripts, { recursive: true }); await mkdir(cli, { recursive: true });
     const launcher = path.join(scripts, "run-unit-tests.mjs");
     await writeFile(launcher, await readFile(path.join(root, "apps/api/scripts/run-unit-tests.mjs")));
-    await writeFile(path.join(cli, "jest.js"), "console.log(JSON.stringify(process.argv.slice(2))); process.exit(17);");
+    await writeFile(path.join(cli, "jest.js"), "console.log(JSON.stringify({args:process.argv.slice(2),checkpoint:process.env.CHECKPOINT_DISABLE})); process.exit(17);");
     const args = ["file with spaces.spec.ts", "--runInBand"];
-    const result = spawnSync(process.execPath, [launcher, ...args], { encoding: "utf8", env: { PATH: process.env.PATH } });
-    assert.equal(result.status, 17, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), args);
+    for (const value of [undefined, "local-kept"]) {
+      const env = { PATH: process.env.PATH, ...(value === undefined ? {} : { CHECKPOINT_DISABLE: value }) };
+      const result = spawnSync(process.execPath, [launcher, ...args], { encoding: "utf8", env });
+      assert.equal(result.status, 17, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), { args, ...(value === undefined ? {} : { checkpoint: value }) });
+    }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -176,11 +179,19 @@ test("API supervisor rejects profile/argv changes and cleanup identity substitut
   assert.ok(await readFile(supervisor, "utf8").catch(() => ""), "privileged API supervisor must exist");
   const checked = spawnSync("python3", ["-c", `
 import importlib.util, os, pathlib, tempfile
+from types import SimpleNamespace
 spec = importlib.util.spec_from_file_location("supervisor", ${JSON.stringify(supervisor)})
 module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
 api = pathlib.Path(${JSON.stringify(path.join(root, "apps/api"))})
 env = {"CI":"true", "GITHUB_ACTIONS":"true", "GITHUB_JOB":"unit", "RUNNER_OS":"Linux", "GITHUB_WORKSPACE":str(api.parent.parent), "LED_API_UNIT_PROFILE":"isolated-linux-ci"}
 module.validate_bootstrap({"version":1,"env":env,"args":[]}, api)
+assert hasattr(module,"ci_jest_environment"), "CI-only test-tool checkpoint policy is missing"
+parent={**env,"KEEP_CALLER_ENV":"yes","CHECKPOINT_DISABLE":"original"}
+actor=SimpleNamespace(home="/owned/home",tmp="/owned/tmp",cache="/owned/cache")
+isolated=module.ci_jest_environment(parent,actor)
+assert isolated["CHECKPOINT_DISABLE"]=="1" and isolated["KEEP_CALLER_ENV"]=="yes"
+assert isolated["GITHUB_WORKSPACE"]==parent["GITHUB_WORKSPACE"] and parent["CHECKPOINT_DISABLE"]=="original"
+assert isolated["HOME"]=="/owned/home" and isolated["TMPDIR"]=="/owned/tmp" and isolated["XDG_CACHE_HOME"]=="/owned/cache"
 for key in env:
     bad = dict(env); bad[key] = "invalid"
     try: module.validate_bootstrap({"version":1,"env":bad,"args":[]},api)
@@ -223,6 +234,48 @@ print("profile/argv/directory identity passed")
 `], { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } });
   assert.equal(checked.status, 0, checked.stdout + checked.stderr);
   assert.match(checked.stdout, /identity passed/);
+});
+
+test("API workspace snapshot preserves installed links and rejects source escapes", async () => {
+  const supervisor = path.join(root, "apps/api/scripts/ci-unit-supervisor.py");
+  const checked = spawnSync("python3", ["-c", `
+import importlib.util, os, pathlib, stat, tempfile
+spec=importlib.util.spec_from_file_location("supervisor", ${JSON.stringify(supervisor)})
+module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+assert hasattr(module,"snapshot_workspace"), "owned workspace snapshot is missing"
+with tempfile.TemporaryDirectory() as directory:
+    root=pathlib.Path(directory); source=root/"source"; source.mkdir(mode=0o700)
+    shared=source/"packages/shared/dist"; shared.mkdir(parents=True); (shared/"index.js").write_text("prepared shared")
+    automation=source/"packages/automation-engine/dist"; automation.mkdir(parents=True); (automation/"index.js").write_text("prepared automation")
+    virtual=source/"node_modules/.pnpm/package/node_modules/package"; virtual.mkdir(parents=True)
+    entry=virtual/"index.js"; entry.write_text("installed package"); entry.chmod(0o400)
+    modules=source/"apps/api/node_modules"; modules.mkdir(parents=True)
+    link=modules/"package"; link.symlink_to("../../../node_modules/.pnpm/package/node_modules/package",target_is_directory=True)
+    for name in (".git",".local",".worktrees"):
+        (source/name).mkdir(); (source/name/"private").write_text("excluded")
+    original={p:(p.lstat().st_ino,p.lstat().st_mode,p.lstat().st_uid) for p in (source,entry,link)}
+    mirror=root/"mirror"; module.snapshot_workspace(source,mirror,os.getuid(),os.getgid())
+    assert (mirror/"packages/shared/dist/index.js").read_text()=="prepared shared"
+    assert (mirror/"packages/automation-engine/dist/index.js").read_text()=="prepared automation"
+    assert (mirror/"apps/api/node_modules/package/index.js").read_text()=="installed package"
+    assert (mirror/"apps/api/node_modules/package").readlink()==link.readlink()
+    copied=mirror/entry.relative_to(source)
+    assert copied.lstat().st_ino!=entry.lstat().st_ino, "snapshot must not hardlink the original"
+    assert mirror.lstat().st_uid==os.getuid() and stat.S_IMODE(mirror.lstat().st_mode)&0o700==0o700
+    assert all(not (mirror/name).exists() for name in (".git",".local",".worktrees"))
+    assert original=={p:(p.lstat().st_ino,p.lstat().st_mode,p.lstat().st_uid) for p in original}
+    bad=source/"escape"
+    for index,target in enumerate(("../outside",str(entry),".local/private","missing")):
+        (root/"outside").write_text("outside")
+        bad.symlink_to(target)
+        try: module.snapshot_workspace(source,root/("rejected-"+str(index)),os.getuid(),os.getgid())
+        except (RuntimeError,FileNotFoundError): pass
+        else: raise AssertionError("accepted forbidden symlink "+target)
+        bad.unlink()
+print("owned snapshot runtime contracts passed")
+`], { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } });
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+  assert.match(checked.stdout, /snapshot runtime contracts passed/);
 });
 
 test("unit CI exposes checked PostgreSQL 16 tools before disposable migration tests", async () => {

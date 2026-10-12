@@ -50,6 +50,55 @@ def verify_directory(path, identity):
         raise RuntimeError("owned directory inode changed: " + str(path))
 
 
+def snapshot_workspace(source, destination, uid, gid):
+    """Copy prepared workspace inodes without changing the runner's home/checkout.
+
+    A hosted runner's home can deny traversal to the fresh UID. Keep relative
+    pnpm/workspace links and generated outputs in an owned mirror instead. Never
+    hardlink source files, or let a copied link escape back into the original.
+    """
+    source = source.resolve(strict=True)
+    excluded = {".git", ".local", ".worktrees"}
+
+    def validate_links(directory, names):
+        ignored = excluded.intersection(names) if Path(directory) == source else set()
+        for name in set(names) - ignored:
+            entry = Path(directory) / name
+            if not entry.is_symlink():
+                continue
+            if entry.readlink().is_absolute():
+                raise RuntimeError("workspace contains an absolute symlink: " + str(entry))
+            target = entry.resolve(strict=True)
+            relative = target.relative_to(source) if target.is_relative_to(source) else None
+            if relative is None or (relative.parts and relative.parts[0] in excluded):
+                raise RuntimeError("workspace symlink escapes the copied source: " + str(entry))
+        return ignored
+
+    shutil.copytree(source, destination, symlinks=True, ignore=validate_links)
+    # Only newly copied inodes change owner/mode. Owner access also handles
+    # original runner-only 0700 directories and 0600 generated files.
+    def fail_walk(error):
+        raise error
+
+    for directory, dirs, files in os.walk(destination, followlinks=False, onerror=fail_walk):
+        for entry in [Path(directory)] + [Path(directory) / name for name in dirs + files]:
+            os.chown(entry, uid, gid, follow_symlinks=False)
+            mode = entry.lstat().st_mode
+            if not stat.S_ISLNK(mode):
+                access = stat.S_IRWXU if stat.S_ISDIR(mode) else stat.S_IRUSR
+                os.chmod(entry, stat.S_IMODE(mode) | access)
+    return destination
+
+
+def ci_jest_environment(env, account):
+    # Prisma 6 CLI usage/update telemetry forks an unreferenced checkpoint child.
+    # Disable that test-tool side effect only in this CI profile, so genuine
+    # unexpected fixture children still fail the successful-Jest lifecycle gate.
+    return {**env, "CHECKPOINT_DISABLE": "1", "HOME": str(account.home),
+            "TMPDIR": str(account.tmp), "TMP": str(account.tmp), "TEMP": str(account.tmp),
+            "XDG_CACHE_HOME": str(account.cache)}
+
+
 class FixtureDirectories:
     """Account only new, exactly owned PG fixture directories beneath /tmp.
 
@@ -327,10 +376,13 @@ def run_suite(api, node, control):
         previous[signum] = signal.signal(signum, receive)
     try:
         account.create()
-        env.update(HOME=str(account.home), TMPDIR=str(account.tmp), TMP=str(account.tmp), TEMP=str(account.tmp), XDG_CACHE_HOME=str(account.cache))
-        # The real unprivileged exec verifies checkout traversal/readability. No
-        # existing checkout permission or ACL is changed to make it pass.
-        child = subprocess.Popen(account.command(node, jest), cwd=api, env=env, stdin=subprocess.DEVNULL, start_new_session=True)
+        env = ci_jest_environment(env, account)
+        workspace = snapshot_workspace(api.parent.parent, account.root / "workspace", account.uid, account.gid)
+        account.identities[workspace] = directory_identity(workspace, account.uid)
+        mirrored_api = workspace / "apps/api"
+        # GITHUB_WORKSPACE retains original bootstrap provenance; cwd/Jest and
+        # their relative imports use the owned prepared snapshot.
+        child = subprocess.Popen(account.command(node, mirrored_api / "node_modules/jest/bin/jest.js"), cwd=mirrored_api, env=env, stdin=subprocess.DEVNULL, start_new_session=True)
         print(f"API CI fixture account={account.name} uid={account.uid} full-suite=runInBand", file=sys.stderr, flush=True)
         while child.poll() is None:
             account.fixtures.observe(account.uid)
