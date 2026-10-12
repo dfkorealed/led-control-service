@@ -1,0 +1,701 @@
+{
+  "config": {
+    "argv": [
+      "/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      ".superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.config.ts",
+      "--grep",
+      "0[1-5] ",
+      "--workers=1",
+      "--retries=0"
+    ],
+    "configFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.config.ts",
+    "rootDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium-ux-approved-aux-six-cases",
+        "name": "chromium-ux-approved-aux-six-cases",
+        "testDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+        "testIgnore": [],
+        "testMatch": [
+          "page-session-ux-aux.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "line",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "cwd": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012",
+      "command": "VITE_TEST_DATA_TOOLS_ENABLED=false WEB_PORT=15188 pnpm --filter @led-control/web dev",
+      "url": "http://127.0.0.1:15188",
+      "reuseExistingServer": false,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "page-session-ux-aux.spec.ts",
+      "file": "page-session-ux-aux.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "01 PC monitoring actual CAD and nonmodal detail",
+          "file": "page-session-ux-aux.spec.ts",
+          "line": 286,
+          "column": 6,
+          "specs": [
+            {
+              "title": "1194 light: pan, single selection, half overlay and focus",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-approved-aux-six-cases",
+                  "projectName": "chromium-ux-approved-aux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3389,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T03:56:30.970Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-71be2b6a484955b94a0bc1c4d7916fb41c87e521.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/ready-7e19c081b5f18699b22adfa04a7779960c9e8ad4.png"
+                        },
+                        {
+                          "name": "native-gestures-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/native-gestures-geometry-9476450e6a8e386cc532500fcbfdd2c788d40a39.json"
+                        },
+                        {
+                          "name": "native-gestures",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/native-gestures-41d100c457c88771376ef82ab0ed2b57dbfc6162.png"
+                        },
+                        {
+                          "name": "detail-open-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-open-geometry-62c9d4760edca3c14fa7a8c39515293eb7ae2e97.json"
+                        },
+                        {
+                          "name": "detail-open",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-open-73cbe026db3578fd7a51f925999266e524d0255d.png"
+                        },
+                        {
+                          "name": "detail-end-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-end-geometry-27e469d94dff590b6c0f6a6888dbb0c2e39d821d.json"
+                        },
+                        {
+                          "name": "detail-end",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-end-82d9aaee0756527232945db0405214aa2d91dce2.png"
+                        },
+                        {
+                          "name": "detail-closed-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-closed-geometry-ecc0d819964637b6b45dda31cd11e50e5da4ec72.json"
+                        },
+                        {
+                          "name": "detail-closed",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-closed-cf55d7517b848fd84b865b5a5bfe7b71e74000f6.png"
+                        },
+                        {
+                          "name": "complete-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/complete-geometry-6f213535c5c17041021ce293ecb409edae26fc11.json"
+                        },
+                        {
+                          "name": "complete",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/complete-ef7de66e52c24d872e9a1587f460285a10d604af.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "44f9bd26f232b9ebced5-0423789479f889ac4c39",
+              "file": "page-session-ux-aux.spec.ts",
+              "line": 289,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "02 short mobile monitoring",
+          "file": "page-session-ux-aux.spec.ts",
+          "line": 307,
+          "column": 6,
+          "specs": [
+            {
+              "title": "390x600 dark: toolbar, HH:mm and detail scroll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-approved-aux-six-cases",
+                  "projectName": "chromium-ux-approved-aux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2078,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T03:56:34.906Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-7f435d8c85d7582f3f4175a41b9de2c1a8a16d67.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/ready-244aa678301c0c4c8d78eb6df6f064f6debc8cc9.png"
+                        },
+                        {
+                          "name": "detail-open-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-open-geometry-117e079675636a6a608efc856b3222d8aca08468.json"
+                        },
+                        {
+                          "name": "detail-open",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-open-fa55ab32467c6f13f7601aec60f9e1bb4f65062d.png"
+                        },
+                        {
+                          "name": "detail-native-document-wheel-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-native-document-wheel-geometry-d748c58035095eebf61e385b52d64243bbd680fa.json"
+                        },
+                        {
+                          "name": "detail-native-document-wheel",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-native-document-wheel-fecfc463d673ae36c4703f032c9617ec5b9a5c05.png"
+                        },
+                        {
+                          "name": "detail-end-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-end-geometry-398ac252dbc6922328f314b11fee97fa8d596b31.json"
+                        },
+                        {
+                          "name": "detail-end",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-end-ac0589c2181042df8ab01c16c5a2962299ee541f.png"
+                        },
+                        {
+                          "name": "detail-closed-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-closed-geometry-0e738a3488c670d38e35c9df57cfdf71b489f1b2.json"
+                        },
+                        {
+                          "name": "detail-closed",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-closed-f621d3244b69a4f7ac4a139f3e23d0887843a90c.png"
+                        },
+                        {
+                          "name": "complete-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/complete-geometry-3a85887e42e793accc80f2019208166f647ae0c4.json"
+                        },
+                        {
+                          "name": "complete",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/complete-0be474d7a8625816f12ee79ca6dd61ff991aecc3.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "44f9bd26f232b9ebced5-050c6f9ecf038a68f416",
+              "file": "page-session-ux-aux.spec.ts",
+              "line": 310,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "03 narrow finite manual workspace",
+          "file": "page-session-ux-aux.spec.ts",
+          "line": 325,
+          "column": 6,
+          "specs": [
+            {
+              "title": "320x600 light: map240, native0/100, first Apply and exclusive auxiliaries",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-approved-aux-six-cases",
+                  "projectName": "chromium-ux-approved-aux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 1790,
+                      "error": {
+                        "message": "Error: Actual target must contain a reachable continuous44 square: {\"width\":48,\"height\":44,\"continuous44\":false}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: Actual target must contain a reachable continuous44 square: {\"width\":48,\"height\":44,\"continuous44\":false}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n    at expectContinuous44Hit (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux-support.ts:114:120)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:343:32\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:330:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux-support.ts",
+                          "column": 120,
+                          "line": 114
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39mpage-session-ux-aux-support.ts:114\n\n  112 |     return { width, height, continuous44: false };\n  113 |   });\n> 114 |   expect(result.continuous44, `Actual target must contain a reachable continuous44 square: ${JSON.stringify(result)}`).toBe(true);\n      |                                                                                                                        ^\n  115 |   return result;\n  116 | }\n  117 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux-support.ts",
+                            "column": 120,
+                            "line": 114
+                          },
+                          "message": "Error: Actual target must contain a reachable continuous44 square: {\"width\":48,\"height\":44,\"continuous44\":false}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n\n   at page-session-ux-aux-support.ts:114\n\n  112 |     return { width, height, continuous44: false };\n  113 |   });\n> 114 |   expect(result.continuous44, `Actual target must contain a reachable continuous44 square: ${JSON.stringify(result)}`).toBe(true);\n      |                                                                                                                        ^\n  115 |   return result;\n  116 | }\n  117 |\n    at expectContinuous44Hit (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux-support.ts:114:120)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:343:32\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:330:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T03:56:36.990Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-30500617ea5326f08bffec3ce781c5a037b6c07a.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-221e462eb2e7c6884fd73d77f854864e618de576.png"
+                        },
+                        {
+                          "name": "basic-map-before-zoom-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-geometry-a46009a3e148ffdeb96e873313ef47af9ddf2742.json"
+                        },
+                        {
+                          "name": "basic-map-before-zoom",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-2ffe1da24c39af9a086f0d6426d444587ad22d74.png"
+                        },
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/original-failure-a4b14ba8256fc832c0bb0946ebd30a512d1e718f.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-b8a9993f4ac6f76ad071c54b337f03d36a48dae2.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-cb6986831969a0dc1c839ecd7702036b4ef04ffe.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux-support.ts",
+                        "column": 120,
+                        "line": 114
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "44f9bd26f232b9ebced5-a8d45d0a48f6d61def3f",
+              "file": "page-session-ux-aux.spec.ts",
+              "line": 329,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "04 native touch and long exclusive auxiliary selection",
+          "file": "page-session-ux-aux.spec.ts",
+          "line": 376,
+          "column": 6,
+          "specs": [
+            {
+              "title": "390x600 dark: swipe0-tap1, long60 ending and list-More switch",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-approved-aux-six-cases",
+                  "projectName": "chromium-ux-approved-aux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 7161,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T03:56:39.271Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-b147ab990775ee2352623ad8506217bee8f23b8c.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/ready-28d4951e7e525cb8ba32c370e27c112ad073f35f.png"
+                        },
+                        {
+                          "name": "basic-map-before-zoom-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-geometry-2a86383bee0677ad8dc5439e3933a12e91c7c0b7.json"
+                        },
+                        {
+                          "name": "basic-map-before-zoom",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-a617bf16d9eed56222166c0f3dbada9ec883c954.png"
+                        },
+                        {
+                          "name": "native-touch-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/native-touch-geometry-d2ee99965a81c7e6ad3708c431257a679289aebc.json"
+                        },
+                        {
+                          "name": "native-touch",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/native-touch-f8526647b89506a7490a2b76711f02f83e8a3e25.png"
+                        },
+                        {
+                          "name": "long-selection-closed-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-selection-closed-geometry-bd94189dcc428b2530f0cd7ac500d720092abbdc.json"
+                        },
+                        {
+                          "name": "long-selection-closed",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-selection-closed-2e91a0c5646ec738c7e8c2dc757def6b36827009.png"
+                        },
+                        {
+                          "name": "long-list-open-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-open-geometry-216ff0d7fd46713e29899106b5d004fe17b076f9.json"
+                        },
+                        {
+                          "name": "long-list-open",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-open-7bbf5362eb0f36471708cc5567bbcf0615a58711.png"
+                        },
+                        {
+                          "name": "long-list-end-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-end-geometry-b449f764e61a1b8152b1b888db00d68c7a0afdef.json"
+                        },
+                        {
+                          "name": "long-list-end",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-end-c52d64f5d965fbba8618757bc5fd50781a51ddd8.png"
+                        },
+                        {
+                          "name": "long-list-ending-evidence-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-ending-evidence-geometry-f023d0c727144c116696edfcc4d1fd7ea32c8a70.json"
+                        },
+                        {
+                          "name": "long-list-ending-evidence",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-ending-evidence-d918953af53b84a60e9e9353e6c1c30a4611d0bd.png"
+                        },
+                        {
+                          "name": "long-list-closed-focus-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-closed-focus-geometry-1b1795221b6fdff7c87535c5c2ca7284e070a1f6.json"
+                        },
+                        {
+                          "name": "long-list-closed-focus",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-closed-focus-396fa700736d58c6ab1a7131720cd018e7828ee6.png"
+                        },
+                        {
+                          "name": "long-list-reopened-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-reopened-geometry-293091a519b91391d85ea22982c220e890828272.json"
+                        },
+                        {
+                          "name": "long-list-reopened",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-reopened-d2fa0e8c7f0a59aff83d7ea7fe52c2603e492371.png"
+                        },
+                        {
+                          "name": "long-list-to-more-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-to-more-geometry-864d68d179e8074f2a709f551d293afbd71cd0fe.json"
+                        },
+                        {
+                          "name": "long-list-to-more",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-list-to-more-9859b702733259f0c43706a48632029519f45222.png"
+                        },
+                        {
+                          "name": "long-more-to-list-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-more-to-list-geometry-a825e90508c776a34ab8df7be46603908458e760.json"
+                        },
+                        {
+                          "name": "long-more-to-list",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-more-to-list-f66c59235d8d97dbc31af8d2f18a78343ff67329.png"
+                        },
+                        {
+                          "name": "long-switch-closed-focus-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-switch-closed-focus-geometry-66a4a0546109e7cbd0889c0a98be011182a4cd3f.json"
+                        },
+                        {
+                          "name": "long-switch-closed-focus",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/long-switch-closed-focus-521e1fa632d811e4f28ab03fad3190be655b825c.png"
+                        },
+                        {
+                          "name": "complete-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/complete-geometry-d2b52036f8bdba98c9ce445be2c76f5b3865bb97.json"
+                        },
+                        {
+                          "name": "complete",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/complete-29112a82a4ba0303d832cea68e3a5b163242c128.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "44f9bd26f232b9ebced5-85afdfe758dbfb942dc5",
+              "file": "page-session-ux-aux.spec.ts",
+              "line": 380,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "05 resize without remount/reset",
+          "file": "page-session-ux-aux.spec.ts",
+          "line": 424,
+          "column": 6,
+          "specs": [
+            {
+              "title": "717x1227 to 390x844 light: exclusive aux, focus and raw31",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-approved-aux-six-cases",
+                  "projectName": "chromium-ux-approved-aux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 7352,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('status', { name: '제어 중요 상태', exact: true })\nExpected: visible\nReceived: hidden\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('status', { name: '제어 중요 상태', exact: true })\u001b[22m\n\u001b[2m    14 × locator resolved to <div role=\"status\" aria-live=\"polite\" aria-atomic=\"true\" aria-label=\"제어 중요 상태\" class=\"max-h-20 overflow-y-auto overscroll-contain text-caption\"></div>\u001b[22m\n\u001b[2m       - unexpected value \"hidden\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('status', { name: '제어 중요 상태', exact: true })\nExpected: visible\nReceived: hidden\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('status', { name: '제어 중요 상태', exact: true })\u001b[22m\n\u001b[2m    14 × locator resolved to <div role=\"status\" aria-live=\"polite\" aria-atomic=\"true\" aria-label=\"제어 중요 상태\" class=\"max-h-20 overflow-y-auto overscroll-contain text-caption\"></div>\u001b[22m\n\u001b[2m       - unexpected value \"hidden\"\u001b[22m\n\n    at manualState (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:143:27)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:435:26\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:428:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts",
+                          "column": 27,
+                          "line": 143
+                        },
+                        "snippet": "  141 |   if (state === \"closed\") await expectMinimumTouchTargets(page, approvedAuxiliaryBinding.cameraTouchSelector);\n  142 |   const important = page.getByRole(\"status\", { name: \"제어 중요 상태\", exact: true });\n> 143 |   await expect(important).toBeVisible(); await expect(important).toHaveAttribute(\"aria-live\", \"polite\");\n      |                           ^\n  144 |   await actualCenter(important);\n  145 |   await finite(page); await identity.assertUnchanged();\n  146 |   const after = await readGeometry(page, control);"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts",
+                            "column": 27,
+                            "line": 143
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('status', { name: '제어 중요 상태', exact: true })\nExpected: visible\nReceived: hidden\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('status', { name: '제어 중요 상태', exact: true })\u001b[22m\n\u001b[2m    14 × locator resolved to <div role=\"status\" aria-live=\"polite\" aria-atomic=\"true\" aria-label=\"제어 중요 상태\" class=\"max-h-20 overflow-y-auto overscroll-contain text-caption\"></div>\u001b[22m\n\u001b[2m       - unexpected value \"hidden\"\u001b[22m\n\n\n  141 |   if (state === \"closed\") await expectMinimumTouchTargets(page, approvedAuxiliaryBinding.cameraTouchSelector);\n  142 |   const important = page.getByRole(\"status\", { name: \"제어 중요 상태\", exact: true });\n> 143 |   await expect(important).toBeVisible(); await expect(important).toHaveAttribute(\"aria-live\", \"polite\");\n      |                           ^\n  144 |   await actualCenter(important);\n  145 |   await finite(page); await identity.assertUnchanged();\n  146 |   const after = await readGeometry(page, control);\n    at manualState (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:143:27)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:435:26\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:428:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T03:56:46.691Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-31497fbff4d7935b59a755ec941f5ec2a83e617f.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/ready-8feccfe77ff39f7addca057adbbc05619ce25211.png"
+                        },
+                        {
+                          "name": "basic-map-before-zoom-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-geometry-5b884bc3430d226f8223f3bb14cf196744bf6883.json"
+                        },
+                        {
+                          "name": "basic-map-before-zoom",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-fa5a50510243522481320af28902e1c3dac95add.png"
+                        },
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/original-failure-2acc58bbf02192c519af673c2cb939f2eb72a90f.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-b7ba8e3c8749faaf113ff568cf4cbdaf00c578cc.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/failure-6def241d4d52513132d1916945430efdfa708b33.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-five-hit-2290a877-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts",
+                        "column": 27,
+                        "line": 143
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "44f9bd26f232b9ebced5-5335a3174cc8761498e5",
+              "file": "page-session-ux-aux.spec.ts",
+              "line": 427,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-12T03:56:23.425Z",
+    "duration": 30730.032,
+    "expected": 3,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  }
+}

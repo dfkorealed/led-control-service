@@ -1,0 +1,46 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/components/ui/operations/RecentActivityTicker.test.tsx (11 tests | 7 skipped) 317ms
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 31 skipped) 426ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests) 853ms
+   ✓ ManualExecutionPanel > C6-8 compact More keeps the raw draft and explicit Apply independent of its auxiliary content 384ms
+ ✓ src/features/control/target-selection/SpatialTargetSelector.test.tsx (33 tests | 30 skipped) 829ms
+   ✓ SpatialTargetSelector > C6-8 compact scope dropdown keeps the current targets until explicit confirmation 573ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 55 skipped) 2713ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 1056ms
+   ✓ customer shell site context > forwards the existing navigation breakpoint to the real Control close action without resetting details 778ms
+ ✓ src/features/control/ControlView.test.tsx (167 tests | 151 skipped) 9785ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 837ms
+   ✓ ControlView 대상 선택 > C6-8 mobile More preserves an uncertain request and keeps its important status visible while collapsed 721ms
+   ✓ ControlView 대상 선택 > preserves an in-flight UUID, frozen target and lock through inline details, filters and resize 573ms
+   ✓ ControlView 대상 선택 > replays a lost status-check response with the same Get request ID 499ms
+   ✓ ControlView 대상 선택 > unlocks after a lost status-check response when detail independently confirms application 468ms
+   ✓ ControlView 대상 선택 > continues real status polling when GET races before a lost status-check POST commits 1244ms
+   ✓ ControlView 대상 선택 > retains original UUID through keyed site A→B→A remount for pending request 470ms
+   ✓ ControlView 대상 선택 > retains original UUID through keyed site A→B→A remount for uncertain request 3552ms
+ ❯ src/features/control/CommandHistoryPanel.test.tsx (30 tests | 1 failed) 12585ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'partial' draft survives filter reopen, then reads a valid correction 1625ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'impossible' draft survives filter reopen, then reads a valid correction 2005ms
+   × CommandHistoryPanel > blocks manual retry after a history error while the 'reversed' draft survives filter reopen, then reads a valid correction 5111ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ CommandHistoryPanel > preserves partial date draft across filter close 324ms
+   ✓ CommandHistoryPanel > resets cursor navigation for 1000 rows and transmits the size in its query 375ms
+   ✓ CommandHistoryPanel > debounces search, changes stage filters and resets pagination for a new search 535ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/CommandHistoryPanel.test.tsx > CommandHistoryPanel > blocks manual retry after a history error while the 'reversed' draft survives filter reopen, then reads a valid correction
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 6 passed (7)
+      Tests  1 failed | 82 passed | 274 skipped (357)
+   Start at  11:11:36
+   Duration  18.22s (transform 4.50s, setup 1.52s, collect 26.54s, tests 27.51s, environment 6.01s, prepare 2.41s)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx src/features/shells/CustomerShell.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx src/features/control/ManualExecutionPanel.test.tsx src/features/floor-map/FloorMapViewport.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/components/ui/operations/RecentActivityTicker.test.tsx -t C6-8|keeps every control disabled for viewer accounts|ManualExecutionPanel|manual-cad|footer|maintains|resize|real authorized manual|manual route and query|real page changes|navigation breakpoint to the real Control|preserves an in-flight UUID|lost status-check|retains original UUID|original frozen UUID|replays a lost|CommandHistoryPanel|reserves the full message|same full-view ref --reporter=dot

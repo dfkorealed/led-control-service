@@ -1,0 +1,61 @@
+{
+  "source": "bea0dacb07d3d5c8e0b14e4659874da12ed6b2d4",
+  "case": {
+    "id": 3,
+    "viewport": {
+      "width": 320,
+      "height": 600
+    },
+    "theme": "light",
+    "route": "control",
+    "purpose": "finite document/two toolbar rows/invalid/More"
+  },
+  "phase": "setup",
+  "url": "http://127.0.0.1:15188/control?siteId=12121212-1212-4121-8121-121212121212&mode=manual",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/floors/23232323-2323-4232-8232-232323232323/map-snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    }
+  ],
+  "error": {
+    "message": "\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n",
+    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:145:72)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:206:5"
+  }
+}

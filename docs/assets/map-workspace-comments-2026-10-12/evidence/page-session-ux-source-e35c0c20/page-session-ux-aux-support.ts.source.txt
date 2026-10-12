@@ -1,0 +1,127 @@
+import { expect, type Locator } from "../../../apps/web/node_modules/@playwright/test";
+export {
+  ids, prepareCustomer, setReviewTheme, readGeometry, savePhase,
+  rememberMapIdentity, actualCenter, nativeSwipe, expectNoHorizontalOverflow,
+  expectMinimumTouchTargets, type GeometryContract
+} from "./page-session-ux-support";
+
+// Same six unique scenarios/fixtures as the immutable original; only the
+// human-approved auxiliary presentation and monitoring input sequence change.
+export const reviewCases = [
+  { id: 1, viewport: { width: 1194, height: 1227 }, theme: "light", route: "monitoring", purpose: "PC native gestures/detail/native pin reopen/identity/focus" },
+  { id: 2, viewport: { width: 390, height: 600 }, theme: "dark", route: "monitoring", purpose: "HH:mm/native document wheel/exposed detail ending" },
+  { id: 3, viewport: { width: 320, height: 600 }, theme: "light", route: "control", purpose: "map240/finite/two44rows/slider endpoints/first Apply/exclusive aux" },
+  { id: 4, viewport: { width: 390, height: 600 }, theme: "dark", route: "control", purpose: "basic map240/native swipe0-tap1/long60/exclusive aux/focus" },
+  { id: 5, viewport: { width: 717, height: 1227 }, resize: { width: 390, height: 844 }, theme: "light", route: "control", purpose: "exclusive aux/map rect-camera-renderer/raw31/resize" },
+  { id: 6, viewport: { width: 1194, height: 1227 }, theme: "dark", route: "control", purpose: "unchanged PC empty/full-height/internal60 list" }
+] as const;
+
+/** Read-only visible hit search, not center substitution through a covered point.
+ * Document-wheel mode rejects maps, overlays, controls, and positive inner scroll
+ * owners so the native wheel can reach the real document instead of the camera. */
+export async function exposedPoint(target: Locator, documentWheel = false) {
+  await expect(target).toBeVisible();
+  return target.evaluate((element, forDocument) => {
+    const r = element.getBoundingClientRect();
+    let left = Math.max(0, r.left), top = Math.max(0, r.top);
+    let right = Math.min(innerWidth, r.right), bottom = Math.min(innerHeight, r.bottom);
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (parent === document.body || parent === document.documentElement) continue;
+      const style = getComputedStyle(parent), clip = parent.getBoundingClientRect();
+      if (["auto", "scroll", "hidden", "clip"].includes(style.overflowX)) {
+        left = Math.max(left, clip.left + parent.clientLeft);
+        right = Math.min(right, clip.left + parent.clientLeft + parent.clientWidth);
+      }
+      if (["auto", "scroll", "hidden", "clip"].includes(style.overflowY)) {
+        top = Math.max(top, clip.top + parent.clientTop);
+        bottom = Math.min(bottom, clip.top + parent.clientTop + parent.clientHeight);
+      }
+    }
+    if (right <= left || bottom <= top) throw new Error("Native input target has no exposed geometry");
+    const excluded = '[data-floor-map-surface],[data-testid$="map-viewport"],[data-monitoring-detail-scroll],aside[aria-label="조명 상세"],[data-shell-navigation],button,a,input,select,textarea,[role="button"],[role="dialog"],[role="alertdialog"]';
+    for (const yr of [0.5, 0.1, 0.9, 0.02, 0.25, 0.75]) {
+      for (const xr of [0.5, 0.1, 0.9, 0.25, 0.75, 0.02, 0.98]) {
+        const x = left + (right - left) * xr, y = top + (bottom - top) * yr;
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !element.contains(hit)) continue;
+        if (forDocument) {
+          if (hit.closest(excluded)) continue;
+          let innerScroll = false;
+          for (let node: Element | null = hit; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+            if (["auto", "scroll"].includes(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1) innerScroll = true;
+          }
+          if (innerScroll) continue;
+        }
+        return { x, y, tag: hit.tagName, label: hit.closest("[aria-label]")?.getAttribute("aria-label") ?? null };
+      }
+    }
+    throw new Error(forDocument ? "No exposed native document-wheel origin" : "No exposed native input point");
+  }, documentWheel);
+}
+
+/** Direct continuous 44×44 hit proof, including a disabled Apply. The existing
+ * shared helper intentionally skips disabled controls; we must not silently
+ * skip the first-Apply geometry or lower the threshold at slider endpoints. */
+export async function expectContinuous44Hit(target: Locator) {
+  await expect(target).toBeVisible();
+  const result = await target.evaluate(element => {
+    const r = element.getBoundingClientRect();
+    // Diagnostic metadata only: preserve every clipping/sample/44px decision.
+    // A thumb's name can live on its nested native range input; the tag still
+    // identifies the actual outer target rather than substituting that input.
+    const namingElement = element.matches("[aria-label],[aria-labelledby]") ? element : element.querySelector("[aria-label],[aria-labelledby]") ?? element;
+    const labelledName = (namingElement.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter(Boolean)
+      .map(id => document.getElementById(id)?.textContent ?? "").join(" ").trim();
+    const diagnosticTarget = {
+      tag: element.tagName, role: element.getAttribute("role"), ariaLabel: element.getAttribute("aria-label"),
+      name: namingElement.getAttribute("aria-label") || labelledName || element.textContent?.trim() || null,
+      bounds: { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom }
+    };
+    let left = Math.max(0, r.left), top = Math.max(0, r.top);
+    let right = Math.min(innerWidth, r.right), bottom = Math.min(innerHeight, r.bottom);
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (parent === document.body || parent === document.documentElement) continue;
+      const style = getComputedStyle(parent), clip = parent.getBoundingClientRect();
+      if (["auto", "scroll", "hidden", "clip"].includes(style.overflowX)) {
+        left = Math.max(left, clip.left + parent.clientLeft);
+        right = Math.min(right, clip.left + parent.clientLeft + parent.clientWidth);
+      }
+      if (["auto", "scroll", "hidden", "clip"].includes(style.overflowY)) {
+        top = Math.max(top, clip.top + parent.clientTop);
+        bottom = Math.min(bottom, clip.top + parent.clientTop + parent.clientHeight);
+      }
+    }
+    const width = right - left, height = bottom - top;
+    if (width < 44 || height < 44) return { target: diagnosticTarget, width, height, continuous44: false };
+    const segments = (start: number, end: number) => {
+      const cells: { size: number; at: number }[] = [];
+      for (let current = start; current < end;) {
+        const next = Math.min(current + 1, end);
+        cells.push({ size: next - current, at: (current + next) / 2 }); current = next;
+      }
+      return cells;
+    };
+    const columns = segments(left, right), rows = segments(top, bottom);
+    const hits = rows.map(row => columns.map(column => {
+      const hit = document.elementFromPoint(column.at, row.at);
+      return hit !== null && element.contains(hit);
+    }));
+    for (let first = 0; first < rows.length; first++) {
+      const reachable = columns.map(() => true); let runHeight = 0;
+      for (let last = first; last < rows.length; last++) {
+        runHeight += rows[last].size;
+        for (let column = 0; column < columns.length; column++) reachable[column] &&= hits[last][column];
+        if (runHeight < 44) continue;
+        let runWidth = 0;
+        for (let column = 0; column < columns.length; column++) {
+          runWidth = reachable[column] ? runWidth + columns[column].size : 0;
+          if (runWidth >= 44) return { target: diagnosticTarget, width, height, continuous44: true };
+        }
+        break;
+      }
+    }
+    return { target: diagnosticTarget, width, height, continuous44: false };
+  });
+  expect(result.continuous44, `Actual target must contain a reachable continuous44 square: ${JSON.stringify(result)}`).toBe(true);
+  return result;
+}

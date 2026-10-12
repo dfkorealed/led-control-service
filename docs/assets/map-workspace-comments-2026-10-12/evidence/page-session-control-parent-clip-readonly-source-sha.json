@@ -1,0 +1,57 @@
+{
+  "source": "f28ea638c3decae89bfd6180c8e81607226794e8",
+  "observedAt": "2026-10-12T04:24:04.877377+00:00",
+  "status": "",
+  "files": [
+    {
+      "path": "apps/web/src/features/control/ControlView.tsx",
+      "SHA256": "971e894d1468236d749e4139a1466b66ee2770a5760cb862ebf4f98e2426733f",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.tsx",
+      "SHA256": "fcef27f038ded2d7f74a8ddb8e642bf329b0378ba7c1755e1f226ce061cc1eda",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/components/ui/SidePanel.tsx",
+      "SHA256": "de21f569191e1ae5fd5e3857437e5fbc0396721d8be06866efb3d18f45d1bb7b",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/components/ui/Card.tsx",
+      "SHA256": "c90dd96f3a65b02c89e4e4126f6594ec5fc47c1d2e3416b2dd436e4142f8cde7",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/components/ui/fields/NumberField.tsx",
+      "SHA256": "89eaf4c648f7b4e3b5bc710e7303c11800fcbec4c975a627265b7a2200971159",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/components/ui/fields/FormField.tsx",
+      "SHA256": "36252e9aea309098d0f1a3aa1413832d804209bdb02933deb00d1d6f1d6af59b",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/components/ui/fields/field-types.ts",
+      "SHA256": "e31c79857d31c04fbeb6ca8eca58c90e75731dda9b6d1dc095daf3c8904772aa",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/styles/theme.css",
+      "SHA256": "d7193e0d5535e84ca0ecc29fd29eef5091a3d0086ef817f7de558e812b210243",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.tsx",
+      "SHA256": "5f8372a78fa488fbcbc6997ce9ddc1c923cfd48a3dffe9f00ab69cea8af80bd6",
+      "matchesHEAD": true
+    },
+    {
+      "path": "apps/web/src/components/ui/utils/cn.ts",
+      "SHA256": "36bdd96ed5188cf37744ab6bd03effef995fc8cc9efeb0c6b7782ac9308d0b76",
+      "matchesHEAD": true
+    }
+  ]
+}

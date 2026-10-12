@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/monitoring/FloorMap.test.tsx (17 tests | 13 skipped) 326ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 13 skipped (17)
+   Start at  10:08:26
+   Duration  2.68s (transform 472ms, setup 68ms, collect 1.35s, tests 326ms, environment 356ms, prepare 147ms)
+

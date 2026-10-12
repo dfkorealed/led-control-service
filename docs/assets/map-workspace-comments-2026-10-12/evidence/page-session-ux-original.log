@@ -1,0 +1,47 @@
+
+[WebServer] (node:45486) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:45502) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:45521) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:45588) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+
+(node:45597) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:166:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus
+  1) [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:166:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus 
+
+    Error: Evidence run directory already exists; originals must not be overwritten
+
+       at page-session-ux.config.ts:17
+
+      15 | const runDir = resolve(__dirname, "runs", run);
+      16 | const outputDir = resolve(runDir, "results");
+    > 17 | if (existsSync(runDir)) throw new Error("Evidence run directory already exists; originals must not be overwritten");
+         |                               ^
+      18 | if (!existsSync(resolve(__dirname, "page-session-ux.spec.ts"))) throw new Error("The actual six-case spec must exist before execution");
+      19 | // Check only the assigned port. A missing/failed lsof is not interpreted as a free port.
+      20 | try {
+        at Object.<anonymous> (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts:17:31)
+
+
+[2/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:187:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll
+[3/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:205:7 › 03 narrow finite manual workspace › 320x600 light: two rows, invalid first Apply and More
+[4/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:242:7 › 04 native touch and long inline selection › 390x600 dark: swipe then tap, 60 fixtures and internal ending
+[5/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:286:7 › 05 resize without remount/reset › 717x1227 to 390x844 light: inline/More, focus and raw31
+[6/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:322:7 › 06 PC manual empty and long-list ownership › 1194 dark: equal-height empty panel and 60-row internal scroll
+  1 failed
+    [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:166:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus 
+  5 did not run
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test --config /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts

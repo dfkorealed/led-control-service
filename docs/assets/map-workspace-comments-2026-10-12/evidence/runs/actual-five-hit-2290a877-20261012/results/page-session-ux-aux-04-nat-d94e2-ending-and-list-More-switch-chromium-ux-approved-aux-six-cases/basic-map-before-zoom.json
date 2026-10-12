@@ -1,0 +1,6570 @@
+{
+  "source": "2290a877d880efc60f91bbd3396a47d9361b3fbf",
+  "phase": "basic-map-before-zoom",
+  "url": "http://127.0.0.1:15188/control?siteId=12121212-1212-4121-8121-121212121212&mode=manual",
+  "viewport": {
+    "width": 390,
+    "height": 600
+  },
+  "metrics": {
+    "sampledAt": "2026-10-12T03:56:41.644Z",
+    "theme": "dark",
+    "viewport": {
+      "width": 390,
+      "height": 600,
+      "dpr": 1,
+      "visual": {
+        "width": 390,
+        "height": 600,
+        "offsetTop": 0,
+        "offsetLeft": 0
+      }
+    },
+    "document": {
+      "scrollY": 0,
+      "scrollX": 0,
+      "scrollHeight": 600,
+      "clientHeight": 600,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "activeElement": {
+      "tag": "BUTTON",
+      "label": "라이트 모드로 변경"
+    },
+    "map": {
+      "bounds": {
+        "x": 9,
+        "y": 138,
+        "width": 372,
+        "height": 249,
+        "right": 381,
+        "bottom": 387
+      },
+      "usable": {
+        "x": 9,
+        "y": 138,
+        "right": 381,
+        "bottom": 387,
+        "width": 372,
+        "height": 249
+      },
+      "scrollTop": 0,
+      "scrollLeft": 0,
+      "scrollHeight": 249,
+      "clientHeight": 249,
+      "overflowX": "auto",
+      "overflowY": "auto",
+      "hits": [
+        {
+          "x": 46.2,
+          "y": 162.9,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 01 정상 70%"
+        },
+        {
+          "x": 195,
+          "y": 162.9,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 06 정상 70%"
+        },
+        {
+          "x": 343.8,
+          "y": 162.9,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 10 정상 70%"
+        },
+        {
+          "x": 46.2,
+          "y": 262.5,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 31 정상 70%"
+        },
+        {
+          "x": 195,
+          "y": 262.5,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 36 정상 70%"
+        },
+        {
+          "x": 343.8,
+          "y": 262.5,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 40 정상 70%"
+        },
+        {
+          "x": 46.2,
+          "y": 362.1,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 195,
+          "y": 362.1,
+          "reachesElement": false,
+          "tag": "BUTTON",
+          "label": "지도 축소"
+        },
+        {
+          "x": 343.8,
+          "y": 362.1,
+          "reachesElement": false,
+          "tag": "BUTTON",
+          "label": "지도 화면 맞춤"
+        }
+      ],
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": "1"
+      },
+      "canvas": [
+        {
+          "bounds": {
+            "x": 45.25,
+            "y": 163,
+            "width": 300,
+            "height": 199,
+            "right": 345.25,
+            "bottom": 362
+          },
+          "bitmapWidth": 300,
+          "bitmapHeight": 199
+        }
+      ]
+    },
+    "regions": {
+      "toolbar": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 87,
+            "width": 374,
+            "height": 46,
+            "right": 382,
+            "bottom": 133
+          },
+          "usable": {
+            "x": 8,
+            "y": 87,
+            "right": 382,
+            "bottom": 133,
+            "width": 374,
+            "height": 46
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 46,
+          "clientHeight": 46,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 91.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 195,
+              "y": 91.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 344.6,
+              "y": 91.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "조명 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 110,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 195,
+              "y": 110,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 344.6,
+              "y": 110,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "조명 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 128.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 195,
+              "y": 128.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 344.6,
+              "y": 128.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "조명 목록"
+            }
+          ]
+        }
+      ],
+      "execution": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 462,
+            "width": 374,
+            "height": 44,
+            "right": 382,
+            "bottom": 506
+          },
+          "usable": {
+            "x": 8,
+            "y": 462,
+            "right": 382,
+            "bottom": 506,
+            "width": 374,
+            "height": 44
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 48,
+          "clientHeight": 44,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 466.4,
+              "reachesElement": true,
+              "tag": "INPUT",
+              "label": "밝기 수치"
+            },
+            {
+              "x": 195,
+              "y": 466.4,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 344.6,
+              "y": 466.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 실행"
+            },
+            {
+              "x": 45.4,
+              "y": 484,
+              "reachesElement": true,
+              "tag": "INPUT",
+              "label": "밝기 수치"
+            },
+            {
+              "x": 195,
+              "y": 484,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 344.6,
+              "y": 484,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 실행"
+            },
+            {
+              "x": 45.4,
+              "y": 501.6,
+              "reachesElement": true,
+              "tag": "INPUT",
+              "label": "밝기 수치"
+            },
+            {
+              "x": 195,
+              "y": 501.6,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 344.6,
+              "y": 501.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 실행"
+            }
+          ]
+        }
+      ],
+      "selection": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 392,
+            "width": 374,
+            "height": 66,
+            "right": 382,
+            "bottom": 458
+          },
+          "usable": {
+            "x": 8,
+            "y": 392,
+            "right": 382,
+            "bottom": 458,
+            "width": 374,
+            "height": 66
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 66,
+          "clientHeight": 66,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 398.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 195,
+              "y": 398.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 344.6,
+              "y": 398.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 425,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 195,
+              "y": 425,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 344.6,
+              "y": 425,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 451.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 195,
+              "y": 451.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 344.6,
+              "y": 451.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            }
+          ]
+        }
+      ],
+      "list": [],
+      "more": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "usable": null,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 0,
+          "clientHeight": 0,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": []
+        }
+      ],
+      "auxiliaryBody": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "usable": null,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 0,
+          "clientHeight": 0,
+          "overflowX": "auto",
+          "overflowY": "auto",
+          "hits": []
+        }
+      ],
+      "auxiliaryPanel": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "usable": null,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 0,
+          "clientHeight": 0,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": []
+        }
+      ],
+      "important": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 510,
+            "width": 374,
+            "height": 18,
+            "right": 382,
+            "bottom": 528
+          },
+          "usable": {
+            "x": 8,
+            "y": 510,
+            "right": 382,
+            "bottom": 528,
+            "width": 374,
+            "height": 18
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 18,
+          "clientHeight": 18,
+          "overflowX": "auto",
+          "overflowY": "auto",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 511.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 195,
+              "y": 511.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 344.6,
+              "y": 511.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 45.4,
+              "y": 519,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 195,
+              "y": 519,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 344.6,
+              "y": 519,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 45.4,
+              "y": 526.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 195,
+              "y": 526.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 344.6,
+              "y": 526.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            }
+          ]
+        }
+      ],
+      "mapPanel": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 137,
+            "width": 374,
+            "height": 251,
+            "right": 382,
+            "bottom": 388
+          },
+          "usable": {
+            "x": 8,
+            "y": 137,
+            "right": 382,
+            "bottom": 388,
+            "width": 374,
+            "height": 251
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 249,
+          "clientHeight": 249,
+          "overflowX": "hidden",
+          "overflowY": "hidden",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 162.1,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 195,
+              "y": 162.1,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 344.6,
+              "y": 162.1,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 45.4,
+              "y": 262.5,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "UX 조명 31 정상 70%"
+            },
+            {
+              "x": 195,
+              "y": 262.5,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "UX 조명 36 정상 70%"
+            },
+            {
+              "x": 344.6,
+              "y": 262.5,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "UX 조명 40 정상 70%"
+            },
+            {
+              "x": 45.4,
+              "y": 362.9,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 195,
+              "y": 362.9,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 축소"
+            },
+            {
+              "x": 344.6,
+              "y": 362.9,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 화면 맞춤"
+            }
+          ]
+        }
+      ],
+      "footer": [],
+      "nav": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 532,
+            "width": 390,
+            "height": 68,
+            "right": 390,
+            "bottom": 600
+          },
+          "usable": {
+            "x": 0,
+            "y": 532,
+            "right": 390,
+            "bottom": 600,
+            "width": 390,
+            "height": 68
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 67,
+          "clientHeight": 67,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 39,
+              "y": 538.8,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "모니터링"
+            },
+            {
+              "x": 195,
+              "y": 538.8,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 351,
+              "y": 538.8,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "설정"
+            },
+            {
+              "x": 39,
+              "y": 566,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모니터링"
+            },
+            {
+              "x": 195,
+              "y": 566,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 351,
+              "y": 566,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "설정"
+            },
+            {
+              "x": 39,
+              "y": 593.2,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 195,
+              "y": 593.2,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 351,
+              "y": 593.2,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모바일 주 메뉴"
+            }
+          ]
+        }
+      ],
+      "cameraOverlay": [
+        {
+          "bounds": {
+            "x": 155,
+            "y": 317,
+            "width": 218,
+            "height": 62,
+            "right": 373,
+            "bottom": 379
+          },
+          "usable": {
+            "x": 155,
+            "y": 317,
+            "right": 373,
+            "bottom": 379,
+            "width": 218,
+            "height": 62
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 60,
+          "clientHeight": 60,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 176.8,
+              "y": 323.2,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 축소"
+            },
+            {
+              "x": 264,
+              "y": 323.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 확대 축소"
+            },
+            {
+              "x": 351.20000000000005,
+              "y": 323.2,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 화면 맞춤"
+            },
+            {
+              "x": 176.8,
+              "y": 348,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 축소"
+            },
+            {
+              "x": 264,
+              "y": 348,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 확대"
+            },
+            {
+              "x": 351.20000000000005,
+              "y": 348,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 화면 맞춤"
+            },
+            {
+              "x": 176.8,
+              "y": 372.8,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 축소"
+            },
+            {
+              "x": 264,
+              "y": 372.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 확대 축소"
+            },
+            {
+              "x": 351.20000000000005,
+              "y": 372.8,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 화면 맞춤"
+            }
+          ]
+        }
+      ]
+    },
+    "selection": [
+      {
+        "label": "UX 조명 01 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 45.25,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 93.25,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 45.25,
+          "y": 163.875,
+          "right": 93.25,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 50.05,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 11 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 02 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 69.90625,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 117.90625,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 69.90625,
+          "y": 163.875,
+          "right": 117.90625,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 74.70625,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 03 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 98.609375,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 146.609375,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 98.609375,
+          "y": 163.875,
+          "right": 146.609375,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 103.409375,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 04 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 127.3125,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 175.3125,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 127.3125,
+          "y": 163.875,
+          "right": 175.3125,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 132.1125,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 05 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 156.015625,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 204.015625,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 156.015625,
+          "y": 163.875,
+          "right": 204.015625,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 160.815625,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 06 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 184.71875,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 232.71875,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 184.71875,
+          "y": 163.875,
+          "right": 232.71875,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 189.51875,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 07 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 213.421875,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 261.421875,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 213.421875,
+          "y": 163.875,
+          "right": 261.421875,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 218.221875,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 08 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 242.125,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 290.125,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 242.125,
+          "y": 163.875,
+          "right": 290.125,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.925,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 09 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 270.828125,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 318.828125,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 270.828125,
+          "y": 163.875,
+          "right": 318.828125,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 275.628125,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 168.675,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 187.875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 10 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 296.75,
+          "y": 163.875,
+          "width": 48,
+          "height": 48,
+          "right": 344.75,
+          "bottom": 211.875
+        },
+        "usable": {
+          "x": 296.75,
+          "y": 163.875,
+          "right": 344.75,
+          "bottom": 211.875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 301.55,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 168.675,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 187.875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 10 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 207.075,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 11 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 45.25,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 93.25,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 45.25,
+          "y": 191.234375,
+          "right": 93.25,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 50.05,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 11 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 11 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 21 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 12 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 69.90625,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 117.90625,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 69.90625,
+          "y": 191.234375,
+          "right": 117.90625,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 74.70625,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 13 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 98.609375,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 146.609375,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 98.609375,
+          "y": 191.234375,
+          "right": 146.609375,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 103.409375,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 14 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 127.3125,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 175.3125,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 127.3125,
+          "y": 191.234375,
+          "right": 175.3125,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 132.1125,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 15 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 156.015625,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 204.015625,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 156.015625,
+          "y": 191.234375,
+          "right": 204.015625,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 160.815625,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 16 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 184.71875,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 232.71875,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 184.71875,
+          "y": 191.234375,
+          "right": 232.71875,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 189.51875,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 17 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 213.421875,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 261.421875,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 213.421875,
+          "y": 191.234375,
+          "right": 261.421875,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 218.221875,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 18 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 242.125,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 290.125,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 242.125,
+          "y": 191.234375,
+          "right": 290.125,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.925,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 19 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 270.828125,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 318.828125,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 270.828125,
+          "y": 191.234375,
+          "right": 318.828125,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 275.628125,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 196.034375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 215.234375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 20 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 296.75,
+          "y": 191.234375,
+          "width": 48,
+          "height": 48,
+          "right": 344.75,
+          "bottom": 239.234375
+        },
+        "usable": {
+          "x": 296.75,
+          "y": 191.234375,
+          "right": 344.75,
+          "bottom": 239.234375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 301.55,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 196.034375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 215.234375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 20 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 234.434375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 21 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 45.25,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 93.25,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 45.25,
+          "y": 218.59375,
+          "right": 93.25,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 50.05,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 21 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 21 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 31 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 22 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 69.90625,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 117.90625,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 69.90625,
+          "y": 218.59375,
+          "right": 117.90625,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 74.70625,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 22 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 23 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 98.609375,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 146.609375,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 98.609375,
+          "y": 218.59375,
+          "right": 146.609375,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 103.409375,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 23 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 24 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 127.3125,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 175.3125,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 127.3125,
+          "y": 218.59375,
+          "right": 175.3125,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 132.1125,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 24 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 25 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 156.015625,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 204.015625,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 156.015625,
+          "y": 218.59375,
+          "right": 204.015625,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 160.815625,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 25 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 26 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 184.71875,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 232.71875,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 184.71875,
+          "y": 218.59375,
+          "right": 232.71875,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 189.51875,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 26 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 27 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 213.421875,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 261.421875,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 213.421875,
+          "y": 218.59375,
+          "right": 261.421875,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 218.221875,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 27 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 28 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 242.125,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 290.125,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 242.125,
+          "y": 218.59375,
+          "right": 290.125,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.925,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 28 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 29 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 270.828125,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 318.828125,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 270.828125,
+          "y": 218.59375,
+          "right": 318.828125,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 275.628125,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 223.39375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 29 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 242.59375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 30 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 296.75,
+          "y": 218.59375,
+          "width": 48,
+          "height": 48,
+          "right": 344.75,
+          "bottom": 266.59375
+        },
+        "usable": {
+          "x": 296.75,
+          "y": 218.59375,
+          "right": 344.75,
+          "bottom": 266.59375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 301.55,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 223.39375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 242.59375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 30 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 261.79375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 31 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 45.25,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 93.25,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 45.25,
+          "y": 245.953125,
+          "right": 93.25,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 50.05,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 31 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 31 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 41 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 32 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 69.90625,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 117.90625,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 69.90625,
+          "y": 245.953125,
+          "right": 117.90625,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 74.70625,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 32 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 33 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 98.609375,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 146.609375,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 98.609375,
+          "y": 245.953125,
+          "right": 146.609375,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 103.409375,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 33 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 34 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 127.3125,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 175.3125,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 127.3125,
+          "y": 245.953125,
+          "right": 175.3125,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 132.1125,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 34 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 35 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 156.015625,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 204.015625,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 156.015625,
+          "y": 245.953125,
+          "right": 204.015625,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 160.815625,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 35 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 36 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 184.71875,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 232.71875,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 184.71875,
+          "y": 245.953125,
+          "right": 232.71875,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 189.51875,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 36 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 37 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 213.421875,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 261.421875,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 213.421875,
+          "y": 245.953125,
+          "right": 261.421875,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 218.221875,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 37 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 38 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 242.125,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 290.125,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 242.125,
+          "y": 245.953125,
+          "right": 290.125,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.925,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 38 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 39 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 270.828125,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 318.828125,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 270.828125,
+          "y": 245.953125,
+          "right": 318.828125,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 275.628125,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 250.753125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 39 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 269.953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 40 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 296.75,
+          "y": 245.953125,
+          "width": 48,
+          "height": 48,
+          "right": 344.75,
+          "bottom": 293.953125
+        },
+        "usable": {
+          "x": 296.75,
+          "y": 245.953125,
+          "right": 344.75,
+          "bottom": 293.953125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 301.55,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 250.753125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 269.953125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 40 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 289.153125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 41 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 45.25,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 93.25,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 45.25,
+          "y": 273.3125,
+          "right": 93.25,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 50.05,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 41 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 41 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 51 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 42 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 69.90625,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 117.90625,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 69.90625,
+          "y": 273.3125,
+          "right": 117.90625,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 74.70625,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 42 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 43 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 98.609375,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 146.609375,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 98.609375,
+          "y": 273.3125,
+          "right": 146.609375,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 103.409375,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 43 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 44 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 127.3125,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 175.3125,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 127.3125,
+          "y": 273.3125,
+          "right": 175.3125,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 132.1125,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 44 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 45 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 156.015625,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 204.015625,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 156.015625,
+          "y": 273.3125,
+          "right": 204.015625,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 160.815625,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 45 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 55 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 199.215625,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 46 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 184.71875,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 232.71875,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 184.71875,
+          "y": 273.3125,
+          "right": 232.71875,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 189.51875,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 46 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 208.71875,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 227.91875,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 47 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 213.421875,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 261.421875,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 213.421875,
+          "y": 273.3125,
+          "right": 261.421875,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 218.221875,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 47 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 237.421875,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 256.621875,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 48 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 242.125,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 290.125,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 242.125,
+          "y": 273.3125,
+          "right": 290.125,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.925,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 48 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 266.125,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 285.325,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 49 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 270.828125,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 318.828125,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 270.828125,
+          "y": 273.3125,
+          "right": 318.828125,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 275.628125,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 278.1125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 49 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 297.3125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 294.828125,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 314.028125,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 50 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 296.75,
+          "y": 273.3125,
+          "width": 48,
+          "height": 48,
+          "right": 344.75,
+          "bottom": 321.3125
+        },
+        "usable": {
+          "x": 296.75,
+          "y": 273.3125,
+          "right": 344.75,
+          "bottom": 321.3125,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 301.55,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 278.1125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 297.3125,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 50 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 320.75,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 339.95,
+            "y": 316.5125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 51 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 45.25,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 93.25,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 45.25,
+          "y": 300.6875,
+          "right": 93.25,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 50.05,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 51 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 324.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 51 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 50.05,
+            "y": 343.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 51 정상 70%"
+          },
+          {
+            "x": 69.25,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 88.45,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 52 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 69.90625,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 117.90625,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 69.90625,
+          "y": 300.6875,
+          "right": 117.90625,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 74.70625,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 324.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 324.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 74.70625,
+            "y": 343.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 93.90625,
+            "y": 343.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 52 정상 70%"
+          },
+          {
+            "x": 113.10625,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 53 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 98.609375,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 146.609375,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 98.609375,
+          "y": 300.6875,
+          "right": 146.609375,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 103.409375,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 324.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 324.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 103.409375,
+            "y": 343.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 122.609375,
+            "y": 343.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 53 정상 70%"
+          },
+          {
+            "x": 141.809375,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 54 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 127.3125,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 175.3125,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 127.3125,
+          "y": 300.6875,
+          "right": 175.3125,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 132.1125,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 55 정상 70%"
+          },
+          {
+            "x": 132.1125,
+            "y": 324.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 324.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          },
+          {
+            "x": 132.1125,
+            "y": 343.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 151.3125,
+            "y": 343.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 54 정상 70%"
+          },
+          {
+            "x": 170.5125,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 55 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 156.015625,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 204.015625,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 156.015625,
+          "y": 300.6875,
+          "right": 204.015625,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 160.815625,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 55 정상 70%"
+          },
+          {
+            "x": 180.015625,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 55 정상 70%"
+          },
+          {
+            "x": 199.215625,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 56 정상 70%"
+          },
+          {
+            "x": 160.815625,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 180.015625,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          },
+          {
+            "x": 199.215625,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          },
+          {
+            "x": 160.815625,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          },
+          {
+            "x": 180.015625,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "svg",
+            "label": "지도 축소"
+          },
+          {
+            "x": 199.215625,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 56 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 184.71875,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 232.71875,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 184.71875,
+          "y": 300.6875,
+          "right": 232.71875,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 189.51875,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 56 정상 70%"
+          },
+          {
+            "x": 208.71875,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 56 정상 70%"
+          },
+          {
+            "x": 227.91875,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 57 정상 70%"
+          },
+          {
+            "x": 189.51875,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          },
+          {
+            "x": 208.71875,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          },
+          {
+            "x": 227.91875,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 189.51875,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "svg",
+            "label": "지도 축소"
+          },
+          {
+            "x": 208.71875,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 축소"
+          },
+          {
+            "x": 227.91875,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 57 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 213.421875,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 261.421875,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 213.421875,
+          "y": 300.6875,
+          "right": 261.421875,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 218.221875,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 57 정상 70%"
+          },
+          {
+            "x": 237.421875,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 57 정상 70%"
+          },
+          {
+            "x": 256.621875,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 58 정상 70%"
+          },
+          {
+            "x": 218.221875,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 237.421875,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 256.621875,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 218.221875,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 237.421875,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 256.621875,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 58 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 242.125,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 290.125,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 242.125,
+          "y": 300.6875,
+          "right": 290.125,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.925,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 58 정상 70%"
+          },
+          {
+            "x": 266.125,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 58 정상 70%"
+          },
+          {
+            "x": 285.325,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 59 정상 70%"
+          },
+          {
+            "x": 246.925,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 266.125,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 285.325,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 246.925,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 배율 100%"
+          },
+          {
+            "x": 266.125,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 285.325,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "svg",
+            "label": "지도 확대"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 59 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 270.828125,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 318.828125,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 270.828125,
+          "y": 300.6875,
+          "right": 318.828125,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 275.628125,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 59 정상 70%"
+          },
+          {
+            "x": 294.828125,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 59 정상 70%"
+          },
+          {
+            "x": 314.028125,
+            "y": 305.4875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "UX 조명 60 정상 70%"
+          },
+          {
+            "x": 275.628125,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 294.828125,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 314.028125,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 확대 축소"
+          },
+          {
+            "x": 275.628125,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 294.828125,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "svg",
+            "label": "지도 확대"
+          },
+          {
+            "x": 314.028125,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 60 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 296.75,
+          "y": 300.6875,
+          "width": 48,
+          "height": 48,
+          "right": 344.75,
+          "bottom": 348.6875
+        },
+        "usable": {
+          "x": 296.75,
+          "y": 300.6875,
+          "right": 344.75,
+          "bottom": 348.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 301.55,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 60 정상 70%"
+          },
+          {
+            "x": 320.75,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 60 정상 70%"
+          },
+          {
+            "x": 339.95,
+            "y": 305.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 60 정상 70%"
+          },
+          {
+            "x": 301.55,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 320.75,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 화면 맞춤"
+          },
+          {
+            "x": 339.95,
+            "y": 324.6875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 화면 맞춤"
+          },
+          {
+            "x": 301.55,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 확대"
+          },
+          {
+            "x": 320.75,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 화면 맞춤"
+          },
+          {
+            "x": 339.95,
+            "y": 343.8875,
+            "reachesElement": false,
+            "tag": "svg",
+            "label": "지도 화면 맞춤"
+          }
+        ]
+      }
+    ],
+    "exposedMap": {
+      "mapBox": {
+        "x": 9,
+        "y": 138,
+        "width": 372,
+        "height": 249,
+        "right": 381,
+        "bottom": 387
+      },
+      "mapUsable": {
+        "x": 9,
+        "y": 138,
+        "right": 381,
+        "bottom": 387,
+        "width": 372,
+        "height": 249
+      },
+      "blockers": [
+        {
+          "selector": "[data-shell-navigation=\"compact\"]",
+          "bounds": {
+            "x": 0,
+            "y": 532,
+            "right": 390,
+            "bottom": 600,
+            "width": 390,
+            "height": 68
+          }
+        },
+        {
+          "selector": "[data-operation-map-panel] [role=\"group\"][aria-label=\"지도 확대 축소\"]",
+          "bounds": {
+            "x": 155,
+            "y": 317,
+            "right": 373,
+            "bottom": 379,
+            "width": 218,
+            "height": 62
+          }
+        }
+      ],
+      "rectangles": [
+        {
+          "x": 9,
+          "y": 138,
+          "right": 381,
+          "bottom": 317,
+          "width": 372,
+          "height": 179
+        },
+        {
+          "x": 9,
+          "y": 379,
+          "right": 381,
+          "bottom": 387,
+          "width": 372,
+          "height": 8
+        },
+        {
+          "x": 9,
+          "y": 317,
+          "right": 155,
+          "bottom": 379,
+          "width": 146,
+          "height": 62
+        },
+        {
+          "x": 373,
+          "y": 317,
+          "right": 381,
+          "bottom": 379,
+          "width": 8,
+          "height": 62
+        }
+      ],
+      "area": 79112,
+      "limitation": "Opaque rectangular selectors only; hit samples are not continuous44 proof or OS-keyboard evidence."
+    }
+  },
+  "extra": {
+    "case": {
+      "id": 4,
+      "viewport": {
+        "width": 390,
+        "height": 600
+      },
+      "theme": "dark",
+      "route": "control",
+      "purpose": "basic map240/native swipe0-tap1/long60/exclusive aux/focus"
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/auth/me"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/me"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/floors/23232323-2323-4232-8232-232323232323/map-snapshot"
+      },
+      {
+        "method": "GET",
+        "path": "/api/commands"
+      },
+      {
+        "method": "GET",
+        "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/manifest"
+      },
+      {
+        "method": "GET",
+        "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/changes"
+      }
+    ],
+    "extra": {
+      "auxiliary": "closed",
+      "cameraPlacement": "overlay",
+      "baselineCameraOcclusionArea": 13516,
+      "additionalAuxiliaryOcclusionArea": 0,
+      "actualExposedArea": 79112
+    }
+  }
+}

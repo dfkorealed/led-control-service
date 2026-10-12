@@ -1,0 +1,1230 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/App.test.tsx (69 tests | 2 failed) 8632ms
+   × App > renders the approved control center landmarks 1232ms
+     → Unable to find role="dialog" and name "조명 상세"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":rkf:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"1...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":rkf:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"1...
+   ✓ App > switches monitoring floors and updates the detail panel from map selection 327ms
+   × App > removes the inspection queue while keeping individual fixture selection available 1091ms
+     → Unable to find role="dialog" and name "조명 상세"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r114:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r114:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"...
+   ✓ App > renders redesigned landmarks for control statistics and settings 555ms
+   ✓ App > keeps command retry disabled while the logout API is pending 473ms
+   ✓ App > unblocks command retry when logout fails 318ms
+   ✓ App > recovers the third status-check after failed logout with transport result success 365ms
+   ✓ App > recovers the third status-check after failed logout with transport result failure 331ms
+   ✓ App > recovers the third status-check after failed logout with transport result abort 392ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/App.test.tsx > App > renders the approved control center landmarks
+TestingLibraryElementError: Unable to find role="dialog" and name "조명 상세"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":rkf:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"1...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":rkf:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"1...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/App.test.tsx:928:38
+    926|     fireEvent.click(within(inspector).getByRole("button", { name: "B2-…
+    927|     await openSelectedMonitoringDetail();
+    928|     const detailSheet = await screen.findByRole("dialog", { name: "조…
+       |                                      ^
+    929|     expect(within(detailSheet).getByRole("complementary", { name: "선…
+    930|     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/App.test.tsx > App > removes the inspection queue while keeping individual fixture selection available
+TestingLibraryElementError: Unable to find role="dialog" and name "조명 상세"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r114:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 flex"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<aside[39m
+        [33mclass[39m=[32m"sticky top-0 z-20 h-screen w-customer-rail px-2 shrink-0 border-r border-border-default bg-surface-panel py-4"[39m
+        [33mdata-shell-navigation[39m=[32m"desktop"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-7 flex min-w-0 items-center gap-1 px-1 flex-col justify-center"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"킨다 관제 센터"[39m
+            [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+            [33mdata-compact[39m=[32m"true"[39m
+            [33mdata-kinda-logo[39m=[32m"true"[39m
+            [33mrole[39m=[32m"img"[39m
+          [36m>[39m
+            [36m<img[39m
+              [33malt[39m=[32m""[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"block size-8 shrink-0"[39m
+              [33mdata-kinda-logo-mark[39m=[32m"true"[39m
+              [33mheight[39m=[32m"32"[39m
+              [33msrc[39m=[32m"/brand/kinda-mark.svg"[39m
+              [33mwidth[39m=[32m"32"[39m
+            [36m/>[39m
+            [36m<strong[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"text-card-title font-black text-content-primary sr-only"[39m
+            [36m>[39m
+              [0m킨다[0m
+            [36m</strong>[39m
+            [36m<span[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"sr-only"[39m
+            [36m>[39m
+              [0m관제 센터[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"주 메뉴"[39m
+          [33mclass[39m=[32m"grid w-full gap-2"[39m
+          [33mid[39m=[32m":r114:"[39m
+        [36m>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-current[39m=[32m"page"[39m
+              [33maria-label[39m=[32m"모니터링"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/monitoring"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-activity"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"sr-only"[39m
+              [36m>[39m
+                [0m모니터링[0m
+              [36m</span>[39m
+            [36m</a>[39m
+          [36m</span>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"relative block min-w-0"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33maria-label[39m=[32m"제어"[39m
+              [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+              [33mdata-discover[39m=[32m"true"[39m
+              [33mdata-shell-navigation-item[39m=[32m"true"[39m
+              [33mhref[39m=[32m"/control"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"20"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"20"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"14"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"10"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"4"[39m
+                  [33my2[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"12"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"8"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"12"[39m
+                  [33my2[39m=[32m"12"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"21"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"12"[39m
+                  [33mx2[39m=[32m"3"[39m
+                  [33my1[39m=[32m"20"[39m
+                  [33my2[39m=[32m"20"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/App.test.tsx:1183:32
+    1181|     fireEvent.click(within(inspector).getByRole("button", { name: "B2-…
+    1182|     await openSelectedMonitoringDetail();
+    1183|     const sheet = await screen.findByRole("dialog", { name: "조명 상세…
+       |                                ^
+    1184|     expect(within(sheet).getByRole("heading", { name: "B2-L-OFFLINE" }…
+    1185|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 67 passed (69)
+   Start at  12:47:51
+   Duration  10.64s (transform 1.52s, setup 65ms, collect 1.35s, tests 8.63s, environment 360ms, prepare 51ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/App.test.tsx --maxWorkers=1 --minWorkers=1 --reporter=dot

@@ -1,0 +1,1209 @@
+{
+  "source": "69b1e9a3cb1dc7e2092a0ca96e56904e0938361a",
+  "phase": "ready",
+  "url": "http://127.0.0.1:15188/control?siteId=12121212-1212-4121-8121-121212121212&mode=manual",
+  "viewport": {
+    "width": 717,
+    "height": 1227
+  },
+  "metrics": {
+    "sampledAt": "2026-10-12T02:17:22.782Z",
+    "theme": "light",
+    "viewport": {
+      "width": 717,
+      "height": 1227,
+      "dpr": 1,
+      "visual": {
+        "width": 717,
+        "height": 1227,
+        "offsetTop": 0,
+        "offsetLeft": 0
+      }
+    },
+    "document": {
+      "scrollY": 0,
+      "scrollX": 0,
+      "scrollHeight": 1227,
+      "clientHeight": 1227,
+      "scrollWidth": 717,
+      "clientWidth": 717
+    },
+    "activeElement": {
+      "tag": "BODY",
+      "label": null
+    },
+    "map": {
+      "bounds": {
+        "x": 9,
+        "y": 262,
+        "width": 699,
+        "height": 699,
+        "right": 708,
+        "bottom": 961
+      },
+      "usable": {
+        "x": 9,
+        "y": 262,
+        "right": 708,
+        "bottom": 961,
+        "width": 699,
+        "height": 699
+      },
+      "scrollTop": 0,
+      "scrollLeft": 0,
+      "scrollHeight": 699,
+      "clientHeight": 699,
+      "overflowX": "auto",
+      "overflowY": "auto",
+      "hits": [
+        {
+          "x": 78.9,
+          "y": 331.9,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 358.5,
+          "y": 331.9,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 638.1,
+          "y": 331.9,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 78.9,
+          "y": 611.5,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 358.5,
+          "y": 611.5,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 638.1,
+          "y": 611.5,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 78.9,
+          "y": 891.1,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 358.5,
+          "y": 891.1,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 638.1,
+          "y": 891.1,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        }
+      ],
+      "camera": {
+        "x": 0,
+        "y": 0,
+        "zoom": "1"
+      },
+      "canvas": [
+        {
+          "bounds": {
+            "x": 34,
+            "y": 395.5,
+            "width": 649,
+            "height": 432,
+            "right": 683,
+            "bottom": 827.5
+          },
+          "bitmapWidth": 649,
+          "bitmapHeight": 432
+        }
+      ]
+    },
+    "regions": {
+      "toolbar": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 178,
+            "width": 701,
+            "height": 52,
+            "right": 709,
+            "bottom": 230
+          },
+          "usable": {
+            "x": 8,
+            "y": 178,
+            "right": 709,
+            "bottom": 230,
+            "width": 701,
+            "height": 52
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 52,
+          "clientHeight": 52,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 78.10000000000001,
+              "y": 183.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 358.5,
+              "y": 183.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 638.9,
+              "y": 183.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 204,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 358.5,
+              "y": 204,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 638.9,
+              "y": 204,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 224.8,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 358.5,
+              "y": 224.8,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 638.9,
+              "y": 224.8,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            }
+          ]
+        }
+      ],
+      "execution": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 1089,
+            "width": 701,
+            "height": 44,
+            "right": 709,
+            "bottom": 1133
+          },
+          "usable": {
+            "x": 8,
+            "y": 1089,
+            "right": 709,
+            "bottom": 1133,
+            "width": 701,
+            "height": 44
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 48,
+          "clientHeight": 44,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 78.10000000000001,
+              "y": 1093.4,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 358.5,
+              "y": 1093.4,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 638.9,
+              "y": 1093.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 적용"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 1111,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 358.5,
+              "y": 1111,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 638.9,
+              "y": 1111,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 적용"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 1128.6,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 358.5,
+              "y": 1128.6,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 638.9,
+              "y": 1128.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 적용"
+            }
+          ]
+        }
+      ],
+      "selection": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 1019,
+            "width": 701,
+            "height": 66,
+            "right": 709,
+            "bottom": 1085
+          },
+          "usable": {
+            "x": 8,
+            "y": 1019,
+            "right": 709,
+            "bottom": 1085,
+            "width": 701,
+            "height": 66
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 66,
+          "clientHeight": 66,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 78.10000000000001,
+              "y": 1025.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 358.5,
+              "y": 1025.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 638.9,
+              "y": 1025.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 1052,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 358.5,
+              "y": 1052,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 638.9,
+              "y": 1052,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 1078.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 358.5,
+              "y": 1078.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 638.9,
+              "y": 1078.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            }
+          ]
+        }
+      ],
+      "list": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "usable": null,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 0,
+          "clientHeight": 0,
+          "overflowX": "auto",
+          "overflowY": "auto",
+          "hits": []
+        }
+      ],
+      "more": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "usable": null,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 0,
+          "clientHeight": 0,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": []
+        }
+      ],
+      "important": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 1137,
+            "width": 701,
+            "height": 18,
+            "right": 709,
+            "bottom": 1155
+          },
+          "usable": {
+            "x": 8,
+            "y": 1137,
+            "right": 709,
+            "bottom": 1155,
+            "width": 701,
+            "height": 18
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 18,
+          "clientHeight": 18,
+          "overflowX": "auto",
+          "overflowY": "auto",
+          "hits": [
+            {
+              "x": 78.10000000000001,
+              "y": 1138.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 358.5,
+              "y": 1138.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 638.9,
+              "y": 1138.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 1146,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 358.5,
+              "y": 1146,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 638.9,
+              "y": 1146,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 1153.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 358.5,
+              "y": 1153.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 638.9,
+              "y": 1153.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            }
+          ]
+        }
+      ],
+      "mapPanel": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 234,
+            "width": 701,
+            "height": 781,
+            "right": 709,
+            "bottom": 1015
+          },
+          "usable": {
+            "x": 8,
+            "y": 234,
+            "right": 709,
+            "bottom": 1015,
+            "width": 701,
+            "height": 781
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 779,
+          "clientHeight": 779,
+          "overflowX": "hidden",
+          "overflowY": "hidden",
+          "hits": [
+            {
+              "x": 78.10000000000001,
+              "y": 312.1,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 358.5,
+              "y": 312.1,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 638.9,
+              "y": 312.1,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 624.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 358.5,
+              "y": 624.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 638.9,
+              "y": 624.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 78.10000000000001,
+              "y": 936.9,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 358.5,
+              "y": 936.9,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            },
+            {
+              "x": 638.9,
+              "y": 936.9,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "B2 도면"
+            }
+          ]
+        }
+      ],
+      "footer": [
+        {
+          "bounds": {
+            "x": 9,
+            "y": 961,
+            "width": 699,
+            "height": 53,
+            "right": 708,
+            "bottom": 1014
+          },
+          "usable": {
+            "x": 9,
+            "y": 961,
+            "right": 708,
+            "bottom": 1014,
+            "width": 699,
+            "height": 53
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 52,
+          "clientHeight": 52,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 78.9,
+              "y": 966.3,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 358.5,
+              "y": 966.3,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 638.1,
+              "y": 966.3,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 확대"
+            },
+            {
+              "x": 78.9,
+              "y": 987.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 358.5,
+              "y": 987.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 638.1,
+              "y": 987.5,
+              "reachesElement": true,
+              "tag": "path",
+              "label": "지도 확대"
+            },
+            {
+              "x": 78.9,
+              "y": 1008.7,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 358.5,
+              "y": 1008.7,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 638.1,
+              "y": 1008.7,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 확대"
+            }
+          ]
+        }
+      ],
+      "nav": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 1159,
+            "width": 717,
+            "height": 68,
+            "right": 717,
+            "bottom": 1227
+          },
+          "usable": {
+            "x": 0,
+            "y": 1159,
+            "right": 717,
+            "bottom": 1227,
+            "width": 717,
+            "height": 68
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 67,
+          "clientHeight": 67,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 71.7,
+              "y": 1165.8,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "모니터링"
+            },
+            {
+              "x": 358.5,
+              "y": 1165.8,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 645.3000000000001,
+              "y": 1165.8,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "설정"
+            },
+            {
+              "x": 71.7,
+              "y": 1193,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모니터링"
+            },
+            {
+              "x": 358.5,
+              "y": 1193,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 645.3000000000001,
+              "y": 1193,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "설정"
+            },
+            {
+              "x": 71.7,
+              "y": 1220.2,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 358.5,
+              "y": 1220.2,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 645.3000000000001,
+              "y": 1220.2,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모바일 주 메뉴"
+            }
+          ]
+        }
+      ]
+    },
+    "selection": [
+      {
+        "label": "UX 조명 01 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 253.375,
+          "y": 533.5,
+          "width": 48,
+          "height": 48,
+          "right": 301.375,
+          "bottom": 581.5
+        },
+        "usable": {
+          "x": 253.375,
+          "y": 533.5,
+          "right": 301.375,
+          "bottom": 581.5,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 258.175,
+            "y": 538.3,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 277.375,
+            "y": 538.3,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 296.575,
+            "y": 538.3,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 258.175,
+            "y": 557.5,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 277.375,
+            "y": 557.5,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 296.575,
+            "y": 557.5,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 258.175,
+            "y": 576.7,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 277.375,
+            "y": 576.7,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          },
+          {
+            "x": 296.575,
+            "y": 576.7,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 01 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 02 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 399.390625,
+          "y": 533.5,
+          "width": 48,
+          "height": 48,
+          "right": 447.390625,
+          "bottom": 581.5
+        },
+        "usable": {
+          "x": 399.390625,
+          "y": 533.5,
+          "right": 447.390625,
+          "bottom": 581.5,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 404.190625,
+            "y": 538.3,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 423.390625,
+            "y": 538.3,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 442.590625,
+            "y": 538.3,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 404.190625,
+            "y": 557.5,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 423.390625,
+            "y": 557.5,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 442.590625,
+            "y": 557.5,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 404.190625,
+            "y": 576.7,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 423.390625,
+            "y": 576.7,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          },
+          {
+            "x": 442.590625,
+            "y": 576.7,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70%"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 03 정상 70%",
+        "pressed": "false",
+        "current": null,
+        "dataSelected": "false",
+        "bounds": {
+          "x": 253.375,
+          "y": 657.6875,
+          "width": 48,
+          "height": 48,
+          "right": 301.375,
+          "bottom": 705.6875
+        },
+        "usable": {
+          "x": 253.375,
+          "y": 657.6875,
+          "right": 301.375,
+          "bottom": 705.6875,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 258.175,
+            "y": 662.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 277.375,
+            "y": 662.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 296.575,
+            "y": 662.4875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 258.175,
+            "y": 681.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 277.375,
+            "y": 681.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 296.575,
+            "y": 681.6875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 258.175,
+            "y": 700.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 277.375,
+            "y": 700.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          },
+          {
+            "x": 296.575,
+            "y": 700.8875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70%"
+          }
+        ]
+      }
+    ],
+    "exposedMap": {
+      "mapBox": {
+        "x": 9,
+        "y": 262,
+        "width": 699,
+        "height": 699,
+        "right": 708,
+        "bottom": 961
+      },
+      "mapUsable": {
+        "x": 9,
+        "y": 262,
+        "right": 708,
+        "bottom": 961,
+        "width": 699,
+        "height": 699
+      },
+      "blockers": [
+        {
+          "selector": "[data-shell-navigation=\"compact\"]",
+          "bounds": {
+            "x": 0,
+            "y": 1159,
+            "right": 717,
+            "bottom": 1227,
+            "width": 717,
+            "height": 68
+          }
+        }
+      ],
+      "rectangles": [
+        {
+          "x": 9,
+          "y": 262,
+          "right": 708,
+          "bottom": 961,
+          "width": 699,
+          "height": 699
+        }
+      ],
+      "area": 488601,
+      "limitation": "Opaque rectangular selectors only; hit samples are not continuous44 proof or OS-keyboard evidence."
+    }
+  },
+  "extra": {
+    "case": {
+      "id": 5,
+      "viewport": {
+        "width": 717,
+        "height": 1227
+      },
+      "resize": {
+        "width": 390,
+        "height": 844
+      },
+      "theme": "light",
+      "route": "control",
+      "purpose": "remaining map/resize/raw draft/identity"
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/auth/me"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/me"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/floors/23232323-2323-4232-8232-232323232323/map-snapshot"
+      },
+      {
+        "method": "GET",
+        "path": "/api/commands"
+      },
+      {
+        "method": "GET",
+        "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/manifest"
+      },
+      {
+        "method": "GET",
+        "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/changes"
+      }
+    ]
+  }
+}

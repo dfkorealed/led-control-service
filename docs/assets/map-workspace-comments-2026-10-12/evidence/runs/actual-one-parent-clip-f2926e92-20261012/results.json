@@ -1,0 +1,230 @@
+{
+  "config": {
+    "argv": [
+      "/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      ".superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.config.ts",
+      "--grep",
+      "03 ",
+      "--workers=1",
+      "--retries=0"
+    ],
+    "configFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.config.ts",
+    "rootDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium-ux-approved-aux-six-cases",
+        "name": "chromium-ux-approved-aux-six-cases",
+        "testDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+        "testIgnore": [],
+        "testMatch": [
+          "page-session-ux-aux.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "line",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "cwd": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012",
+      "command": "VITE_TEST_DATA_TOOLS_ENABLED=false WEB_PORT=15188 pnpm --filter @led-control/web dev",
+      "url": "http://127.0.0.1:15188",
+      "reuseExistingServer": false,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "page-session-ux-aux.spec.ts",
+      "file": "page-session-ux-aux.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "03 narrow finite manual workspace",
+          "file": "page-session-ux-aux.spec.ts",
+          "line": 340,
+          "column": 6,
+          "specs": [
+            {
+              "title": "320x600 light: map240, native0/100, first Apply and exclusive auxiliaries",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-approved-aux-six-cases",
+                  "projectName": "chromium-ux-approved-aux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2917,
+                      "error": {
+                        "message": "Error: Touch targets below 44px within [data-target-selection-toolbar]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 10\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 48,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"조명 목록\",\u001b[39m\n\u001b[31m+     \"width\": 48,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m",
+                        "stack": "Error: Touch targets below 44px within [data-target-selection-toolbar]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 10\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 48,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"조명 목록\",\u001b[39m\n\u001b[31m+     \"width\": 48,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m\n    at expectMinimumTouchTargets (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts:377:73)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:362:9\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:287:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:345:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts",
+                          "column": 73,
+                          "line": 377
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39m../../../apps/web/e2e/support/layout-assertions.ts:377\n\n  375 |   expect(targets.length, `Expected at least one visible enabled interactive target within ${rootSelector}`).toBeGreaterThan(0);\n  376 |   const undersized = targets.filter(({ hasMinimumArea }) => !hasMinimumArea);\n> 377 |   expect(undersized, `Touch targets below 44px within ${rootSelector}`).toEqual([]);\n      |                                                                         ^\n  378 | }\n  379 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts",
+                            "column": 73,
+                            "line": 377
+                          },
+                          "message": "Error: Touch targets below 44px within [data-target-selection-toolbar]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 10\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 48,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"조명 목록\",\u001b[39m\n\u001b[31m+     \"width\": 48,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m\n\n   at ../../../apps/web/e2e/support/layout-assertions.ts:377\n\n  375 |   expect(targets.length, `Expected at least one visible enabled interactive target within ${rootSelector}`).toBeGreaterThan(0);\n  376 |   const undersized = targets.filter(({ hasMinimumArea }) => !hasMinimumArea);\n> 377 |   expect(undersized, `Touch targets below 44px within ${rootSelector}`).toEqual([]);\n      |                                                                         ^\n  378 | }\n  379 |\n    at expectMinimumTouchTargets (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts:377:73)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:362:9\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:287:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:345:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T04:30:21.083Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-11630e3e845e7efd024b89f3d38ce3a5dc1ac3de.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-073c4500ba65c9e766ffd8e6b8338b837a31891e.png"
+                        },
+                        {
+                          "name": "basic-map-before-zoom-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-geometry-2f7020b77a17a32a7d38c5dca609a4c5d7726a56.json"
+                        },
+                        {
+                          "name": "basic-map-before-zoom",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-6c0842324e5b3131b0f33911284ab858be717d85.png"
+                        },
+                        {
+                          "name": "slider-endpoint-0-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/slider-endpoint-0-geometry-20c4c4876bc0b3787daaf5149c27f9ffe12d42ba.json"
+                        },
+                        {
+                          "name": "slider-endpoint-0",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/slider-endpoint-0-048763b28f217feb4c8a6003d2f56828427fce1d.png"
+                        },
+                        {
+                          "name": "slider-endpoint-100-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/slider-endpoint-100-geometry-de90e51ea3ef03647378c44c550fcef9bb521883.json"
+                        },
+                        {
+                          "name": "slider-endpoint-100",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/slider-endpoint-100-0db93aebb92c4fabd0cde4192aa02bebb0fb40da.png"
+                        },
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/original-failure-4666787011cde6b45b30772aa1ae0aabbf56e252.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-83429d6fe6aabdb5560f6969e08c6e6b995c8a91.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-e9500f41fd7c8ff64c5f368b3c854e3067683bb4.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-one-parent-clip-f2926e92-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts",
+                        "column": 73,
+                        "line": 377
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "44f9bd26f232b9ebced5-a8d45d0a48f6d61def3f",
+              "file": "page-session-ux-aux.spec.ts",
+              "line": 344,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-12T04:30:13.733Z",
+    "duration": 10790.14,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

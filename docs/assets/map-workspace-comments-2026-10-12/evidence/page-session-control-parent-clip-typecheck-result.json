@@ -1,0 +1,14 @@
+{
+  "command": [
+    "pnpm",
+    "--filter",
+    "@led-control/web",
+    "exec",
+    "tsc",
+    "--noEmit"
+  ],
+  "exitCode": 0,
+  "elapsedSeconds": 20.159,
+  "startedAt": "2026-10-12T04:25:14.722750+00:00",
+  "endedAt": "2026-10-12T04:25:34.881782+00:00"
+}

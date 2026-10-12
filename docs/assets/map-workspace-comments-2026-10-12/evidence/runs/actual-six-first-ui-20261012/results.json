@@ -1,0 +1,686 @@
+{
+  "config": {
+    "argv": [
+      "/private/tmp/atlas-ui-fidelity-node22.xde1wS/bin/node",
+      "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts"
+    ],
+    "configFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts",
+    "rootDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium-ux-six-cases",
+        "name": "chromium-ux-six-cases",
+        "testDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+        "testIgnore": [],
+        "testMatch": [
+          "page-session-ux.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "line",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "cwd": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012",
+      "command": "VITE_TEST_DATA_TOOLS_ENABLED=false WEB_PORT=15188 pnpm --filter @led-control/web dev",
+      "url": "http://127.0.0.1:15188",
+      "reuseExistingServer": false,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "page-session-ux.spec.ts",
+      "file": "page-session-ux.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "01 PC monitoring actual CAD and nonmodal detail",
+          "file": "page-session-ux.spec.ts",
+          "line": 163,
+          "column": 6,
+          "specs": [
+            {
+              "title": "1194 light: pan, single selection, half overlay and focus",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 8554,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveCount\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')\u001b[22m\n\u001b[2m    14 × locator resolved to 0 elements\u001b[22m\n\u001b[2m       - unexpected value \"0\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveCount\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')\u001b[22m\n\u001b[2m    14 × locator resolved to 0 elements\u001b[22m\n\u001b[2m       - unexpected value \"0\"\u001b[22m\n\n    at detail (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:100:89)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:178:7\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:149:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:167:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                          "column": 89,
+                          "line": 100
+                        },
+                        "snippet": "   98 |   try {\n   99 |     await opener.click();\n> 100 |     await expect(page.locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')).toHaveCount(1);\n      |                                                                                         ^\n  101 |     await page.getByRole(\"button\", { name: \"상세 보기\", exact: true }).click();\n  102 |     const aside = page.locator('aside[aria-label=\"조명 상세\"]');\n  103 |     await expect(aside).toBeVisible();"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                            "column": 89,
+                            "line": 100
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveCount\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveCount\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')\u001b[22m\n\u001b[2m    14 × locator resolved to 0 elements\u001b[22m\n\u001b[2m       - unexpected value \"0\"\u001b[22m\n\n\n   98 |   try {\n   99 |     await opener.click();\n> 100 |     await expect(page.locator('[data-spatial-map-marker=\"true\"][aria-pressed=\"true\"]')).toHaveCount(1);\n      |                                                                                         ^\n  101 |     await page.getByRole(\"button\", { name: \"상세 보기\", exact: true }).click();\n  102 |     const aside = page.locator('aside[aria-label=\"조명 상세\"]');\n  103 |     await expect(aside).toBeVisible();\n    at detail (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:100:89)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:178:7\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:149:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:167:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:03:35.915Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/ready-geometry-c4e38adb5a2d65a763c2fd93046ebe1625828938.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/ready-edb32b595c3df426a163a81e5f538b15f4119ae7.png"
+                        },
+                        {
+                          "name": "native-gestures-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/native-gestures-geometry-a0f9d3505a6cbed79ed1a83a831445baf0da97be.json"
+                        },
+                        {
+                          "name": "native-gestures",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/native-gestures-f53fec12f3c7225c30a14c7c23c8b9c9f6569b57.png"
+                        },
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/original-failure-9b4af46c83ffb1a746b1087593b46adae097bbb9.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/failure-geometry-b1f89a310d17f33d32f67eaeb5afe7520167cc76.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/failure-1cba210aa50520186d37420d64361fc25e2c58bb.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                        "column": 89,
+                        "line": 100
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "21ca59d847606d268d34-6d6821e40fc8ffc62ca6",
+              "file": "page-session-ux.spec.ts",
+              "line": 166,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "02 short mobile monitoring",
+          "file": "page-session-ux.spec.ts",
+          "line": 184,
+          "column": 6,
+          "specs": [
+            {
+              "title": "390x600 dark: toolbar, HH:mm and detail scroll",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 6801,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('group', { name: '모니터링 도구' }).locator('time')\nExpected pattern: \u001b[32m/^\\d{2}:\\d{2}$/\u001b[39m\nReceived string:  \u001b[31m\"2026-10-12 11:03:45 (현장 시간)11:03\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('group', { name: '모니터링 도구' }).locator('time')\u001b[22m\n\u001b[2m    13 × locator resolved to <time datetime=\"2026-10-12T02:03:45.773Z\" aria-label=\"2026-10-12 11:03:45 (현장 시간)\">…</time>\u001b[22m\n\u001b[2m       - unexpected value \"2026-10-12 11:03:45 (현장 시간)11:03\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('group', { name: '모니터링 도구' }).locator('time')\nExpected pattern: \u001b[32m/^\\d{2}:\\d{2}$/\u001b[39m\nReceived string:  \u001b[31m\"2026-10-12 11:03:45 (현장 시간)11:03\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('group', { name: '모니터링 도구' }).locator('time')\u001b[22m\n\u001b[2m    13 × locator resolved to <time datetime=\"2026-10-12T02:03:45.773Z\" aria-label=\"2026-10-12 11:03:45 (현장 시간)\">…</time>\u001b[22m\n\u001b[2m       - unexpected value \"2026-10-12 11:03:45 (현장 시간)11:03\"\u001b[22m\n\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:191:45\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:149:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:188:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                          "column": 45,
+                          "line": 191
+                        },
+                        "snippet": "  189 |       const toolbar = page.getByRole(\"group\", { name: \"모니터링 도구\" });\n  190 |       await row(page, [toolbar.getByRole(\"button\", { name: /맵 선택/ }), toolbar.getByRole(\"button\", { name: \"조명 검색/목록\" }), toolbar.getByRole(\"button\", { name: \"새로고침\" }), toolbar.locator(\"time\")]);\n> 191 |       await expect(toolbar.locator(\"time\")).toHaveText(/^\\d{2}:\\d{2}$/);\n      |                                             ^\n  192 |       await expect(toolbar.locator(\"time\")).toHaveAttribute(\"aria-label\", /현장 시간/);\n  193 |       await expect(toolbar.locator(\"time\")).toHaveAttribute(\"datetime\", /T/);\n  194 |       await expectMinimumTouchTargets(page, '[role=\"group\"][aria-label=\"모니터링 도구\"]');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                            "column": 45,
+                            "line": 191
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('group', { name: '모니터링 도구' }).locator('time')\nExpected pattern: \u001b[32m/^\\d{2}:\\d{2}$/\u001b[39m\nReceived string:  \u001b[31m\"2026-10-12 11:03:45 (현장 시간)11:03\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('group', { name: '모니터링 도구' }).locator('time')\u001b[22m\n\u001b[2m    13 × locator resolved to <time datetime=\"2026-10-12T02:03:45.773Z\" aria-label=\"2026-10-12 11:03:45 (현장 시간)\">…</time>\u001b[22m\n\u001b[2m       - unexpected value \"2026-10-12 11:03:45 (현장 시간)11:03\"\u001b[22m\n\n\n  189 |       const toolbar = page.getByRole(\"group\", { name: \"모니터링 도구\" });\n  190 |       await row(page, [toolbar.getByRole(\"button\", { name: /맵 선택/ }), toolbar.getByRole(\"button\", { name: \"조명 검색/목록\" }), toolbar.getByRole(\"button\", { name: \"새로고침\" }), toolbar.locator(\"time\")]);\n> 191 |       await expect(toolbar.locator(\"time\")).toHaveText(/^\\d{2}:\\d{2}$/);\n      |                                             ^\n  192 |       await expect(toolbar.locator(\"time\")).toHaveAttribute(\"aria-label\", /현장 시간/);\n  193 |       await expect(toolbar.locator(\"time\")).toHaveAttribute(\"datetime\", /T/);\n  194 |       await expectMinimumTouchTargets(page, '[role=\"group\"][aria-label=\"모니터링 도구\"]');\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:191:45\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:149:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:188:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:03:45.457Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/ready-geometry-14769ebb2a05ea7222429ce5a3087d62a63230c5.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/ready-2fa02baeaed9e0b479b9c978572d4dbde9a8fe5d.png"
+                        },
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/original-failure-ad00f776f5ef71219330cfe7e8bd235ae241b758.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/failure-geometry-52f8fc94380415879a9e0d9498ff2a81b664867a.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/failure-d731321e555aa1655513940f5d681936f5a982c0.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                        "column": 45,
+                        "line": 191
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "21ca59d847606d268d34-2a1512c1207f8b01a44e",
+              "file": "page-session-ux.spec.ts",
+              "line": 187,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "03 narrow finite manual workspace",
+          "file": "page-session-ux.spec.ts",
+          "line": 202,
+          "column": 6,
+          "specs": [
+            {
+              "title": "320x600 light: two rows, invalid first Apply and More",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 5589,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:145:72)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:206:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                          "column": 72,
+                          "line": 145
+                        },
+                        "snippet": "  143 |     state = await setup();\n  144 |     await page.goto(`/${scenario.route}?siteId=${ids.siteId}`);\n> 145 |     await expect(page.locator(contract.map).locator(\"canvas\").first()).toBeVisible();\n      |                                                                        ^\n  146 |     await expect(firstMarker(page)).toBeVisible();\n  147 |     await setReviewTheme(page, scenario.theme);\n  148 |     await phase(\"ready\");"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                            "column": 72,
+                            "line": 145
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n\n\n  143 |     state = await setup();\n  144 |     await page.goto(`/${scenario.route}?siteId=${ids.siteId}`);\n> 145 |     await expect(page.locator(contract.map).locator(\"canvas\").first()).toBeVisible();\n      |                                                                        ^\n  146 |     await expect(firstMarker(page)).toBeVisible();\n  147 |     await setReviewTheme(page, scenario.theme);\n  148 |     await phase(\"ready\");\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:145:72)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:206:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:03:52.894Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/attachments/original-failure-2050ee6a829e848febca8214d41e027008288d20.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/attachments/failure-geometry-3d7abc96f4550e4b6b12bb3fa21502ba14a4ce54.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/attachments/failure-68b729833ee1d52ae599e529284cbd5955e70a9e.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                        "column": 72,
+                        "line": 145
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "21ca59d847606d268d34-50342f6ecc2e786eef4b",
+              "file": "page-session-ux.spec.ts",
+              "line": 205,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "04 native touch and long inline selection",
+          "file": "page-session-ux.spec.ts",
+          "line": 244,
+          "column": 6,
+          "specs": [
+            {
+              "title": "390x600 dark: swipe then tap, 60 fixtures and internal ending",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 5603,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:145:72)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:248:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                          "column": 72,
+                          "line": 145
+                        },
+                        "snippet": "  143 |     state = await setup();\n  144 |     await page.goto(`/${scenario.route}?siteId=${ids.siteId}`);\n> 145 |     await expect(page.locator(contract.map).locator(\"canvas\").first()).toBeVisible();\n      |                                                                        ^\n  146 |     await expect(firstMarker(page)).toBeVisible();\n  147 |     await setReviewTheme(page, scenario.theme);\n  148 |     await phase(\"ready\");"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                            "column": 72,
+                            "line": 145
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n\n\n  143 |     state = await setup();\n  144 |     await page.goto(`/${scenario.route}?siteId=${ids.siteId}`);\n> 145 |     await expect(page.locator(contract.map).locator(\"canvas\").first()).toBeVisible();\n      |                                                                        ^\n  146 |     await expect(firstMarker(page)).toBeVisible();\n  147 |     await setReviewTheme(page, scenario.theme);\n  148 |     await phase(\"ready\");\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:145:72)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:248:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:03:59.178Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/original-failure-b6487782bca7b2963898b1fa03002d92d771f018.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/failure-geometry-afce7fe0479a6a04342c36835fbe912c1c4f5e16.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/failure-cb285027e2663f368399d549b0b7b1cb461c40d0.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                        "column": 72,
+                        "line": 145
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "21ca59d847606d268d34-f42ee5a787500152f43a",
+              "file": "page-session-ux.spec.ts",
+              "line": 247,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "05 resize without remount/reset",
+          "file": "page-session-ux.spec.ts",
+          "line": 288,
+          "column": 6,
+          "specs": [
+            {
+              "title": "717x1227 to 390x844 light: inline/More, focus and raw31",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 5728,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:145:72)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:292:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                          "column": 72,
+                          "line": 145
+                        },
+                        "snippet": "  143 |     state = await setup();\n  144 |     await page.goto(`/${scenario.route}?siteId=${ids.siteId}`);\n> 145 |     await expect(page.locator(contract.map).locator(\"canvas\").first()).toBeVisible();\n      |                                                                        ^\n  146 |     await expect(firstMarker(page)).toBeVisible();\n  147 |     await setReviewTheme(page, scenario.theme);\n  148 |     await phase(\"ready\");"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                            "column": 72,
+                            "line": 145
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"target-selection-map-viewport\"]').locator('canvas').first()\u001b[22m\n\n\n  143 |     state = await setup();\n  144 |     await page.goto(`/${scenario.route}?siteId=${ids.siteId}`);\n> 145 |     await expect(page.locator(contract.map).locator(\"canvas\").first()).toBeVisible();\n      |                                                                        ^\n  146 |     await expect(firstMarker(page)).toBeVisible();\n  147 |     await setReviewTheme(page, scenario.theme);\n  148 |     await phase(\"ready\");\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:145:72)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:292:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:04:05.452Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-05-resize--97626-inline-More-focus-and-raw31-chromium-ux-six-cases/attachments/original-failure-f77d5084cd610ffbcdd3f2cb468122412cbf7f32.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-05-resize--97626-inline-More-focus-and-raw31-chromium-ux-six-cases/attachments/failure-geometry-0b7acaa8c365af7ab887fefd0559481ad5bc8494.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-05-resize--97626-inline-More-focus-and-raw31-chromium-ux-six-cases/attachments/failure-48eab7e35eefa47ffb8ec87de33565dbc62cbc87.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-05-resize--97626-inline-More-focus-and-raw31-chromium-ux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-05-resize--97626-inline-More-focus-and-raw31-chromium-ux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                        "column": 72,
+                        "line": 145
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "21ca59d847606d268d34-4038a74ab31f8f7aea8d",
+              "file": "page-session-ux.spec.ts",
+              "line": 291,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "06 PC manual empty and long-list ownership",
+          "file": "page-session-ux.spec.ts",
+          "line": 317,
+          "column": 6,
+          "specs": [
+            {
+              "title": "1194 dark: equal-height empty panel and 60-row internal scroll",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 6867,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeHidden\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('button', { name: '전체 보기', exact: true })\nExpected: hidden\nReceived: visible\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeHidden\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('button', { name: '전체 보기', exact: true })\u001b[22m\n\u001b[2m    14 × locator resolved to <button type=\"button\" data-variant=\"ghost\" aria-haspopup=\"dialog\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-4 py-0 text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary border-transparent bg-transparent\">…</button>\u001b[22m\n\u001b[2m       - unexpected value \"visible\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeHidden\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('button', { name: '전체 보기', exact: true })\nExpected: hidden\nReceived: visible\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeHidden\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('button', { name: '전체 보기', exact: true })\u001b[22m\n\u001b[2m    14 × locator resolved to <button type=\"button\" data-variant=\"ghost\" aria-haspopup=\"dialog\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-4 py-0 text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary border-transparent bg-transparent\">…</button>\u001b[22m\n\u001b[2m       - unexpected value \"visible\"\u001b[22m\n\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:329:80\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:149:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:321:5",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                          "column": 80,
+                          "line": 329
+                        },
+                        "snippet": "  327 |         expect(Math.abs(empty.mapPanel!.height - empty.selection!.height)).toBeLessThanOrEqual(1);\n  328 |         await expect(page.getByRole(\"button\", { name: \"더보기\", exact: true })).toBeHidden();\n> 329 |         await expect(page.getByRole(\"button\", { name: \"전체 보기\", exact: true })).toBeHidden();\n      |                                                                                ^\n  330 |         await phase(\"empty-full-row\", empty);\n  331 |         await selectFloor(page, false);\n  332 |         const list = listPanel.locator(':scope > div:last-child'), heading = page.getByRole(\"heading\", { name: \"선택 조명 60개\", exact: true }), before = await heading.boundingBox();"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                            "column": 80,
+                            "line": 329
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeHidden\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator:  getByRole('button', { name: '전체 보기', exact: true })\nExpected: hidden\nReceived: visible\nTimeout:  5000ms\n\nCall log:\n\u001b[2m  - Expect \"toBeHidden\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('button', { name: '전체 보기', exact: true })\u001b[22m\n\u001b[2m    14 × locator resolved to <button type=\"button\" data-variant=\"ghost\" aria-haspopup=\"dialog\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-4 py-0 text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary border-transparent bg-transparent\">…</button>\u001b[22m\n\u001b[2m       - unexpected value \"visible\"\u001b[22m\n\n\n  327 |         expect(Math.abs(empty.mapPanel!.height - empty.selection!.height)).toBeLessThanOrEqual(1);\n  328 |         await expect(page.getByRole(\"button\", { name: \"더보기\", exact: true })).toBeHidden();\n> 329 |         await expect(page.getByRole(\"button\", { name: \"전체 보기\", exact: true })).toBeHidden();\n      |                                                                                ^\n  330 |         await phase(\"empty-full-row\", empty);\n  331 |         await selectFloor(page, false);\n  332 |         const list = listPanel.locator(':scope > div:last-child'), heading = page.getByRole(\"heading\", { name: \"선택 조명 60개\", exact: true }), before = await heading.boundingBox();\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:329:80\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:149:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:321:5"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:04:11.880Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "ready-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-06-PC-manu-25327--and-60-row-internal-scroll-chromium-ux-six-cases/attachments/ready-geometry-80af5a3893b2ae7b38c5c9df6de770c2a2b52152.json"
+                        },
+                        {
+                          "name": "ready",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-06-PC-manu-25327--and-60-row-internal-scroll-chromium-ux-six-cases/attachments/ready-f5c644112a416821478f62c607ca5b61ee23bd1d.png"
+                        },
+                        {
+                          "name": "original-failure",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-06-PC-manu-25327--and-60-row-internal-scroll-chromium-ux-six-cases/attachments/original-failure-0575719dd6d9f589fb2544bc6da1e898e769a59c.json"
+                        },
+                        {
+                          "name": "failure-geometry",
+                          "contentType": "application/json",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-06-PC-manu-25327--and-60-row-internal-scroll-chromium-ux-six-cases/attachments/failure-geometry-b2f9003b6da9247ba2e937d97a7ecb2659b1ebc7.json"
+                        },
+                        {
+                          "name": "failure",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-06-PC-manu-25327--and-60-row-internal-scroll-chromium-ux-six-cases/attachments/failure-135150fb8b0b499ea813cf58261c10ff9282e3a2.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-06-PC-manu-25327--and-60-row-internal-scroll-chromium-ux-six-cases/test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-06-PC-manu-25327--and-60-row-internal-scroll-chromium-ux-six-cases/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts",
+                        "column": 80,
+                        "line": 329
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "21ca59d847606d268d34-3f04f355152ca03f1492",
+              "file": "page-session-ux.spec.ts",
+              "line": 320,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-12T02:03:26.050Z",
+    "duration": 53038.005000000005,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 6,
+    "flaky": 0
+  }
+}

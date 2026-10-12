@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/monitoring/MonitoringView.test.tsx (110 tests | 106 skipped) 281ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 106 skipped (110)
+   Start at  10:08:00
+   Duration  4.15s (transform 759ms, setup 90ms, collect 2.74s, tests 281ms, environment 397ms, prepare 65ms)
+

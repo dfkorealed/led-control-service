@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/control/target-selection/SpatialTargetSelector.test.tsx (33 tests | 1 failed | 30 skipped) 397ms
+   × SpatialTargetSelector > C6-8 compact scope dropdown keeps the current targets until explicit confirmation 276ms
+     → Invalid Chai property: toHaveBeenCalledExactlyOnceWith
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 54 skipped) 1065ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 370ms
+ ✓ src/features/control/ControlView.test.tsx (164 tests | 110 skipped) 4460ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/target-selection/SpatialTargetSelector.test.tsx > SpatialTargetSelector > C6-8 compact scope dropdown keeps the current targets until explicit confirmation
+Error: Invalid Chai property: toHaveBeenCalledExactlyOnceWith
+ ❯ src/features/control/target-selection/SpatialTargetSelector.test.tsx:70:20
+     68|     fireEvent.click(screen.getByRole("option", { name: "저장된 구역" }…
+     69|     fireEvent.click(screen.getByRole("button", { name: "변경" }));
+     70|     expect(onChange).toHaveBeenCalledExactlyOnceWith({ mode: "group", …
+       |                    ^
+     71|   });
+     72| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 65 passed | 194 skipped (260)
+   Start at  10:29:21
+   Duration  6.99s (transform 1.15s, setup 239ms, collect 4.25s, tests 5.92s, environment 1.31s, prepare 293ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx src/features/shells/CustomerShell.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx -t C6-8|real authorized manual|manual route and query|real page changes|navigation breakpoint to the real Control|atlas execution|fidelity names|announces the selection|brightness|invalid|lost-command|short desktop|frozen uncertain|stable fixture target|first fixture gateway|read-only|frozen request|restore|restor|replay|safety hold|scope changes|scope reset|mesh group targets --reporter=dot

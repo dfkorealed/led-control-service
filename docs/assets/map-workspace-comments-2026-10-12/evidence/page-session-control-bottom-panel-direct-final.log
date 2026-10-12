@@ -1,0 +1,23 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/ControlView.test.tsx (169 tests | 154 skipped) 1966ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 316ms
+ ✓ src/features/control/CommandHistoryPanel.test.tsx (30 tests) 3405ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'partial' draft survives filter reopen, then reads a valid correction 494ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'impossible' draft survives filter reopen, then reads a valid correction 658ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'reversed' draft survives filter reopen, then reads a valid correction 695ms
+   ✓ CommandHistoryPanel > debounces search, changes stage filters and resets pagination for a new search 413ms
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 31 skipped) 138ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 55 skipped) 925ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 351ms
+ ✓ src/features/control/target-selection/SpatialTargetSelector.test.tsx (33 tests) 1403ms
+   ✓ SpatialTargetSelector > keeps incremental rendering reachable inside the bounded drawer list 321ms
+ ✓ src/components/ui/operations/RecentActivityTicker.test.tsx (11 tests | 4 skipped) 100ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests) 246ms
+
+ Test Files  7 passed (7)
+      Tests  115 passed | 244 skipped (359)
+   Start at  11:58:25
+   Duration  15.85s (transform 1.03s, setup 264ms, collect 4.62s, tests 8.18s, environment 1.59s, prepare 340ms)
+

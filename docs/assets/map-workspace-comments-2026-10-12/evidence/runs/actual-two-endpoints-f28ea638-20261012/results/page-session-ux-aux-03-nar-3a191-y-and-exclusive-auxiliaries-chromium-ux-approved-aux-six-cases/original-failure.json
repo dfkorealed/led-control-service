@@ -1,0 +1,65 @@
+{
+  "source": "f28ea638c3decae89bfd6180c8e81607226794e8",
+  "case": {
+    "id": 3,
+    "viewport": {
+      "width": 320,
+      "height": 600
+    },
+    "theme": "light",
+    "route": "control",
+    "purpose": "map240/finite/two44rows/slider endpoints/first Apply/exclusive aux"
+  },
+  "phase": "basic-map-before-zoom",
+  "url": "http://127.0.0.1:15188/control?siteId=12121212-1212-4121-8121-121212121212&mode=manual",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/floors/23232323-2323-4232-8232-232323232323/map-snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands"
+    },
+    {
+      "method": "GET",
+      "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/manifest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/changes"
+    }
+  ],
+  "error": {
+    "message": "Actual target must contain a reachable continuous44 square: {\"target\":{\"tag\":\"INPUT\",\"role\":null,\"ariaLabel\":\"밝기 수치\",\"name\":\"밝기 수치\",\"bounds\":{\"x\":8,\"y\":480,\"width\":48,\"height\":44,\"right\":56,\"bottom\":524}},\"width\":48,\"height\":44,\"continuous44\":false}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+    "stack": "Error: Actual target must contain a reachable continuous44 square: {\"target\":{\"tag\":\"INPUT\",\"role\":null,\"ariaLabel\":\"밝기 수치\",\"name\":\"밝기 수치\",\"bounds\":{\"x\":8,\"y\":480,\"width\":48,\"height\":44,\"right\":56,\"bottom\":524}},\"width\":48,\"height\":44,\"continuous44\":false}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n    at expectContinuous44Hit (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux-support.ts:125:120)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:358:32\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:287:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:345:5"
+  }
+}

@@ -1,0 +1,40 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/control/ControlView.test.tsx (167 tests | 1 failed | 165 skipped) 640ms
+   ✓ ControlView 대상 선택 > keeps every control disabled for viewer accounts with compact=false 465ms
+   × ControlView 대상 선택 > keeps every control disabled for viewer accounts with compact=true 174ms
+     → expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  조회 전용
+Received:
+  제어 대상을 하나 이상 선택해 주세요.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > keeps every control disabled for viewer accounts with compact=true
+Error: expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  조회 전용
+Received:
+  제어 대상을 하나 이상 선택해 주세요.
+ ❯ src/features/control/ControlView.test.tsx:1443:75
+    1441|     expect(fixtureMarker("B2-L001")).toBeDisabled();
+    1442|     expect(applyButton()).toBeDisabled();
+    1443|     if (compact) expect(screen.getByRole("status", { name: "제어 중요 …
+       |                                                                           ^
+    1444|     expect(mocks.apiPost).not.toHaveBeenCalled();
+    1445|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed | 165 skipped (167)
+   Start at  10:37:58
+   Duration  3.38s (transform 717ms, setup 75ms, collect 1.73s, tests 640ms, environment 326ms, prepare 55ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx -t keeps every control disabled for viewer accounts --reporter=dot

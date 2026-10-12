@@ -1,0 +1,13 @@
+{
+  "source_commit": "69b1e9a3cb1dc7e2092a0ca96e56904e0938361a",
+  "direct_parent": "bea0dacb07d3d5c8e0b14e4659874da12ed6b2d4",
+  "commit_files": [
+    "apps/web/src/features/control/ControlView.tsx",
+    "docs/menus/control.md"
+  ],
+  "verified_sha_matches": true,
+  "preserved_scope_sha_matches": true,
+  "owned_diff_empty": true,
+  "remaining_status": [],
+  "actual_geometry_green": false
+}

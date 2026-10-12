@@ -1,0 +1,1126 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/ControlView.test.tsx (169 tests | 154 skipped) 2202ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 348ms
+   ✓ ControlView 대상 선택 > preserves an in-flight UUID, frozen target and lock through inline details, filters and resize 391ms
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 31 skipped) 148ms
+ ❯ src/features/shells/CustomerShell.test.tsx (63 tests | 1 failed | 55 skipped) 1079ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 361ms
+   × customer shell site context > forwards the existing navigation breakpoint to the real Control close action without resetting details 373ms
+     → Unable to find an accessible element with the role "button" and name "명령 상세 닫기"
+
+Here are the accessible roles:
+
+  navigation:
+
+  Name "모바일 주 메뉴":
+  [36m<nav[39m
+    [33maria-label[39m=[32m"모바일 주 메뉴"[39m
+    [33mclass[39m=[32m"fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"[39m
+    [33mdata-shell-navigation[39m=[32m"compact"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  link:
+
+  Name "모니터링":
+  [36m<a[39m
+    [33maria-label[39m=[32m"모니터링"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/monitoring?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  Name "제어":
+  [36m<a[39m
+    [33maria-current[39m=[32m"page"[39m
+    [33maria-label[39m=[32m"제어"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/control?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  Name "통계":
+  [36m<a[39m
+    [33maria-label[39m=[32m"통계"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/statistics/overview?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  Name "설정":
+  [36m<a[39m
+    [33maria-label[39m=[32m"설정"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/settings?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  main:
+
+  Name "":
+  [36m<main[39m
+    [33mclass[39m=[32m"flex min-w-0 flex-1 flex-col min-h-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"sticky top-0 z-10 grid min-h-13 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2"[39m
+    [33mdata-shell-topbar[39m=[32m"true"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  img:
+
+  Name "킨다":
+  [36m<div[39m
+    [33maria-label[39m=[32m"킨다"[39m
+    [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+    [33mdata-kinda-logo[39m=[32m"true"[39m
+    [33mrole[39m=[32m"img"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "현장":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-body-sm font-normal text-content-primary min-w-0 truncate m-0"[39m
+    [33mtitle[39m=[32m"현장"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-body font-normal text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-caption font-normal text-content-primary m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-body font-normal text-content-secondary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "알람센터, 미읽음 0건 (현장 알람과 최근 알림)":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"알람센터, 미읽음 0건 (현장 알람과 최근 알림)"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary border-transparent bg-transparent relative min-h-13 min-w-13 p-0"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"알람센터, 미읽음 0건 (현장 알람과 최근 알림)"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "다크 모드로 변경":
+  [36m<button[39m
+    [33maria-label[39m=[32m"다크 모드로 변경"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary aspect-square min-w-11 p-2 size-13 shrink-0"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "표시 층":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r2b:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r2b:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "선택 범위":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r3r:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r3r:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "조명 목록":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary size-11 min-h-11! shrink-0 p-0"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "전체 보기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":r2a:"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary px-4 py-0 text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary min-h-11! w-full"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "밝기 적용":
+  [36m<button[39m
+    [33maria-label[39m=[32m"밝기 적용"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-action-primary bg-action-primary hover:enabled:border-action-primary-hover hover:enabled:bg-action-primary-hover active:enabled:bg-action-primary-active py-0 text-action-primary-foreground h-11 min-h-11! min-w-0 px-2 text-caption"[39m
+    [33mdata-control-submit[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"primary"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "더보기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":r2a:"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary py-0 text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary h-11 min-h-11! min-w-11 px-2 text-caption"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "현장 전체":
+  [36m<section[39m
+    [33maria-label[39m=[32m"현장 전체"[39m
+    [33mclass[39m=[32m"min-w-0 items-center justify-center border-t border-border-default py-1 hidden"[39m
+  [36m/>[39m
+
+  Name "제어 대상 지도":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상 지도"[39m
+    [33mclass[39m=[32m"rounded-panel border bg-surface-panel border-border-default flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full"[39m
+    [33mdata-control-target-card[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  Name "공간 대상 선택":
+  [36m<section[39m
+    [33maria-label[39m=[32m"공간 대상 선택"[39m
+    [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1"[39m
+    [33mdata-spatial-target-selector[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "선택 대상 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"선택 대상 목록"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 gap-1"[39m
+    [33mdata-manual-selection-panel[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상"[39m
+    [33mclass[39m=[32m"sr-only"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "현장 전체":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "조명 제어":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-section-title font-bold text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "선택 조명 0개":
+  [36m<h3[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"font-bold text-content-primary text-caption m-0"[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<h3[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-content-primary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-status-success-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-status-danger-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-content-primary"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "수동 제어":
+  [36m<div[39m
+    [33maria-labelledby[39m=[32m"control-mode-manual"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] gap-1 tablet:flex tablet:flex-col"[39m
+    [33mdata-control-manual-panel[39m=[32m""[39m
+    [33mid[39m=[32m"control-mode-panel-manual"[39m
+    [33mrole[39m=[32m"tabpanel"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "밝기 실행":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"밝기 실행"[39m
+    [33mclass[39m=[32m"rounded-panel bg-surface-panel border-border-default max-w-full overflow-x-hidden overflow-y-auto overscroll-contain wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full flex min-h-0 min-w-0 w-full flex-col gap-1 border-0 p-0 compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain"[39m
+    [33mdata-control-panel[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33mclass[39m=[32m"text-customer-metric font-bold tabular-nums max-compact:text-metric text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "밝기 수치":
+  [36m<input[39m
+    [33maria-label[39m=[32m"밝기 수치"[39m
+    [33maria-roledescription[39m=[32m"Number field"[39m
+    [33mautocomplete[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-transparent bg-transparent py-2 px-1 text-body text-right"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":r33:"[39m
+    [33minputmode[39m=[32m"numeric"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"text"[39m
+    [33mvalue[39m=[32m"70"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "밝기":
+  [36m<div[39m
+    [33maria-label[39m=[32m"밝기"[39m
+    [33mclass[39m=[32m"contents"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m"react-aria-:r3c:"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  slider:
+
+  Name "밝기":
+  [36m<input[39m
+    [33maria-describedby[39m=[32m""[39m
+    [33maria-details[39m=[32m""[39m
+    [33maria-labelledby[39m=[32m"react-aria-:r3c:"[39m
+    [33maria-orientation[39m=[32m"horizontal"[39m
+    [33maria-valuetext[39m=[32m"70"[39m
+    [33mid[39m=[32m":r3f:"[39m
+    [33mmax[39m=[32m"100"[39m
+    [33mmin[39m=[32m"0"[39m
+    [33mstep[39m=[32m"1"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"range"[39m
+    [33mvalue[39m=[32m"70"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "제어 중요 상태":
+  [36m<div[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-label[39m=[32m"제어 중요 상태"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"max-h-20 overflow-y-auto overscroll-contain text-caption"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<output[39m
+    [33mdata-testid[39m=[32m"location"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 pb-shell-navigation-safe"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<nav[39m
+        [33maria-label[39m=[32m"모바일 주 메뉴"[39m
+        [33mclass[39m=[32m"fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"[39m
+        [33mdata-shell-navigation[39m=[32m"compact"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"relative block min-w-0"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-label[39m=[32m"모니터링"[39m
+            [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mdata-shell-navigation-item[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/monitoring?siteId=site&mode=manual"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-activity"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0m모니터링[0m
+            [36m</span>[39m
+          [36m</a>[39m
+        [36m</span>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"relative block min-w-0"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-current[39m=[32m"page"[39m
+            [33maria-label[39m=[32m"제어"[39m
+            [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mdata-shell-navigation-item[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/control?siteId=site&mode=manual"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"21"[39m
+                [33mx2[39m=[32m"14"[39m
+                [33my1[39m=[32m"4"[39m
+                [33my2[39m=[32m"4"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"10"[39m
+                [33mx2[39m=[32m"3"[39m
+                [33my1[39m=[32m"4"[39m
+                [33my2[39m=[32m"4"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"21"[39m
+                [33mx2[39m=[32m"12"[39m
+                [33my1[39m=[32m"12"[39m
+                [33my2[39m=[32m"12"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"8"[39m
+                [33mx2[39m=[32m"3"[39m
+                [33my1[39m=[32m"12"[39m
+                [33my2[39m=[32m"12"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"21"[39m
+                [33mx2[39m=[32m"16"[39m
+                [33my1[39m=[32m"20"[39m
+                [33my2[39m=[32m"20"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"12"[39m
+                [33mx2[39m=[32m"3"[39m
+                [33my1[39m=[32m"20"[39m
+                [33my2[39m=[32m"20"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"14"[39m
+                [33mx2[39m=[32m"14"[39m
+                [33my1[39m=[32m"2"[39m
+                [33my2[39m=[32m"6"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"8"[39m
+                [33mx2[39m=[32m"8"[39m
+                [33my1[39m=[32m"10"[39m
+                [33my2[39m=[32m"14"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"16"[39m
+                [33mx2[39m=[32m"16"[39m
+                [33my1[39m=[32m"18"[39m
+                [33my2[39m=[32m"22"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0m제어[0m
+            [36m</span>[39m
+          [36m</a>[39m
+        [36m</span>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"relative block min-w-0"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-label[39m=[32m"통계"[39m
+            [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mdata-shell-navigation-item[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/statistics/overview?siteId=site&mode=manual"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-chart-column"[39m
+              [33mfill[39m=[32m"non...
+ ✓ src/features/control/target-selection/SpatialTargetSelector.test.tsx (33 tests | 30 skipped) 378ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests) 261ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/shells/CustomerShell.test.tsx > customer shell site context > forwards the existing navigation breakpoint to the real Control close action without resetting details
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "명령 상세 닫기"
+
+Here are the accessible roles:
+
+  navigation:
+
+  Name "모바일 주 메뉴":
+  [36m<nav[39m
+    [33maria-label[39m=[32m"모바일 주 메뉴"[39m
+    [33mclass[39m=[32m"fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"[39m
+    [33mdata-shell-navigation[39m=[32m"compact"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  link:
+
+  Name "모니터링":
+  [36m<a[39m
+    [33maria-label[39m=[32m"모니터링"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/monitoring?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  Name "제어":
+  [36m<a[39m
+    [33maria-current[39m=[32m"page"[39m
+    [33maria-label[39m=[32m"제어"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/control?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  Name "통계":
+  [36m<a[39m
+    [33maria-label[39m=[32m"통계"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/statistics/overview?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  Name "설정":
+  [36m<a[39m
+    [33maria-label[39m=[32m"설정"[39m
+    [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+    [33mdata-discover[39m=[32m"true"[39m
+    [33mdata-shell-navigation-item[39m=[32m"true"[39m
+    [33mhref[39m=[32m"/settings?siteId=site&mode=manual"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  main:
+
+  Name "":
+  [36m<main[39m
+    [33mclass[39m=[32m"flex min-w-0 flex-1 flex-col min-h-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"sticky top-0 z-10 grid min-h-13 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2"[39m
+    [33mdata-shell-topbar[39m=[32m"true"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  img:
+
+  Name "킨다":
+  [36m<div[39m
+    [33maria-label[39m=[32m"킨다"[39m
+    [33mclass[39m=[32m"inline-flex shrink-0 items-center gap-2 text-content-primary"[39m
+    [33mdata-kinda-logo[39m=[32m"true"[39m
+    [33mrole[39m=[32m"img"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "현장":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-body-sm font-normal text-content-primary min-w-0 truncate m-0"[39m
+    [33mtitle[39m=[32m"현장"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-body font-normal text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-caption font-normal text-content-primary m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-body font-normal text-content-secondary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "알람센터, 미읽음 0건 (현장 알람과 최근 알림)":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"알람센터, 미읽음 0건 (현장 알람과 최근 알림)"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary border-transparent bg-transparent relative min-h-13 min-w-13 p-0"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"알람센터, 미읽음 0건 (현장 알람과 최근 알림)"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "다크 모드로 변경":
+  [36m<button[39m
+    [33maria-label[39m=[32m"다크 모드로 변경"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary aspect-square min-w-11 p-2 size-13 shrink-0"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "표시 층":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r2b:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r2b:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "선택 범위":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r3r:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r3r:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "조명 목록":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary size-11 min-h-11! shrink-0 p-0"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "전체 보기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":r2a:"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary px-4 py-0 text-body text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary min-h-11! w-full"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "밝기 적용":
+  [36m<button[39m
+    [33maria-label[39m=[32m"밝기 적용"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-action-primary bg-action-primary hover:enabled:border-action-primary-hover hover:enabled:bg-action-primary-hover active:enabled:bg-action-primary-active py-0 text-action-primary-foreground h-11 min-h-11! min-w-0 px-2 text-caption"[39m
+    [33mdata-control-submit[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"primary"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "더보기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":r2a:"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary py-0 text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-action-primary-soft aria-pressed:text-action-primary h-11 min-h-11! min-w-11 px-2 text-caption"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "현장 전체":
+  [36m<section[39m
+    [33maria-label[39m=[32m"현장 전체"[39m
+    [33mclass[39m=[32m"min-w-0 items-center justify-center border-t border-border-default py-1 hidden"[39m
+  [36m/>[39m
+
+  Name "제어 대상 지도":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상 지도"[39m
+    [33mclass[39m=[32m"rounded-panel border bg-surface-panel border-border-default flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full"[39m
+    [33mdata-control-target-card[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  Name "공간 대상 선택":
+  [36m<section[39m
+    [33maria-label[39m=[32m"공간 대상 선택"[39m
+    [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1"[39m
+    [33mdata-spatial-target-selector[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "선택 대상 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"선택 대상 목록"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 gap-1"[39m
+    [33mdata-manual-selection-panel[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상"[39m
+    [33mclass[39m=[32m"sr-only"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "현장 전체":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "조명 제어":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-section-title font-bold text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "선택 조명 0개":
+  [36m<h3[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"font-bold text-content-primary text-caption m-0"[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<h3[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"row-start-2 text-caption text-content-secondary"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-content-primary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-status-success-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-status-danger-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums text-content-primary"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "수동 제어":
+  [36m<div[39m
+    [33maria-labelledby[39m=[32m"control-mode-manual"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] gap-1 tablet:flex tablet:flex-col"[39m
+    [33mdata-control-manual-panel[39m=[32m""[39m
+    [33mid[39m=[32m"control-mode-panel-manual"[39m
+    [33mrole[39m=[32m"tabpanel"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "밝기 실행":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"밝기 실행"[39m
+    [33mclass[39m=[32m"rounded-panel bg-surface-panel border-border-default max-w-full overflow-x-hidden overflow-y-auto overscroll-contain wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full flex min-h-0 min-w-0 w-full flex-col gap-1 border-0 p-0 compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain"[39m
+    [33mdata-control-panel[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33mclass[39m=[32m"text-customer-metric font-bold tabular-nums max-compact:text-metric text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "밝기 수치":
+  [36m<input[39m
+    [33maria-label[39m=[32m"밝기 수치"[39m
+    [33maria-roledescription[39m=[32m"Number field"[39m
+    [33mautocomplete[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-transparent bg-transparent py-2 px-1 text-body text-right"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":r33:"[39m
+    [33minputmode[39m=[32m"numeric"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"text"[39m
+    [33mvalue[39m=[32m"70"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "밝기":
+  [36m<div[39m
+    [33maria-label[39m=[32m"밝기"[39m
+    [33mclass[39m=[32m"contents"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m"react-aria-:r3c:"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  slider:
+
+  Name "밝기":
+  [36m<input[39m
+    [33maria-describedby[39m=[32m""[39m
+    [33maria-details[39m=[32m""[39m
+    [33maria-labelledby[39m=[32m"react-aria-:r3c:"[39m
+    [33maria-orientation[39m=[32m"horizontal"[39m
+    [33maria-valuetext[39m=[32m"70"[39m
+    [33mid[39m=[32m":r3f:"[39m
+    [33mmax[39m=[32m"100"[39m
+    [33mmin[39m=[32m"0"[39m
+    [33mstep[39m=[32m"1"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"range"[39m
+    [33mvalue[39m=[32m"70"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "제어 중요 상태":
+  [36m<div[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-label[39m=[32m"제어 중요 상태"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"max-h-20 overflow-y-auto overscroll-contain text-caption"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<output[39m
+    [33mdata-testid[39m=[32m"location"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"bg-surface-canvas flex h-dvh min-h-0 pb-shell-navigation-safe"[39m
+      [33mdata-app-shell[39m=[32m"true"[39m
+      [33mdata-workspace-full-view[39m=[32m"false"[39m
+    [36m>[39m
+      [36m<nav[39m
+        [33maria-label[39m=[32m"모바일 주 메뉴"[39m
+        [33mclass[39m=[32m"fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"[39m
+        [33mdata-shell-navigation[39m=[32m"compact"[39m
+      [36m>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"relative block min-w-0"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-label[39m=[32m"모니터링"[39m
+            [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mdata-shell-navigation-item[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/monitoring?siteId=site&mode=manual"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-activity"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0m모니터링[0m
+            [36m</span>[39m
+          [36m</a>[39m
+        [36m</span>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"relative block min-w-0"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-current[39m=[32m"page"[39m
+            [33maria-label[39m=[32m"제어"[39m
+            [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center bg-action-primary-soft text-action-primary"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mdata-shell-navigation-item[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/control?siteId=site&mode=manual"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"21"[39m
+                [33mx2[39m=[32m"14"[39m
+                [33my1[39m=[32m"4"[39m
+                [33my2[39m=[32m"4"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"10"[39m
+                [33mx2[39m=[32m"3"[39m
+                [33my1[39m=[32m"4"[39m
+                [33my2[39m=[32m"4"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"21"[39m
+                [33mx2[39m=[32m"12"[39m
+                [33my1[39m=[32m"12"[39m
+                [33my2[39m=[32m"12"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"8"[39m
+                [33mx2[39m=[32m"3"[39m
+                [33my1[39m=[32m"12"[39m
+                [33my2[39m=[32m"12"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"21"[39m
+                [33mx2[39m=[32m"16"[39m
+                [33my1[39m=[32m"20"[39m
+                [33my2[39m=[32m"20"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"12"[39m
+                [33mx2[39m=[32m"3"[39m
+                [33my1[39m=[32m"20"[39m
+                [33my2[39m=[32m"20"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"14"[39m
+                [33mx2[39m=[32m"14"[39m
+                [33my1[39m=[32m"2"[39m
+                [33my2[39m=[32m"6"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"8"[39m
+                [33mx2[39m=[32m"8"[39m
+                [33my1[39m=[32m"10"[39m
+                [33my2[39m=[32m"14"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"16"[39m
+                [33mx2[39m=[32m"16"[39m
+                [33my1[39m=[32m"18"[39m
+                [33my2[39m=[32m"22"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0m제어[0m
+            [36m</span>[39m
+          [36m</a>[39m
+        [36m</span>[39m
+        [36m<span[39m
+          [33mclass[39m=[32m"relative block min-w-0"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33maria-label[39m=[32m"통계"[39m
+            [33mclass[39m=[32m"flex w-full items-center rounded-control border border-transparent text-body-sm font-bold no-underline focus-visible:outline-none focus-visible:shadow-focus min-h-12 flex-col justify-center gap-1 p-1 text-center border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mdata-shell-navigation-item[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/statistics/overview?siteId=site&mode=manual"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-chart-column"[39m
+              [33mfill[39m=[32m"non...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/shells/CustomerShell.test.tsx:240:44
+    238|     expect(detail).not.toContainElement(screen.getByRole("button", { n…
+    239|     act(() => onChange?.({ matches: true } as MediaQueryListEvent));
+    240|     expect(detail).toContainElement(screen.getByRole("button", { name:…
+       |                                            ^
+    241|     expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).…
+    242|     expect(apiPost).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 47 passed | 270 skipped (318)
+   Start at  11:55:19
+   Duration  10.41s (transform 939ms, setup 197ms, collect 3.78s, tests 4.07s, environment 1.31s, prepare 357ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx src/features/shells/CustomerShell.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx src/features/control/ManualExecutionPanel.test.tsx src/features/floor-map/FloorMapViewport.test.tsx -t C6-8|keeps every control disabled for viewer accounts|ManualExecutionPanel|manual-cad|footer|maintains|resize|real authorized manual|manual route and query|real page changes|navigation breakpoint to the real Control|preserves an in-flight UUID|retains original UUID|original frozen UUID --maxWorkers=1 --minWorkers=1 --reporter=dot

@@ -1,0 +1,39 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 1 failed | 43 skipped) 68ms
+   × FloorMapViewport > C6-8 optional compact chrome preserves the live viewport and default footer contract 67ms
+     → expect(element).toHaveClass("min-h-0")
+
+Expected the element to have class:
+  min-h-0
+Received:
+  h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/floor-map/FloorMapViewport.test.tsx > FloorMapViewport > C6-8 optional compact chrome preserves the live viewport and default footer contract
+Error: expect(element).toHaveClass("min-h-0")
+
+Expected the element to have class:
+  min-h-0
+Received:
+  h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]
+ ❯ src/features/floor-map/FloorMapViewport.test.tsx:23:22
+     21|     const view = render(<FloorMapViewport snapshot={snapshot} ariaLabe…
+     22|     const viewport = screen.getByRole("region", { name: "compact map" …
+     23|     expect(viewport).toHaveClass("min-h-0");
+       |                      ^
+     24|     fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+     25|     expect(viewport).toHaveAttribute("data-zoom", "1.1");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 43 skipped (44)
+   Start at  10:21:26
+   Duration  2.14s (transform 345ms, setup 80ms, collect 1.11s, tests 68ms, environment 347ms, prepare 220ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/floor-map/FloorMapViewport.test.tsx -t C6-8 --reporter=dot

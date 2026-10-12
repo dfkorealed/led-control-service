@@ -1,0 +1,31 @@
+{
+  "source_commit": "4093ff536e2ded9edfb1d1f1c3b25f53b54989b3",
+  "direct_parent": "4710954854acffb67921114fbf7d664a2192b48c",
+  "commit_paths": [
+    "apps/web/src/features/control/ControlView.test.tsx",
+    "apps/web/src/features/control/ControlView.tsx",
+    "apps/web/src/features/control/ManualExecutionPanel.tsx",
+    "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+    "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+    "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx",
+    "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+    "apps/web/src/features/shells/CustomerShell.test.tsx",
+    "apps/web/src/features/shells/CustomerShell.tsx",
+    "docs/menus/control.md"
+  ],
+  "verified_sha_matches": true,
+  "preserved_scope_sha_matches": true,
+  "owned_diff_empty": true,
+  "remaining_status": [],
+  "direct_final": {
+    "files": 7,
+    "passed": 118,
+    "skipped": 244,
+    "failed": 0,
+    "exit_code": 0,
+    "duration_seconds": 16.48
+  },
+  "typecheck_exit_code": 0,
+  "ui_check_exit_code": 0,
+  "actual_geometry_green": false
+}

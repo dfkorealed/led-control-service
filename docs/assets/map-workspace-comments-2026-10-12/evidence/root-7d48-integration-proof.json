@@ -1,0 +1,107 @@
+{
+  "head": "7d48d7fb7f4de9f963134a828d7db9887f2d6cce",
+  "parents": "7d48d7fb7f4de9f963134a828d7db9887f2d6cce ea0019b1bf4d5bb7ebd4cecfbaae5f498eb4090f a8440716aaa8e658fa75422d4d7801783c604f05",
+  "clean": true,
+  "uiCount": 18,
+  "ui": [
+    {
+      "path": "apps/web/src/App.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ControlView.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ControlView.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/floor-map/FloorMapViewport.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/floor-map/FloorMapViewport.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/FloorMap.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/FloorMap.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/MonitoringView.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/MonitoringView.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.tsx",
+      "same": true
+    }
+  ],
+  "upstream": [
+    {
+      "path": "apps/web/src/components/ui/AppErrorBoundary.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/operator/OperatorShell.test.tsx",
+      "same": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-11-web-deploy-mode.md",
+      "same": true
+    },
+    {
+      "path": "scripts/pki/issue-lab-manufacturing-station.sh",
+      "same": true
+    },
+    {
+      "path": "scripts/pki/issue-lab-manufacturing-station.test.mjs",
+      "same": true
+    }
+  ],
+  "statusLatestBaseAllNonemptyLinesPreserved": true,
+  "ownUiStatusLinesPreserved": true,
+  "controlDocSameAsOwner": true,
+  "userAgentsSHA": "832022567dd810c3668e5f9f1d3200988052e84fd8069554a3ab0db9976c04c6",
+  "all": true
+}

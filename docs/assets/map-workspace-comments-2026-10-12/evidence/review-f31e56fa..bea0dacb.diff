@@ -1,0 +1,2464 @@
+# Review package: f31e56fadd27d63f96824bad2ea2c4ef71581b62..bea0dacb07d3d5c8e0b14e4659874da12ed6b2d4
+
+## Commits
+bea0dacb docs: collect page-session checkpoints for UI verification
+9f3e25d7 feat(web): compact manual control workspace and inline selection
+c4c2961b docs: assign control UI session after monitoring handoff
+a8ded919 docs: correct control UI session assignment and cancel prior request
+87f658ef docs(monitoring): record page-session handoff verification
+1ded19a6 docs: hand off map corrections to existing page sessions
+ac323a3d feat(web): refine monitoring map workspace interactions
+9d59c7e6 docs: plan approved map workspace corrections
+
+## Files changed
+ apps/web/src/features/control/ControlView.test.tsx |  72 ++++++++++++-
+ apps/web/src/features/control/ControlView.tsx      | 120 ++++++++++++---------
+ .../features/control/ManualExecutionPanel.test.tsx |  21 ++++
+ .../src/features/control/ManualExecutionPanel.tsx  |  61 +++++++----
+ .../target-selection/ManualSelectionPanel.tsx      |  34 ++++++
+ .../SpatialTargetSelector.test.tsx                 |  15 +++
+ .../target-selection/SpatialTargetSelector.tsx     |  40 +++----
+ .../target-selection/TargetSelectionToolbar.tsx    |  13 ++-
+ .../features/floor-map/FloorMapViewport.test.tsx   |  14 +++
+ .../src/features/floor-map/FloorMapViewport.tsx    |  19 ++--
+ apps/web/src/features/monitoring/FloorMap.test.tsx |  36 +++++--
+ apps/web/src/features/monitoring/FloorMap.tsx      |   2 +
+ .../features/monitoring/MonitoringView.test.tsx    |  97 ++++++++++++-----
+ .../web/src/features/monitoring/MonitoringView.tsx |  99 +++++++----------
+ .../web/src/features/shells/CustomerShell.test.tsx |  45 +++++---
+ apps/web/src/features/shells/CustomerShell.tsx     |  21 ++--
+ docs/menus/control.md                              |  31 ++++++
+ docs/menus/monitoring.md                           |  27 +++++
+ docs/project-status.md                             |  11 ++
+ .../plans/2026-10-12-map-workspace-comments.md     |  97 +++++++++++++++++
+ 20 files changed, 651 insertions(+), 224 deletions(-)
+
+## Diff
+diff --git a/apps/web/src/features/control/ControlView.test.tsx b/apps/web/src/features/control/ControlView.test.tsx
+index 82305e52..2345f016 100644
+--- a/apps/web/src/features/control/ControlView.test.tsx
++++ b/apps/web/src/features/control/ControlView.test.tsx
+@@ -350,34 +350,97 @@ describe("ControlView 대상 선택", () => {
+     await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+     const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+     expect(within(drawer).getByRole("button", { name: new RegExp(commandIds.terminal) })).toBeInTheDocument();
+     await act(async () => { await vi.advanceTimersByTimeAsync(942); });
+     expect(within(drawer).queryByRole("button", { name: new RegExp(commandIds.terminal) })).not.toBeInTheDocument();
+     fireEvent.click(within(drawer).getByRole("button", { name: "명령 이력 닫기" }));
+     expect(screen.queryByRole("button", { name: "안전하게 다시 적용" })).not.toBeInTheDocument();
+     expect(mocks.apiPost).not.toHaveBeenCalled();
+   });
+ 
++  it("C6-8 mobile expands selected names inline without replacing the map, draft, or command scope", () => {
++    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    selectFixture("B2-L001"); selectFixture("B2-L002");
++    const map = screen.getByTestId("target-selection-map-viewport");
++    const scene = map.querySelector("[data-floor-scene]");
++    expect(scene).not.toBeNull();
++    const input = screen.getByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    const panel = screen.getByRole("region", { name: "선택 대상 목록" });
++    const toggle = within(panel).getByRole("button", { name: "전체 보기" });
++    expect(toggle).toHaveAttribute("aria-expanded", "false");
++    expect(within(panel).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
++    fireEvent.click(toggle);
++    expect(within(panel).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L001");
++    expect(within(panel).getAllByRole("listitem")).toHaveLength(2);
++    expect(screen.queryByRole("dialog", { name: "선택 조명" })).not.toBeInTheDocument();
++    fireEvent.keyDown(within(panel).getByRole("list", { name: "선택 조명" }), { key: "Escape" });
++    expect(toggle).toHaveFocus(); expect(toggle).toHaveAttribute("aria-expanded", "false");
++    fireEvent.click(toggle);
++    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map);
++    expect(map.querySelector("[data-floor-scene]")).toBe(scene);
++    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
++    expect(input).toHaveValue("31"); expect(mocks.apiPost).not.toHaveBeenCalled();
++    view.rerender(controlElement(dashboard.site.id, "admin", USER_B, `/control?siteId=${dashboard.site.id}`, true));
++    expect(within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" })).toHaveAttribute("aria-expanded", "false");
++    expect(mocks.apiPost).not.toHaveBeenCalled();
++  });
++
++  it("C6-8 mobile More preserves an uncertain request and keeps its important status visible while collapsed", async () => {
++    commandStore.configureActiveCommandPersistence(true);
++    mocks.apiPost.mockRejectedValueOnce(new TypeError("response lost")).mockResolvedValueOnce({ id: commandIds.retry, dispatchCount: 1 });
++    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    selectFixture("B2-L001"); fireEvent.click(applyButton());
++    await waitFor(() => expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).not.toBeNull());
++    const more = screen.getByRole("button", { name: "더보기" });
++    const status = screen.getByRole("status", { name: "제어 중요 상태" });
++    await waitFor(() => expect(status).toHaveTextContent("응답"));
++    const frozen = commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id);
++    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
++    fireEvent.click(more);
++    const retry = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
++    expect(retry).toBeEnabled();
++    fireEvent.click(more); expect(status).toBeVisible();
++    fireEvent.click(more); fireEvent.click(retry);
++    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
++    expect(mocks.apiPost.mock.calls[0][1]).toEqual(frozen);
++    expect(mocks.apiPost.mock.calls[1][1]).toEqual(frozen);
++  });
++
++  it.each([
++    { failure: "query error", text: "명령 상태를 불러오지 못했습니다.", action: "명령 상태 다시 조회" },
++    { failure: "verification required", text: "실제 상태 확인 필요", action: "실제 상태 확인" }
++  ])("C6-8 collapsed important status prioritizes $failure over an empty target", ({ failure, text, action }) => {
++    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
++    mocks.useCommandStatus.mockReturnValue({ data: failure === "query error" ? null : createCommandStatus(commandIds.expected, "verification_required"),
++      error: failure === "query error" ? new TypeError("offline") : null, isFetching: false, refetch: vi.fn() });
++    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    expect(screen.getByRole("status", { name: "제어 중요 상태" })).toHaveTextContent(text);
++    expect(applyButton()).toBeDisabled();
++    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
++    expect(screen.getByRole("button", { name: action })).toBeInTheDocument();
++    expect(mocks.apiPost).not.toHaveBeenCalled();
++  });
++
+   it("atlas execution keeps one natural-flow map and execution surface with no numbered duplicate headings", () => {
+     renderControl();
+     const toolbar = document.querySelector<HTMLElement>("[data-target-selection-toolbar]");
+     const execution = screen.getByRole("complementary", { name: "밝기 실행" });
+     expect(toolbar).toContainElement(screen.getByRole("button", { name: "조명 목록" }));
+     expect(screen.queryByRole("button", { name: "구역 관리" })).not.toBeInTheDocument();
+     expect(screen.getByRole("heading", { name: "조명 제어", level: 1 })).toHaveClass("sr-only");
+     expect(screen.queryByRole("heading", { name: "조명 밝기 제어" })).not.toBeInTheDocument();
+     expect(screen.queryByText("01 / 제어 대상")).not.toBeInTheDocument();
+     expect(screen.queryByText("02 / 밝기 실행")).not.toBeInTheDocument();
+     expect(screen.queryByRole("complementary", { name: "선택 대상 요약" })).not.toBeInTheDocument();
+     expect(execution).not.toHaveClass("hidden");
+-    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toHaveClass("max-compact:overflow-visible");
+-    expect(screen.getByRole("region", { name: "공간 대상 선택" })).toHaveClass("max-compact:overflow-visible");
++    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toContainElement(screen.getByTestId("target-selection-map-viewport"));
+     expect(within(execution).getByText("0개 선택")).toBeInTheDocument();
+     expect(within(execution).getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+   });
+ 
+   it("atlas execution keeps a refreshed blocked selection intact but sends no partial command", () => {
+     const { rerender } = renderControl();
+     selectFixture("B2-L001");
+     const blockedDashboard: Dashboard = {
+       ...dashboard,
+       floors: dashboard.floors.map((floor) => ({
+@@ -1361,32 +1424,33 @@ describe("ControlView 대상 선택", () => {
+     mocks.useControlDashboard.mockReturnValue({ data: multiGatewayDashboard, isLoading: false, error: null });
+     renderControl("admin", multiGatewayDashboard.site.id);
+ 
+     selectFixture("B2-L001");
+     openFixtureList();
+ 
+     expect(screen.getByRole("checkbox", { name: "B2-L002 선택" })).toBeDisabled();
+     expect(screen.getByText("1개 선택")).toBeInTheDocument();
+   });
+ 
+-  it("keeps every control disabled for viewer accounts", () => {
++  it.each([false, true])("keeps every control disabled for viewer accounts with compact=%s", compact => {
+     mocks.useControlDashboard.mockReturnValue({
+       data: { ...dashboard, capabilities: { read: true, control: false, manage: false, commission: false } },
+       isLoading: false,
+       error: null
+     });
+-    renderControl("viewer");
++    renderControl("viewer", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, compact);
+ 
+     expect(screen.getAllByText("조회 전용", { selector: "span" }).length).toBeGreaterThan(0);
+     expect(screen.queryByText(/조회 전용 계정입니다/)).not.toBeInTheDocument();
+     expect(fixtureMarker("B2-L001")).toBeDisabled();
+     expect(applyButton()).toBeDisabled();
++    if (compact) expect(screen.getByRole("status", { name: "제어 중요 상태" })).toHaveTextContent("조회 전용");
+     expect(mocks.apiPost).not.toHaveBeenCalled();
+   });
+ 
+   it("allows manual control but hides admin automation modes for a control-capable user", async () => {
+     mocks.useControlDashboard.mockReturnValue({
+       data: { ...dashboard, capabilities: { read: true, control: true, manage: false, commission: false } },
+       isLoading: false,
+       error: null
+     });
+ 
+diff --git a/apps/web/src/features/control/ControlView.tsx b/apps/web/src/features/control/ControlView.tsx
+index 5a2ccb2a..c113b285 100644
+--- a/apps/web/src/features/control/ControlView.tsx
++++ b/apps/web/src/features/control/ControlView.tsx
+@@ -1,17 +1,17 @@
+ import { CircleCheck, Clock3, Eye, TriangleAlert } from "lucide-react";
+ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+ import type { CreateDimmingCommandInput } from "@led-control/shared";
+ import { useQuery, useQueryClient } from "@tanstack/react-query";
+ import { useLocation, useNavigate } from "react-router-dom";
+ import type { AuthUser } from "../../api/auth";
+-import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
++import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+ import {
+   commandReadRevalidation,
+   canonicalizeDimmingCommandInput,
+   createDimmingCommand,
+   createCommandStatusCheck,
+   listCommandVerificationCases,
+   isSettledCommandStatus,
+   isTerminalCommandStage,
+   useCommandStatus,
+   type CommandStage,
+@@ -49,20 +49,21 @@ import { CommandHistoryPanel, COMMAND_STAGE_LABELS, isClockRefusal } from "./Com
+ import { CommandVerificationCases } from "./CommandVerificationCases";
+ import { CommandOutcomeActions } from "./CommandOutcomeActions";
+ import { presentRecentCommandResult } from "./command-result-presentation";
+ import {
+   isActiveCommandSessionBlocked,
+   ownsActiveCommandSession,
+   registerActiveCommandRequest
+ } from "./active-command-session";
+ import { SpatialTargetSelector } from "./target-selection/SpatialTargetSelector";
+ import { ManualExecutionPanel } from "./ManualExecutionPanel";
++import { ManualSelectionPanel } from "./target-selection/ManualSelectionPanel";
+ 
+ const ScheduleControlPanel = lazy(async () => {
+   const module = await import("./automation/ScheduleControlPanel");
+   return { default: module.ScheduleControlPanel };
+ });
+ 
+ const VehicleEventControlPanel = lazy(async () => {
+   const module = await import("./automation/VehicleEventControlPanel");
+   return { default: module.VehicleEventControlPanel };
+ });
+@@ -553,20 +554,34 @@ export function ControlView({
+     setReconciledOriginalCommandId(originalCommandId);
+     setMessage("위험 승인은 기록되었습니다. 서버의 확인 필요 목록을 다시 확인할 때까지 잠금을 유지합니다.");
+   }
+ 
+   function selectMode(nextMode: ControlPageMode) {
+     const search = new URLSearchParams(location.search);
+     search.set("mode", nextMode);
+     void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
+   }
+ 
++  // Command safety outranks an empty/current picker; recovery belongs to the
++  // frozen request even after a site refresh removes its selected fixtures.
++  const importantManualStatus = storageError || verificationError || (hasMismatchedCommandStatus
++    ? "명령 상태 식별자가 일치하지 않아 제어 잠금을 유지합니다."
++    : missingCommand ? "명령 원본 확인 필요 · 제어 잠금을 유지합니다."
++    : detailCommandId && commandQuery.retentionExpired ? "명령 상세 보관 기한이 지나 서버 확인이 필요합니다."
++    : detailCommandId && commandQuery.error && !matchingCommandIsTerminal ? "명령 상태를 불러오지 못했습니다. 더보기에서 다시 조회하세요."
++    : restorePending ? "명령 복구 확인 중"
++    : reconciledOriginalCommandId ? "차단 해제를 확인할 때까지 새 제어는 잠겨 있습니다."
++    : scopedActiveRequest && !scopedCommandId ? (replayRejected ? "안전을 위해 재전송할 수 없습니다. 더보기에서 확인하세요." : "응답을 확인하지 못했습니다. 더보기에서 동일 요청을 확인하세요.")
++    : displayedStatus ? manualCommandSummary(displayedStatus)
++    : isSubmitting ? "명령 전송 중"
++    : message || (readOnly ? "조회 전용" : blockMessage || (controlsLocked ? "새 제어 잠금 · 더보기에서 상태를 확인하세요." : "")));
++
+   const modeTabs = <><Heading as="h1" className="sr-only">조명 제어</Heading><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
+   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
+ 
+   if (capabilities && mode === "event") {
+     const eventSiteId = data?.site.id ?? siteId;
+     return (
+       <section className={controlScreenClassName} data-control-screen="">
+         {modeTabs}
+         {eventSiteId ? (
+           <Suspense fallback={<Text tone="muted" role="status">이벤트 화면을 불러오는 중입니다.</Text>}>
+@@ -625,107 +640,114 @@ export function ControlView({
+ 
+   if (mode === "group") {
+     return <section className={controlScreenClassName} data-control-screen="">
+       {modeTabs}
+       <div id="control-mode-panel-group" role="tabpanel" aria-labelledby="control-mode-group" className="grid min-h-0 min-w-0 flex-1">
+         <FixtureGroupsPanel key={`${userId}:${data.site.id}`} siteId={data.site.id} dashboard={data} canManage={canManage} mutationsBlocked={groupMutationsBlocked} />
+       </div>
+     </section>;
+   }
+ 
++  const importantStatus = <div role="status" aria-label="제어 중요 상태" aria-live="polite" aria-atomic="true" className="max-h-20 overflow-y-auto overscroll-contain text-caption">
++                  {importantManualStatus}
++                </div>;
++  const auxiliaryContent = <>
++          {/* Auxiliary recovery stays mounted; the independent live summary
++              above preserves essential warnings while this region is closed. */}
++          <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
++          {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
++          {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
++          <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
++            replayRejected={replayRejected}
++            awaitingCaseRelease={Boolean(reconciledOriginalCommandId)} isCaseReleaseFetching={reconciledCaseRead.isFetching}
++            onRefreshCaseRelease={() => void reconciledCaseRead.refetch()}
++            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked || Boolean(storageError)} message={message} verificationError={verificationError}
++            displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
++            onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
++            commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
++            hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
++            isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
++          </div>
++        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
++          timeZone={data.site.timeZone}
++          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
++          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
++          onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
++          verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
++          compactDisclosure />
++                </>;
++
+   return (
+-    <section className={controlScreenClassName} data-control-screen="">
++    <section className={cn(controlScreenClassName, singleColumnLayout && "h-full gap-1")} data-control-screen="">
+       {modeTabs}
+-      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
+-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)_auto]" data-control-layout="">
++      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
++      <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
+         {/* Subgrid shares the toolbar row without reparenting the live map or
+             command owner across breakpoints; map chrome and aside start together. */}
+-        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:overflow-visible compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
++        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
+           <SpatialTargetSelector
+             key={data.site.id}
+             siteId={data.site.id}
+             dashboard={data}
+             selection={selection}
+             disabled={controlsLocked}
+             hideEmbeddedSummary
+             presentation="manual-workspace"
+-            inspectionPanel={<section aria-label="선택 대상 목록" className="grid min-h-0 gap-3 rounded-panel border border-border-default bg-surface-panel p-3">
+-              <div className="flex items-center justify-between gap-2">
+-                <Heading as="h3" variant="customer-card-title">선택 조명</Heading>
+-                <Button type="button" variant="ghost" disabled={controlsLocked || selectedFixtures.length === 0}
+-                  onClick={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }}>선택 해제</Button>
+-              </div>
+-              {selectedFixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
+-                {selectedFixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
+-              </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
+-            </section>}
++            compactWorkspace={singleColumnLayout}
++            inspectionPanel={<ManualSelectionPanel key={`${userId}:${data.site.id}:${selection.mode}`} fixtures={selectedFixtures}
++              compact={singleColumnLayout} locked={controlsLocked}
++              onClear={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }} />}
+             onChange={(nextSelection) => {
+               setSelection(nextSelection);
+               const nextResolved = resolveControlSelection(data, nextSelection);
+               if (nextSelection.mode === "fixtures" && nextResolved.fixtureIds.length === 1) {
+                 const [fixture] = nextResolved.fixtures;
+                 if (fixture) setBrightness(fixture.brightness);
+               }
+               setMessage("");
+             }}
+           />
+         </Card>
+ 
+-        <SidePanel className="flex min-h-0 w-full flex-col gap-3 p-3 compact:col-start-2 compact:row-start-2 compact:overflow-hidden" aria-label="밝기 실행" data-control-panel="">
+-          <section aria-label="제어 대상" className="grid flex-none gap-3">
++        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
++          <section aria-label="제어 대상" className={singleColumnLayout ? "sr-only" : "grid flex-none gap-3"}>
+             <div className="flex items-center justify-between gap-2">
+               <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
+             </div>
+             <div className="flex flex-wrap items-center justify-between gap-2">
+-              <Text as="strong" variant="customer-metric" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
++              <Text as="strong" variant="customer-metric" aria-live={singleColumnLayout ? undefined : "polite"} aria-atomic="true">{selectedFixtures.length}개 선택</Text>
+               <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
+             </div>
+           </section>
+-          <ManualExecutionPanel brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
++          <ManualExecutionPanel key={`${userId}:${data.site.id}`} compact={singleColumnLayout} importantStatus={importantStatus}
++            moreContent={auxiliaryContent} brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+                 applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+                 onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+-          {/* Selection warnings belong below the fixed execution controls so
+-              late health/capability text cannot move the dial or Apply action. */}
+-          <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:flex-1 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
+-          {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
+-          {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
+-          <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
+-            replayRejected={replayRejected}
+-            awaitingCaseRelease={Boolean(reconciledOriginalCommandId)} isCaseReleaseFetching={reconciledCaseRead.isFetching}
+-            onRefreshCaseRelease={() => void reconciledCaseRead.refetch()}
+-            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked || Boolean(storageError)} message={message} verificationError={verificationError}
+-            displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
+-            onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
+-            commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
+-            hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
+-            isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
+-          </div>
+         </SidePanel>
+-        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
+-          timeZone={data.site.timeZone}
+-          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
+-          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
+-          onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
+-          verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
+-          compactDisclosure className="compact:col-span-full compact:row-start-3" />
+       </div>
+       <CommandVerificationCases key={`${userId}:${data.site.id}`} open={verificationCasesOpen} siteId={data.site.id} userId={userId}
+         canControl={canControl} canManage={canManage} originalCommandId={missingCommand ? scopedCommandId ?? undefined : undefined}
+         onReconciled={handleCaseReconciled}
+         recentCaseId={recentResolvedCaseId}
+         timeZone={data.site.timeZone}
+         returnFocusRef={verificationCasesOpenerRef} onClose={() => setVerificationCasesOpen(false)} />
+       </div>
+     </section>
+   );
+ }
+ 
++function manualCommandSummary(status: CommandStatusResponse) {
++  const result = presentRecentCommandResult(status);
++  return result.kind === "completed" ? result.label : result.kind === "pending" ? "명령 처리 중"
++    : result.kind === "verification" ? "실제 상태 확인 필요" : "결과 미확정 · 실제 상태를 확인해 주세요.";
++}
++
+ function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolean, readOnly: boolean, selectedFixtureCount: number) {
+   if (commandSessionBlocked) return "로그아웃 중";
+   if (controlsLocked && !readOnly) return "밝기 적용 중";
+   return selectedFixtureCount ? `${selectedFixtureCount}개 조명에 밝기 적용` : "밝기 적용";
+ }
+ 
+ function ManualControlFeedback({ compact = false, singleColumnLayout = false, scopedActiveRequest, scopedCommandId, replayRejected, awaitingCaseRelease, isCaseReleaseFetching, onRefreshCaseRelease, isSubmitting, commandSessionBlocked, message, verificationError,
+   displayedStatus, onRetryPending, onCheck, onReapply, readOnly, restorePending, verificationRequest, commandInProgress, onCloseDetail,
+   hasMismatchedCommandStatus, missingCommand, matchingCommandIsTerminal, commandError, detailCommandId, retentionExpired, isCommandFetching, onRefreshStatus }: {
+   compact?: boolean;
+@@ -774,30 +796,24 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
+     }
+     if (!detailsOpen || previous.id !== displayedStatus?.id) closeOwnedFocus.current = false;
+     previousDetailLayout.current = { singleColumnLayout, id: displayedStatus?.id, open: detailsOpen };
+   }, [singleColumnLayout, displayedStatus?.id, detailsOpen]);
+   const closeAction = <Button ref={closeRef} variant="secondary" type="button" disabled={commandInProgress || isSubmitting}
+     onFocus={() => { closeOwnedFocus.current = true; }} onBlur={() => { closeOwnedFocus.current = false; }}
+     onClick={onCloseDetail}>명령 상세 닫기</Button>;
+   const result = presentRecentCommandResult(displayedStatus);
+   const hasFeedback = Boolean(scopedActiveRequest || scopedCommandId || isSubmitting || message || verificationError
+     || displayedStatus || hasMismatchedCommandStatus || (detailCommandId && (missingCommand || retentionExpired || commandError)));
+-  // The two-column workspace reserves space for execution controls above.
+-  // Contain only desktop feedback sizing so long results cannot enlarge that
+-  // row; all warnings/actions remain reachable by scrolling this positive-height
+-  // pane. Single-column layouts retain their original natural document flow.
+-  // Max-content rows prevent the status actions shrinking under inline details;
+-  // overflow is handled by the pane, never by overlapping or clipping buttons.
+-  // Size-query units give the nested detail the actual residual pane height,
+-  // not its max-content grid row height. The outer pane still scrolls all
+-  // warnings/actions; the inner viewport must fit wholly inside that pane.
+-  return <div className={`grid min-h-0 min-w-0 flex-none content-start gap-3 ${hasFeedback ? "compact:min-h-40" : ""} compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[container-type:size]`} data-control-panel-feedback="">
++  // This component stays mounted in More. Its owner/query/UUID and detail
++  // disclosure survive closing the presentation; the containing scrollport
++  // owns long recovery content instead of hiding it with an overflow clip.
++  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3" data-control-panel-feedback="">
+     {hasFeedback ? <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading> : null}
+     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
+       {scopedActiveRequest && !scopedCommandId && !replayRejected ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
+         동일 요청 확인(새 제어 아님)
+       </Button> : null}
+       {scopedActiveRequest && !scopedCommandId && replayRejected ? <Text tone="danger">안전을 위해 재전송할 수 없습니다. 확인 필요한 명령을 조회하세요.</Text> : null}
+       {scopedActiveRequest && replayRejected && awaitingCaseRelease ? <div className="grid gap-2">
+         <Text tone="warning">위험 승인은 기록됐습니다. 서버의 차단 해제를 확인할 때까지 새 제어는 잠겨 있습니다.</Text>
+         <Button type="button" variant="secondary" disabled={isCaseReleaseFetching} onClick={onRefreshCaseRelease}>차단 상태 다시 조회</Button>
+       </div> : null}
+diff --git a/apps/web/src/features/control/ManualExecutionPanel.test.tsx b/apps/web/src/features/control/ManualExecutionPanel.test.tsx
+index 042dd0f0..f49eae1b 100644
+--- a/apps/web/src/features/control/ManualExecutionPanel.test.tsx
++++ b/apps/web/src/features/control/ManualExecutionPanel.test.tsx
+@@ -7,20 +7,41 @@ afterEach(cleanup);
+ function setup(locked = false, eligible = true) {
+   const submit = vi.fn();
+   function Draft() {
+     const [brightness, setBrightness] = useState(70);
+     return <ManualExecutionPanel brightness={brightness} controlsLocked={locked} canSubmit={eligible}
+       applyLabel="적용" onBrightnessChange={setBrightness} onSubmit={submit} />;
+   }
+   render(<Draft />); return submit;
+ }
+ describe("ManualExecutionPanel", () => {
++  it("C6-8 compact More keeps the raw draft and explicit Apply independent of its auxiliary content", () => {
++    const submit = vi.fn();
++    function CompactDraft() {
++      const [brightness, setBrightness] = useState(70);
++      return <ManualExecutionPanel brightness={brightness} controlsLocked={false} canSubmit applyLabel="적용 대상" compact
++        moreContent={<button type="button">보조 작업</button>} onBrightnessChange={setBrightness} onSubmit={submit} />;
++    }
++    render(<CompactDraft />);
++    const input = screen.getByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    const more = screen.getByRole("button", { name: "더보기" });
++    expect(screen.queryByRole("button", { name: "보조 작업" })).not.toBeInTheDocument();
++    fireEvent.click(more);
++    fireEvent.click(screen.getByRole("button", { name: "보조 작업" }));
++    fireEvent.click(more);
++    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
++    expect(input).toHaveValue("31"); expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("31");
++    expect(submit).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: "적용 대상" })); expect(submit).toHaveBeenCalledOnce();
++  });
++
+   it("fidelity exposes one visible brightness label while the bare slider keeps its accessible input", () => {
+     setup();
+     expect(screen.getAllByText("밝기")).toHaveLength(1);
+     expect(screen.queryByText("초안")).not.toBeInTheDocument();
+     expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("70");
+     fireEvent.change(screen.getByRole("slider", { name: "밝기" }), { target: { value: "30" } });
+     expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("30");
+   });
+   it("keeps presets, slider and number immediate and draft-only until explicit Apply", () => {
+     const submit = setup();
+diff --git a/apps/web/src/features/control/ManualExecutionPanel.tsx b/apps/web/src/features/control/ManualExecutionPanel.tsx
+index 4630ed37..088c58d1 100644
+--- a/apps/web/src/features/control/ManualExecutionPanel.tsx
++++ b/apps/web/src/features/control/ManualExecutionPanel.tsx
+@@ -1,24 +1,31 @@
+-import { useEffect, useRef, useState } from "react";
++import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+ import { Button, NumberField, Slider, Text } from "../../components/ui";
+ 
+ export interface ManualExecutionPanelProps {
+   brightness: number;
+   controlsLocked: boolean;
+   canSubmit: boolean;
+   applyLabel: string;
+   onBrightnessChange: (value: number) => void;
+   onSubmit: () => void;
++  /** Manual mobile presentation only; desktop/default consumers keep all controls expanded. */
++  compact?: boolean;
++  moreContent?: ReactNode;
++  importantStatus?: ReactNode;
+ }
+ 
+ /** Draft presentation only: the parent retains command ownership and eligibility. */
+-export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit }: ManualExecutionPanelProps) {
++export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus }: ManualExecutionPanelProps) {
++  const [moreOpen, setMoreOpen] = useState(false);
++  const moreId = useId();
++  const moreRef = useRef<HTMLButtonElement>(null);
+   const [invalidDraft, setInvalidDraft] = useState(false);
+   const [restored, setRestored] = useState("");
+   const [inputRevision, setInputRevision] = useState(0);
+   const rawValid = useRef(true);
+   const restoring = useRef(false);
+   const invalidApplyAttempt = useRef(false);
+   const applyRef = useRef<HTMLButtonElement>(null);
+   const lastBrightness = useRef(brightness);
+   useEffect(() => {
+     if (lastBrightness.current === brightness) return;
+@@ -43,53 +50,65 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
+     setInvalidDraft(false); setInputRevision(value => value + 1);
+     setRestored(`마지막 정상 밝기 ${brightness}%로 복귀했습니다. 별도로 적용해 주세요.`);
+     queueMicrotask(() => { restoring.current = false; });
+   }
+ 
+   function changeDraft(value: number) {
+     rawValid.current = true; setInvalidDraft(false); setRestored("");
+     setInputRevision(revision => revision + 1); onBrightnessChange(value);
+   }
+ 
+-  // Execution reserves intrinsic height; only the independent safety region
+-  // consumes residual desktop space, so Apply never shares a fractional pane.
+-  return <div className="grid min-h-0 flex-none content-start gap-3 overflow-y-auto overscroll-contain" data-control-panel-body=""
++  // One editable input stays mounted while auxiliary content is disclosed.
++  // Blur/Enter and the first invalid Apply guard remain owned by this draft.
++  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? "h-11 min-h-11! min-w-0 px-2 text-caption" : "max-compact:scroll-mb-shell-navigation-safe"}
++    aria-label={applyLabel} onClick={() => {
++      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
++      if (!rawValid.current || restoring.current || !canSubmit) return;
++      onSubmit();
++    }} disabled={!canSubmit || invalidDraft} data-control-submit="">{compact ? "적용" : applyLabel}</Button>;
++  return <div className={`grid min-h-0 min-w-0 flex-none content-start ${compact ? "gap-1" : "gap-3"}`} data-control-panel-body=""
+     onPointerDownCapture={event => {
+       if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
+     }}>
+-    <div className="grid gap-2 border-t border-border-default pt-3" data-control-brightness-card="">
+-      <div className="flex items-baseline justify-between gap-3" onInputCapture={captureDraft} onChangeCapture={captureDraft}
++    <div className={`grid min-w-0 ${compact ? "grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1" : "gap-2 border-t border-border-default pt-3"}`} data-control-execution-row="">
++      <div className={`flex min-w-0 ${compact ? "items-center" : "items-baseline justify-between gap-3"}`} onInputCapture={captureDraft} onChangeCapture={captureDraft}
+         onBlurCapture={event => {
+           if (event.target instanceof HTMLInputElement) {
+             if (!rawValid.current && event.relatedTarget === applyRef.current) invalidApplyAttempt.current = true;
+             restoreDraft();
+           }
+         }}
+         onKeyDownCapture={event => {
+           if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
+         }}>
+-        <Text as="span" variant="label">밝기</Text>
++        <Text as="span" variant="label" className={compact ? "sr-only" : undefined}>밝기</Text>
+         <div className="flex min-w-0 items-baseline gap-1">
+-          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
+-            className="w-20" inputClassName="px-1 text-body text-right"
++          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size={compact ? "sm" : "lg"}
++            className={compact ? "w-12" : "w-20"} inputClassName="px-1 text-body text-right"
+             minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
+             onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
+-          <Text as="span" variant="body" aria-hidden="true">%</Text>
++          <Text as="span" variant="caption" aria-hidden="true">%</Text>
+         </div>
+       </div>
+-      {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
+-      {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
+-      <Slider aria-label="밝기" presentation="bare" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
++      <Slider aria-label="밝기" presentation="bare" className="min-w-0" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
++      {apply}
++      <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? "h-11 min-h-11! min-w-11 px-2 text-caption" : "hidden"}
++        aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen(value => !value)}>더보기</Button>
++    </div>
++    {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
++    {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
++    {/* Essential warnings stay readable/live even when lengthy recovery UI is closed. */}
++    {compact ? <div hidden={moreOpen}>{importantStatus}</div> : null}
++    {/* Explicit display also honors hidden in the real CSS cascade: a grid
++        utility must not override the browser hidden-attribute default. */}
++    <div id={moreId} hidden={compact && !moreOpen} className={compact && !moreOpen ? "hidden" : compact ? "grid max-h-[25dvh] min-h-0 min-w-0 gap-2 overflow-y-auto overscroll-contain" : "grid min-h-0 gap-3"}
++      data-control-more-content="" onKeyDown={event => {
++        if (compact && event.key === "Escape") { event.stopPropagation(); setMoreOpen(false); moreRef.current?.focus({ preventScroll: true }); }
++      }}>
+       <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
+         {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className="whitespace-nowrap px-2" aria-pressed={brightness === value && !invalidDraft}
+           disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}
+       </div>
++      {moreContent}
+     </div>
+-    <Button ref={applyRef} variant="primary" type="button" className="max-compact:scroll-mb-shell-navigation-safe" onClick={() => {
+-      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
+-      if (!rawValid.current || restoring.current || !canSubmit) return;
+-      onSubmit();
+-    }} disabled={!canSubmit || invalidDraft} data-control-submit="">
+-      {applyLabel}
+-    </Button>
+   </div>;
+ }
+diff --git a/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx b/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx
+new file mode 100644
+index 00000000..d1b20e72
+--- /dev/null
++++ b/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx
+@@ -0,0 +1,34 @@
++import { useId, useRef, useState } from "react";
++import type { DashboardFixture } from "../../../api/queries";
++import { Button, Heading, Text } from "../../../components/ui";
++
++/** Presentation of the existing resolved selection; never owns targets or queries. */
++export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
++  fixtures: readonly DashboardFixture[];
++  compact: boolean;
++  locked: boolean;
++  onClear: () => void;
++}) {
++  const [expanded, setExpanded] = useState(false);
++  const listId = useId();
++  const opener = useRef<HTMLButtonElement>(null);
++  return <section aria-label="선택 대상 목록" data-manual-selection-panel=""
++    className={compact ? "grid min-h-0 min-w-0 gap-1" : "grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 rounded-panel border border-border-default bg-surface-panel p-3"}>
++    <div className="grid min-w-0 gap-1">
++      <Heading as="h3" variant="customer-card-title" className={compact ? "text-caption" : undefined}
++        aria-live={compact ? "polite" : undefined} aria-atomic="true">선택 조명 {fixtures.length}개</Heading>
++      <Button ref={opener} hidden={!compact} type="button" variant="secondary" className={compact ? "min-h-11! w-full" : "hidden"}
++        aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
++    </div>
++    <div id={listId} hidden={compact && !expanded}
++      className={`${compact && !expanded ? "hidden" : "grid"} min-h-0 min-w-0 content-start gap-2 overflow-y-auto overscroll-contain ${compact ? "max-h-[15dvh]" : ""}`}
++      onKeyDown={event => {
++        if (compact && event.key === "Escape") { event.stopPropagation(); setExpanded(false); opener.current?.focus({ preventScroll: true }); }
++      }}>
++      <Button type="button" variant="ghost" disabled={locked || fixtures.length === 0} onClick={onClear}>선택 해제</Button>
++      {fixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
++        {fixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
++      </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
++    </div>
++  </section>;
++}
+diff --git a/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx b/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx
+index 7d13278c..48657673 100644
+--- a/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx
++++ b/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx
+@@ -49,20 +49,35 @@ const dashboard: Dashboard = {
+ };
+ 
+ describe("SpatialTargetSelector", () => {
+   beforeEach(() => {
+     vi.clearAllMocks();
+     floorMapQuery.mockReturnValue({ data: snapshot, error: null, isLoading: false, isFetching: false });
+   });
+ 
+   afterEach(cleanup);
+ 
++  it("C6-8 compact scope dropdown keeps the current targets until explicit confirmation", () => {
++    renderSelector({ presentation: "manual-workspace", compactWorkspace: true, selection: { mode: "fixtures", fixtureIds: [fixtureA] } });
++    fireEvent.click(screen.getByRole("button", { name: /선택 범위/ }));
++    fireEvent.click(screen.getByRole("option", { name: "층 전체" }));
++    expect(screen.getByRole("alertdialog", { name: "선택 방식 변경" })).toBeInTheDocument();
++    expect(onChange).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: "취소" }));
++    expect(onChange).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: /선택 범위/ }));
++    fireEvent.click(screen.getByRole("option", { name: "저장된 구역" }));
++    fireEvent.click(screen.getByRole("button", { name: "변경" }));
++    expect(onChange).toHaveBeenCalledOnce();
++    expect(onChange).toHaveBeenCalledWith({ mode: "group", groupId: "" });
++  });
++
+   it("manual legend shares the camera footer while embedded placement remains unchanged", () => {
+     const view = renderSelector({ presentation: "manual-workspace", selection: { mode: "fixtures", fixtureIds: [] } });
+     const legend = screen.getByLabelText("지도 조명 상태 범례");
+     const footer = legend.closest("[data-floor-map-footer]");
+     expect(footer).not.toBeNull();
+     expect(footer).toContainElement(screen.getByRole("button", { name: "지도 확대" }));
+     expect(screen.getAllByLabelText("지도 조명 상태 범례")).toHaveLength(1);
+     view.unmount();
+     renderSelector({ selection: { mode: "fixtures", fixtureIds: [] } });
+     expect(screen.getByLabelText("지도 조명 상태 범례").closest("[data-floor-map-footer]")).toBeNull();
+diff --git a/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx b/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx
+index d35330ef..a51ea9e2 100644
+--- a/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx
++++ b/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx
+@@ -11,20 +11,21 @@ import { SelectionSummaryPanel } from "./SelectionSummaryPanel";
+ import { TargetSelectionToolbar } from "./TargetSelectionToolbar";
+ 
+ export interface SpatialTargetSelectorProps {
+   siteId: string;
+   dashboard: Dashboard;
+   selection: ControlSelection;
+   /** Renders an immutable selection while retaining `selection` as authoring metadata. */
+   displaySelection?: ControlSelection;
+   disabled: boolean;
+   presentation?: "embedded" | "manual-workspace";
++  compactWorkspace?: boolean;
+   allowedModes?: readonly ControlMode[];
+   fixtureFilter?: (fixture: DashboardFixture) => boolean;
+   fixtureFilterReason?: string;
+   fixtureBlockedReason?: (fixture: DashboardFixture) => string;
+   onInspectFixture?: (fixtureId: string) => void;
+   inspectionPanel?: ReactNode;
+   /** A new boundary resets the displayed floor; users may still inspect other floors. */
+   preferredFloorId?: string;
+   requiredGatewayId?: string | null;
+   modeLabels?: Partial<Record<ControlMode, string>>;
+@@ -35,30 +36,31 @@ export interface SpatialTargetSelectorProps {
+   hideEmbeddedSummary?: boolean;
+   onCompactSheetHeightChange?: (height: number) => void;
+   onChange: (selection: ControlSelection) => void;
+ }
+ 
+ const defaultModes: readonly ControlMode[] = ["fixtures", "floor", "group"];
+ export const spatialTargetDialogClassName = "grid! h-full! w-full! max-w-6xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden! max-compact:max-h-full!";
+ 
+ export function SpatialTargetSelector({
+   siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, fixtureFilterReason, fixtureBlockedReason, onInspectFixture, inspectionPanel, preferredFloorId, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
+-  compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, presentation = "embedded", onCompactSheetHeightChange, onChange
++  compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, presentation = "embedded", compactWorkspace = false, onCompactSheetHeightChange, onChange
+ }: SpatialTargetSelectorProps) {
+   const resolvedSelection = displaySelection ?? selection;
+   const selectionFloorId = floorForSelection(dashboard, selection);
+   const validSelectionFloorId = dashboard.floors.some((floor) => floor.id === selectionFloorId) ? selectionFloorId : null;
+   const [activeFloorId, setActiveFloorId] = useState(() => preferredFloorId || validSelectionFloorId || dashboard.floors[0]?.id || "");
+   const [listOpen, setListOpen] = useState(false);
+   const listOpenerRef = useRef<HTMLButtonElement>(null);
+   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
+   const manualWorkspace = presentation === "manual-workspace";
++  const compactManual = manualWorkspace && compactWorkspace;
+   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
+   const mapQuery = useFloorMapSnapshot(activeFloor?.id, siteId);
+   const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, resolvedSelection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, resolvedSelection]);
+   const selectedFixtureIds = useMemo(() => new Set(resolved.fixtureIds), [resolved.fixtureIds]);
+   const directGatewayId = useMemo(() => {
+     if (selection.mode !== "fixtures" || selection.fixtureIds.length === 0) return null;
+     return fixtureById(dashboard, selection.fixtureIds[0])?.gateway?.id ?? null;
+   }, [dashboard, selection]);
+   const disabledReasons = useMemo(() => new Map(dashboard.floors.flatMap((floor) => floor.fixtures).flatMap((fixture) => {
+     const reason = disabled ? "현재 선택을 변경할 수 없습니다."
+@@ -112,83 +114,81 @@ export function SpatialTargetSelector({
+     const gatewayId = directGatewayId ?? areaFixtures[0]?.gateway?.id ?? null;
+     const fixtureIds = areaFixtures.filter((fixture) => !gatewayId || fixture.gateway?.id === gatewayId)
+       .map((fixture) => fixture.id);
+     const next = new Set(selection.fixtureIds);
+     fixtureIds.forEach((fixtureId) => { if (next.size < 1000) next.add(fixtureId); });
+     onChange({ mode: "fixtures", fixtureIds: [...next].sort() });
+   }
+ 
+   const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
+   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
+-  const legend = <div className={manualWorkspace ? "pointer-events-none flex flex-wrap gap-2 text-label" : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
++  const legend = <div className={manualWorkspace ? (compactManual ? "pointer-events-none grid grid-cols-2 gap-x-1 text-caption" : "pointer-events-none flex flex-wrap gap-2 text-label") : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-offline" />오프라인</span>
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-selected" />선택</span>
+   </div>;
+ 
+-  return <section className={`flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
++  return <section className={compactManual ? "flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1" : `flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
+     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
+-      presentation={presentation}
++      presentation={presentation} compact={compactManual}
+       compactDisclosure={hideEmbeddedSummary && !manualWorkspace} modeSelectionSemantics={modeSelectionSemantics}
+       disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
+       onOpenList={() => setListOpen(true)} listOpenerRef={listOpenerRef} managementAction={managementAction}
+       onClear={!manualWorkspace && selection.mode === "fixtures" && selection.fixtureIds.length > 0 ? () => onChange({ mode: "fixtures", fixtureIds: [] }) : undefined} />
+     {hideEmbeddedSummary && !manualWorkspace ? <Text className="compact:hidden" variant="caption">{resolved.fixtureIds.length}개 선택 · {selection.mode === "fixtures" ? "개별 조명" : selection.mode === "floor" ? "층 전체" : "저장된 구역"}</Text> : null}
+     {/* Manual desktop's outer workspace owns short-window scrolling. Let chrome
+         wheels chain to it; embedded/mobile panes retain their containment. */}
+-    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
++    <div className={compactManual ? "grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-1" : `grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
+       {/* The transparent coarse hit box stays rectangular; the shared inner
+           20px marker dot retains its circular appearance. Rounded hit boxes
+           lose their corners and cannot provide the required 48×48 target. */}
+       {/* Manual legend and camera share one wrapping flow footer, preserving
+           the 240px canvas minimum; embedded consumers keep their old strip. */}
+-      <OperationMapPanel className="[&_[data-spatial-map-marker]]:rounded-none! min-h-min"
++      <OperationMapPanel className={`[&_[data-spatial-map-marker]]:rounded-none! ${compactManual ? "min-h-0 [&_[data-operation-map-chrome]]:px-1 [&_[data-operation-map-chrome]]:py-1 [&_[data-operation-map-chrome]_span]:text-caption [&_[data-operation-map-chrome]_strong]:text-caption [&_[data-operation-map-chrome]_[role=group]]:gap-x-2" : "min-h-min"}`}
+         status={manualWorkspace ? <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
+           { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
+           { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
+           { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
+           { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
+         ]} /> : undefined}>
+-        {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
++        {mapQuery.data && activeFloor ? <div className={compactManual ? "min-h-0 min-w-0 flex-1" : "min-h-min min-w-0 flex-1"}><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
+           mode="pan" toolModePolicy={manualWorkspace ? "manual-cad" : "interaction-default"}
+-          onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" footerStart={manualWorkspace ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
++          compactChrome={compactManual} onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" footerStart={manualWorkspace ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
+           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
+         </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
+         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
+         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
+         {mapQuery.data && !manualWorkspace ? legend : null}
+       </OperationMapPanel>
+-      {/* On desktop, long choice lists must scroll within the map row rather
+-          than contribute their intrinsic height to that auto-sized grid row.
+-          Compact inspection must reserve its intrinsic height: a zero-height
+-          second grid row lets preparation buttons sit behind the map. The
+-          outer content scrolls both map and inspection on those screens. */}
+-      <div className={hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
+-        {inspectionPanel}
+-        {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+-        {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
++      {/* Desktop list content is size-contained by the map row even when empty.
++          Manual mobile owns a bounded inline list; embedded preparation keeps
++          its natural-height inspection pane and existing scroll policy. */}
++      <div className={manualWorkspace ? (compactManual ? "min-h-0 min-w-0" : "h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain tablet:[contain:size]") : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
++        {manualWorkspace ? <div key={`${siteId}:${activeFloor?.id}:${selection.mode}`} className="h-full min-h-0">{inspectionPanel}</div> : inspectionPanel}
++        {selection.mode === "floor" ? <SelectionChoices compact={compactManual} kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
++        {selection.mode === "group" ? <SelectionChoices compact={compactManual} kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+       </div>
+     </div>
+     <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled} returnFocusRef={listOpenerRef}
+       onClose={() => setListOpen(false)} onToggleFixture={toggleFixture} onInspectFixture={onInspectFixture ? fixtureId => { onInspectFixture(fixtureId); setListOpen(false); } : undefined} />
+     {requestedMode ? <ConfirmDialog isOpen title="선택 방식 변경" description="현재 선택을 버리고 다른 방식으로 변경할까요?" role="alertdialog"
+       confirmLabel="변경" onCancel={() => setRequestedMode(null)} onConfirm={() => changeMode(requestedMode)}>{null}</ConfirmDialog> : null}
+   </section>;
+ }
+ 
+-function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter, requiredGatewayId, onChange }: {
+-  kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean;
++function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter, requiredGatewayId, onChange, compact = false }: {
++  compact?: boolean; kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean;
+   fixtureFilter: SpatialTargetSelectorProps["fixtureFilter"]; requiredGatewayId: string | null; onChange: (selection: ControlSelection) => void;
+ }) {
+   const items = kind === "floor" ? dashboard.floors : dashboard.groups;
+-  return <div className="mt-3 grid gap-2" role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
++  return <div className={`mt-3 grid min-h-0 gap-2 ${compact ? "max-h-[15dvh] overflow-y-auto overscroll-contain" : ""}`} role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
+     {items.map((item) => {
+       const candidate = kind === "floor" ? { mode: "floor" as const, floorId: item.id } : { mode: "group" as const, groupId: item.id };
+       const candidateResolved = selectionWithConstraints(resolveControlSelection(dashboard, candidate), fixtureFilter, requiredGatewayId);
+       const eligible = candidateResolved.available;
+       const reason = eligible ? null : humanizeDeviceResponseMessage(candidateResolved.unavailableReason ?? "현재 제어할 수 없는 대상입니다.");
+       const reasonId = `target-selection-reason-${kind}-${item.id}`;
+       return <div key={item.id} className="grid gap-1"><Button type="button" variant="secondary" className="justify-between" disabled={disabled || !eligible}
+       aria-describedby={reason ? reasonId : undefined}
+       aria-current={(kind === "floor" ? selection.mode === "floor" && selection.floorId === item.id : selection.mode === "group" && selection.groupId === item.id) ? "true" : undefined}
+       onClick={() => onChange(candidate)}>{item.name}</Button>{reason ? <Text id={reasonId} variant="caption" tone="danger">{reason}</Text> : null}</div>;
+diff --git a/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx b/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
+index 2ae68091..f850124c 100644
+--- a/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
++++ b/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
+@@ -1,61 +1,66 @@
+ import { useState, type ReactNode, type RefObject } from "react";
+ import type { Dashboard } from "../../../api/queries";
++import { List } from "lucide-react";
+ import { Button, SelectBox } from "../../../components/ui";
+ import type { ControlMode, ControlSelection } from "../control-selection";
+ 
+ interface TargetSelectionToolbarProps {
+   allowedModes: readonly ControlMode[];
+   selection: ControlSelection;
+   activeFloorId: string;
+   floors: Dashboard["floors"];
+   modeLabels?: Partial<Record<ControlMode, string>>;
+   modeSelectionSemantics?: "current" | "pressed";
+   disabled?: boolean;
+   onModeChange: (mode: ControlMode) => void;
+   onFloorChange: (floorId: string) => void;
+   onOpenList: () => void;
+   listOpenerRef?: RefObject<HTMLButtonElement>;
+   managementAction?: ReactNode;
+   onClear?: () => void;
+   compactDisclosure?: boolean;
+   presentation?: "embedded" | "manual-workspace";
++  compact?: boolean;
+ }
+ 
+ const defaultModeLabels: Record<ControlMode, string> = { fixtures: "개별 조명", floor: "층 전체", group: "저장된 구역" };
+ 
+ export function TargetSelectionToolbar({
+   allowedModes, selection, activeFloorId, floors, modeLabels, modeSelectionSemantics = "current", disabled = false,
+-  onModeChange, onFloorChange, onOpenList, listOpenerRef, managementAction, onClear, compactDisclosure = false, presentation = "embedded"
++  onModeChange, onFloorChange, onOpenList, listOpenerRef, managementAction, onClear, compactDisclosure = false, presentation = "embedded", compact = false
+ }: TargetSelectionToolbarProps) {
+   const [toolsOpen, setToolsOpen] = useState(false);
+   const manual = presentation === "manual-workspace";
+   const modes = allowedModes.length > 1 ? <div className={`flex flex-wrap gap-1 ${compactDisclosure && !toolsOpen ? "max-compact:hidden" : ""}`} role="group" aria-label="대상 선택 방식">
+       {allowedModes.map((mode) => <Button key={mode} type="button" variant="ghost"
+         {...(modeSelectionSemantics === "pressed"
+           ? { "aria-pressed": selection.mode === mode }
+           : { "aria-current": selection.mode === mode ? "true" : undefined })}
+         className={manual && selection.mode === mode ? "border-action-primary bg-action-primary-soft text-action-primary" : undefined}
+         disabled={disabled} onClick={() => onModeChange(mode)}>{modeLabels?.[mode] ?? defaultModeLabels[mode]}</Button>)}
+       {onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
+     </div> : null;
+-  const floor = <SelectBox label={<span className="sr-only">표시 층</span>} className={manual ? "min-w-0 flex-1 compact:w-48 compact:flex-none" : undefined}
++  const floor = <SelectBox label={<span className="sr-only">표시 층</span>} className={manual ? (compact ? "min-w-0 flex-1" : "min-w-0 flex-1 compact:w-48 compact:flex-none") : undefined}
+     items={floors.map((item) => ({ id: item.id, label: item.name }))}
+     selectedKey={activeFloorId} isDisabled={disabled || floors.length === 0} onSelectionChange={(floorId) => floorId && onFloorChange(floorId)} />;
+   const actions = <>
+-    <Button ref={listOpenerRef} type="button" variant="secondary" disabled={disabled} onClick={onOpenList}>{manual ? "조명 목록" : "조명 목록 열기"}</Button>
++    <Button ref={listOpenerRef} type="button" variant="secondary" className={compact ? "size-11 min-h-11! shrink-0 p-0" : undefined} aria-label={compact ? "조명 목록" : undefined} disabled={disabled} onClick={onOpenList}>{compact ? <List size={18} aria-hidden="true" /> : manual ? "조명 목록" : "조명 목록 열기"}</Button>
+     {managementAction}
+     {allowedModes.length === 1 && onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
+   </>;
+   // Only the manual workspace changes reading/layout order. Embedded schedule,
+   // sensor preparation and group editors keep their existing disclosure policy.
+   return <div className={`grid min-w-0 shrink-0 ${manual ? "gap-2" : "gap-3"}`} data-target-selection-toolbar="">
+-    {manual ? <><div className="flex min-w-0 items-end gap-2">{floor}{actions}</div>{modes}</> : <>{modes}
++    {manual ? <><div className="flex min-w-0 items-end gap-1">{floor}
++      {compact ? <SelectBox label={<span className="sr-only">선택 범위</span>} className="min-w-0 flex-1" items={allowedModes.map(mode => ({ id: mode, label: modeLabels?.[mode] ?? defaultModeLabels[mode] }))}
++        selectedKey={selection.mode} isDisabled={disabled} onSelectionChange={mode => mode && onModeChange(mode)} /> : null}
++      {actions}</div>{!compact ? modes : null}</> : <>{modes}
+     <div className={`grid min-w-0 gap-2 ${compactDisclosure ? "max-compact:grid-cols-[minmax(0,1fr)_auto]" : ""} compact:grid-cols-[minmax(0,1fr)_auto_auto_auto]`}>
+       {floor}
+       {compactDisclosure ? <Button type="button" variant="secondary" className="compact:hidden" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}>선택 도구 {toolsOpen ? "접기" : "열기"}</Button> : null}
+       <div className={`contents ${compactDisclosure && !toolsOpen ? "max-compact:hidden" : ""}`}>
+         {actions}
+       </div>
+     </div></>}
+   </div>;
+ }
+diff --git a/apps/web/src/features/floor-map/FloorMapViewport.test.tsx b/apps/web/src/features/floor-map/FloorMapViewport.test.tsx
+index b7649a2d..e7ae900a 100644
+--- a/apps/web/src/features/floor-map/FloorMapViewport.test.tsx
++++ b/apps/web/src/features/floor-map/FloorMapViewport.test.tsx
+@@ -10,20 +10,34 @@ const snapshot: FloorMapSnapshot = {
+   revision: 1,
+   width: 600,
+   height: 400,
+   floorPlan: null,
+   objects: []
+ };
+ 
+ describe("FloorMapViewport", () => {
+   afterEach(() => cleanup());
+ 
++  it("C6-8 optional compact chrome preserves the live viewport and default footer contract", () => {
++    const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="compact map" controlsPlacement="footer" footerStart={<span>범례</span>} compactChrome><span /></FloorMapViewport>);
++    const viewport = screen.getByRole("region", { name: "compact map" });
++    const surface = viewport.querySelector("[data-floor-map-surface]");
++    expect(surface).not.toBeNull();
++    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
++    expect(viewport).toHaveAttribute("data-zoom", "1.1");
++    view.rerender(<FloorMapViewport snapshot={snapshot} ariaLabel="compact map" controlsPlacement="footer" footerStart={<span>범례</span>}><span /></FloorMapViewport>);
++    expect(screen.getByRole("region", { name: "compact map" })).toBe(viewport);
++    expect(viewport).toHaveAttribute("data-zoom", "1.1");
++    expect(viewport.querySelector("[data-floor-map-surface]")).toBe(surface);
++    expect(screen.getByRole("button", { name: "지도 화면 맞춤" })).toBeInTheDocument();
++  });
++
+   it.each(["touch", "mouse"])("manual-cad pans from a marker with %s navigation without a ghost click", pointerType => {
+     const toggle = vi.fn(), select = vi.fn();
+     render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);
+     const viewport = screen.getByRole("region", { name: "manual" });
+     const pin = screen.getByText("pin");
+     dispatchPointer(pin, "pointerdown", { pointerId: 1, pointerType, button: pointerType === "mouse" ? 1 : 0, clientX: 100, clientY: 100 });
+     dispatchPointer(pin, "pointermove", { pointerId: 1, pointerType, clientX: 93, clientY: 100 });
+     expect(viewport.scrollLeft).toBe(0);
+     dispatchPointer(pin, "pointermove", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
+     dispatchPointer(pin, "pointerup", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
+diff --git a/apps/web/src/features/floor-map/FloorMapViewport.tsx b/apps/web/src/features/floor-map/FloorMapViewport.tsx
+index 0507dce6..fcb655bb 100644
+--- a/apps/web/src/features/floor-map/FloorMapViewport.tsx
++++ b/apps/web/src/features/floor-map/FloorMapViewport.tsx
+@@ -66,20 +66,22 @@ export interface FloorMapViewportProps {
+   snapshot: FloorMapSnapshot;
+   ariaLabel: string;
+   mode?: MapInteractionMode;
+   interactionPolicy?: MapInteractionPolicy;
+   toolModePolicy?: "interaction-default" | "explicit" | "manual-cad";
+   children: ReactNode;
+   onAreaSelect?: (rect: MapSelectionRect) => void;
+   showControls?: boolean;
+   controlsPlacement?: "overlay" | "footer";
+   footerStart?: ReactNode;
++  /** Opt-in manual mobile chrome; geometry/gesture defaults are unchanged. */
++  compactChrome?: boolean;
+   wheelZoomWithoutModifier?: boolean;
+   showFitControl?: boolean;
+   resetControlFits?: boolean;
+   controlAfterZoom?: ReactNode;
+   onZoomChange?: (zoom: number) => void;
+   viewportTestId?: string;
+   onViewportKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+   maintainCameraOnResize?: boolean;
+   onCameraSettled?: (camera: MapViewportCamera) => void;
+   onCameraReady?: () => void;
+@@ -107,20 +109,21 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
+   snapshot,
+   ariaLabel,
+   mode = "pan",
+   interactionPolicy = "pan",
+   toolModePolicy = "interaction-default",
+   children,
+   onAreaSelect,
+   showControls = true,
+   controlsPlacement = "overlay",
+   footerStart,
++  compactChrome = false,
+   wheelZoomWithoutModifier = false,
+   showFitControl = true,
+   resetControlFits = false,
+   controlAfterZoom,
+   onZoomChange,
+   viewportTestId,
+   onViewportKeyDown,
+   maintainCameraOnResize = false,
+   onCameraSettled,
+   onCameraReady
+@@ -701,35 +704,35 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
+     if (suppressClickTimeout.current !== null) window.clearTimeout(suppressClickTimeout.current);
+     suppressClickTimeout.current = null;
+     event.preventDefault();
+     event.stopPropagation();
+   }
+ 
+   // Only an explicit footer slot opts in; overlay and existing footer callers
+   // retain their placement. The viewport/renderer subtree never changes owner.
+   const combinedFooter = controlsPlacement === "footer" && footerStart != null;
+   const cameraControls = showControls ? (
+-    <div className={cn("flex items-center gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
+-      <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
+-      <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
+-      <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
++    <div className={cn("flex items-center", compactChrome ? "gap-0" : "gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
++      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
++      <Button type="button" variant="ghost" size="sm" className={compactChrome ? "min-h-11! min-w-11 px-1" : "min-w-14 px-2 max-compact:min-h-13"} aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
++      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
+       {controlAfterZoom}
+-      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
++      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
+     </div>
+   ) : null;
+ 
+   return (
+     <FloorMapViewportOverlayContext.Provider value={overlayContext}>
+-    <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && "flex min-h-min flex-col")}>
++    <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && `flex ${compactChrome ? "min-h-0" : "min-h-min"} flex-col`)}>
+       <div
+         ref={viewportRef}
+-        className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && "min-h-[240px] flex-1 [contain:size]")}
++        className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && `${compactChrome ? "min-h-0" : "min-h-[240px]"} flex-1 [contain:size]`)}
+         data-testid={viewportTestId}
+         onKeyDown={event => {
+           if (event.target === event.currentTarget) {
+             if (event.key === "Escape") cancelGesture();
+             if ((interactionPolicy === "direct-selection" || toolModePolicy === "manual-cad") && event.key === " ") { spacePressed.current = true; event.preventDefault(); }
+           }
+           onViewportKeyDown?.(event);
+         }}
+         onKeyUp={event => { if (event.target === event.currentTarget && event.key === " ") spacePressed.current = false; }}
+         onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) cancelGesture(); }}
+@@ -765,19 +768,19 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
+                   left: `${(selection.left / snapshot.width) * 100}%`,
+                   top: `${(selection.top / snapshot.height) * 100}%`,
+                   width: `${((selection.right - selection.left) / snapshot.width) * 100}%`,
+                   height: `${((selection.bottom - selection.top) / snapshot.height) * 100}%`
+                 }}
+               />
+             ) : null}
+           </div>
+         </div>
+       </div>
+-      {combinedFooter ? <div data-floor-map-footer="" className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5">
++      {combinedFooter ? <div data-floor-map-footer="" className={cn("flex min-w-0 shrink-0 items-center justify-between border-t border-border-default bg-surface-panel", compactChrome ? "gap-1 px-1 py-1" : "flex-wrap gap-2 px-3.5 py-2.5")}>
+         <div className="min-w-0">{footerStart}</div>{cameraControls}
+       </div> : cameraControls}
+     </div>
+     </FloorMapViewportOverlayContext.Provider>
+   );
+ });
+ 
+ export type { MapInteractionMode, MapInteractionPolicy, MapPoint, MapSelectionRect } from "./map-gestures";
+diff --git a/apps/web/src/features/monitoring/FloorMap.test.tsx b/apps/web/src/features/monitoring/FloorMap.test.tsx
+index 894a5544..436cdf61 100644
+--- a/apps/web/src/features/monitoring/FloorMap.test.tsx
++++ b/apps/web/src/features/monitoring/FloorMap.test.tsx
+@@ -58,21 +58,43 @@ const navigationFloor = {
+     hopCount: 2,
+     commandSuccessRate: 0.99,
+     lastSeenAt: "2026-09-10T01:00:00.000Z",
+     gateway: null,
+     controllable: true,
+     controlBlockReason: null
+   }]
+ };
+ 
+ describe("FloorMap", () => {
+-  afterEach(() => cleanup());
++  afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(document, "elementFromPoint"); });
++
++  it.each(["mouse", "touch"])("navigates from a real marker with %s without selecting until the next tap", async pointerType => {
++    render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
++    const marker = await screen.findByRole("button", { name: "B1-L001 정상 70%" });
++    // jsdom has no layout; provide the real marker hit rectangle so FloorScene's
++    // pointerup hit-test, rather than a keyboard click, owns the next selection.
++    vi.spyOn(marker, "getBoundingClientRect").mockReturnValue({ x: 70, y: 70, left: 70, top: 70, right: 118, bottom: 118, width: 48, height: 48, toJSON: () => ({}) });
++    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => marker });
++    const viewport = screen.getByTestId("monitoring-map-viewport");
++    dispatchPointer(marker, "pointerdown", { pointerId: 1, pointerType, button: pointerType === "mouse" ? 1 : 0, clientX: 100, clientY: 100 });
++    dispatchPointer(marker, "pointermove", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
++    dispatchPointer(marker, "pointerup", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
++    fireEvent.click(marker, { detail: 1 });
++    expect(viewport.scrollLeft).toBe(20);
++    expect(viewport.scrollTop).toBe(10);
++    expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
++    expect(screen.queryByRole("dialog", { name: "B1-L001 조명 정보" })).not.toBeInTheDocument();
++    dispatchPointer(marker, "pointerdown", { pointerId: 2, pointerType, button: 0, clientX: 80, clientY: 90 });
++    dispatchPointer(marker, "pointerup", { pointerId: 2, pointerType, button: 0, clientX: 80, clientY: 90 });
++    fireEvent.click(marker, { detail: 1 });
++    expect(await screen.findByRole("dialog", { name: "B1-L001 조명 정보" })).toBeVisible();
++  });
+ 
+   it("renders all canonical statuses and no count overlay while retaining saved pins", () => {
+     const { rerender } = render(<FloorMap floor={{ ...navigationFloor, fixtures: [
+       { ...navigationFloor.fixtures[0]!, placementStatus: "unplaced" },
+       { ...navigationFloor.fixtures[0]!, id: "runtime-unplaced", name: "미배치 목록 조명", placementStatus: "unplaced" }
+     ] }} snapshot={{ ...mapSnapshot, objects: [{ ...mapSnapshot.objects[0]!, visible: false }], fixtures: [
+       { id: "saved-only", name: "지도에 저장된 조명", x: 200, y: 300, size: 20 }
+     ] }} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+     expect(screen.queryByText(/지도 표시|지도 배치 정보 확인 불가/)).not.toBeInTheDocument();
+     expect(screen.getByRole("list", { name: "조명 상태 범례" })).toHaveTextContent("조명 정보 확인 전");
+@@ -489,42 +511,42 @@ describe("FloorMap", () => {
+       clientX: 100,
+       clientY: 80
+     });
+     expect(fireEvent(viewport, wheelEvent)).toBe(false);
+     expect(wheelEvent.defaultPrevented).toBe(true);
+     expect(viewport).toHaveAttribute("data-zoom", "1.1");
+     await waitFor(() => expect(map).toHaveAttribute("data-zoom", "1.1"));
+ 
+     viewport.scrollLeft = 40;
+     viewport.scrollTop = 30;
+-    dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+-    dispatchPointer(viewport, "pointermove", { pointerId: 1, button: 0, clientX: 70, clientY: 75 });
+-    dispatchPointer(viewport, "pointerup", { pointerId: 1, button: 0, clientX: 70, clientY: 75 });
++    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 100, clientY: 100 });
++    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 70, clientY: 75 });
++    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 70, clientY: 75 });
+ 
+     expect(viewport.scrollLeft).toBe(70);
+     expect(viewport.scrollTop).toBe(55);
+   });
+ 
+   it("keeps monitoring markers selectable while allowing a two-touch pinch", () => {
+     const onSelectFixture = vi.fn();
+     render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={onSelectFixture} />);
+ 
+     const viewport = screen.getByTestId("monitoring-map-viewport");
+     expect(viewport).toHaveClass("touch-none");
+     dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+     dispatchPointer(viewport, "pointerdown", { pointerId: 2, button: 0, clientX: 200, clientY: 100 });
+     dispatchPointer(viewport, "pointermove", { pointerId: 2, button: 0, clientX: 300, clientY: 100 });
+     dispatchPointer(viewport, "pointerup", { pointerId: 2, button: 0, clientX: 300, clientY: 100 });
+ 
+     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "2");
+-    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }));
++    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }), { detail: 1 });
+     expect(onSelectFixture).not.toHaveBeenCalled();
+   });
+ });
+ 
+-function dispatchPointer(target: HTMLElement, type: string, init: Record<string, number>) {
+-  const event = new Event(type, { bubbles: true });
++function dispatchPointer(target: HTMLElement, type: string, init: Record<string, string | number>) {
++  const event = new Event(type, { bubbles: true, cancelable: true });
+   Object.defineProperties(event, Object.fromEntries(
+     Object.entries(init).map(([key, value]) => [key, { configurable: true, value }])
+   ));
+   fireEvent(target, event);
+ }
+diff --git a/apps/web/src/features/monitoring/FloorMap.tsx b/apps/web/src/features/monitoring/FloorMap.tsx
+index d4d5e40d..558a2c94 100644
+--- a/apps/web/src/features/monitoring/FloorMap.tsx
++++ b/apps/web/src/features/monitoring/FloorMap.tsx
+@@ -142,20 +142,22 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture,
+     { state: "unknown", label: "조명 정보 확인 전", Icon: Clock3, color: "text-fixture-inspection" }
+   ];
+ 
+   return (
+     <div ref={shellRef} className="relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset" role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
+       {/* The CAD surface's aspect ratio must not contribute an intrinsic page
+           height; the containing flex map defines its available viewport. */}
+       <div className="min-h-min min-w-0 flex-1">
+       <FloorMapViewport
+         ref={viewportRef}
++        interactionPolicy="pan"
++        toolModePolicy="manual-cad"
+         maintainCameraOnResize
+         controlsPlacement="footer"
+         footerStart={legend.length ? <ul className="pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5" aria-label="조명 상태 범례">
+           {legend.map(({ state, label, Icon, color }) => <li key={state} className={cn("inline-flex items-center gap-1", color)}><Icon size={14} aria-hidden="true" /><Text as="span" variant="overline" className={color}>{label}</Text></li>)}
+         </ul> : undefined}
+         wheelZoomWithoutModifier
+         showFitControl={false}
+         resetControlFits
+         controlAfterZoom={onToggleFullView ? <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label={fullView ? "전체 보기 종료" : "지도 전체 보기"} aria-pressed={fullView} onClick={event => onToggleFullView(event.currentTarget)}>{fullView ? <Minimize size={16} aria-hidden="true" /> : <Maximize size={16} aria-hidden="true" />}</IconButton> : undefined}
+         onCameraReady={cameraMemory.onCameraReady}
+diff --git a/apps/web/src/features/monitoring/MonitoringView.test.tsx b/apps/web/src/features/monitoring/MonitoringView.test.tsx
+index 23808a5f..eb07cac0 100644
+--- a/apps/web/src/features/monitoring/MonitoringView.test.tsx
++++ b/apps/web/src/features/monitoring/MonitoringView.test.tsx
+@@ -19,43 +19,47 @@ function openInspector() {
+   fireEvent.click(screen.getByRole("button", { name: "조명 검색/목록" }));
+   return screen.getByRole("dialog", { name: "조명 검색/목록" });
+ }
+ 
+ async function selectStatusFilter(name: string) {
+   if (!screen.queryByRole("dialog", { name: "조명 검색/목록" })) openInspector();
+   await chooseSelect("상태 필터", name === "전체 조명" ? "전체" : name);
+ }
+ 
+ function closeInspector() {
+-  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("dialog", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색/목록 닫기" }));
++  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("complementary", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색/목록 닫기" }));
+ }
+ 
+ // Detail regressions explicitly choose a pin; finder-opening tests use
+ // openInspector directly so they can catch accidental automatic selection.
+ function openDetails(name?: string) {
+   const marker = name ? screen.getByRole("button", { name: new RegExp(`^${name} `) })
+     : document.querySelector<HTMLButtonElement>('[data-spatial-map-marker][data-selected="true"]') ?? document.querySelector<HTMLButtonElement>('[data-spatial-map-marker]')!;
+   fireEvent.click(marker);
+   openInspector();
+   fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
+-  return screen.getByRole("dialog", { name: "조명 상세" });
++  return screen.getByRole("complementary", { name: "조명 상세" });
+ }
+ 
+ function openCurrentStatus() {
+   fireEvent.click(screen.getByRole("button", { name: "알람센터, 현장 미선택" }));
+   return screen.getByRole("region", { name: "현재 화면 상태" });
+ }
+ 
+ function floorMetric(label: string) {
+   return within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByText(label).parentElement!;
+ }
+ 
++function updatedAt() {
++  return screen.getByText(/마지막 갱신:/).closest("small")!;
++}
++
+ const queryMocks = vi.hoisted(() => ({
+   useDashboard: vi.fn(),
+   useSites: vi.fn(),
+   useFloorFixtures: vi.fn(),
+   useFloorMapSnapshot: vi.fn()
+ }));
+ const refreshApi = vi.hoisted(() => ({ waitForMonitoringRefresh: vi.fn() }));
+ const activityApi = vi.hoisted(() => ({ useMonitoringActivity: vi.fn() }));
+ const authApi = vi.hoisted(() => ({ useCurrentUser: vi.fn() }));
+ vi.mock("../../api/monitoring-refresh", () => refreshApi);
+@@ -95,20 +99,61 @@ const fixture = {
+   gateway: { id: "gateway-1", name: "GW-1", connectionStatus: "online" as const },
+   controllable: true,
+   controlBlockReason: null
+ };
+ 
+ describe("MonitoringView refresh", () => {
+   const refetchDashboard = vi.fn();
+   const refetchFixtures = vi.fn();
+   const refetchMap = vi.fn();
+ 
++  it("keeps pure snapshot delay in the alarm center without a toast or recent notification and clears on recovery", () => {
++    const query = queryMocks.useFloorFixtures();
++    query.data.pages[0].generatedAt = new Date(Date.now() - 60_001).toISOString();
++    const view = render(<MonitoringView siteId="site-1" />);
++    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
++    expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toBeEmptyDOMElement();
++    queryMocks.useFloorFixtures.mockReturnValue({ ...query, data: { pages: [{ ...query.data.pages[0], generatedAt: new Date().toISOString() }] } });
++    view.rerender(<MonitoringView siteId="site-1" />);
++    expect(screen.getByRole("region", { name: "현재 화면 상태" })).not.toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++  });
++
++  it("keeps the screen heading nonvisual and all monitoring tools together with accessible actions", () => {
++    render(<MonitoringView siteId="site-1" />);
++    expect(screen.getByRole("heading", { level: 1, name: "모니터링" })).toHaveClass("sr-only");
++    const tools = screen.getByRole("group", { name: "모니터링 도구" });
++    expect(tools).toContainElement(screen.getByRole("button", { name: "새로고침" }));
++    expect(tools).toContainElement(screen.getByRole("button", { name: "조명 검색/목록" }));
++    expect(tools).toHaveTextContent("마지막 갱신:");
++  });
++
++  it("keeps detail nonmodal inside the map with stable viewport and scrolling across reopen", async () => {
++    render(<MonitoringView siteId="site-1" />);
++    const viewport = screen.getByTestId("monitoring-map-viewport");
++    openDetails();
++    const detail = screen.getByRole("complementary", { name: "조명 상세" });
++    expect(document.querySelector("[data-operation-map-panel]")).toContainElement(detail);
++    expect(detail).not.toHaveAttribute("aria-modal", "true");
++    await waitFor(() => expect(detail).toHaveFocus());
++    await act(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
++    const body = detail.querySelector<HTMLElement>("[data-monitoring-detail-scroll]")!;
++    body.scrollTop = 37;
++    fireEvent.scroll(body);
++    fireEvent.keyDown(detail, { key: "Escape" });
++    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
++    expect(screen.getByTestId("monitoring-map-viewport")).toBe(viewport);
++    openDetails();
++    const reopened = screen.getByRole("complementary", { name: "조명 상세" });
++    await waitFor(() => expect(reopened.querySelector("[data-monitoring-detail-scroll]")).toHaveProperty("scrollTop", 37));
++  });
++
+   it("exposes a single unified search/list opener", () => {
+     render(<MonitoringView siteId="site-1" />);
+     expect(screen.getByRole("button", { name: "조명 검색/목록" })).toBeVisible();
+     expect(screen.queryByRole("button", { name: "조명 목록" })).not.toBeInTheDocument();
+   });
+ 
+   it("selects a matched row and focuses its map pin without a separate selector", async () => {
+     render(<MonitoringView siteId="site-1" />);
+     const finder = openInspector();
+     expect(within(finder).queryByRole("button", { name: "상세 조명 선택" })).not.toBeInTheDocument();
+@@ -155,21 +200,21 @@ describe("MonitoringView refresh", () => {
+     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : query === "(min-width: 1024px)" && !compact, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+     queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard,
+       site: { ...dashboard.site, installationStatus: "installed" }, capabilities: { read: true, control: true, manage: true, commission: true } } });
+     const read = vi.spyOn(apiClient, "apiGet").mockResolvedValue({ incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null });
+     try {
+       render(<MemoryRouter initialEntries={["/monitoring?siteId=site-1"]}><CustomerShell user={{ id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active", mustChangePassword: false }} /></MemoryRouter>);
+       await screen.findByRole("region", { name: "선택 층 조명 현황" });
+       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+       expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
+       expect(screen.getByTestId("shell-current-menu")).toHaveTextContent("모니터링");
+-      expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByRole("button", { name: "새로고침" }));
++      expect(screen.getByRole("heading", { level: 1, name: "모니터링" })).toHaveClass("sr-only");
+     } finally { read.mockRestore(); }
+   });
+ 
+   it("keeps one screen safe-space owner after moving refresh above the map", () => {
+     render(<MonitoringView siteId="site-1" />);
+     const refresh = screen.getByRole("button", { name: "새로고침" });
+     // The screen minimum includes trailing safe-space when child minima exceed
+     // the available height. Real geometry is covered by the short-mobile browser case.
+     expect(document.querySelector("[data-monitoring-screen]")).toHaveClass("max-compact:min-h-min", "max-compact:pb-shell-navigation-safe");
+     expect(refresh.parentElement).not.toHaveClass("max-compact:pb-shell-navigation-safe");
+@@ -197,22 +242,22 @@ describe("MonitoringView refresh", () => {
+     localStorage.clear();
+   });
+ 
+   it("does not advance server update time after failed refresh", async () => {
+     const timestamp = "2026-10-03T15:59:00.000Z";
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: timestamp }] } });
+     refetchFixtures.mockRejectedValueOnce(new Error("offline"));
+     render(<MonitoringView siteId="site-1" />);
+     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+     await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+-    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", timestamp);
+-    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent("2026-10-04 00:59:00");
++    expect(updatedAt().querySelector("time")).toHaveAttribute("datetime", timestamp);
++    expect(updatedAt()).toHaveTextContent("2026-10-04 00:59:00");
+   });
+ 
+   it("keeps selected pin during theme change", () => {
+     localStorage.clear();
+     render(<CustomerThemeProvider><ThemeToggle /><MonitoringView siteId="site-1" /></CustomerThemeProvider>);
+     const pin = screen.getByRole("button", { name: /B1-L001/ });
+     fireEvent.click(pin);
+     fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+     expect(screen.getByRole("button", { name: /B1-L001/ })).toBe(pin);
+     expect(pin).toHaveAttribute("data-selected", "true");
+@@ -281,23 +326,23 @@ describe("MonitoringView refresh", () => {
+   async function openDesktopCondition(condition: "fault" | "search" | "placement" | "deletion", focusOpener = true) {
+     vi.stubGlobal("matchMedia", vi.fn((media: string) => ({ matches: media === "(min-width: 1024px)", media, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+     queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "fault", placementStatus: condition === "placement" ? "unplaced" : "placed" }];
+     const view = render(<MonitoringView siteId="site-1" userRole="viewer" />);
+     const finder = openInspector();
+     if (condition === "search") fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: fixture.name } });
+     else if (condition !== "deletion") {
+       await chooseSelect("상태 필터", condition === "fault" ? "점검 필요" : "미배치");
+     }
+     await chooseFixture("B1-L001");
+-    const opener = (screen.queryByRole("dialog", { name: "조명 상세" }) || screen.queryByRole("complementary", { name: "조명 상세" })) ? screen.getByRole("button", { name: "조명 검색/목록" }) : screen.getByRole("button", { name: "상세 보기" });
++    const opener = screen.queryByRole("complementary", { name: "조명 상세" }) ? screen.getByRole("button", { name: "조명 검색/목록" }) : screen.getByRole("button", { name: "상세 보기" });
+     if (focusOpener) opener.focus();
+-    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(opener);
++    if (!screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(opener);
+     const detail = screen.getByRole("complementary", { name: "조명 상세" });
+     // Let the old finder portal's return lifecycle finish before focusing the
+     // desktop detail; its late return is not automatic-removal evidence.
+     await act(async () => { await new Promise(resolve => setTimeout(resolve, 500)); });
+     const close = within(detail).getByRole("button", { name: "조명 상세 닫기" });
+     close.focus();
+     expect(close).toHaveFocus();
+     expect(opener.isConnected).toBe(condition === "placement");
+     return { view, detail };
+   }
+@@ -415,61 +460,61 @@ describe("MonitoringView refresh", () => {
+ 
+   it("keeps the explicit saved pin while runtime is pending and never borrows another row", async () => {
+     const snapshot = { ...mapSnapshot, fixtures: [{ id: "saved-only", name: "저장된 조명", x: 100, y: 100, size: 20 }] };
+     queryMocks.useFloorMapSnapshot().data = snapshot;
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: undefined, isPending: true, isFetching: true });
+     const view = render(<MonitoringView siteId="site-1" />);
+     const marker = screen.getByRole("button", { name: "저장된 조명 조명 정보 확인 전" });
+     fireEvent.click(marker);
+     const pin = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
+     fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("조명 정보 확인 전 · 상태를 불러오는 중");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("조명 정보 확인 전 · 상태를 불러오는 중");
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] }, isPending: false, isFetching: false });
+     view.rerender(<MonitoringView siteId="site-1" />);
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).not.toHaveTextContent("B1-L001");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).not.toHaveTextContent("B1-L001");
+     expect(marker).toHaveAttribute("data-selected", "true");
+   });
+ 
+   it.each(["fault", "search", "placement"] as const)("clears confirmed runtime selection that exits the current %s condition", async (condition) => {
+     queryMocks.useFloorFixtures().data.pages[0].items = [{ ...fixture, status: "fault", placementStatus: condition === "placement" ? "unplaced" : "placed" }];
+     const view = render(<MonitoringView siteId="site-1" userRole="viewer" />);
+     const finder = openInspector();
+     if (condition === "search") fireEvent.change(within(finder).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "B1-L001" } });
+     else {
+       fireEvent.click(within(finder).getByRole("button", { name: "상태 필터" }));
+       fireEvent.click(await screen.findByRole("option", { name: condition === "fault" ? /^점검 필요$/ : /^미배치$/ }));
+     }
+     await chooseFixture( "B1-L001");
+-    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toBeVisible();
++    if (!screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toBeVisible();
+     const updated = { ...fixture, status: "online", health: null, name: condition === "search" ? "다른 이름" : fixture.name, placementStatus: "placed" };
+     queryMocks.useFloorFixtures().data.pages[0].items = [updated];
+     view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+-    expect(screen.queryByRole("dialog", { name: "조명 상세" })).not.toBeInTheDocument();
++    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
+     expect(document.querySelector('[data-spatial-map-marker][data-selected="true"]')).not.toBeInTheDocument();
+     expect(document.querySelector("[data-monitoring-pin-popover]")).not.toBeInTheDocument();
+     const reopened = openInspector();
+     expect(within(reopened).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
+     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+   });
+ 
+   it.each(["partial", "error"] as const)("keeps an explicitly selected saved pin with missing runtime during %s retrieval", async (state) => {
+     const snapshot = { ...mapSnapshot, fixtures: [{ id: "saved-only", name: "저장된 조명", x: 100, y: 100, size: 20 }] };
+     queryMocks.useFloorMapSnapshot().data = snapshot;
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), hasNextPage: state === "partial", error: state === "error" ? new Error("runtime unavailable") : null });
+     render(<MonitoringView siteId="site-1" />);
+     const marker = screen.getByRole("button", { name: "저장된 조명 조명 정보 확인 전" });
+     fireEvent.click(marker);
+     const pin = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
+     fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("저장된 조명");
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("정보 확인 전 · 상태를 불러오는 중");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("저장된 조명");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("정보 확인 전 · 상태를 불러오는 중");
+     expect(marker).toHaveAttribute("data-selected", "true");
+     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+   });
+ 
+   it("clears explicit selection on principal switch", () => {
+     const view = render(<MonitoringView siteId="site-1" />);
+     fireEvent.click(screen.getByRole("button", { name: /B1-L001/ }));
+     authApi.useCurrentUser.mockReturnValue({ data: { user: { id: "user-2", organizationId: "org-1" } } });
+     view.rerender(<MonitoringView siteId="site-1" />);
+     expect(screen.getByRole("button", { name: /B1-L001/ })).toHaveAttribute("data-selected", "false");
+@@ -532,21 +577,21 @@ describe("MonitoringView refresh", () => {
+   it("refreshes dashboard, current-floor fixtures, and the saved map together", async () => {
+     render(<MonitoringView siteId="site-1" />);
+ 
+     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+ 
+     await waitFor(() => {
+       expect(refetchDashboard).toHaveBeenCalledTimes(1);
+       expect(refetchFixtures).toHaveBeenCalledTimes(1);
+       expect(refetchMap).toHaveBeenCalledTimes(1);
+     });
+-    expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
++    expect(updatedAt()).toBeInTheDocument();
+   });
+ 
+   it("keeps one hardware request active and refreshes marker/detail without deriving counts from fixture pages", async () => {
+     const hardware = deferred<{ status: string }>();
+     refreshApi.waitForMonitoringRefresh.mockReturnValueOnce(hardware.promise);
+     const online = { ...fixture, health: null };
+     const second = { ...online, id: "fixture-2", name: "B1-L002" };
+     const query = queryMocks.useFloorFixtures();
+     query.data.pages[0].items = [online, second];
+     refetchFixtures.mockImplementationOnce(async () => { query.data.pages[0].items = [online, { ...second, status: "offline", statusReason: "fixture_stale" }]; });
+@@ -1021,33 +1066,33 @@ describe("MonitoringView refresh", () => {
+     ["Asia/Seoul", "2026-10-03T15:59:00.000Z", "2026-10-04 00:59:00"],
+     ["America/Los_Angeles", "2026-10-03T00:30:00.000Z", "2026-10-02 17:30:00"]
+   ])("shows the snapshot in site time across the UTC date boundary: %s", (timeZone, snapshotAt, localTime) => {
+     vi.useFakeTimers();
+     vi.setSystemTime(new Date(new Date(snapshotAt).getTime() + 30_000));
+     queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, site: { ...dashboard.site, timeZone } } });
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: snapshotAt }] } });
+ 
+     render(<MonitoringView siteId="site-1" />);
+ 
+-    const updated = screen.getByText(/마지막 갱신:/);
++    const updated = updatedAt();
+     expect(updated).toHaveTextContent(localTime);
+     expect(updated).toHaveTextContent("현장 시간");
+     expect(updated).not.toHaveTextContent(snapshotAt);
+     expect(updated.querySelector("time")).toHaveAttribute("datetime", snapshotAt);
+     expect(screen.queryByText("현황 갱신이 지연되고 있습니다.")).not.toBeInTheDocument();
+     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+   });
+ 
+   it("keeps pending snapshot metadata explicit without an invented time", () => {
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: undefined, isPending: true });
+     render(<MonitoringView siteId="site-1" />);
+-    const updated = screen.getByText(/마지막 갱신:/);
++    const updated = updatedAt();
+     expect(updated).toHaveTextContent("서버 snapshot 시각 확인 중");
+     expect(updated.querySelector("time")).toBeNull();
+   });
+ 
+   it("shows a persistent stale warning after the oldest fixture page snapshot exceeds 60 seconds", () => {
+     const snapshotAt = new Date(Date.now() - 60_001).toISOString();
+     queryMocks.useFloorFixtures.mockReturnValue({
+       data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: snapshotAt }] },
+       dataUpdatedAt: Date.now(),
+       error: null,
+@@ -1055,44 +1100,44 @@ describe("MonitoringView refresh", () => {
+       isLoading: false,
+       isFetching: false,
+       hasNextPage: false,
+       isFetchingNextPage: false,
+       fetchNextPage: vi.fn(),
+       refetch: refetchFixtures
+     });
+ 
+     render(<MonitoringView siteId="site-1" />);
+ 
+-    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
+     expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+-    expect(screen.getByText(/마지막 갱신:/)).not.toHaveTextContent(snapshotAt);
+-    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", snapshotAt);
++    expect(updatedAt()).not.toHaveTextContent(snapshotAt);
++    expect(updatedAt().querySelector("time")).toHaveAttribute("datetime", snapshotAt);
+   });
+ 
+   it("keeps a future server snapshot explicit instead of presenting it as a normal relative update", () => {
+     const snapshotAt = "2099-01-01T00:00:00.000Z";
+     queryMocks.useFloorFixtures.mockReturnValue({
+       data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: snapshotAt }] },
+       dataUpdatedAt: Date.now(),
+       error: null,
+       isPending: false,
+       isLoading: false,
+       isFetching: false,
+       hasNextPage: false,
+       isFetchingNextPage: false,
+       fetchNextPage: vi.fn(),
+       refetch: refetchFixtures
+     });
+ 
+     render(<MonitoringView siteId="site-1" />);
+ 
+-    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent("시간 차이 확인 (2099-01-01 09:00:00)");
++    expect(updatedAt()).toHaveTextContent("시간 차이 확인 (2099-01-01 09:00:00)");
+     expect(screen.getByRole("status")).toHaveTextContent("시간 차이 확인: 2099-01-01 09:00:00");
+   });
+ 
+   it("evaluates a newly arrived current snapshot against Date.now instead of the prior timer tick", () => {
+     vi.useFakeTimers();
+     const now = new Date("2026-09-12T00:00:00.000Z");
+     vi.setSystemTime(now);
+     const { rerender } = render(<MonitoringView siteId="site-1" />);
+     vi.setSystemTime(new Date("2026-09-12T00:00:01.000Z"));
+     queryMocks.useFloorFixtures.mockReturnValue({
+@@ -1111,22 +1156,26 @@ describe("MonitoringView refresh", () => {
+     vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"));
+     queryMocks.useFloorFixtures.mockReturnValue({
+       data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: "2026-09-12T00:00:00.000Z" }] },
+       dataUpdatedAt: Date.now(), error: null, isPending: false, isLoading: false, isFetching: false,
+       hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+     });
+ 
+     render(<MonitoringView siteId="site-1" />);
+     act(() => vi.advanceTimersByTime(60_000));
+     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
++    expect(openCurrentStatus()).not.toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+     act(() => vi.advanceTimersByTime(1));
+-    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++    // The alarm dialog hides sibling regions from accessibility; include hidden
++    // statuses so a duplicate transient toast would still fail this assertion.
++    expect(screen.queryByRole("status", { hidden: true })).not.toBeInTheDocument();
++    expect(screen.getByRole("region", { name: "현재 화면 상태" })).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+   });
+ 
+   it.each([
+     ["2099-01-01T00:00:00.000Z", "시간 차이 확인"],
+     ["2026-02-30T00:00:00.000Z", "서버 snapshot 시각을 확인할 수 없습니다."],
+     [undefined, "서버 snapshot 시각을 확인할 수 없습니다."]
+   ])("does not let a fresh page hide invalid metadata from another page: %s", (anomalousGeneratedAt, warning) => {
+     queryMocks.useFloorFixtures.mockReturnValue({
+       data: {
+         pages: [
+@@ -1522,21 +1571,21 @@ describe("MonitoringView refresh", () => {
+     await chooseSelect("맵 선택", longName);
+     expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent(longName);
+     const inspector = openInspector();
+     fireEvent.change(within(inspector).getByRole("searchbox", { name: "조명 이름 또는 번호 검색" }), { target: { value: "동측" } });
+     expect(within(inspector).getByRole("button", { name: new RegExp(nextFixture.name) })).toHaveAttribute("aria-pressed", "false");
+     await chooseFixture( `${nextFixture.name} · 장애`);
+     const selectedFinder = screen.getByRole("dialog", { name: "조명 검색/목록" });
+     expect(within(selectedFinder).getByRole("button", { name: new RegExp(nextFixture.name) })).toHaveAttribute("aria-pressed", "true");
+     expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
+-    const detail = screen.getByRole("dialog", { name: "조명 상세" });
++    const detail = screen.getByRole("complementary", { name: "조명 상세" });
+     expect(within(detail).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent(nextFixture.name);
+     expect(within(detail).queryByText(fixture.name)).not.toBeInTheDocument();
+     closeInspector();
+     expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent(longName);
+     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+   });
+ 
+   it("0개 상태 필터에서 다른 조명의 상세를 숨기고 전체 목록으로 돌아간다", async () => {
+     render(<MonitoringView siteId="site-1" />);
+     await selectStatusFilter("오프라인");
+@@ -1715,21 +1764,21 @@ function deferred<T>() {
+   const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+     resolve = resolvePromise;
+     reject = rejectPromise;
+   });
+   return { promise, resolve, reject };
+ }
+ 
+ async function chooseFixture(option: string) {
+   const list = screen.getByRole("list", { name: "조명 목록" });
+   fireEvent.click(within(list).getByRole("button", { name: new RegExp(option.split(" · ")[0]) }));
+-  if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) {
++  if (!screen.queryByRole("complementary", { name: "조명 상세" })) {
+     await screen.findByRole("dialog", { name: `${option.split(" · ")[0]} 조명 정보` });
+     openInspector();
+   }
+ }
+ 
+ async function chooseSelect(label: string, option: string) {
+   const trigger = screen.getByRole("button", { name: label });
+   fireEvent.click(trigger);
+   fireEvent.click(await screen.findByRole("option", { name: option }));
+   return trigger;
+diff --git a/apps/web/src/features/monitoring/MonitoringView.tsx b/apps/web/src/features/monitoring/MonitoringView.tsx
+index 258c5a37..8aa365b0 100644
+--- a/apps/web/src/features/monitoring/MonitoringView.tsx
++++ b/apps/web/src/features/monitoring/MonitoringView.tsx
+@@ -1,19 +1,19 @@
+ import { Clock3, Filter, RefreshCw, TriangleAlert } from "lucide-react";
+ import { useQueryClient } from "@tanstack/react-query";
+ import { useEffect, useMemo, useRef, useState } from "react";
+ import { Link } from "react-router-dom";
+ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
+ import { useCurrentUser } from "../../api/auth";
+ import { principalKey } from "../../api/principal-cache";
+ import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
+-import { Button, DetailSheet, Popover, FeedbackState, Heading, PageHeader, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
++import { Button, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+ import { InstallationPending } from "../setup/SetupWizard";
+ import { FloorMap } from "./FloorMap";
+ import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
+ import { MonitoringSummary } from "./MonitoringSummary";
+ import { MonitoringLogDrawer } from "./MonitoringLogDrawer";
+ import { MonitoringLogTicker } from "./MonitoringLogTicker";
+ import { monitoringActivityScopeKey, useMonitoringActivity } from "./useMonitoringActivity";
+ import { FixtureDetailPanel } from "./FixtureDetailPanel";
+ import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
+ import { matchesMonitoringFixture, matchesMonitoringFixtureSearch, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
+@@ -34,21 +34,21 @@ function copyForTerminal(result: MonitoringRefreshResult | null): string | null
+     case "failed": return "장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+     case "expired": return "장치 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+     default: return null;
+   }
+ }
+ 
+ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
+   const dashboardQuery = useDashboard(siteId);
+   const { data, isLoading } = dashboardQuery;
+ 
+-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="모니터링" />;
++  const pageHeader = <Heading as="h1" className="sr-only">모니터링</Heading>;
+   if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" /></section>;
+   if (!data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></section>;
+ 
+   return (
+     <MonitoringDashboard
+       key={siteId ?? data.site.id}
+       data={data}
+       userRole={userRole}
+       siteId={siteId}
+       refreshDashboard={() => dashboardQuery.refetch({ throwOnError: true })}
+@@ -71,27 +71,24 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
+   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+   const refreshAbortRef = useRef<AbortController | null>(null);
+   const [hardwareRefreshFailure, setHardwareRefreshFailure] = useState<string | null>(null);
+   const [manualRefreshFailureSources, setManualRefreshFailureSources] = useState<ManualRefreshFailureSource[]>([]);
+   const [mapRefreshFailure, setMapRefreshFailure] = useState<MapRefreshFailure | null>(null);
+   const [freshnessRevision, setFreshnessRevision] = useState(0);
+   const [isLogDrawerOpen, setIsLogDrawerOpen] = useState(false);
+   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+   const [isDetailOpen, setIsDetailOpen] = useState(false);
+-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia?.("(min-width: 1024px)").matches ?? false);
+   const detailReturnRef = useRef<HTMLElement | null>(null);
+   const detailScopeRef = useRef<string | null>(null);
+   const detailRef = useRef<HTMLElement | null>(null);
+   const detailBodyRef = useRef<HTMLDivElement | null>(null);
+-  const sheetDetailRef = useRef<HTMLElement | null>(null);
+-  const sheetDetailBodyRef = useRef<HTMLDivElement | null>(null);
+   const detailScrollRef = useRef(0);
+   const detailScrollRestoringRef = useRef(false);
+   const [isPinOpen, setIsPinOpen] = useState(false);
+   const workspaceFocus = useWorkspaceFocus();
+   const [fixtureFilter, setFixtureFilter] = useState<MonitoringFixtureFilter>("all");
+   const [fixtureSearch, setFixtureSearch] = useState("");
+   const [focusRequest, setFocusRequest] = useState<{ requestId: number; fixtureId: string }>();
+   const focusSequence = useRef(0);
+   const pinDetailsFixtureRef = useRef<string | null>(null);
+   const logTriggerRef = useRef<HTMLButtonElement>(null);
+@@ -131,57 +128,39 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+   useEffect(() => {
+     // Also covers a floor removed by a dashboard update, without a selector event.
+     setIsManualRefreshing(false);
+     setHardwareRefreshFailure(null);
+     return () => {
+       refreshAbortRef.current?.abort();
+       refreshAbortRef.current = null;
+     };
+   }, [floor?.id, siteId]);
+   useEffect(() => { setSelectedFixtureId(null); setIsLogDrawerOpen(false); setIsInspectorOpen(false); setIsDetailOpen(false); setFixtureFilter("all"); setFixtureSearch(""); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }, [floor?.id, principal]);
+-  useEffect(() => {
+-    const media = window.matchMedia?.("(min-width: 1024px)");
+-    if (!media) return;
+-    const update = () => {
+-      // Surface remounts at the breakpoint; retain its body scroll, while the
+-      // stable map viewport keeps camera state through its resize observer.
+-      // CSS can clamp the old surface during resize before this event runs.
+-      // Keep the last user offset, not that temporary smaller maximum.
+-      detailScrollRestoringRef.current = true;
+-      detailScrollRef.current = Math.max(detailScrollRef.current, detailBodyRef.current?.scrollTop ?? 0, sheetDetailBodyRef.current?.scrollTop ?? 0);
+-      setIsDesktop(media.matches);
+-    };
+-    media.addEventListener("change", update);
+-    return () => media.removeEventListener("change", update);
+-  }, []);
+   useEffect(() => { detailScrollRef.current = 0; }, [selectedFixtureId]);
+   useEffect(() => {
+     if (!isDetailOpen) return;
+     detailScrollRestoringRef.current = true;
+     let releaseFrame: number | undefined;
+     const frame = requestAnimationFrame(() => {
+-      // Keep refs separate: the outgoing sheet's delayed portal cleanup must
+-      // not clear the incoming aside's ref at the responsive boundary.
+-      const body = isDesktop ? detailBodyRef.current : sheetDetailBodyRef.current;
++      const body = detailBodyRef.current;
+       if (body) body.scrollTop = detailScrollRef.current;
+-      if (isDesktop && !detailRef.current?.contains(document.activeElement)) detailRef.current?.focus({ preventScroll: true });
++      if (!detailRef.current?.contains(document.activeElement)) detailRef.current?.focus({ preventScroll: true });
+       releaseFrame = requestAnimationFrame(() => { detailScrollRestoringRef.current = false; });
+     });
+     return () => { cancelAnimationFrame(frame); if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame); };
+-  }, [isDesktop, isDetailOpen, selectedFixtureId]);
++  }, [isDetailOpen, selectedFixtureId]);
+ 
+   function clearSelection() {
+     // Automatic runtime exclusion/deletion can remove a focused nonmodal aside.
+     // Return only its own current-scope focus, before removal: no deferred job
+     // may steal outside focus after an account/site/floor change or unmount.
+-    // Compact DetailSheet retains its shared portal return lifecycle.
+-    if (isDesktop && isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
++    if (isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
+       const opener = detailReturnRef.current;
+       const target = opener?.isConnected && opener.tabIndex >= 0 && !detailRef.current.contains(opener) && !("disabled" in opener && opener.disabled)
+         ? opener : finderOpenerRef.current ?? inspectorTriggerRef.current;
+       target?.focus({ preventScroll: true });
+     }
+     setSelectedFixtureId(null); setIsDetailOpen(false); setFocusRequest(undefined); pinDetailsFixtureRef.current = null;
+   }
+   function openDetail(id: string, trigger?: HTMLElement) {
+     if (selectedFixtureId !== id) detailScrollRef.current = 0;
+     detailReturnRef.current = trigger ?? (isInspectorOpen ? finderOpenerRef.current : document.activeElement instanceof HTMLElement ? document.activeElement : null);
+@@ -247,21 +226,21 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+   useEffect(() => {
+     if (!mapRefreshFailure || mapRefreshFailure.floorId !== floor?.id) return;
+     if (!mapQuery.data || mapQuery.error || mapQuery.isFetching) return;
+     if (mapQuery.dataUpdatedAt <= mapRefreshFailure.dataUpdatedAt) return;
+     setMapRefreshFailure((current) => current === mapRefreshFailure ? null : current);
+   }, [floor?.id, mapQuery.data, mapQuery.dataUpdatedAt, mapQuery.error, mapQuery.isFetching, mapRefreshFailure]);
+ 
+   if (!data.site.id) {
+     return (
+       <section className="grid min-w-0 gap-4" data-monitoring-screen="">
+-        <PageHeader variant="customer" headingLevel={1} title="모니터링" />
++        <Heading as="h1" className="sr-only">모니터링</Heading>
+         <InstallationPending />
+       </section>
+     );
+   }
+ 
+   function handleSelectFloor(floorId: string) {
+     if (floorId === floor?.id) return;
+     refreshAbortRef.current?.abort();
+     refreshAbortRef.current = null;
+     setIsManualRefreshing(false);
+@@ -345,68 +324,65 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+     }
+   }
+ 
+   return (
+     // The compact minimum must include bottom-navigation padding after the
+     // ticker; overflowing a fixed-height section loses that trailing scroll space.
+     <section className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4", !workspaceFocus.active && "max-compact:min-h-min max-compact:pb-shell-navigation-safe", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
+       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
+       event.preventDefault(); workspaceFocus.exit();
+     }}>
+-      <PageHeader variant="customer" headingLevel={1} title="모니터링" className="max-compact:order-0" actions={<>
+-        <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
+-          {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
+-        </Text>
+-        <Button ref={refreshButtonRef} variant="secondary" disabled={isManualRefreshing} aria-busy={isManualRefreshing} onClick={() => void handleRefresh()}>
+-          <RefreshCw aria-hidden="true" size={16} className={isManualRefreshing ? "animate-spin" : undefined} />
+-          {isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}
+-        </Button>
+-      </>} />
++      <Heading as="h1" className="sr-only">모니터링</Heading>
+       <MonitoringSessionStatuses
+         timeZone={data.site.timeZone ?? "Asia/Seoul"}
+         siteId={siteId ?? data.site.id}
+         floorId={floor?.id}
+         hasFixtureData={hasFixtureData}
+         fixtureError={Boolean(fixtureQuery.error)}
+         hasMapSnapshot={Boolean(mapSnapshot)}
+         mapError={Boolean(mapQuery.error || mapRefreshFailed)}
+         snapshotFreshness={snapshotFreshness}
+         refreshError={refreshError}
+         hardwareRefreshFailure={hardwareRefreshFailure}
+         onRefresh={() => void handleRefresh()}
+         onMapRetry={() => void handleMapRetry()}
+       />
+-      <div className="flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1" role="group" aria-label="모니터링 도구">
++      <div className="flex min-w-0 items-center gap-2 max-compact:order-1" role="group" aria-label="모니터링 도구">
+           <SelectBox
+             label="맵 선택"
+             items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
+             selectedKey={floor?.id ?? null}
+             isDisabled={data.floors.length === 0}
+             onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
+-            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"
++            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1 max-compact:[&_label]:sr-only"
+           />
+-          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={event => openInspector(event.currentTarget)}><Filter size={16} aria-hidden="true" />조명 검색/목록</Button>
++          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0 max-tablet:size-13 max-tablet:p-0" aria-label="조명 검색/목록" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={event => openInspector(event.currentTarget)}><Filter size={16} aria-hidden="true" /><span className="max-tablet:hidden">조명 검색/목록</span></Button>
++          <Text as="small" variant="caption" tone="secondary" className="ml-auto min-w-0 shrink-0 text-right">
++            {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
++          </Text>
++          <Button ref={refreshButtonRef} variant="secondary" className="shrink-0 max-tablet:size-13 max-tablet:p-0" aria-label={isManualRefreshing ? "장치 상태 확인 중" : "새로고침"} disabled={isManualRefreshing} aria-busy={isManualRefreshing} onClick={() => void handleRefresh()}>
++            <RefreshCw aria-hidden="true" size={16} className={isManualRefreshing ? "animate-spin" : undefined} />
++            <span className="max-tablet:hidden">{isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}</span>
++          </Button>
+       </div>
+ 
+       <FixtureQueryFeedback
+         enabled={Boolean(floor)}
+         floorName={floor?.name}
+         hasData={hasFixtureData}
+         error={fixtureQuery.error}
+         onRetry={() => void fixtureQuery.refetch()}
+       />
+ 
+-      {/* Keep the desktop detail's reading region as tall as the map's natural
+-          minimum; short screens scroll the page instead of shrinking the row. */}
+       {/* Compact maps consume remaining viewport space; the natural minimum
+           keeps the canvas and ticker reachable through document scroll on short screens. */}
+-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
++      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min")} data-monitoring-layout="">
+         <div className="flex h-full min-h-min min-w-0 flex-col gap-5" data-monitoring-map-panel="">
+           <OperationMapPanel className="min-h-min"
+             status={floor ? <MonitoringSummary scope="floor" mapName={floor.name}
+               total={floor.summary?.totalFixtures ?? null} online={floor.summary?.onlineFixtures ?? null}
+               fault={floor.summary?.faultFixtures ?? null} offline={floor.summary?.offlineFixtures ?? null} /> : undefined}>
+           {data.summary.totalFixtures === 0 ? (
+             <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
+           ) : floor && mapSnapshot && (hasFixtureData || Boolean(mapSnapshot.fixtures?.length)) ? (
+             <>
+               <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixtureId} onSelectFixture={id => { setFixtureSearch(""); setFixtureFilter("all"); setSelectedFixtureId(id); }} timeZone={data.site.timeZone}
+@@ -427,41 +403,41 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+               tone="danger"
+               icon={TriangleAlert}
+               title="저장된 지도를 불러오지 못했습니다."
+               action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
+             />
+           ) : floor ? (
+             <FeedbackState icon={Clock3} title="저장된 지도를 불러오는 중" />
+           ) : (
+             <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
+           )}
++          {/* The overlay is out of flow: opening detail never changes the map
++              viewport or camera. Only its reading body scrolls; map remains usable. */}
++          {isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="absolute inset-x-0 bottom-0 z-10 flex h-1/2 min-h-0 min-w-0 flex-col border-t border-border-default bg-surface-panel p-3 shadow-popover compact:p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
++            <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
++            <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
++          </aside> : null}
+           </OperationMapPanel>
+           {floor ? <MonitoringLogTicker
+             scopeKey={detailScope}
+             items={activityQuery.data?.items ?? []}
+             generatedAt={activityQuery.data?.generatedAt ?? null}
+             retainedFrom={activityQuery.data?.retainedFrom ?? null}
+             isPending={activityQuery.isPending}
+             error={activityQuery.error}
+             isRefetchError={activityQuery.isRefetchError}
+             timeZone={data.site.timeZone}
+             onOpen={() => setIsLogDrawerOpen(true)}
+             onRetry={() => void activityQuery.refetch()}
+             triggerRef={logTriggerRef}
+           /> : null}
+         </div>
+-        {/* Zero preferred height excludes the scrollable detail content from
+-            the row's intrinsic size; its minimum then fills the map-led row. */}
+-        {isDesktop && isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="flex h-0 min-h-full min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
+-          <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
+-          <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
+-        </aside> : null}
+       </div>
+       <Popover
+         isOpen={isInspectorOpen}
+         onOpenChange={open => { if (!open) closeInspector(); }}
+         triggerRef={finderOpenerRef.current ? finderOpenerRef : inspectorTriggerRef}
+         mobilePresentation="bottom-sheet"
+         label="조명 검색/목록"
+         placement="bottom end"
+         className="w-96 min-w-0 max-h-[min(36rem,var(--available-height))]"
+       >
+@@ -497,25 +473,20 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+             search={fixtureSearch}
+             onSearchChange={search => { clearSelection(); setFixtureSearch(search); }}
+             nextPageError={fixtureQuery.isFetchNextPageError}
+             expectedTotal={floor.summary?.totalFixtures}
+           />
+         </div> : null}
+         {fixtureFilter !== "all" ? <Button variant="secondary" onClick={() => { clearSelection(); setFixtureFilter("all"); }}>필터 초기화</Button> : null}
+         {selectedFixtureId ? <Button variant="secondary" onClick={() => openDetail(selectedFixtureId)}>상세 보기</Button> : null}
+         </div>
+       </Popover>
+-      <DetailSheet ref={sheetDetailRef} isOpen={!isDesktop && isDetailOpen && selectedFixtureId !== null} onClose={closeDetail} title="조명 상세" closeLabel="조명 상세 닫기" returnFocusRef={detailReturnRef} fallbackFocusRef={finderOpenerRef.current ? finderOpenerRef : inspectorTriggerRef} bodyClassName="flex min-h-0 flex-col overflow-hidden">
+-        <div ref={sheetDetailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto">
+-        <FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} />
+-        </div>
+-      </DetailSheet>
+       <MonitoringLogDrawer
+         isOpen={isLogDrawerOpen}
+         onClose={() => setIsLogDrawerOpen(false)}
+         returnFocusRef={logTriggerRef}
+         fallbackFocusRef={refreshButtonRef}
+         principal={principal}
+         siteId={siteId ?? data.site.id}
+         floorId={floor?.id ?? null}
+         timeZone={data.site.timeZone}
+       />
+@@ -593,20 +564,23 @@ function MonitoringSessionStatuses({
+     const description = [
+       fixtureError ? "조명 상태 갱신 실패" : null,
+       snapshotFreshness.metadata === "future" ? `시간 차이 확인: ${formatMonitoringTimestamp(anomalousGeneratedAt!, timeZone)}` : null,
+       snapshotFreshness.freshness === "stale" ? "가장 오래된 선택 층 snapshot이 60초를 초과했습니다." : null,
+       snapshotFreshness.metadata === "invalid" ? "서버가 유효한 generatedAt ISO 시각을 반환하지 않았습니다." : null
+     ].filter(Boolean).join(" · ");
+     return [{
+       id: `query:monitoring:${scope}:fixtures`,
+       fingerprint: `fixtures:${fixtureError}:${snapshotFreshness.metadata}:${snapshotFreshness.freshness}:${anomalousGeneratedAt ?? ""}`,
+       source: "query", tone: "warning", title, description,
++      // Pure snapshot delay stays actionable in current-screen alarms, without
++      // inventing a durable device incident or repeating transient notifications.
++      announce: fixtureError || snapshotFreshness.metadata !== "valid",
+       action: { label: fixtureError ? "조명 상태 다시 시도" : "다시 시도", onAction: () => actions.current.onRefresh() }
+     }];
+   }, [anomalousGeneratedAt, fixtureError, floorId, hasFixtureData, scope, snapshotFreshness.freshness, snapshotFreshness.metadata, timeZone]);
+   const mapItems = useMemo<SessionStatusItem[]>(() => floorId && hasMapSnapshot && mapError ? [{
+     id: `query:monitoring:${scope}:map`, fingerprint: "map-refresh-failed", source: "query", tone: "warning",
+     title: "저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.",
+     action: { label: "지도 다시 시도", onAction: () => actions.current.onMapRetry() }
+   }] : [], [floorId, hasMapSnapshot, mapError, scope]);
+   const refreshItems = useMemo<SessionStatusItem[]>(() => {
+     if (!refreshError && !hardwareRefreshFailure) return [];
+@@ -669,15 +643,24 @@ function parseStrictIsoTimestamp(value: unknown):
+   | { kind: "invalid" } {
+   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return { kind: "invalid" };
+   const timestamp = new Date(value).getTime();
+   // Date parses overflowed calendar dates (for example February 30) by normalizing them.
+   // Round-tripping canonical server ISO output rejects that normalization.
+   if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== value) return { kind: "invalid" };
+   return { kind: "valid", rawGeneratedAt: value, value: timestamp };
+ }
+ 
+ function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>, timeZone: string) {
+-  if (snapshot.metadata === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
+-  if (snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined) return "마지막 갱신: 서버 snapshot 시각 확인 중";
+-  if (snapshot.metadata === "future") return `마지막 갱신: 시간 차이 확인 (${formatMonitoringTimestamp(snapshot.anomalousGeneratedAt!, timeZone)})`;
+-  return <>마지막 갱신: <time dateTime={snapshot.rawGeneratedAt}>{formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone)} (현장 시간)</time></>;
++  const notice = snapshot.metadata === "invalid" ? "마지막 갱신: 서버 snapshot 시각 확인 필요"
++    : snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined ? "마지막 갱신: 서버 snapshot 시각 확인 중"
++      : snapshot.metadata === "future" ? `마지막 갱신: 시간 차이 확인 (${formatMonitoringTimestamp(snapshot.anomalousGeneratedAt!, timeZone)})` : null;
++  if (notice) return <span title={notice}><span className="max-tablet:sr-only">{notice}</span><span aria-hidden="true" className="hidden max-tablet:inline">시각 확인</span></span>;
++  if (!snapshot.rawGeneratedAt) return null;
++  const full = formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone);
++  // The shared formatter owns strict instant/zone validation and canonical
++  // YYYY-MM-DD HH:mm:ss output; compact copy must not reparse with a fallback zone.
++  const short = full === "—" ? full : full.slice(11, 16);
++  return <span title={`마지막 갱신: ${full} (현장 시간)`}>
++    <span className="max-tablet:sr-only">마지막 갱신: </span>
++    <time dateTime={snapshot.rawGeneratedAt} aria-label={`${full} (현장 시간)`}><span className="max-tablet:hidden">{full} (현장 시간)</span><span aria-hidden="true" className="hidden max-tablet:inline">{short}</span></time>
++  </span>;
+ }
+diff --git a/apps/web/src/features/shells/CustomerShell.test.tsx b/apps/web/src/features/shells/CustomerShell.test.tsx
+index f14349f7..1b47ce67 100644
+--- a/apps/web/src/features/shells/CustomerShell.test.tsx
++++ b/apps/web/src/features/shells/CustomerShell.test.tsx
+@@ -114,20 +114,42 @@ describe("customer shell site context", () => {
+     renderShell("/settings?siteId=site");
+     const title = await screen.findByRole("heading", { name: "설정", level: 1 });
+     const header = document.querySelector("[data-shell-topbar]") as HTMLElement;
+     expect(header.querySelector("h1")).toBeNull();
+     expect(document.querySelector("[data-shell-content]")).toContainElement(title);
+     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+     expect(within(header).getByRole("region", { name: "현장 전체" })).not.toHaveClass("col-span-full");
+     expect(within(header).getByRole("link", { name: "내 계정 및 보안" })).toHaveAttribute("href", "/settings/security?siteId=site");
+     expect(screen.getByRole("region", { name: "내 계정" })).toContainElement(screen.getByRole("button", { name: "로그아웃" }));
+   });
++  it("C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize", async () => {
++    prepareRealManualConsumer();
++    let onChange: ((event: MediaQueryListEvent) => void) | undefined;
++    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)",
++      addEventListener: (_type: string, listener: typeof onChange) => { if (query === "(width < 760px)") onChange = listener; }, removeEventListener: vi.fn() })));
++    renderShell("/control?siteId=site&mode=manual");
++    const main = screen.getByRole("main");
++    const input = await screen.findByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    const page = document.querySelector("[data-control-screen]");
++    act(() => onChange?.({ matches: false } as MediaQueryListEvent));
++    expect(document.querySelector("[data-control-screen]")).toBe(page);
++    act(() => onChange?.({ matches: true } as MediaQueryListEvent));
++    expect(document.querySelector("[data-control-screen]")).toBe(page);
++    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
++    expect(input).toHaveValue("31");
++    fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
++    await waitFor(() => expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true"));
++    expect(screen.queryByRole("button", { name: "더보기" })).not.toBeInTheDocument();
++    expect(apiPost).not.toHaveBeenCalled();
++  });
++
+   it.each([[759.5, true], [760, false], [760.5, false]] as const)("publishes the strict CSS media contract at controlled width %s", (_width, compact) => {
+     // Chromium rounds CSS iframe viewports to integer pixels. This controlled
+     // media owner covers the requested fractional API boundary separately from
+     // the real 759/760/761px browser tests; it is not a real-browser claim.
+     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+     renderShell("/control?siteId=site");
+     expect(screen.queryByRole("navigation", { name: "모바일 주 메뉴" }) !== null).toBe(compact);
+     expect(window.matchMedia).toHaveBeenCalledWith("(width < 760px)");
+   });
+   it.each(["ready", "loading", "error", "empty"])("keeps mobile brand and both action owners available with %s sites", state => {
+@@ -198,66 +220,59 @@ describe("customer shell site context", () => {
+       addEventListener: (_type: string, listener: typeof onChange) => { if (query === "(width < 760px)") onChange = listener; }, removeEventListener: vi.fn() })));
+     const generatedAt = new Date().toISOString();
+     const retainedFrom = new Date(detailRetainedFrom(Date.parse(generatedAt))).toISOString();
+     const status = { id: "00000000-0000-4000-8000-000000009977", siteId: "site", stage: "verified_applied", outcome: "applied", createdAt: generatedAt, generatedAt, retainedFrom,
+       dispatchCount: 0, completedFixtureCount: 0, totalFixtureCount: 0, errorMessage: null, dispatches: [] };
+     vi.mocked(apiGet).mockImplementation(async path => path.startsWith("/commands?") ? { items: [status], nextCursor: null, generatedAt, retainedFrom }
+       : path.startsWith("/commands/requiring-verification") ? { items: [], nextCursor: null, generatedAt }
+       : path.startsWith("/commands/") ? status
+         : path.includes("monitoring-incidents") ? { incidents: [], activeCount: 0, unreadCount: 0, nextCursor: null } : { users: [], count: 0, limit: 100 });
+     renderShell("/control?siteId=site");
++    fireEvent.click(await screen.findByRole("button", { name: "더보기" }));
+     fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
+     fireEvent.click(await screen.findByRole("button", { name: "상세 보기" }));
+     const detail = screen.getByRole("region", { name: "최근 결과 상세" });
+     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+     act(() => onChange?.({ matches: false } as MediaQueryListEvent));
+     expect(screen.getByRole("region", { name: "최근 결과 상세" })).toBe(detail);
+     expect(detail).not.toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+     act(() => onChange?.({ matches: true } as MediaQueryListEvent));
+     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+     expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
+     expect(apiPost).not.toHaveBeenCalled();
+   });
+ 
+-  it.each([[759.5, true], [760, false], [760.5, false]] as const)("uses the real authorized manual report for remaining height at controlled width %s", async (_width, compact) => {
++  it.each([[759.5, true], [760, false], [760.5, false]] as const)("uses the real authorized manual report at controlled width %s", async (_width, compact) => {
+     prepareRealManualConsumer();
+     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+     renderShell("/control?siteId=site&mode=manual");
+-    await waitFor(() => expect(document.querySelector("[data-control-screen]")).not.toBeNull());
+-    const main = screen.getByRole("main");
+-    if (compact) {
+-      expect(main.parentElement).toHaveClass("min-h-screen", "pb-shell-navigation-safe");
+-      expect(main.parentElement).not.toHaveClass("h-dvh", "overflow-hidden");
+-      expect(main.querySelector("[data-shell-content]")).not.toHaveClass("min-h-0", "overflow-auto");
+-    } else {
+-      await waitFor(() => expect(main.parentElement).toHaveClass("h-dvh", "min-h-0"));
+-      expect(main.parentElement).not.toHaveClass("overflow-hidden");
+-      expect(main).toHaveClass("min-h-0");
+-      expect(main.querySelector("[data-shell-content]")).toHaveClass("grid", "min-h-0", "grid-rows-[minmax(0,1fr)]", "overflow-auto");
+-      expect(document.querySelector("[data-shell-topbar]")).toHaveClass("shrink-0");
+-    }
++    const input = await screen.findByRole("textbox", { name: "밝기 수치" });
++    expect(input).toBeEnabled();
++    expect(screen.queryByRole("button", { name: "더보기" }) !== null).toBe(compact);
++    expect(screen.queryByRole("navigation", { name: "모바일 주 메뉴" }) !== null).toBe(compact);
++    expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+     expect(apiPost).not.toHaveBeenCalled();
+   });
+ 
+   it("keeps the manual route and query identity while theme and media change its shell presentation", async () => {
+     prepareRealManualConsumer();
+     let mediaChange: ((event: MediaQueryListEvent) => void) | undefined;
+     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: false,
+       addEventListener: (_type: string, listener: typeof mediaChange) => { if (query === "(width < 760px)") mediaChange = listener; }, removeEventListener: vi.fn() })));
+     const client = new QueryClient(); const sentinel = { scope: "retained" };
+     client.setQueryData(["manual-shell-identity"], sentinel);
+     render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/control?siteId=site&mode=manual#draft"]}><CustomerShell user={adminUser} /></MemoryRouter></QueryClientProvider>);
+     await waitFor(() => expect(screen.getByRole("main").parentElement).toHaveClass("h-dvh"));
+     const route = document.querySelector("[data-control-screen]");
+     fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+     act(() => mediaChange?.({ matches: true } as MediaQueryListEvent));
+-    expect(screen.getByRole("main").parentElement).toHaveClass("min-h-screen");
++    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
+     expect(document.querySelector("[data-control-screen]")).toBe(route);
+     act(() => mediaChange?.({ matches: false } as MediaQueryListEvent));
+     await waitFor(() => expect(screen.getByRole("main").parentElement).toHaveClass("h-dvh"));
+     expect(document.querySelector("[data-control-screen]")).toBe(route);
+     expect(client.getQueryData(["manual-shell-identity"])).toBe(sentinel);
+     expect(apiPost).not.toHaveBeenCalled();
+     localStorage.removeItem("led-control.customer-theme.v1");
+   });
+ 
+   it.each(["스케줄 제어", "이벤트 제어"])("releases manual remaining height when the real page changes to %s", async label => {
+diff --git a/apps/web/src/features/shells/CustomerShell.tsx b/apps/web/src/features/shells/CustomerShell.tsx
+index 76bb85f3..301fc122 100644
+--- a/apps/web/src/features/shells/CustomerShell.tsx
++++ b/apps/web/src/features/shells/CustomerShell.tsx
+@@ -269,55 +269,57 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
+     && installationStatus === "pending"
+     && location.pathname !== "/settings";
+   if (!gate && mustCompleteInstallation) {
+     const settingsSearch = selectedSiteId ? `?siteId=${encodeURIComponent(selectedSiteId)}` : location.search;
+     gate = <Navigate to={`/settings${settingsSearch}`} replace />;
+   }
+ 
+   const isControlWorkspace = location.pathname === "/control" && Boolean(capabilities?.control) && !gate;
+   // The page owns resolved mode/site authorization. This stable setter is only
+   // a layout handoff: execution locks, queries and theme never define its scope.
+-  const isManualDesktopWorkspace = isControlWorkspace && manualWorkspaceActive && !isCompactNavigation;
++  const isManualWorkspace = isControlWorkspace && manualWorkspaceActive;
++  const isManualDesktopWorkspace = isManualWorkspace && !isCompactNavigation;
++  const isManualMobileWorkspace = isManualWorkspace && isCompactNavigation;
+   const summaryScope: CustomerShellScope | null = authorizedSelectedSiteId
+     ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: location.pathname } : null;
+   const summaryValue: CustomerSiteSummary | null = summaryScope ? {
+     scope: summaryScope,
+     siteName: sitesQuery.data!.find(site => site.id === summaryScope.siteId)!.name,
+     ...(dashboardError ? { state: "error" as const } : dashboard?.site.id !== summaryScope.siteId || isDashboardLoading ? { state: "loading" as const } : {
+       state: "ready" as const,
+       counts: { totalFixtures: dashboard.summary.totalFixtures ?? null, onlineFixtures: dashboard.summary.onlineFixtures ?? null,
+         faultFixtures: dashboard.summary.faultFixtures ?? null, offlineFixtures: dashboard.summary.offlineFixtures ?? null }
+     })
+   } : null;
+ 
+   return (
+     <CustomerAccountContext.Provider value={{ user, isLoggingOut, logoutError: logoutError || null, requestLogout: handleLogout }}>
+     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
+     <SessionStatusProvider scope={JSON.stringify([principalKey(user), authorizedSelectedSiteId])}>
+       <ShellStatusRegistration items={shellStatusItems} />
+-      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "flex h-dvh min-h-0" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
++      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isManualWorkspace ? "flex h-dvh min-h-0" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
+       {capabilities && !gate ? isCompactNavigation ? (
+         <nav hidden={focus.active} className={focus.active ? "hidden" : "fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"} aria-label="모바일 주 메뉴" data-shell-navigation="compact">
+           <PrimaryNavigation capabilities={capabilities} search={location.search} />
+         </nav>
+       ) : (
+         <aside hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} ${isSidebarExpanded ? "w-customer-sidebar px-4.5" : "w-customer-rail px-2"} shrink-0 border-r border-border-default bg-surface-panel py-4`} data-shell-navigation="desktop">
+           <div className={`mb-7 flex min-w-0 items-center gap-1 px-1 ${isSidebarExpanded ? "justify-between" : "flex-col justify-center"}`}>
+             <KindaLogo presentation="workspace" context="관제 센터" compact={!isSidebarExpanded} />
+             {isWideNavigation ? <IconTooltipButton size="sm" icon={isSidebarExpanded ? PanelLeftClose : PanelLeftOpen} label={isSidebarExpanded ? "사이드바 접기" : "사이드바 펼치기"} aria-expanded={isSidebarExpanded} aria-controls={desktopNavigationId} onClick={() => setIsSidebarCollapsed(value => !value)} /> : null}
+           </div>
+           <nav id={desktopNavigationId} className="grid w-full gap-2" aria-label="주 메뉴">
+             <PrimaryNavigation capabilities={capabilities} search={location.search} layout={isSidebarExpanded ? "expanded" : "rail"} />
+           </nav>
+         </aside>
+       ) : null}
+-      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
++      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
+         {/* Reserve intrinsic summary/action widths before giving the site label
+             remaining space; otherwise a long label collapses the summary track. */}
+         <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
+           <span className="sr-only" data-testid="shell-current-menu">{titleForPath(location.pathname)}</span>
+           <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1" aria-label="현장 정보" data-shell-context>
+             {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
+             <Text variant="body-sm" className="min-w-0 truncate" title={currentSiteLabel}>
+               {sitesQuery.isLoading ? "현장 목록 확인 중" : sitesQuery.error ? "현장 목록 확인 불가" : currentSiteLabel}
+             </Text>
+             <span className="sr-only" data-testid="active-site-badge">{dashboard?.site.name || "현장 미등록"}</span>
+@@ -341,28 +343,25 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
+         {focus.active ? <div className="shrink-0 self-start px-2 pt-2"><Button type="button" variant="secondary" onClick={event => statusCenterRef.current?.open(event.currentTarget)}><Bell size={18} aria-hidden="true" />알람센터</Button></div> : null}
+         <ToastRegion placement="flow" suppressVisual={isCompactNavigation} />
+         {/* Monitoring needs a finite flex height to grow its map into available
+             space. Its overflow stays visible so short screens can scroll the
+             page rather than clip the minimum-height map or small log ticker.
+             Other normal routes keep their existing document scroll policy. */}
+         {/* Short monitoring fullview preserves the map's natural minimum and
+             scrolls normally when live notice height exceeds the viewport. */}
+         {/* Editor minima may exceed a short viewport. Keep ordinary document
+             scrolling through both grids instead of clipping the workspace. */}
+-        {/* Only an authorized Control workspace needs the available grid row,
+-            not an intrinsic content-start row. Its min-content floor keeps a
+-            short viewport in document flow; account/gate and other routes keep
+-            their existing composition and scrolling policy. */}
+-        {/* Manual desktop consumes remaining space below the dynamic header
+-            and flow notices. Overflow remains reachable inside this workspace,
+-            rather than clipping a short-screen map or command recovery action. */}
+-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
++        {/* Only the page's authorized manual-active report gives mobile a
++            finite remaining row and safe-navigation reserve. Desktop retains
++            its outer scrollport; schedules/events/groups/account/editor keep
++            their existing flow. Mobile lists/More own reachable overflow. */}
++        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualMobileWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] px-2 py-1" : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
+           {/* The eager account region stays outside the lazy route boundary so
+               failed settings chunks and installation/permission gates retain
+               the same logout controller, confirmation and initiating ref. */}
+           {location.pathname.startsWith("/settings") || gate ? <CustomerAccountPanel /> : null}
+           {gate ?? (capabilities ? <CustomerRouteErrorBoundary scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>
+           <Suspense fallback={<RouteLoadingState />}>
+             <Routes>
+             <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
+             <Route
+               path="/control"
+diff --git a/docs/menus/control.md b/docs/menus/control.md
+index ace69e1a..f03a987c 100644
+--- a/docs/menus/control.md
++++ b/docs/menus/control.md
+@@ -1,12 +1,43 @@
+ # 제어 메뉴 기능 현황
+ 
++## 2026-10-12 신규 지도 의견 C6–8 — 수동 제어
++
++### 구현 완료
++
++- 수동 제어 PC의 선택 대상 패널은 empty 상태에도 지도 행 높이를 소비하도록 구성하며, 선택 이름 목록은 해당 패널 내부 스크롤로 제한한다. 기존 resolved selection/UUID/clear/lock을 소비한다.
++- 모바일은 지도 아래 `선택 조명 N개`와 바로 다음 `전체 보기`로 같은 패널의 이름 목록을 인라인으로 펼친다. 목록을 닫거나 Escape로 닫으면 opener로 포커스를 복원하고, 현장·주체·층·선택 방식 경계에서 펼침을 초기화한다. 이 펼침을 위해 새 drawer/query를 만들지 않는다. 기존 전체 조명 목록 버튼의 drawer는 유지한다.
++- 권한이 확인된 manual-active 모바일만 finite h-dvh/min-h-0 shell과 기존 navigation safe reserve를 소비한다. 선택 toolbar는 층/선택 범위 dropdown/목록 icon 한 행, 실행은 숫자/slider/적용/더보기 한 행으로 구성한다. 자동화·그룹 관리·editor·embedded의 높이/renderer 기본 정책은 유지한다.
++- 빠른 값·이력·긴 복구 상세는 `더보기` 내부 스크롤에 유지하며, 접어도 명령 소유자/query/UUID를 제거하지 않는다. 중요한 조회 오류·불확정·확인 필요·잠금 상태는 접힌 상태에도 live summary로 남긴다. raw draft31·invalid blur/Enter·첫 invalid Apply 차단·별도 explicit Apply를 유지한다.
++- 선택적 `FloorMapViewport.compactChrome`은 수동 모바일 caller만 소비한다. 축소·100%·확대·화면 맞춤의 기존 동작, camera/renderer/gesture 수명과 기본 footer 최소240은 유지한다. compact caller는 실제 남은 높이를 사용하며 작은 화면에 강제 최소 높이를 두고 부모에서 잘라내지 않는다.
++
++### 미구현
++
++- 실제 브라우저의 PC panel full-row/empty/long list, 320·390×600 canvas240 목표, map 우세 비율·nav reserve·44px hit·한 행·document scroll0 검증은 총괄의 한정 Task3 QA 관문이다.
++- 물리 WebView/touch/safe-area·Gateway/RF/HIL 검증은 수행하지 않았다.
++
++### 부족하거나 개선이 필요한 기능
++
++- 현재 검증은 직접 React 소비자의 명령·draft·selection·scope·default 수명 계약이다. CSS class 문자열 확인이나 JSDOM 크기를 실제 기하 통과로 해석하지 않는다. compact viewport는 min-h-0이므로 실제 chrome이 남긴 공간이240보다 작을 수 있으며 QA에서 수치와 모든 끝 내용의 도달을 확인해야 한다.
++- desktop 이력은 단일 실행 보조 영역에 유지하고 모바일에 같은 노드를 더보기로 접는다. query/명령 소유자를 복제하지 않았다. 동시에 선택 목록·More를 펼친 짧은 화면, 큰 글꼴·긴 오류·층/구역 목록·본문 마지막 action과 drawer 반환 focus는 실제 QA가 남아 있다.
++
++### 관련 파일
++
++- `apps/web/src/features/control/ControlView.tsx`, `ManualExecutionPanel.tsx` 및 직접 테스트.
++- `apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx`, `SpatialTargetSelector.tsx`, `TargetSelectionToolbar.tsx` 및 직접 테스트.
++- `apps/web/src/features/shells/CustomerShell.tsx`, `features/floor-map/FloorMapViewport.tsx` 및 직접 테스트.
++
++### 갱신 규칙
++
++- 수동 모바일 finite shell/선택 펼침/More 변경은 raw draft·explicit Apply·명령 복구/UUID·권한·scope/camera 수명을 함께 확인한다. 기본 embedded/자동화/다른 route에 compact 정책을 퍼뜨리지 않는다.
++- source/direct test 완료와 실제 browser 기하·최종 QA·독립 review·MAIN 통합 상태를 구분하고, 실제 검증 뒤240 목표·44px·문서/내부 scroll 결과를 기록한다.
++
+ ## 2026-10-11 신규 조작 의견 — 현장명 단순화
+ 
+ ### 구현 완료
+ 
+ - 고객 공통 헤더의 현재 현장은 site.name만 표시한다. 고객사 접두사를 제거하되 권한 목록/URL scope·truncate/title·집계/action 폭 확보·52px 계정 링크와 기존 모바일 조작 영역은 유지한다.
+ 
+ ### 미구현
+ 
+ - 실제 화면·통합 타입/UI 정책/빌드·최종 리뷰는 총괄/QA 후속 검증이다. API/DB/서버·운영·실장비/HIL 변경은 없다.
+ 
+diff --git a/docs/menus/monitoring.md b/docs/menus/monitoring.md
+index f4bb66e9..51437b23 100644
+--- a/docs/menus/monitoring.md
++++ b/docs/menus/monitoring.md
+@@ -1,12 +1,39 @@
+ # 모니터링 메뉴 기능 현황
+ 
++## 2026-10-12 지도 조작·툴바·하단 상세 교정
++
++### 구현 완료
++
++- 지도는 기존 manual-cad opt-in과 pan 정책을 소비한다. PC 중간 버튼/Space 이동과 좌클릭 단일 선택, 모바일 marker 시작 swipe 이동과 tap 선택을 지원하며 영역 선택은 하지 않는다. 공통 viewport 기본값·renderer/camera 수명은 유지한다.
++- 순수 snapshot 60초 초과 지연은 기존 알람센터 ‘현재 화면 상태’에만 표시하고 상단 toast/최근 알림을 생성하지 않는다. 새 snapshot으로 복구하면 사라진다. 조회 실패·invalid/future 시각 경고는 기존 transient 안내를 유지하며 서버 현장 장애 알람·읽음/지우기·미읽음 수는 별도 계약이다.
++- loading/error/main의 h1은 sr-only로 보존한다. 층 선택·통합 검색/목록·마지막 갱신·새로고침을 한 도구 행으로 배치한다. 좁은 화면은 기존52px icon action과 accessible label, 현장 시간 HH:mm/전체 시각 설명을 사용한다. 시각 미확인 안내도 전체 접근 가능한 설명을 유지한다.
++- 조명 상세는 PC·모바일 동일한 지도 내부 하단 약 절반 nonmodal overlay다. 지도 영역은 줄이지 않으며 상세 본문만 스크롤한다. 닫기/Escape·현재 scope의 opener 복귀·선택/필터/삭제 수명과 상세 scroll 기억을 유지한다.
++- 기존 페이지 담당의 인수 검증에서 제품 `ac323a3d`와 동일한 소스의 직접 `MonitoringView`/`FloorMap` 2개 suite 127개가 일괄 통과했다. snapshot 60,000/60,001ms·복구·오류/시각 안내, marker gesture/단일 선택, 상세 열기/닫기·scroll/초점 수명을 확인한 소프트웨어 증거이며 실제 화면 geometry 완료를 뜻하지 않는다.
++
++### 미구현
++
++- 서버 snapshot 지연을 영구 incident로 저장하는 새 DTO/producer는 추가하지 않았다. API/DB/장비/배포/HIL 변경은 없다.
++
++### 부족하거나 개선이 필요한 기능
++
++- 직접 컴포넌트/gesture 회귀는 소프트웨어 증거다. 실제 PC·320/390px 한 행, overlay 전후 map rect/camera 동일성, 내부 scroll과 fixed navigation 위 hit는 총괄의 한정 browser 관문에서 별도로 확인한다.
++- 지연 화면 상태에는 읽음/지우기 동작이 없다. 최근 알림이나 서버 incident의 읽음이 현재 지연의 해결을 뜻하지 않는다.
++
++### 관련 파일
++
++- `apps/web/src/features/monitoring/{MonitoringView,FloorMap}.tsx` 및 직접 테스트. 기존 `components/ui/maps/OperationMapPanel.tsx`와 `features/floor-map/FloorMapViewport.tsx`의 계약을 소비하며 공통 제품 API 변경은 없다.
++
++### 갱신 규칙
++
++- 조회 metadata 지연·서버 장비 장애·transient 알림을 구분하고 직접 unit과 실제 geometry/HIL 범위를 합산하지 않는다. 아래 과거 desktop aside/mobile modal·보이는 h1 기록은 당시 구현 이력이며 현재 계약은 이 절을 따른다.
++
+ ## 2026-10-11 신규 조작 의견 — 현장명 단순화·통합 검색/목록·고정 범례
+ 
+ ### 구현 완료
+ 
+ - 고객 공통 헤더의 현재 현장은 site.name만 표시한다. 고객사 접두사를 제거하되 권한 목록/URL scope·truncate/title·집계/action 폭 확보·52px 계정 링크와 기존 모바일 조작 영역은 유지한다.
+ - PC 층 선택 너비를 기존 utility로 넓히고 모바일 flex 폭을 유지한다. 단일 ‘조명 검색/목록’ 패널에 이름/번호 검색·기존 상태 필터·스크롤 결과 목록을 항상 표시한다. 모바일은 공통 bottom-sheet opt-in을 사용하며 중복 상세 select와 목록 펼침을 제거했다. 결과 클릭은 기존 지도 중심/marker 포커스·pin 경로를 사용하고 미배치/위치 불명은 상세로 연결한다.
+ - 조명 범례는 데이터 존재 여부와 무관하게 정상/장애/오프라인/상태 확인 대기/조명 정보 확인 전의 renderer 5상태를 항상 표시한다. 기존 토큰과 snapshot-only 정보 대기 식별을 유지한다.
+ 
+ ### 미구현
+ 
+diff --git a/docs/project-status.md b/docs/project-status.md
+index f6fa10bb..4465c4f2 100644
+--- a/docs/project-status.md
++++ b/docs/project-status.md
+@@ -1,14 +1,25 @@
+ # 메뉴 완성 작업 상태판
+ 
+ 기준일: 2026-10-12
+ 
++## 2026-10-12 지도 작업 공간 신규 브라우저 주석 — 설계 승인·격리 구현 준비
++
++- 사용자 신규 C1–8의 모니터링 제스처·알람센터·한 행 도구·지도 하단 상세, 수동 제어 선택 목록·지도 우선 모바일·간소화 밝기 구성을 승인받았다. 기존 모니터링/제어/UI·UX 담당 audit와 [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)를 기준으로 순차 구현한다.
++- clean MAIN `f31e56fa`에서 `.worktrees/map-workspace-comments-20261012` / `codex/map-workspace-comments-20261012`을 만들었다. 구현·직접 테스트·실제 UI/UX 검증·로컬 병합은 아직이다. 운영 인사이트·다른 메뉴/API/DB/실장비/기존 서비스/원격 변경은 없다. 과거 완료 증거와 이번 관문을 합산하지 않는다.
++- frozen offline install/workspace prepare exit0·계획 자기 점검·독립 Task1 brief 준비를 확인했다. 모니터링 담당이 C1–5 단독 writer로 구현하고 QA 담당은 기존 harness의 한정 case 구성만 감사한다. 제어 구현·실제 browser·UI/UX·최종 review/머지는 아직이다.
++- 사용자가 담당자는 기존 앱의 별도 페이지 세션이라고 정정하여 내부 추가 구현을 중단했다. `모니터링 페이지 담당자`/`제어 페이지 담당자`/`UI/UX 디자이너`에 직접 인계했다. 내부 모니터링 checkpoint `ac323a3d` 소유5파일과 원 실패·126PASS/1FAIL 뒤 경계/시각/gesture 국소 GREEN을 보존(최종127 일괄PASS 아님)했고 원 세션이 이를 인수해 진행한다. 내부 제어 제품diff0/QA실행0이며 실제검수·최종관문·머지는 아직이다. 제어 세션의 별도 장비 작업은 안전한 경계와 기존 승인 관문을 보존한다.
++- 위 제어 인계는 사용자 후속 정정으로 취소 요청을 전송했다. 제어 UI의 지정 담당은 `제어 UI 개선 담당자`이며 현재 활성·보관 목록에 없어 정확 링크/@멘션을 확인 중이다. 기존 `제어 페이지 담당자`의 장비 업무/세션 전체는 중지하지 않는다. 모니터링·UI/UX 인계와 별도 브랜치 원 증거는 유지하고 제어 UI 구현은 지정 세션 확인 전 시작하지 않는다.
++- 지정 링크의 `제어 UI 개선 담당자`(`01a0f776-b930-7eb2-a121-e05bef4d1581`)를 읽어 NEW Task2 단독 writer로 직접 배정했다. 위 미확인 문장은 당시 이력이다. 모니터링 원 세션은 제품ac323a3d 변경0로 인수·자체검토하고 direct2suite127PASS(exit0/18.14s)를 새로 확인, 메뉴문서87f658ef에 한계를 기록했다. 실제geometry·제어 구현/QA/UX/독립review·MAINmerge는 아직이다.
++- 제어 지정 세션의 직접 RED4+viewport1 원 로그를 확인했으며 source 구현 진행 중이다. 순수 CSS class assertion은 실제기하 증거가 아님을 전달했다. 기존 앱 UI/UX 세션은 ignored SDD의 최소 측정 harness 공통부만 준비하고 최종source 인계 후 실제6case를 실행한다. 제품·기존tests·API/DB/장비는 UX 수정범위가 아니며 최종관문/머지는 아직이다.
++- 제어 지정 세션 제품9f3e25d7 소유13파일과 원 RED/중간실패/최종선택41PASS·identity2국소PASS(41과중복)/타입exit0/UI기존0·신규0 보고서를 대조했다. 모드dropdown/인라인 목록·More·finite manual-only·원 UUID/query/draft/renderer 수명을 유지하고 empty 안내가 오류·권한을 가리던 추가RED도수리했다. 중간85/68 결과나 CSS class 확인을 최종전체PASS/실제기하로합산하지않는다. 이제 실제6case·UI/UX/최종policy·build/독립review로진행하며 MAINmerge는아직이다.
++
+ ## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증·승인된 로컬 통합 완료
+ 
+ - 새 21건 중 C8 운영 인사이트는 사용자 요청으로 그대로 두고 나머지 20건을 반영한다. 세 페이지 담당의 읽기 전용 감사와 대화 설계를 확인했으며 [실행 체크리스트](superpowers/plans/2026-10-11-atlas-interactions-comments.md)에 공통/통계→수동 지도→헤더/모니터링→한정 browser/최종 review 순서를 기록했다.
+ - 기준 `cc6b9a7a`에서 `.worktrees/atlas-interactions-comments-20261011` / `codex/atlas-interactions-comments-20261011`을 만들고 frozen offline install/workspace prepare를 완료했다. 제품 구현·새 테스트·최종 검증·병합은 아직이다. 이전 29건 완료 증거와 합산하지 않으며 기존 서비스/다른 worktree/DB/장비/원격은 보존한다.
+ - 공통 checkpoint `fe1a17c5`의 optional bottom-sheet/Grid 행상세·날짜한줄 API와 소유13파일을 확인했다. 직접4suites116PASS 보고를 받았으며 통계 소비자는 같은 담당의 단독 writer로 진행 중이다. 전체 제품·브라우저·최종 review/병합 완료는 아직 아니다. 날짜 숫자 segment의 개별44px 폭은 한줄320px 요구와 상충하여 텍스트 폭 예외로 기록하고, group 높이/달력·일반버튼44px는 유지한다.
+ - Task1 공통/통계 구현 `fe1a17c5`+`16b6c032` 취합 완료: 공통 최종고유118·통계 실제7suite169=고유287PASS(단일HEAD 일괄 전체PASS 아님), 원 RED/소비자 assertion 수리·의도된 Zod stderr를 보고서에 보존했다. C8 source/test diff0과 소유24파일/diffcheck0을 직접 대조했다. Task2 수동지도 담당에게 단독 writer로 전달했으며 실제 browser/최종 정적 관문·독립review/병합은 아직이다.
+ - Task2 `195974a7` 소유10파일과 원 실패/최종source를 대조했다. manual-cad opt-in/마커 threshold 후capture/Space·touch·cancel, tool 제거·panel·제목·층+목록 행 구현과 최종5suite295PASS/diffcheck0을 취합했다. FloorScene 제품/default지도/API 변경0이다. Task3 헤더/모니터링 담당에게 단독writer를 전달했고 최종 browser/정적관문/review·병합은 미완료다.
+ - Task3 `9ba48ee7` 소유13파일·보고서·원 단계별 실패/국소GREEN을 확인했다. site-only/층desktop폭/단일검색목록/mobile sheet/5상태 범례를 구현했고 snapshot-only 미관측 식별을 보존했다. 기존 selector/helper 정합 수리와 sidebar 실패의 원인 미확정·국소PASS를 별도 기록한다. 원로그7개를 task-owned workspace에 복사했다. 제품 Task1–3 취합 후 Task4에 타입/UI/빌드 및 최대6실제browser만 전달한다. 최종review/병합은 아직이다.
+ - 정적 checkpoint: `77f8608f` 타입/빌드exit0이나 UI 정책78PASS/1FAIL·ui-check1에서 sheet의 미승인 radius utility를 발견했다. 원 로그를 보존하고 `437ebc39` Popover 한 파일만 승인 token+하단 flush geometry로 수리했다. 소유자47PASS, 새 source 정책79PASS/UI0·0/빌드exit0를 확인했으며 타입은 이전 제품 cohort로 구분한다. 실제6-case browser와 단일 read-only 통합review를 진행 중이고 병합은 아직이다.
+ - 위 준비/진행 문장은 실행 당시 이력이다. 현재 제품 `437ebc39`와 QA `67364847`의 20건 구현·한정 검증·단일 최종 리뷰는 완료했다. 6고유 browser case가 7runs21exec에 걸쳐 분리PASS했고 최종6 일괄 재실행은 아니다. 원 harness 실패와 marker 준비 실패를 보존하며 실제 marker-origin CDP pan/선택 불변/다음 tap, 실제 nav 위 전체44px hit까지 확인했다. reviewer C/I/M0; C8 source/test 및 API/DB 변경0이다. [원 증거·소스별 보고서](assets/atlas-interactions-comments-2026-10-11/README.md)에 실제 PNG/좌표/누락범위·기존 SettingsShell failure/큰 chunk 경고를 남겼다.
+diff --git a/docs/superpowers/plans/2026-10-12-map-workspace-comments.md b/docs/superpowers/plans/2026-10-12-map-workspace-comments.md
+new file mode 100644
+index 00000000..4a9837aa
+--- /dev/null
++++ b/docs/superpowers/plans/2026-10-12-map-workspace-comments.md
+@@ -0,0 +1,97 @@
++# 2026-10-12 모니터링·수동 제어 지도 작업 공간 실행 체크리스트
++
++> 승인: 사용자의 ‘오케이’는 대화에서 확인한 8건의 짧은 설계와 별도 브랜치 구현 → UI/UX 확인 → 로컬 머지 진행을 승인한다. 재설계나 별도 승인 절차를 추가하지 않는다.
++> 실행: 사용자가 ‘담당 에이전트 세션’은 기존 앱 채팅을 뜻한다고 정정했다. 내부 서브에이전트의 추가 구현은 중단하고 아래 기존 세션에 직접 인계했다. 총괄은 소스 수정 대신 결과·원 증거와 이 체크리스트를 취합한다.
++
++## 실제 담당 세션
++
++- 모니터링: `모니터링 페이지 담당자` / `01a088f3-9a15-7802-bd31-cfcfcba2f4d1`.
++- 제어 UI: 사용자 링크로 확인한 `제어 UI 개선 담당자` / `01a0f776-b930-7eb2-a121-e05bef4d1581`. 정확 세션을 읽어 이번 NEW Task2 단독 writer로 메시지 배정했다. 기존 `제어 페이지 담당자` / `01a088db-9c18-7fc1-8ec4-9782efb8ad20`의 이번 UI 요청만 취소 메시지를 전송했고 그 세션의 기존 장비 작업은 취소 범위가 아니다.
++- UI/UX: `UI/UX 디자이너` / `01a0ce87-d272-72d2-8bb6-e021f52628c3`.
++- 사용자 직접 인계 지시로 위 세션 메시지 전송을 승인받았다. 기존 진행 중인 별도 장비 작업을 중단하거나 이 UI 작업에 혼합하지 않는다. 제어 UI는 정확한 지정 세션 확인과 Task1 인수 후 단독 writer로 시작한다. 세션 전체 interrupt/handoff로 기존 작업까지 중지하지 않는다.
++- 내부 모니터링 checkpoint `ac323a3d`(소유5파일)와 원 RED/실패/국소 GREEN은 보존한다. 원 세션이 이를 검토·인수해 이어가며 중복 구현하지 않는다. 내부 제어는 준비만/제품diff0, 내부 QA도 제안만/실행0이다.
++
++## 범위와 공통 제약
++
++- 기준 MAIN `codex/mvp1-cloud-web` / `f31e56fadd27d63f96824bad2ea2c4ef71581b62`; 격리 `.worktrees/map-workspace-comments-20261012`, 브랜치 `codex/map-workspace-comments-20261012`.
++- 이번 신규 C1–8만 수정한다. 과거 29건/20건 완료 증거와 합산하지 않으며 운영 인사이트·통계·설정·API·DB·실장비·다른 worktree·stash·원격·배포는 변경하지 않는다.
++- 중간 버튼 드래그 pan, 왼쪽 클릭 fixture, touch swipe pan/tap, wheel zoom·Space·arrow·pinch·cancel·카메라 기억을 보존한다. 모니터링에 다중/영역 선택을 도입하지 않는다.
++- 순수 snapshot 60초 지연만 기존 알람센터의 현재 화면 상태로 안내한다. toast/최근 알림/서버 incident/새 unread count는 생성하지 않는다. 조회 실패·잘못된/미래 metadata 경고를 일괄 무음화하지 않는다.
++- 보이는 모니터링 제목 제거, 접근성 h1 보존. 층·검색/목록·시각·새로고침 한 행; 좁은 화면 버튼은 44px 아이콘·접근 가능한 이름, 시각 HH:mm 축약과 전체 정보 설명 보존.
++- 상세는 지도 내부 하단 약 절반 nonmodal overlay. 지도 rect·카메라·renderer lifetime 불변, header/닫기 고정, 본문 내부 scroll, Escape/focus 복귀/scroll 기억 유지, overlay wheel이 지도 확대를 유발하지 않는다.
++- PC 선택 패널은 empty도 전체 행 높이. 모바일은 지도 하단 ‘선택 조명 N개’ → 44px ‘전체 보기’ → 같은 패널의 bounded 내부 목록. 새 drawer/query 없음.
++- 수동-active 모바일만 유한 높이 shell/workspace. floor·scope·목록 한 44px 행, brightness 숫자·slider·Apply·More 한 44px 행. presets/history/recovery 상세는 내부 More; 오류/복구 존재를 보이는 표시와 live 안내로 유지한다.
++- raw draft·invalid blur/Enter·첫 Apply 차단·명시 Apply·권한/잠금·UUID·명령 복구 수명·scope reset을 보존한다. CSS overflow-hide로 누락을 덮지 않는다. schedules/events/editor/embedded 기본 동작 변경 없음.
++- 기존 Button/Card/SelectBox/IconButton/OperationMapPanel 및 token을 사용한다. 실제 두 소비자의 overlay chrome가 반복되면 Task1이 `components/ui/maps`에 최소 공통 컴포넌트를 만들고 API를 보고한 뒤 Task2가 소비한다. 새 shared/API 계약 없음.
++
++## 경계 사전 점검
++
++| 작업 | 단독 writer | 공유·선행 관계 | 자기 정합 점검 |
++| --- | --- | --- | --- |
++| 1 C1–5 | 기존 모니터링 담당 | 공통 maps chrome 필요 시 이 담당만 먼저 수정; 기존 Viewport 정책 소비 | 모니터링 single selection·alarm/focus 수명 유지, 약 절반 overlay는 canvas 크기 불변 |
++| 2 C6–8 | 기존 제어 담당 | Task1 source/API 확인 후 순차. CustomerShell manual-only 높이 및 common viewport optional compact chrome 필요 시 이 담당 소유 | 단일 command/draft owner·default/embedded 보존, min-height와 내부 scroll/44px 모두 실제 검증 |
++| 3 검증 | 기존 QA + UI/UX 담당 | 제품 writer 완료 후. QA는 test/evidence만, UX는 읽기 전용 | 동일 source cohort·actual map box와 exposed area를 구분, fixture/API fake와 HIL 미실행 기록 |
++| 4 리뷰·통합 | 기존 독립 reviewer + 총괄 | base..최종 제품 SHA의 source-scoped package, owner 수리 후 scoped 재검증 | fresh MAIN 상태·예상 SHA·clean 확인. 변동 시 같은 통합 tree 한정 재검증 |
++
++Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 변경 직접 unit/TDD, 최종 웹 타입·UI 정책·빌드, 이번 동작의 한정 실제 browser와 기존 reviewer 1회 통합 검토를 사용한다. 과거 전체 suite·HIL을 반복하지 않는다. 틀리면 변경 밖 회귀를 놓칠 수 있으므로 미실행 범위를 명시한다.
++
++## 진행
++
++- [x] 짧은 설계 승인·기존 세 담당 read-only audit·별도 브랜치/worktree 준비.
++- [x] frozen offline install/workspace prepare(exit0), 계획 자기 점검·Task1 brief 생성; 준비 commit9d59c7e6.
++- [x] 기존 앱의 모니터링·UI/UX 세션에 직접 인계. 내부 writer 종료 및 checkpoint 원 자료 보존.
++- [x] 사용자 지정 `제어 UI 개선 담당자`의 정확 링크 확인·Task2 단독 writer 인계(기존 제어 페이지 UI 요청만 취소 전달).
++- [x] Task1 모니터링 C1–5 제품ac323a3d 인수·자체검토, 원 페이지 세션 직접2suite127PASS 및 메뉴문서87f658ef. 실제geometry는후속QA.
++- [x] Task2 지정 앱세션 제어 C6–8 제품9f3e25d7/소유13파일, 최종선택41PASS·identity2국소PASS(중복합산0)·타입/UI0. 실제기하는후속QA.
++- [ ] Task3 한정 browser·정적 관문·실제 UI/UX 리뷰, 발견 문제 owner 수리.
++- [ ] Task4 독립 통합 리뷰·fresh MAIN 확인·로컬 머지·회복 가능한 정리.
++
++### Task 1: 모니터링 C1–5
++
++**실행 경계:** NEW worktree `.worktrees/map-workspace-comments-20261012`, NEW branch `codex/map-workspace-comments-20261012`, baseline f31e56fa. 운영 인사이트/통계/설정/API/DB/장비/다른 worktree/stash/원격/배포/기존 서비스는 변경하지 않는다. 기존 공통 UI/token을 재사용하고 공통 overlay가 두 소비자에 필요할 때만 최소 API를 추가하여 총괄에게 알린다. 실패 테스트 먼저 실행하고 직접 suite만 검증한다. 계획 전체가 아니라 이 task brief와 applicable AGENTS/skills만 읽는다.
++
++**소유:** MonitoringView/FloorMap/직접 tests/docs/menus/monitoring.md. 필요 최소 common maps component/export/test만 이 담당 소유. FloorMapViewport 기본 정책·session provider 전역 변경은 먼저 보고한다.
++
++**필수 문맥:** 위 공통 제약 전부 적용. 기존 `manual-cad` + `interactionPolicy="pan"` 소비. 순수 snapshot stale만 announce false. loading/error/main visible title 제거하되 h1 sr-only. floor/search/time/refresh 한 행, narrow icon-only44·time HH:mm/full accessible 설명. 기존 별도 aside/mobile modal을 지도 하단 비모달 약 절반으로 통일; map rect/camera/remount 불변, close/Escape/return focus/scroll 기억과 지도 interaction 유지.
++
++1. 새 동작을 실제 컴포넌트로 관찰하는 실패 테스트를 먼저 작성·실행한다. snapshot 경계60000/60001·복구와 failure/invalid 안내, real marker gesture 및 single selection/no area, overlay lifecycle 중심. CSS geometry는 Task3 browser 관문이다.
++2. 최소 제품 구현, 직접 suite GREEN. 프레임워크나 mock 존재 assertion 대신 소비자 동작 검증.
++3. 공통 overlay 추가 시 최소 API/경로/기본값·Task2 소비 방법을 보고한다. 기존 공통 Card/Button 재사용으로 충분하면 불필요 API를 만들지 않는다.
++4. 메뉴 문서 다섯 구성 유지·mock/HIL 한계 기록, diffcheck, 자기 리뷰·소유 파일만 source commit.
++5. task-1-report.md에 base/source SHA·변경 파일·원 RED/GREEN 로그·검증된 동작/누락/경계 API를 기록한다. 총괄 plan/status 수정 금지, 다른 writer 호출 금지.
++
++**검증:** 직접 Monitoring/FloorMap 및 필요한 공통 overlay suites만. 원 로그는 이 작업 SDD workspace. 제품 구현 후 Task2에 source checkpoint 전달.
++
++### Task 2: 수동 제어 C6–8
++
++**실행 경계:** NEW worktree `.worktrees/map-workspace-comments-20261012`, NEW branch `codex/map-workspace-comments-20261012`, baseline f31e56fa 이후 Task1 checkpoint. 운영 인사이트/통계/설정/API/DB/장비/다른 worktree/stash/원격/배포/기존 서비스는 변경하지 않는다. 공통 UI/token 재사용; Task1 maps optional API를 먼저 확인하고 default/embedded는 보존한다. 실패 테스트 먼저 실행하고 직접 suite만 검증한다. 계획 전체가 아니라 이 task brief와 applicable AGENTS/skills만 읽는다.
++
++**소유:** ControlView/ManualExecutionPanel/target-selection 및 직접 tests/docs/menus/control.md. CustomerShell manual-active-only height, 선택적 FloorMapViewport compact chrome 및 direct tests는 이 담당만 소유. Task1 maps API 변경 시 승인된 API 소비만.
++
++**필수 문맥:** 위 공통 제약 전부 적용. Task1 결과 source/API 확인 후 구현. PC 선택 panel h-full empty 포함·long list internal scroll. mobile map-bottom 선택 count → 바로 아래44 ‘전체 보기’ inline expand·internal list scroll; close/scopereset 보존. manual-active shell h-dvh/min-h0/navigation safe reserve, finite grid remaining map dominant; floor/scope/list44 한 행 및 brightness numeric/slider/Apply/More44 한 행. 긴 presets/history/recovery More internal scroll. raw draft/invalid/first Apply/explicit apply/lock/permissions/UUID/command lifecycle 보존; 중요 상태는 collapsed에도 visible/live. schedules/events/default/editor/embedded behavior 변경0.
++
++1. 선택 panel 확장/empty/focus/scope reset, compact input/More 복구/command safety의 직접 실패 테스트를 먼저 실행한다. shared optional compact props 도입 시 default 소비자 회귀 test도 직접 확인한다.
++2. 최소 제품 구현 후 직접 GREEN, 기존 중복 command owner/query/drawer 만들지 않는다. 카메라 reparent/remount를 피한다.
++3. 320/390×600에서 map240 이상 목표이나 실제geometry로 확정한다. height hidden clipping 금지, nav/button44·long list/recovery reachability는 Task3에 계약으로 전달한다.
++4. 메뉴 문서 다섯 구성 유지·한계 기록, diffcheck, 자기 리뷰·source commit. Task2 report에 source SHA·API 변경·원 RED/GREEN·누락/원인/검증 cohort를 기록한다.
++5. 제품 변경은 이 작업 scope만; plan/status 수정·다른 agent 호출 금지.
++
++**검증:** 변경 직접 selection/ManualExecution/Control/Shell/Viewport suites 필요한 case만. 기존 전체 suite·이전20건·HIL 반복 없음.
++
++### Task 3: 한정 QA와 실제 UI/UX 점검
++
++**소유:** 기존 앱 `UI/UX 디자이너` 세션이 이번 ignored SDD 안에 최소 Playwright 측정 harness를 준비하고 Task2 최종 SHA 인계 후 최대6 actual case·PNG/geometry와 UI/UX 검토를 수행한다. 제품/기존 test는 읽기 전용이고 source selector 미확정 동안 common 수집부만 준비한다. 증거는 총괄이 영구 docs/assets/map-workspace-comments-2026-10-12로 취합한다. 제품 수리는 원 페이지 owner로 되돌린다.
++
++- 실제 renderer·pointer로 PC1194×1227 monitoring middle drag/left click/no area, same-row toolbar, detail 전후 rect/camera 동일·overlay ~half/body scroll/wheel isolation/closefocus.
++- 320×600·390×600·390×844 control light/dark 중 필요한 대표조합, 717×1227 mapdominant/PCemptyfull, mobile marker-origin swipe선택불변/다음tap, 내부selectedlonglist끝, overlay/More닫기/focus·invalid31/Apply 안전·오류/복구접근, document scroll0/nav가림0/44px 모두 실측한다.
++- 최소 unique 6case 목표, 필요한 source-scoped 재실행만. keyboard/visualViewport resize 한정case로 확인하며 실제 OSkeyboard/HIL 주장 금지. additional POST0 scopefake 계수.
++- 타입/UI 정책·ui-check/build 한 번 최종제품SHA. 기존 SettingsShell baselinefailure·bundlewarning는 이번 실패와 구분, unrelatedfix 금지.
++- QA owned 새 port만(start전free확인), 기존5173/4000/63200 중단/변경금지. route fake는 fake로 명시. raw JSON/PNG/원fail을 보존, 같은case재시도와unique counts 구분.
++- UX actualreport는 overlap/gap/hit/clipping/mapbox/exposedarea·기능가용성·sourcecohort·한계를 포함한다. browser를 동시에 조작하지 않는다.
++
++### Task 4: 독립 검토·로컬 통합
++
++- 총괄은 root role로 writing-plans/status를 결과만 취합하여 업데이트한다. 제품 직접 수정하지 않는다.
++- base f31e56fa..최종제품SHA package를 기존 independentreviewer에게 전달한다. 요구사항/spec·quality/safety를 한 번 통합 검토, finding은 원owner수리 후 영향범위만 재검토한다.
++- 검증·UX·review 완료 후 fresh MAIN status/HEAD 확인. unchanged면 승인된 로컬 merge, advanced면 기존 변경 보존 통합tree만 새 한정검증. conflict에 의미결정 필요 시 사용자 문의.
++- remote/push/PR/deploy 없음. 완료 직전 원자료/ledger를 정확한 별도backup경로로 복사해diff로 확인. 합쳐진 이번cleanworktree/branch만 recoverablecleanup. final은실제mergeSHA·검증범위/한계 및 모든 Ruling을명시한다.

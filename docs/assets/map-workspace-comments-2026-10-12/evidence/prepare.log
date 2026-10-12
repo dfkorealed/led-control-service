@@ -1,0 +1,12 @@
+
+> led-lighting-control-service@ workspace:prepare /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012
+> pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build
+
+
+> @led-control/shared@0.1.0 build /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/packages/shared
+> node scripts/build.mjs
+
+
+> @led-control/automation-engine@0.1.0 build /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/packages/automation-engine
+> tsc
+

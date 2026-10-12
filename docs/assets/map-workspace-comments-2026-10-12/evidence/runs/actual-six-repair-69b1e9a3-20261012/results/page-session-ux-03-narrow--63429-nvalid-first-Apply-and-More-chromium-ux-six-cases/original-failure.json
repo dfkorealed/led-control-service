@@ -1,0 +1,101 @@
+{
+  "source": "69b1e9a3cb1dc7e2092a0ca96e56904e0938361a",
+  "case": {
+    "id": 3,
+    "viewport": {
+      "width": 320,
+      "height": 600
+    },
+    "theme": "light",
+    "route": "control",
+    "purpose": "finite document/two toolbar rows/invalid/More"
+  },
+  "phase": "ready",
+  "url": "http://127.0.0.1:15188/control?siteId=12121212-1212-4121-8121-121212121212&mode=manual",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/floors/23232323-2323-4232-8232-232323232323/map-snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands"
+    },
+    {
+      "method": "GET",
+      "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/manifest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/changes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    }
+  ],
+  "error": {
+    "message": "locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-spatial-map-marker=\"true\"][aria-label^=\"UX 조명 01\"]')\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 01 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 01 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 03 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 03 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events\u001b[22m\n\u001b[2m  2 × retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m  13 × retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 03 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 03 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 03 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 03 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n",
+    "stack": "locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-spatial-map-marker=\"true\"][aria-label^=\"UX 조명 01\"]')\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 01 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 01 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 03 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 03 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events\u001b[22m\n\u001b[2m  2 × retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m  13 × retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 03 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 03 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m       - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <div class=\"grid min-h-full min-w-full place-items-center p-6\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <button type=\"button\" aria-pressed=\"false\" data-variant=\"ghost\" data-selected=\"false\" data-disabled=\"false\" title=\"UX 조명 03 정상 70%\" data-brightness-level=\"8\" aria-label=\"UX 조명 03 정상 70%\" data-spatial-map-marker=\"true\" class=\"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:213:31\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:150:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:207:5"
+  }
+}
