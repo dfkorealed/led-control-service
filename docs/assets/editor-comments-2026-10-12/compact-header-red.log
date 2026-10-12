@@ -1,0 +1,71 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web
+
+ ❯ src/features/floor-editor/CadImportPanel.test.tsx (71 tests | 1 failed) 5843ms
+   × CadImportPanel > opens upload in one modal and restores the trigger after closing 70ms
+     → expect(element).toHaveClass("max-compact:min-w-13 max-compact:min-h-13")
+
+Expected the element to have class:
+  max-compact:min-w-13 max-compact:min-h-13
+Received:
+  inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-3 py-0 text-body-sm
+   ✓ CadImportPanel > keeps every region in one select without dropping later regions and decodes only one preview 3556ms
+ ❯ src/features/floor-editor/FloorEditorView.test.tsx (76 tests | 1 failed) 9681ms
+   ✓ FloorEditorView > shows a retryable CAD background error without recreating the image on selection changes 307ms
+   ✓ FloorEditorView > reuses fixture, object, and available-slot indexes while pan and zoom only requery them 645ms
+   ✓ FloorEditorView > keeps virtualized search, selection, and End-key focus working for 1,000 fixtures 497ms
+   × FloorEditorView > keeps the workspace inside its finite viewport without wrapping camera controls 80ms
+     → expect(element).toHaveClass("max-compact:min-w-13 max-compact:min-h-13")
+
+Expected the element to have class:
+  max-compact:min-w-13 max-compact:min-h-13
+Received:
+  inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-3 py-0 text-body-sm
+   ✓ FloorEditorView > keeps save and restore mutually exclusive with rapid restore clicks 314ms
+   ✓ FloorEditorView > prevents restore from entering while an atomic save is pending 476ms
+   ✓ FloorEditorView > previews CAD review results without registering fixtures and applies with the editor authority 584ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/floor-editor/CadImportPanel.test.tsx > CadImportPanel > opens upload in one modal and restores the trigger after closing
+Error: expect(element).toHaveClass("max-compact:min-w-13 max-compact:min-h-13")
+
+Expected the element to have class:
+  max-compact:min-w-13 max-compact:min-h-13
+Received:
+  inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-3 py-0 text-body-sm
+ ❯ src/features/floor-editor/CadImportPanel.test.tsx:195:21
+    193|     expect(screen.queryByLabelText("CAD 파일")).not.toBeInTheDocument(…
+    194|     const trigger = screen.getByRole("button", { name: "CAD 가져오기" …
+    195|     expect(trigger).toHaveClass("max-compact:min-w-13", "max-compact:m…
+       |                     ^
+    196|     expect(within(trigger).getByText("CAD 가져오기")).toHaveClass("max…
+    197|     fireEvent.click(trigger);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/features/floor-editor/FloorEditorView.test.tsx > FloorEditorView > keeps the workspace inside its finite viewport without wrapping camera controls
+Error: expect(element).toHaveClass("max-compact:min-w-13 max-compact:min-h-13")
+
+Expected the element to have class:
+  max-compact:min-w-13 max-compact:min-h-13
+Received:
+  inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-3 py-0 text-body-sm
+ ❯ src/features/floor-editor/FloorEditorView.test.tsx:529:75
+    527|     expect(screen.getByRole("button", { name: "CAD 가져오기" }).parent…
+    528|     expect(screen.getByRole("button", { name: "저장", exact: true })).…
+    529|     expect(screen.getByRole("button", { name: "맵으로 돌아가기", exact…
+       |                                                                           ^
+    530|   });
+    531| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 145 passed (147)
+   Start at  17:54:58
+   Duration  13.03s (transform 1.17s, setup 182ms, collect 3.43s, tests 15.52s, environment 840ms, prepare 442ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/floor-editor/FloorEditorView.test.tsx src/features/floor-editor/CadImportPanel.test.tsx

@@ -3,7 +3,8 @@ import type { MapDisplayManifest, MapDisplayTile, OrderedMapDisplayPrimitive } f
 import type { MapElement } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { PixiCadSceneRenderBackend, type CadRasterDisplayRequest, type CadSceneLayerState } from "../cad-scene/CadSceneRenderer";
-import { computeVisibleTileCoordinates } from "../cad-scene/cad-scene-camera";
+import { cadDisplayZoomBand, computeVisibleTileCoordinates } from "../cad-scene/cad-scene-camera";
+import type { CadSceneCamera } from "../cad-scene/cad-scene-camera";
 import type { SceneTile } from "../cad-scene/cad-scene-display-types";
 import type { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
 import type { DecodedCadSceneTile } from "../cad-scene/cad-scene-worker";
@@ -13,7 +14,14 @@ import { MapPaintWindow } from "./map-paint-window";
 import { paintMapOrderedCell } from "./map-ordered-cell";
 
 type Request = CadRasterDisplayRequest<MapDisplayTile>;
-interface Cell { signature: string; bounds: CadBounds; canvas: HTMLCanvasElement | null }
+interface CoverageRequest {
+  signature: string; controller: AbortController; promise: Promise<void>; pending: boolean;
+  wanted: ReadonlyMap<string, string>; manifest: Request["manifest"];
+}
+interface Cell {
+  signature: string; quality: string; bounds: CadBounds; canvas: HTMLCanvasElement | null; visible: boolean;
+  zoom: number; resolution: number;
+}
 const intersects = (a: CadBounds, b: CadBounds) => a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
 const ordinal = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const expand = (b: CadBounds, margin: number): CadBounds => ({ minX: b.minX - margin, minY: b.minY - margin,
@@ -32,7 +40,9 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   private draftBounds: CadBounds[] = [];
   private transient: DecodedCadSceneTile<SceneTile> | null = null;
   private lastRequest: Request | null = null;
-  private request: { signature: string; controller: AbortController; promise: Promise<void> } | null = null;
+  private request: CoverageRequest | null = null;
+  private paintCandidate: CoverageRequest | null = null;
+  private paintReady = false;
   private drain = Promise.resolve();
   private readonly stagingOwners = new Set<string>();
   private revision = 0;
@@ -42,14 +52,37 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   private paintFrame: number | null = null;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCameraRequest: Request | null = null;
-  // A request can be cancelled after it has started painting. Keep completion
-  // separate from request admission so an in-flight revision is never treated
-  // as settled camera coverage and scheduled for an unnecessary second bake.
-  private completedRevision = -1;
-  private completedSceneKey: string | null = null;
+  private rasterCamera: CadSceneCamera | null = null;
+  private rasterResolution = 0;
+  private rasterSceneKey: string | null = null;
+  private activeQuality: string | null = null;
+  private readonly bandCameras = new Map<number, CadSceneCamera>();
+  private indexedTiles: readonly MapDisplayTile[] | null = null;
+  private readonly parts = new Map<string, MapDisplayTile[]>();
 
   constructor(private readonly budget: CadSceneMemoryBudget,
-    private readonly layerId: (name: string) => string | undefined = name => name) { super(); }
+    private readonly layerId: (name: string) => string | undefined = name => name,
+    private readonly onPaintReady?: (ready: boolean, manifest: Request["manifest"]) => void) { super(); }
+
+  override setCamera(camera: CadSceneCamera): void {
+    this.resetPaintReady();
+    super.setCamera(camera);
+    const bounds = { minX: camera.centerX - camera.viewportWidth / camera.zoom / 2,
+      minY: camera.centerY - camera.viewportHeight / camera.zoom / 2,
+      maxX: camera.centerX + camera.viewportWidth / camera.zoom / 2,
+      maxY: camera.centerY + camera.viewportHeight / camera.zoom / 2 };
+    // Re-entering cached cells must be visible in the synchronous transform
+    // render, before async coverage admission or the next animation frame.
+    for (const [key, cell] of this.cells) {
+      cell.visible = cell.quality === this.activeQuality && intersects(cell.bounds, bounds);
+      this.setRasterVisible(`raster:${key}`, cell.visible);
+      // Hidden successor cells are still required by the in-flight request.
+      // A same-signature pan joins that request instead of re-admitting them.
+      const pending = this.request?.pending && !this.request.controller.signal.aborted && this.request.wanted.has(key);
+      this.budget.setPinned(this.owner, key, cell.visible || !!pending);
+      if (cell.visible) this.budget.touch(this.owner, key);
+    }
+  }
 
   override replaceTile(key: string, tile: DecodedCadSceneTile<SceneTile>): void {
     if (key !== "transient") throw new Error("Ordered map display must be baked by cell");
@@ -86,12 +119,20 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   }
 
   invalidateDisplay(bounds?: readonly (CadBounds | undefined)[], includeBaseInfluence = true): void {
+    this.resetPaintReady();
     this.revision++;
     this.cancelSettledCamera();
     this.request?.controller.abort();
     for (const [key, cell] of this.cells) {
-      const margin = includeBaseInfluence && this.lastRequest
-        ? mapRasterInfluenceMargin(this.lastRequest.camera.zoom, this.lastRequest.resolution) : 0;
+      const cellMargin = mapRasterInfluenceMargin(cell.zoom, cell.resolution);
+      const currentMargin = this.lastRequest
+        ? mapRasterInfluenceMargin(this.rasterCamera?.zoom ?? this.lastRequest.camera.zoom, this.lastRequest.resolution) : cellMargin;
+      // A hidden overview cell has a wider world-space hairline/miter envelope
+      // than the current detail camera. Invalidate that density too, or a
+      // later zoom-out can resurrect a masked stroke from the retained cache.
+      // Native draft bounds already contain the current envelope, so only add
+      // the coarse-density difference instead of broadening every local edit.
+      const margin = includeBaseInfluence ? cellMargin : Math.max(0, cellMargin - currentMargin);
       if (bounds?.length && !bounds.some(bound => !bound || intersects(cell.bounds, expand(bound, margin)))) continue;
       this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
       // Keep the last complete cell visible until its successor has been
@@ -102,23 +143,38 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   }
 
   renderDisplay(request: Request): Promise<void> {
-    if (this.disposed) return Promise.resolve();
+    if (this.disposed || request.signal.aborted) return Promise.resolve();
     const sceneKey = displaySceneKey(request.manifest);
-    const sameContent = this.completedRevision === this.revision && this.completedSceneKey === sceneKey;
-    const current = this.request;
-    if (current && this.lastRequest === request && !current.controller.signal.aborted) return current.promise;
+    if (!this.rasterCamera || this.rasterSceneKey !== sceneKey || this.rasterResolution !== request.resolution) {
+      this.cancelSettledCamera();
+      this.rasterCamera = { ...request.camera };
+      this.rasterResolution = request.resolution;
+      this.rasterSceneKey = sceneKey;
+      this.bandCameras.clear();
+    } else if (request.camera.zoom !== this.rasterCamera.zoom) {
+      // Half-octave lookup reuses the most recent detail density in that scale
+      // bucket. Exact zoom below still refreshes once at rest, not per input.
+      const cached = this.bandCameras.get(cadDisplayZoomBand(request.camera.zoom));
+      if (cached) this.rasterCamera = cached;
+    }
     this.lastRequest = request;
-    if (sameContent) {
+    if (request.camera.zoom !== this.rasterCamera.zoom) {
       this.pendingCameraRequest = request;
       if (this.settleTimer !== null) clearTimeout(this.settleTimer);
       this.settleTimer = setTimeout(() => {
         this.settleTimer = null;
         const pending = this.pendingCameraRequest;
         this.pendingCameraRequest = null;
-        if (pending) void this.renderDisplayNow(pending);
+        if (pending && !pending.signal.aborted && !this.stopped && !this.disposed) {
+          // Keep exact vector/text AA at resting zoom. During input the last
+          // detail raster is reused; pan alone never changes this lattice.
+          this.rasterCamera = { ...pending.camera };
+          void this.renderDisplayNow(pending);
+        }
       }, CAMERA_SETTLE_MS);
-      return Promise.resolve();
-    }
+    } else this.cancelSettledCamera();
+    // Entering coverage is loaded immediately, even during a continuous pan.
+    // Matching completed cells are reused, never inferred from request admission.
     return this.renderDisplayNow(request);
   }
 
@@ -129,21 +185,26 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     if (request.signal.aborted) return Promise.resolve();
     const { camera, manifest } = request;
     if (manifest.version !== 2) return Promise.reject(new Error("Ordered map painter requires v2"));
-    const band = camera.zoom, scale = band * request.resolution;
+    const rasterCamera = this.rasterCamera ?? camera;
+    const band = rasterCamera.zoom, scale = band * request.resolution;
     const ordered = (manifest as MapDisplayManifest).orderedPages?.version === 1;
-    const rasterGrid = ordered ? mapRasterGrid(manifest, camera, request.resolution) : null;
-    const offsetX = (camera.viewportWidth / 2 - camera.centerX * camera.zoom) * request.resolution;
-    const offsetY = (camera.viewportHeight / 2 - camera.centerY * camera.zoom) * request.resolution;
+    const rasterGrid = ordered ? mapRasterGrid(manifest, camera, request.resolution, rasterCamera) : null;
+    const offsetX = (rasterCamera.viewportWidth / 2 - rasterCamera.centerX * band) * request.resolution;
+    const offsetY = (rasterCamera.viewportHeight / 2 - rasterCamera.centerY * band) * request.resolution;
     const phase = `${(offsetX - Math.floor(offsetX)).toFixed(8)}:${(offsetY - Math.floor(offsetY)).toFixed(8)}`;
+    const quality = `${displaySceneKey(manifest)}:${band}:${request.resolution}:${phase}`;
     // Subdivide high-zoom source cells without changing codec ownership. This
     // keeps each CPU/GPU bitmap <=1024px per side, including high DPR screens.
     const size = Math.min(manifest.tileSize, 2 ** Math.floor(Math.log2(1024 / scale)));
     if (!(size > 0)) return Promise.reject(new Error("Invalid map raster cell scale"));
-    const coordinates = computeVisibleTileCoordinates({ ...manifest, tileSize: size }, camera, 0);
-    const parts = new Map<string, MapDisplayTile[]>();
-    for (const tile of manifest.tiles) {
-      const key = `${tile.tileX}:${tile.tileY}`, list = parts.get(key) ?? [];
-      list.push(tile); parts.set(key, list);
+    const coordinates = ordered ? [] : computeVisibleTileCoordinates({ ...manifest, tileSize: size }, camera, 0);
+    if (this.indexedTiles !== manifest.tiles) {
+      this.indexedTiles = manifest.tiles;
+      this.parts.clear();
+      for (const tile of manifest.tiles) {
+        const key = `${tile.tileX}:${tile.tileY}`, list = this.parts.get(key) ?? [];
+        list.push(tile); this.parts.set(key, list);
+      }
     }
     const legacyJobs = coordinates.map(({ tileX, tileY }) => {
       const bounds = { minX: tileX * size, minY: tileY * size,
@@ -151,26 +212,44 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
       const key = `${size}:${tileX}:${tileY}`;
       return { key, bounds };
     });
-    const jobs = (rasterGrid?.jobs ?? legacyJobs).map(({ key, bounds }) => {
-      const tiles = ordered ? (manifest.tiles as MapDisplayTile[]).filter(tile => intersects(tile.bounds, expand(bounds, rasterGrid!.margin)))
-        : parts.get(`${Math.floor(bounds.minX / manifest.tileSize)}:${Math.floor(bounds.minY / manifest.tileSize)}`) ?? [];
-      const signature = `${manifest.sceneId}:${band}:${request.resolution}:${phase}:${this.versions.get(key) ?? 0}:` +
+    const jobs = (rasterGrid?.jobs ?? legacyJobs).map(raster => {
+      const { bounds } = raster;
+      // Different densities coexist until the entire successor coverage is
+      // complete. They must not overwrite or alpha-composite the old grid.
+      const key = `${raster.key}:${quality}`;
+      const tiles = ordered ? this.tilesForBounds(expand(bounds, rasterGrid!.margin), manifest)
+        : this.parts.get(`${Math.floor(bounds.minX / manifest.tileSize)}:${Math.floor(bounds.minY / manifest.tileSize)}`) ?? [];
+      const signature = `${displaySceneKey(manifest)}:${band}:${request.resolution}:${phase}:${this.versions.get(key) ?? 0}:` +
         tiles.map(tile => `${tile.assetId}:${tile.sha256}:${tile.byteSize}`).join("|");
-      return { key, bounds, tiles, signature };
+      return { key, bounds, tiles, signature, raster };
     });
     const signature = `${this.revision}:` + jobs.map(job => `${job.key}:${job.signature}`).join(";");
-    if (this.request?.signature === signature && !this.request.controller.signal.aborted) return this.request.promise;
+    if (this.request?.signature === signature && !this.request.controller.signal.aborted &&
+        (this.request.pending || this.coverageComplete(this.request))) {
+      for (const key of this.request.wanted.keys()) this.budget.setPinned(this.owner, key, true);
+      if (!this.request.pending) { this.paintCandidate = this.request; this.schedulePaint(); }
+      return this.request.promise;
+    }
+    this.resetPaintReady();
     const previousRequest = this.request;
     const drained = this.drain;
     previousRequest?.controller.abort();
     const controller = new AbortController();
     const cancel = () => controller.abort(); request.signal.addEventListener("abort", cancel, { once: true });
     const wanted = new Set(jobs.map(job => job.key));
+    const visibleBounds = { minX: camera.centerX - camera.viewportWidth / camera.zoom / 2,
+      minY: camera.centerY - camera.viewportHeight / camera.zoom / 2,
+      maxX: camera.centerX + camera.viewportWidth / camera.zoom / 2,
+      maxY: camera.centerY + camera.viewportHeight / camera.zoom / 2 };
     // Off-screen cells can be reclaimed by the shared LRU while the active
     // coverage remains pinned. Their PIXI/canvas resources are released by
     // the allocation eviction callback installed in reserve().
-    for (const key of this.cells.keys()) if (!wanted.has(key)) this.budget.setPinned(this.owner, key, false);
-    const current = { signature, controller, promise: Promise.resolve() };
+    for (const [key, cell] of this.cells) {
+      this.budget.setPinned(this.owner, key, wanted.has(key) || cell.visible && intersects(cell.bounds, visibleBounds));
+      if (wanted.has(key)) this.budget.touch(this.owner, key);
+    }
+    const current: CoverageRequest = { signature, controller, promise: Promise.resolve(), pending: true,
+      wanted: new Map(jobs.map(job => [job.key, job.signature])), manifest };
     this.request = current;
     current.promise = (async () => {
       // Serialize the one-cell staging window, including cancelled Worker work.
@@ -182,7 +261,9 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
       try {
       for (const job of jobs) {
         if (controller.signal.aborted || this.stopped) return;
-        if (this.cells.get(job.key)?.signature === job.signature) continue;
+        if (this.cells.get(job.key)?.signature === job.signature) {
+          continue;
+        }
         const stagingOwner = `${this.owner}:decode:${++sequence}`;
         this.stagingOwners.add(stagingOwner);
         const primitives: OrderedMapDisplayPrimitive[] = [];
@@ -191,7 +272,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
         let pendingCanvas: HTMLCanvasElement | null = null;
         try {
           if (window) {
-            const raster = rasterGrid!.jobs.find(value => value.key === job.key)!;
+            const raster = job.raster as NonNullable<typeof rasterGrid>["jobs"][number];
             const drafts = this.drafts.filter((element, index) => this.layers.get(element.layerId)?.visible !== false &&
               intersects(job.bounds, expand(this.draftBounds[index], this.minimumStrokeMargin(element, band) + 1 / band)));
             const hasInput = job.tiles.length > 0 || drafts.length > 0;
@@ -218,7 +299,10 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
             this.drop(job.key);
             this.reserve(this.owner, job.key, rasterBytes, key => this.drop(key));
             if (canvas) this.replaceRaster(`raster:${job.key}`, canvas, raster.rasterBounds);
-            this.cells.set(job.key, { signature: job.signature, bounds: job.bounds, canvas }); pendingCanvas = null;
+            const visible = this.activeQuality === null || this.activeQuality === quality;
+            this.setRasterVisible(`raster:${job.key}`, visible);
+            this.cells.set(job.key, { signature: job.signature, quality, bounds: job.bounds, canvas, visible,
+              zoom: band, resolution: request.resolution }); pendingCanvas = null;
             this.schedulePaint();
             if (performance.now() - yieldedAt >= 8) { await new Promise<void>(resolve => setTimeout(resolve, 0)); yieldedAt = performance.now(); }
             continue;
@@ -257,8 +341,8 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
               left.zIndex - right.zIndex || ordinal(idOf(left), idOf(right)) ||
               ("fragmentOrder" in left ? left.fragmentOrder : 0) - ("fragmentOrder" in right ? right.fragmentOrder : 0);
           });
-          // Shared half-open device-pixel ownership. Integer-pixel pans reuse
-          // the raster; fractional phase/zoom rebuild exact resting coverage.
+          // Shared half-open ownership in the cached raster lattice. Pan uses
+          // transforms; a settled zoom selects its own exact detail lattice.
           const left = Math.ceil(job.bounds.minX * scale + offsetX), top = Math.ceil(job.bounds.minY * scale + offsetY);
           const width = Math.max(1, Math.ceil(job.bounds.maxX * scale + offsetX) - left);
           const height = Math.max(1, Math.ceil(job.bounds.maxY * scale + offsetY) - top);
@@ -288,7 +372,10 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
           this.drop(job.key);
           this.reserve(this.owner, job.key, rasterBytes, key => this.drop(key));
           if (canvas) this.replaceRaster(`raster:${job.key}`, canvas, rasterBounds);
-          this.cells.set(job.key, { signature: job.signature, bounds: job.bounds, canvas });
+          const visible = this.activeQuality === null || this.activeQuality === quality;
+          this.setRasterVisible(`raster:${job.key}`, visible);
+          this.cells.set(job.key, { signature: job.signature, quality, bounds: job.bounds, canvas, visible,
+            zoom: band, resolution: request.resolution });
           pendingCanvas = null;
           // Yield between cells so camera and cancellation never wait for the
           // entire 300k/500k scene. This is not a sample or primitive truncation.
@@ -305,25 +392,42 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
         }
       }
       if (!controller.signal.aborted && !this.stopped && this.request === current) {
-        for (const key of this.cells.keys()) if (!wanted.has(key)) this.drop(key);
-        this.completedRevision = this.revision;
-        this.completedSceneKey = displaySceneKey(request.manifest);
+        if (!this.coverageComplete(current)) throw new Error("Map successor coverage is incomplete");
+        // Retain off-screen textures under the existing aggregate LRU budget.
+        // Hidden cells cannot double-composite a later, differently sized grid.
+        for (const [key, cell] of this.cells) {
+          cell.visible = wanted.has(key);
+          this.setRasterVisible(`raster:${key}`, cell.visible);
+          this.budget.setPinned(this.owner, key, cell.visible);
+        }
+        this.activeQuality = quality;
+        this.bandCameras.set(cadDisplayZoomBand(band), rasterCamera);
+        this.paintCandidate = current;
+        this.schedulePaint();
       }
       } finally { window?.close(); }
     })().catch(error => {
       if (controller.signal.aborted || this.stopped) return;
       this.request = null;
+      for (const [key, cell] of this.cells) if (!cell.visible) this.budget.setPinned(this.owner, key, false);
       if (error instanceof RasterBudgetError || error instanceof Error && error.message.includes("memory budget")) request.onDegraded({ requestedTileCount: jobs.length,
-        renderedTileCount: this.cells.size, reason: "memory-budget" });
+        renderedTileCount: jobs.filter(job => this.cells.get(job.key)?.visible).length, reason: "memory-budget" });
       request.onError(error instanceof Error ? error : new Error("Ordered map display failed"));
-    }).finally(() => request.signal.removeEventListener("abort", cancel));
+    }).finally(() => {
+      current.pending = false;
+      request.signal.removeEventListener("abort", cancel);
+      if (this.request === current) for (const [key, cell] of this.cells) {
+        this.budget.setPinned(this.owner, key, cell.visible);
+      }
+    });
     this.drain = current.promise;
     return current.promise;
   }
 
-  override render(): void { this.cancelPaint(); super.render(); this.queueRefresh(); }
+  override render(): void { this.cancelPaint(); super.render(); this.reportPaintReady(); this.queueRefresh(); }
 
   override suspend(): void {
+    this.resetPaintReady();
     this.stopped = true; this.cancelSettledCamera(); this.request?.controller.abort(); this.request = null; this.lastRequest = null;
     this.cancelPaint();
     for (const key of this.cells.keys()) this.drop(key);
@@ -338,6 +442,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     this.suspend();
     super.destroy();
     this.versions.clear(); this.drafts = []; this.draftBounds = []; this.transient = null;
+    this.parts.clear(); this.indexedTiles = null; this.rasterCamera = null; this.bandCameras.clear();
   }
 
   private cancelSettledCamera(): void {
@@ -356,13 +461,34 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     if (this.paintFrame !== null || this.stopped || this.disposed) return;
     this.paintFrame = requestAnimationFrame(() => {
       this.paintFrame = null;
-      if (!this.stopped) super.render();
+      if (!this.stopped && !this.disposed) { super.render(); this.reportPaintReady(); }
     });
   }
 
   private cancelPaint(): void {
     if (this.paintFrame !== null) cancelAnimationFrame(this.paintFrame);
     this.paintFrame = null;
+  }
+
+  private coverageComplete(request: CoverageRequest): boolean {
+    return [...request.wanted].every(([key, signature]) => this.cells.get(key)?.signature === signature);
+  }
+
+  private resetPaintReady(): void {
+    this.paintCandidate = null;
+    if (this.paintReady && this.lastRequest) {
+      this.paintReady = false;
+      this.onPaintReady?.(false, this.lastRequest.manifest);
+    }
+  }
+
+  private reportPaintReady(): void {
+    const candidate = this.paintCandidate;
+    if (this.paintReady || !candidate || candidate !== this.request || candidate.pending ||
+        candidate.controller.signal.aborted || this.stopped || this.disposed || !this.coverageComplete(candidate) ||
+        [...candidate.wanted.keys()].some(key => !this.cells.get(key)?.visible)) return;
+    this.paintReady = true;
+    this.onPaintReady?.(true, candidate.manifest);
   }
 
   private reserve(owner: string, key: string, bytes: number, onEvict?: (key: string) => void): void {
@@ -376,7 +502,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   }
 
   private invalidationBounds(): CadBounds[] {
-    const zoom = this.lastRequest?.camera.zoom ?? 1;
+    const zoom = this.rasterCamera?.zoom ?? this.lastRequest?.camera.zoom ?? 1;
     return this.draftBounds.map((bound, index) => expand(bound, this.minimumStrokeMargin(this.drafts[index], zoom)));
   }
 
@@ -385,6 +511,21 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     super.removeTile(`raster:${key}`);
     this.cells.delete(key); this.budget.release(this.owner, key);
     if (cell?.canvas) { cell.canvas.width = 0; cell.canvas.height = 0; }
+  }
+
+  private tilesForBounds(bounds: CadBounds, manifest: Request["manifest"]): MapDisplayTile[] {
+    const firstX = Math.floor(bounds.minX / manifest.tileSize), lastX = Math.floor(bounds.maxX / manifest.tileSize);
+    const firstY = Math.floor(bounds.minY / manifest.tileSize), lastY = Math.floor(bounds.maxY / manifest.tileSize);
+    // At extreme overview scales the influence envelope can span millions of
+    // empty coordinates. Scan the bounded descriptor list in that case only.
+    if ((lastX - firstX + 1) * (lastY - firstY + 1) > manifest.tiles.length) {
+      return (manifest.tiles as MapDisplayTile[]).filter(tile => intersects(tile.bounds, bounds));
+    }
+    const tiles: MapDisplayTile[] = [];
+    for (let y = firstY; y <= lastY; y++) for (let x = firstX; x <= lastX; x++) {
+      for (const tile of this.parts.get(`${x}:${y}`) ?? []) if (intersects(tile.bounds, bounds)) tiles.push(tile);
+    }
+    return tiles;
   }
 }
 

@@ -27,6 +27,7 @@ export interface MapSceneCanvasProps {
   promotedElementIds?: readonly string[];
   onManifest?: (manifest: MapSceneManifest) => void;
   onReady?: (handle: MapSceneCanvasHandle | null) => void;
+  onPaintReady?: (ready: boolean) => void;
   onError?: (error: Error) => void;
   onDegraded?: (result: CadSceneDegradation) => void;
   className?: string;
@@ -34,7 +35,7 @@ export interface MapSceneCanvasProps {
   createRenderer?: (options: MapSceneRendererOptions) => MapSceneRenderer;
 }
 
-interface Session { renderer: MapSceneRenderer; mounted: Promise<void>; active: boolean; documentEpoch: number }
+interface Session { renderer: MapSceneRenderer; mounted: Promise<void>; active: boolean; documentEpoch: number; documentKey: string | null }
 
 /** A store-independent WebGL surface. The host owns camera input, selection,
  * history, localized error UI, and permission-aware provider identity. */
@@ -89,12 +90,16 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
     let current: Session | undefined;
     const alive = () => current?.active && session.current === current;
     const renderer = (latest.current.createRenderer ?? (options => new MapSceneRenderer(options)))({ source: sourceFacade.current!, platform,
-      onError: error => { if (alive()) latest.current.onError?.(error); },
+      onError: error => { if (alive()) { latest.current.onPaintReady?.(false); latest.current.onError?.(error); } },
       onDegraded: result => { if (alive()) latest.current.onDegraded?.(result); },
-      onManifest: manifest => { if (alive()) latest.current.onManifest?.(manifest); }
+      onManifest: manifest => { if (alive()) latest.current.onManifest?.(manifest); },
+      onPaintReady: ready => {
+        if (alive() && (!ready || current!.documentKey === JSON.stringify(latest.current.documentRef))) latest.current.onPaintReady?.(ready);
+      }
     });
-    current = { renderer, mounted: renderer.mount(canvas), active: true, documentEpoch: 0 };
+    current = { renderer, mounted: renderer.mount(canvas), active: true, documentEpoch: 0, documentKey: null };
     session.current = current;
+    latest.current.onPaintReady?.(false);
     // Mount errors also reach the host when the document effect is superseded.
     void current.mounted.catch(error => { if (alive()) latest.current.onError?.(asError(error)); });
     return () => {
@@ -103,39 +108,44 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
       canvas.remove();
       if (session.current === current) session.current = null;
       latest.current.onReady?.(null);
+      latest.current.onPaintReady?.(false);
     };
   }, [scopeKey, platform]);
 
   const documentKey = JSON.stringify(props.documentRef);
+  // Platform changes replace the session even if all its input values stay
+  // unchanged. Every session-scoped effect must replay for the new renderer.
   useEffect(() => {
     const current = session.current;
     if (!current) return;
     const epoch = ++current.documentEpoch;
     const document = latest.current.documentRef;
+    latest.current.onPaintReady?.(false);
     const alive = () => current.active && session.current === current && epoch === current.documentEpoch;
     void current.mounted.then(async () => {
       if (!alive()) return;
       try {
+        current.documentKey = JSON.stringify(document);
         await current.renderer.setDocument(document);
         if (!alive()) return;
         current.renderer.setPromotedElementIds(latest.current.promotedElementIds ?? []);
         latest.current.onReady?.(handle);
-      } catch (error) { if (alive()) latest.current.onError?.(asError(error)); }
+      } catch (error) { if (alive()) { latest.current.onPaintReady?.(false); latest.current.onError?.(asError(error)); } }
     }, () => undefined);
     return () => { current.documentEpoch++; };
-  }, [documentKey, scopeKey, handle]);
+  }, [documentKey, scopeKey, platform, handle]);
 
   useEffect(() => {
     const current = session.current;
     if (!current) return;
     try { current.renderer.setCamera(props.camera); }
     catch (error) { latest.current.onError?.(asError(error)); }
-  }, [props.camera, scopeKey]);
+  }, [props.camera, scopeKey, platform]);
 
   useEffect(() => {
     try { session.current?.renderer.setPromotedElementIds(props.promotedElementIds ?? []); }
     catch (error) { latest.current.onError?.(asError(error)); }
-  }, [props.promotedElementIds, scopeKey]);
+  }, [props.promotedElementIds, scopeKey, platform]);
 
   return <div ref={host} className={props.className} role="img" aria-label="맵 도형"
     style={{ width: "100%", height: "100%", minWidth: 0, minHeight: 0, ...props.style }} />;

@@ -104,6 +104,7 @@ for (const viewport of [
         documentHeight: document.documentElement.scrollHeight,
         verticalOverflowPx: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
         shellWidth: document.querySelector<HTMLElement>('[data-testid="floor-editor-layout"]')?.parentElement?.getBoundingClientRect().width ?? 0,
+        sidebarWidth: document.querySelector('[data-shell-navigation="desktop"]')?.getBoundingClientRect().width ?? 0,
         canvas: bounds('[data-testid="floor-editor-canvas"]'),
         toolbar: bounds('[aria-label="맵 편집 도구"]'),
         information: bounds('[aria-label="맵 편집 정보"]'),
@@ -119,7 +120,7 @@ for (const viewport of [
     }, null, 2));
     await testInfo.attach(`layout-${viewport.width}`, { path: layoutPath, contentType: "application/json" });
     expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
-    expect(layout.shellWidth).toBeGreaterThan(viewport.width < 500 ? viewport.width - 40 : 800);
+    expect(layout.shellWidth).toBeGreaterThanOrEqual(viewport.width - layout.sidebarWidth - 48);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
       await informationToggle.click();
@@ -130,7 +131,10 @@ for (const viewport of [
       await toolsToggle.click();
       await page.evaluate(() => window.scrollTo(0, 0));
       await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
-      await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="설정 메뉴"]');
+      // Compact settings use the shell's primary navigation; the desktop
+      // settings subnavigation is intentionally hidden at this breakpoint.
+      await expect(page.getByRole("navigation", { name: "설정 메뉴" })).toBeHidden();
+      await expect(page.getByRole("navigation", { name: "모바일 주 메뉴" }).getByRole("link", { name: "설정", exact: true })).toBeVisible();
       await informationToggle.click();
     }
     await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-revision-list"]');
@@ -236,7 +240,8 @@ test("legacy object movement shows presentation-style alignment guides", async (
 
   await page.mouse.move(box.x + 150, box.y + 140);
   await page.mouse.down();
-  await page.mouse.move(box.x + 247, box.y + 185);
+  // Avoid an exact tie between the neighbouring 140 and 150 world-space guides.
+  await page.mouse.move(box.x + 247, box.y + 184);
   await expect(canvas).toHaveAttribute("data-active-guides", "vertical,horizontal");
   await page.mouse.up();
 
@@ -268,6 +273,9 @@ async function mockEditorApi(page: Page, state: FloorEditorState = editorState, 
       } } });
     }
     if (path === "/sites") return route.fulfill({ json: [{ id: "site-2", name: "물류센터", customerName: "고객사" }] });
+    if (path === "/sites/site-2/monitoring-incidents") return route.fulfill({ json: {
+      incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null
+    } });
     if (path === "/sites/site-2/dashboard") {
       return route.fulfill({ json: {
         capabilities: { read: true, control: true, manage: true, commission: true },

@@ -39,6 +39,16 @@ function settingsCard(label: string) {
 }
 
 describe("SettingsShell", () => {
+  it("gives only the editor outlet a shrinkable remaining-height layout", () => {
+    render(<MemoryRouter initialEntries={["/settings/floor-plans/floor-1/edit"]}><Routes>
+      <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} />}>
+        <Route path="*" element={<h1>편집기</h1>} />
+      </Route>
+    </Routes></MemoryRouter>);
+    const outlet = screen.getByRole("heading", { name: "편집기" }).parentElement;
+    expect(outlet).toHaveClass("min-h-0", "flex-1", "overflow-hidden");
+    expect(outlet?.parentElement).toHaveClass("min-h-0", "flex", "flex-col", "overflow-hidden");
+  });
   it.each([
     ["/settings", "설정"], ["/settings/site/", "현장 관리"], ["/settings/users", "사용자 관리"],
     ["/settings/registration", "조명 등록"], ["/settings/floor-plans", "도면 관리"], ["/settings/security", "계정 및 보안"],

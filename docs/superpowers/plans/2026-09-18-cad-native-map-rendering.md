@@ -24,6 +24,31 @@ DB reset/원장 재작성·기존 data 임의 정리·실제 조명 명령·clai
 
 ## 2026-10-12 제공 DWG 인코딩·치수·문자 오류 보완
 
+### 2026-10-12 맵 편집 브라우저 주석 후속
+
+사용자가 승인한 범위: 오른쪽 패널 잘림 제거, CAD 중앙 팝업(대표 영역 하나와 영역 선택 목록, 큰 미리보기, 확인 후 적용), 변경 기록 내부 스크롤, 이동·확대 중 기존 표시 재사용. PixiJS/Konva는 유지하며 기술 교체는 별도 승인한다. 기존 맵·DB·실장비를 초기화하지 않는다.
+
+- [x] E1 웹 UI 담당: 화면 높이 제한과 좁은 화면 패널 접근, 변경 기록 내부 스크롤 회귀 및 구현.
+- [x] E2 동일 UI 담당: 중앙 CAD 팝업으로 업로드·진행·단일 미리보기·적용 통합. 영역 변경, lease/revision/초기화 확인과 실패 복구 유지.
+- [x] E3 렌더링 담당: 카메라 입력과 기존 타일 재사용 경로 조사, 불필요한 재생성과 화면 공백 회귀·최적화. 새 라이브러리는 도입하지 않는다.
+- [x] E4 통합: 웹 전체 테스트·타입·빌드, 실제 브라우저 레이아웃/팝업/이동·확대 확인, 독립 리뷰와 영향 메뉴·교훈·상태판 갱신. 기존 Control 5 실패는 아래 증거와 분리하며 사용자 승인으로 로컬 MAIN 통합과 병합 소스 재검증을 완료했다.
+
+진행 기록: 세 담당자의 25개 Web 소유 WIP를 `codex/editor-comments-20261012` / `.worktrees/editor-comments-20261012`로 복사하고 SHA256 일치 후 ROOT의 해당 WIP만 복구했다. 사용자 AGENTS와 다른 담당의 런타임 문서·서비스는 보존한다. E1의 1039×909 실제 화면은 페이지 높이 909·정보 패널 하단 897·기록 높이 약416/내용1201px로 내부 스크롤을 확인했다. CAD 팝업 중심은 (519.5,454.5)로 화면 중심과 일치했다. 이는 중간 구현의 관측이며 최종 통합 검증은 아니다. Focused 렌더링 196 PASS/기존 opt-in 2 SKIP, WebGL HATCH 6 FAIL과 CAD QA 실패는 수정 중이며 완료로 표시하지 않는다.
+
+결정: 이번 개선은 기존 기술/계약 안에서 구현한다. 팬에서는 고정 raster 기준을 재사용하고 줌 종료에만 정밀도를 갱신한다. 새 가시 영역 로딩과 GPU 화면 합성 자체를 ‘재렌더 0’으로 표현하지 않는다. CAD 기본 대표 영역은 조명 후보 수→도형 수 순이며 서버 선택은 사용자 확인 후에만 수행한다.
+
+후속 관문: 제품 freeze 후 UI 집중 355 PASS, 렌더링 집중 202 PASS/기존 opt-in 2 SKIP와 실제 WebGL 14/14 PASS를 담당자가 확인했다. P2 두 건은 metadata와 가시 영역 paint 완료를 분리하는 `onPaintReady`, pending wanted 셀 보호·완료 coverage 확인으로 보완했다. 같은 camera·fractional pan·resize의 readiness 복구도 검증한다. HATCH 원 6FAIL은 admission을 settled paint 완료로 오인한 관측 경로 문제였으며 기존 threshold/deadline 유지 후 최종 픽셀 차이·누락·hole leak 0이다. 이는 64요소 합성 fixture 범위이고 실제 대형 DWG/모바일 실기기 성능 보장은 아니다. 전체 Web 최종 재실행·CAD 정상 흐름 QA·독립 재리뷰는 E4에서 확인한다.
+
+최신 재개 기록: pre-camera-memo 전체 Web은 247파일 PASS/1 FAIL/1 SKIP, 3,628 PASS/5 FAIL/3 SKIP(exit1)다. 5개는 동일 Node22.23.3/pnpm9.15의 clean416785d0에서 독립 재현한 기존 Control 실패다. 별도 브라우저33건은20 PASS/13 FAIL이며 native preview camera identity가 readiness를 반복 초기화하는 결함을 확인했다. 이를 scalar 의존 `useMemo`로 고정한 직접 회귀 RED1→GREEN17, 수정 후 빌드 exit0·독립 critical 리뷰 열린P1/P2 0을 확인했다. 이 작은 후속 수정 이전의 전체 cohort를 최신 소스 전체 PASS로 표현하지 않는다. native CAD 후속 속성 편집과 320px/모바일 hit 회귀의 최신 재현·baseline 분류 및 최종QA는 진행 중이다. 전체 원 로그 `/tmp/editor-comments-web-vitest-final.log`, baseline `/tmp/editor-comments-baseline-focused-node22-final-review.log`, 브라우저 `/tmp/led-map-comments-freeze-final/qa-run-output.log`를 보존한다.
+
+기존 Control5 exact 실패명(`ControlView 대상 선택`): `reopens historical detail with one close action in single-column=true without issuing physical control`; `preserves only the focused close action across single-column=false transitions`; `preserves only the focused close action across single-column=true transitions`; `group URL and roving focus survive back forward and theme`; `uses roving tab focus and selects modes with circular arrow, Home, and End keys`. 앞3은 이전 UI 구조와 테스트 기대 불일치, 뒤2는 기존 모드 전환 포커스 결함이다. 총괄 지시로 Control 추가 수정과 MAIN 병합은 별도 조율 전 진행하지 않는다.
+
+최종 E 판정: 제품 소스 고정 fresh Chromium 19/19 PASS(exit0, 1.3분), Web 전체 3,641 PASS/기존 Control 5 FAIL/3 SKIP(exit1, 205.94초)를 확인했다. 이후 `ByRoleOptions`에서 지원하지 않는 `exact` 2줄을 anchored name 정규식으로만 교정했고 집중 195/195 PASS·fresh Web typecheck/build exit0·UI 정책 0/0·독립 추가 P1/P2 0이다. WebGL 14/14와 renderer 집중 208 PASS/기존 2 SKIP는 별도 cohort다. 초기 build/type exit2와 브라우저 18 PASS/1 FAIL은 후행 통과로 소급하지 않는다. Native 정상 흐름은 단일 미리보기·적용·슬롯·선택·속성·저장·fresh double-click·PC/모바일 모니터링 픽셀·조명·줌·이동까지 검증했다. 작은 화면의 metadata 관문은 문서 도착 뒤 별도로 검사하므로 이전 단일 5초 예산과 동일하다고 주장하지 않는다. MAIN 통합과 실제 대형 DWG/WebView/HIL은 별도 범위이며 기존 보류 계획은 그대로 유지한다.
+
+E 커밋·원 자료: 렌더링 `76155d80`, UI `6f36a7e6`. [검증 manifest](../../assets/editor-comments-2026-10-12/manifest.json)는 fresh 전체/집중/브라우저/타입/빌드/정책과 baseline·초기 실패의 원 로그 SHA, 소유 소스 SHA, 대표 화면을 포함한다. 브라우저의 의도적 실패 복구 시나리오 503 응답을 실제 API 장애로 집계하지 않는다.
+
+로컬 MAIN 통합 최종 기록: 사용자가 직접 메인 병합을 승인하여 MAIN `4ada1454`와 기능/QA `70d44081`을 정상 merge했다. 위 별도 조율 대기는 당시 기록이며 현재 통합은 완료다. Web 소유 37개 소스 SHA와 Web 전체 tree가 기능 브랜치와 일치하고 사용자 AGENTS·최근 API/BIO/DB 변경을 보존했다. 병합 소스 fresh 전체 Web 3,641 PASS/동일 기존 Control 5 FAIL/3 SKIP(exit1, 190.46초), 관련 Chromium 9/9 PASS(exit0, 40.3초), 타입 포함 build exit0·UI 정책 0/0이다. [메인 통합 증거](../../assets/editor-comments-2026-10-12/root-integration-proof.json)에 원 로그 SHA를 보존하며 원 로그의 공백을 정규화하지 않은 소스/Markdown diff-check만 exit0으로 기록한다. 기존 Control 수정·실제 대형 DWG/WebView/HIL·원격 push와 보류 계획은 추가로 수행하지 않는다.
+
 - [x] `11.DF11-1000X33-12X8.dwg`의 변환 성공과 제품 streaming parser의 UTF-8 decode 실패 재현. 원본은 읽기만 한다.
 - [x] 인코딩 담당: `dxf-document-parser` 및 파일 입력 경계에서 bounded UTF-8 검증 우선·선언 코드페이지 fallback 구현. ANSI_949/실제 UTF-8, CP949 분할 bytes, 현대 UTF-8, 잘못된 bytes와 상한 회귀를 실패부터 검증한다.
 - [x] 치수·문자 담당: 두 번째 제공 도면의 DIMENSION 좌표와 MTEXT 서식을 조사하고 `cad-geometry`, 텍스트 해석 및 scene 변환에 일반화된 회귀를 추가한다. parser 수정이 필요하면 인코딩 담당과 쓰기 경계를 조정한다.

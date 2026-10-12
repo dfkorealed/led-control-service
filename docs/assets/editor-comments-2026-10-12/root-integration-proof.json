@@ -1,0 +1,101 @@
+{
+  "task": "사용자 승인 맵 편집 개선 로컬 메인 병합",
+  "recordedAt": "2026-10-12T13:08:38.362Z",
+  "branch": "codex/mvp1-cloud-web",
+  "parents": {
+    "main": "4ada14541ee5802bcc136ff4ccd77da969981915",
+    "feature": "70d44081d6db8b37498cb147970afa53f8f2f0b2"
+  },
+  "runtime": {
+    "node": "v22.23.3",
+    "pnpm": "9.15.0"
+  },
+  "source": {
+    "manifest": "docs/assets/editor-comments-2026-10-12/manifest.json",
+    "manifestSha256": "b91226fb7c6c696f872a220115e5e266bcfc0e81c838e508b41baa4db0d2783d",
+    "matchedOwnedSources": 37,
+    "entireWebTreeMatchesFeature": true
+  },
+  "preservation": {
+    "userAgentsSha256": "832022567dd810c3668e5f9f1d3200988052e84fd8069554a3ab0db9976c04c6",
+    "protectedPaths": [
+      "apps/api",
+      "packages/shared",
+      "apps/gateway",
+      "apps/esp32-h2-firmware",
+      "infra",
+      "docs/menus/control.md",
+      "docs/database-schema.md"
+    ],
+    "protectedDiff": [],
+    "unmerged": [],
+    "serverRestart": false,
+    "databaseMutation": false,
+    "hardwareMutation": false,
+    "remotePush": false
+  },
+  "results": {
+    "webFull": {
+      "passed": 3641,
+      "failed": 5,
+      "skipped": 3,
+      "exitCode": 1,
+      "baselineFailuresMatch": true
+    },
+    "browser": {
+      "passed": 9,
+      "failed": 0,
+      "exitCode": 0
+    },
+    "typecheckAndBuild": {
+      "exitCode": 0
+    },
+    "uiPolicy": {
+      "existingViolations": 0,
+      "newViolations": 0,
+      "exitCode": 0
+    },
+    "sourceAndMarkdownDiffCheck": {
+      "exitCode": 0,
+      "rawLogsExcluded": true
+    }
+  },
+  "failures": [
+    " FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > reopens historical detail with one close action in single-column=true without issuing physical control",
+    " FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > preserves only the focused close action across single-column=false transitions",
+    " FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > preserves only the focused close action across single-column=true transitions",
+    " FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > group URL and roving focus survive back forward and theme",
+    " FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > uses roving tab focus and selects modes with circular arrow, Home, and End keys"
+  ],
+  "logs": [
+    {
+      "kind": "webFull",
+      "path": "docs/assets/editor-comments-2026-10-12/root-integration-webFull.log",
+      "sha256": "94c6b0559ea41cf221d6a264d95729964fa5207a06b523e95ec2cec98231abb0",
+      "exitCode": 1
+    },
+    {
+      "kind": "browser",
+      "path": "docs/assets/editor-comments-2026-10-12/root-integration-browser.log",
+      "sha256": "e542d6e028f3f0475c3c8cf50a27685e710d0a5cca0e9f6345dea832aeb78553",
+      "exitCode": 0
+    },
+    {
+      "kind": "build",
+      "path": "docs/assets/editor-comments-2026-10-12/root-integration-build.log",
+      "sha256": "4b7b5845bb13bf3de4937ddae7bc5e0cc64d6d2d13dd03b15cb47a0af414e75c",
+      "exitCode": 0
+    },
+    {
+      "kind": "uiPolicy",
+      "path": "docs/assets/editor-comments-2026-10-12/root-integration-uiPolicy.log",
+      "sha256": "f8feafd53d97a4de78dc3159562dc878335bba95e34ca3a22f251a73c2af674a",
+      "exitCode": 0
+    }
+  ],
+  "limits": [
+    "전체 Web GREEN 아님: 기존 Control 5 실패 유지",
+    "실제 대형 DWG·모바일 WebView·실장비 HIL 검증은 별도",
+    "원 로그는 공백을 포함해 원본 bytes로 보존"
+  ]
+}

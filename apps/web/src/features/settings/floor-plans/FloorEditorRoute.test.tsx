@@ -210,12 +210,25 @@ describe("FloorEditorRoute", () => {
     await waitFor(() => expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "test-lease-token"));
   });
 
-  it("propagates the editor intrinsic minimum through the route wrapper", async () => {
+  it("passes a finite shrinkable height through the route wrapper", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     renderRoute("admin");
     const editor = (await screen.findByRole("heading", { name: "B2 맵 편집" })).closest("section");
-    expect(editor?.parentElement).toHaveClass("min-h-min", "[&>section]:min-h-min");
-    expect(editor?.parentElement).not.toHaveClass("overflow-hidden", "min-h-0");
+    expect(editor?.parentElement).toHaveClass("min-h-0", "[&>section]:min-h-0", "overflow-hidden");
+    expect(editor?.parentElement).not.toHaveClass("min-h-min");
+  });
+
+  it("reserves only the intrinsic lease warning height above the shrinkable editor", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    acquireFloorEditorLease.mockResolvedValue({ editable: false, holderName: "다른 관리자" });
+    renderRoute("admin");
+    const warning = (await screen.findByText("다른 관리자님이 이 도면을 편집 중입니다.")).closest("section")!;
+    expect(warning).toHaveTextContent("다른 관리자");
+    expect(warning.parentElement).toHaveClass("shrink-0");
+    expect(warning.parentElement?.tagName).toBe("DIV");
+    const editor = screen.getByRole("heading", { name: "B2 맵 편집" }).closest("section");
+    expect(editor?.parentElement).toHaveClass("[&>section]:flex-1");
+    expect(warning.parentElement?.parentElement).toBe(editor?.parentElement);
   });
 
   it("locks background editing and preserves the dirty leave guard until fresh foreground acquisition", async () => {

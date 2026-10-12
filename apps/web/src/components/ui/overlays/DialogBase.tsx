@@ -23,7 +23,7 @@ const surfaceClass = {
 } satisfies Record<DialogSurface, string>;
 
 export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProps>(function DialogBase(
-  { isOpen, open, isPending = false, onClose, surface = "modal", ...props }, ref
+  { isOpen, open, isPending = false, onClose, surface = "modal", placement, ...props }, ref
 ) {
   const visible = isOpen ?? open ?? true;
   const closing = useRef(false);
@@ -38,7 +38,9 @@ export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProp
   return <ModalOverlay ref={backdrop} isOpen={visible} isDismissable={!isPending} isKeyboardDismissDisabled={isPending}
     shouldCloseOnInteractOutside={(target) => target !== backdrop.current}
     onOpenChange={(next) => { if (!next) requestClose(); }}
-    className={overlayClass[surface]}
+    className={surface === "modal" && placement === "center"
+      ? "fixed! inset-0! z-1000! grid! items-center! justify-items-center! overflow-y-auto! bg-surface-inverse/50! p-3! compact:p-6!"
+      : overlayClass[surface]}
     data-testid="modal-backdrop"
     render={(domProps) => <div {...domProps} onMouseDown={(event) => {
       domProps.onMouseDown?.(event);

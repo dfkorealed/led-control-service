@@ -33,6 +33,14 @@ const userEvent = {
 };
 
 describe("overlay migration contracts", () => {
+  it("opts into a centered modal without changing default mobile placement", () => {
+    const view = render(<ModalDialog title="중앙 CAD" placement="center" onClose={() => {}}>도면</ModalDialog>);
+    expect(screen.getByTestId("modal-backdrop")).toHaveClass("items-center!");
+    expect(screen.getByTestId("modal-backdrop")).not.toHaveClass("items-end!");
+    view.unmount();
+    render(<ModalDialog title="기존 모달" onClose={() => {}}>본문</ModalDialog>);
+    expect(screen.getByTestId("modal-backdrop")).toHaveClass("items-end!", "compact:items-center!");
+  });
   function sheet() {
     const component = UI.DetailSheet;
     expect(component, "public detail sheet is exported").toBeDefined();

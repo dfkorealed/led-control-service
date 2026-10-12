@@ -1,5 +1,31 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-12 공통 맵 raster 카메라 재사용
+
+### 구현 완료
+
+- 설정 맵 편집과 공유하는 공통 renderer는 이동 중 기존 raster 타일을 재사용하고 화면 밖 타일도 메모리 예산 내 캐시에 유지한다. 이동은 카메라 transform으로 즉시 반영하며 새 가시 영역과 줌 종료 뒤 정밀도는 필요할 때 갱신한다.
+- 읽기 전용 맵·선택·등록 조명과 공통 문서 계약은 그대로다. 숨김·삭제·문서 세대 변경과 renderer 종료의 무효화·메모리 회수 경로를 유지한다.
+
+### 미구현
+
+- 승인한 공통 renderer 범위를 사용자 승인으로 로컬 MAIN `codex/mvp1-cloud-web`에 통합했다. 새로운 모니터링 기능·API·장비/HIL 작업이나 원격 배포는 추가하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 캐시 재사용은 전체 GPU 프레임 그리기가 사라짐을 뜻하지 않는다. 작은 합성 fixture의 계측을 실제 대형 CAD·iOS/Android WebView 성능 보장으로 확장하지 않는다.
+- Chromium 19/19에는 공통 맵 적용·저장·새로고침 뒤 PC/모바일 모니터링 픽셀·조명 합성·줌·이동 검증을 포함한다. WebGL 14/14도 별도로 통과했다. 전체 Web 3,641 PASS/기존 제어 5 FAIL/3 SKIP는 제품 소스 고정 cohort이며 전체 서비스/HIL 완료를 뜻하지 않는다.
+- 로컬 MAIN 병합 후 공통 맵 적용·재조회·PC/모바일 표시를 포함한 관련 Chromium 9/9 PASS와 타입 포함 build exit0을 재확인했다. 전체 Web은 3,641 PASS/동일한 기존 제어 5 FAIL/3 SKIP다. [메인 통합 증거](../assets/editor-comments-2026-10-12/root-integration-proof.json)에 원 로그와 소스 보존 결과를 기록한다.
+
+### 관련 파일
+
+- `apps/web/src/features/map-scene/{map-raster-backend,map-raster-grid,MapSceneRenderer}`, `features/cad-scene/CadSceneRenderer`와 직접 unit·WebGL 회귀.
+- [검증 manifest·원 로그](../assets/editor-comments-2026-10-12/manifest.json).
+
+### 갱신 규칙
+
+- 공통 renderer 변경은 설정과 모니터링 문서를 함께 갱신하고 실제 장비 검증과 브라우저 성능 계측을 분리한다.
+
 ## 2026-10-12 지도 조작·툴바·하단 상세 교정
 
 ### 구현 완료

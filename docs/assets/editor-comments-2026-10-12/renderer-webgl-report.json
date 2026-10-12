@@ -1,0 +1,682 @@
+{
+  "config": {
+    "argv": [
+      "/Users/kim-jh/Documents/led-control-service/.local/toolchains/node-v22.23.3-darwin-arm64/bin/node",
+      "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config=src/features/map-scene/playwright.config.ts",
+      "map-scene-camera.smoke.ts",
+      "map-scene-order.smoke.ts",
+      "map-scene-hatch.smoke.ts",
+      "map-scene-webgl.smoke.ts",
+      "cad-scene-webgl.smoke.ts"
+    ],
+    "configFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/src/features/map-scene/playwright.config.ts",
+    "rootDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/src/features",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/.local/map-scene-smoke",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/src/features",
+        "testIgnore": [],
+        "testMatch": [
+          "map-scene/map-scene-camera.smoke.ts",
+          "map-scene/map-scene-webgl.smoke.ts",
+          "map-scene/map-scene-http-webgl.smoke.ts",
+          "map-scene/map-scene-order.smoke.ts",
+          "map-scene/map-scene-hatch.smoke.ts",
+          "map-scene/map-scene-scale.smoke.ts",
+          "cad-scene/cad-scene-webgl.smoke.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/.local/map-scene-smoke/report.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "cwd": "/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web/",
+      "command": "VITE_TEST_DATA_TOOLS_ENABLED=false WEB_PORT=15179 pnpm exec vite --config src/features/map-scene/vite.smoke.config.ts --host 127.0.0.1 --port 15179 --strictPort",
+      "url": "http://127.0.0.1:15179",
+      "reuseExistingServer": false
+    }
+  },
+  "suites": [
+    {
+      "title": "cad-scene/cad-scene-webgl.smoke.ts",
+      "file": "cad-scene/cad-scene-webgl.smoke.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "display text preserves the native width of narrow glyphs",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 928,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:05.648Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bd53bf5c0e5efc097a7e-f8f4bc4293399082e38f",
+          "file": "cad-scene/cad-scene-webgl.smoke.ts",
+          "line": 3,
+          "column": 1
+        },
+        {
+          "title": "renders, pans, and restores display coverage in another region after real WebGL loss",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 941,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:06.964Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bd53bf5c0e5efc097a7e-aea28871d0416684ddd5",
+          "file": "cad-scene/cad-scene-webgl.smoke.ts",
+          "line": 54,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "map-scene/map-scene-camera.smoke.ts",
+      "file": "map-scene/map-scene-camera.smoke.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "ordinary drawing reuses pan coverage and refreshes zoom detail at 768px",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3036,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:08.070Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "ordinary-camera-gpu-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJzb3VyY2VIYXNoIjogIjIwYTBhN2JjZDdmNzYwZDExNTljNzBiYzgxYmMxOTYxNjYwYmIxMTk1OTNmMGJmMjlkNDkwMDA3NTY3ODkyMjgiLAogICJlbGVtZW50cyI6IDY0LAogICJ3aWR0aCI6IDc2OCwKICAiaW5pdGlhbEJha2VzIjogNCwKICAicGFuQmFrZXMiOiAwLAogICJsaXZlWm9vbUJha2VzIjogMCwKICAiZGV0YWlsQmFrZXMiOiA4LAogICJyZXR1cm5CYWtlcyI6IDAsCiAgImJhbmRSZXR1cm5CYWtlcyI6IDAsCiAgImluaXRpYWxQaXhlbCI6IFsKICAgIDE5LAogICAgMTE1LAogICAgNzcsCiAgICAxNTMKICBdLAogICJ6b29tUGl4ZWwiOiBbCiAgICAxOSwKICAgIDExNSwKICAgIDc3LAogICAgMTUzCiAgXSwKICAic3luY2hyb25vdXNSZXR1cm5QaXhlbCI6IFsKICAgIDE5LAogICAgMTE1LAogICAgNzcsCiAgICAxNTMKICBdLAogICJmaW5hbFBpeGVsIjogWwogICAgMTksCiAgICAxMTUsCiAgICA3NywKICAgIDE1MwogIF0sCiAgIm1pbmltdW1QYW5BbHBoYSI6IDE1MywKICAiZGVuc2l0aWVzIjogWwogICAgMSwKICAgIDEuMiwKICAgIDEuMjAwMDAwMDAwMDAwMDAwMiwKICAgIDEuMTk5OTk5OTk5OTk5OTk5NywKICAgIDEuMTk5OTk5OTk5OTk5OTk5MywKICAgIDEuMjAwMDAwMDAwMDAwMDAwNAogIF0sCiAgImZldGNoZXMiOiAyNCwKICAiYnl0ZXMiOiAxODk4NTA0MCwKICAicGVha0J5dGVzIjogMTkxMTkwNjcsCiAgImRpc3Bvc2VkQnl0ZXMiOiAwLAogICJlcnJvcnMiOiBbXSwKICAiZGVncmFkZWQiOiBbXSwKICAicmVhZHlCZWZvcmVSZWxlYXNlIjogZmFsc2UsCiAgInJlYWRpbmVzcyI6IFsKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlCiAgXSwKICAicmVhZHlQaXhlbHMiOiBbCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0sCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0sCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0sCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0KICBdLAogICJyZWNvdmVyeSI6IFsKICAgIHsKICAgICAgInJlc2V0IjogdHJ1ZSwKICAgICAgInJlc3RvcmVkIjogdHJ1ZQogICAgfSwKICAgIHsKICAgICAgInJlc2V0IjogdHJ1ZSwKICAgICAgInJlc3RvcmVkIjogdHJ1ZQogICAgfSwKICAgIHsKICAgICAgInJlc2V0IjogdHJ1ZSwKICAgICAgInJlc3RvcmVkIjogdHJ1ZQogICAgfQogIF0sCiAgInByZXZpZXdEaXNwb3NlZEJ5dGVzIjogMAp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e9b66a828ccd0aee066-4bf89f25ab9e61ad1d1d",
+          "file": "map-scene/map-scene-camera.smoke.ts",
+          "line": 6,
+          "column": 33
+        },
+        {
+          "title": "ordinary drawing reuses pan coverage and refreshes zoom detail at 320px",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2843,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:11.110Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "ordinary-camera-gpu-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJzb3VyY2VIYXNoIjogIjZkZDNmZDZlYjE2YmQ1OWI4NjQ1NjU4YzBhNDU3NTMyM2MxZjE0YjExZTg2NWQxMWNmNjI0MzE3M2UyZGM4OTIiLAogICJlbGVtZW50cyI6IDY0LAogICJ3aWR0aCI6IDMyMCwKICAiaW5pdGlhbEJha2VzIjogNCwKICAicGFuQmFrZXMiOiAwLAogICJsaXZlWm9vbUJha2VzIjogMCwKICAiZGV0YWlsQmFrZXMiOiA0LAogICJyZXR1cm5CYWtlcyI6IDAsCiAgImJhbmRSZXR1cm5CYWtlcyI6IDAsCiAgImluaXRpYWxQaXhlbCI6IFsKICAgIDE5LAogICAgMTE1LAogICAgNzcsCiAgICAxNTMKICBdLAogICJ6b29tUGl4ZWwiOiBbCiAgICAxOSwKICAgIDExNSwKICAgIDc3LAogICAgMTUzCiAgXSwKICAic3luY2hyb25vdXNSZXR1cm5QaXhlbCI6IFsKICAgIDE5LAogICAgMTE1LAogICAgNzcsCiAgICAxNTMKICBdLAogICJmaW5hbFBpeGVsIjogWwogICAgMTksCiAgICAxMTUsCiAgICA3NywKICAgIDE1MwogIF0sCiAgIm1pbmltdW1QYW5BbHBoYSI6IDE1MywKICAiZGVuc2l0aWVzIjogWwogICAgMSwKICAgIDEuMjAwMDAwMDAwMDAwMDAwMiwKICAgIDEuMTk5OTk5OTk5OTk5OTk5NywKICAgIDEuMjAwMDAwMDAwMDAwMDAwNAogIF0sCiAgImZldGNoZXMiOiAyMiwKICAiYnl0ZXMiOiAxNTk2MDA2NCwKICAicGVha0J5dGVzIjogMTYwOTQwOTEsCiAgImRpc3Bvc2VkQnl0ZXMiOiAwLAogICJlcnJvcnMiOiBbXSwKICAiZGVncmFkZWQiOiBbXSwKICAicmVhZHlCZWZvcmVSZWxlYXNlIjogZmFsc2UsCiAgInJlYWRpbmVzcyI6IFsKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlLAogICAgdHJ1ZSwKICAgIGZhbHNlCiAgXSwKICAicmVhZHlQaXhlbHMiOiBbCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0sCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0sCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0sCiAgICBbCiAgICAgIDE5LAogICAgICAxMTUsCiAgICAgIDc3LAogICAgICAxNTMKICAgIF0KICBdLAogICJyZWNvdmVyeSI6IFsKICAgIHsKICAgICAgInJlc2V0IjogdHJ1ZSwKICAgICAgInJlc3RvcmVkIjogdHJ1ZQogICAgfSwKICAgIHsKICAgICAgInJlc2V0IjogdHJ1ZSwKICAgICAgInJlc3RvcmVkIjogdHJ1ZQogICAgfSwKICAgIHsKICAgICAgInJlc2V0IjogdHJ1ZSwKICAgICAgInJlc3RvcmVkIjogdHJ1ZQogICAgfQogIF0sCiAgInByZXZpZXdEaXNwb3NlZEJ5dGVzIjogMAp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e9b66a828ccd0aee066-f822414e27fa0add5719",
+          "file": "map-scene/map-scene-camera.smoke.ts",
+          "line": 6,
+          "column": 33
+        }
+      ]
+    },
+    {
+      "title": "map-scene/map-scene-hatch.smoke.ts",
+      "file": "map-scene/map-scene-hatch.smoke.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "source HATCH compound contour 0 holes across cells at DPR 1",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2116,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:13.968Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "hatch-coverage",
+                      "contentType": "application/json",
+                      "body": "eyJob2xlcyI6MCwiZHByIjoxLCJzdHJva2VXaWR0aCI6MzAsIm92ZXJ2aWV3Ijp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6MzQ1OTUsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoxMDI0MDAsInNhbXBsZXMiOltdfSwiem9vbWVkIjp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6NTgwODAsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoxMDI0MDAsInNhbXBsZXMiOltdfSwiY29tcGxldGVkWm9vbSI6MC4wMjUzOTA2MjUsImVycm9ycyI6W10sImxvYWRzIjo4MDAsInRpbGVzIjo0MDAsImRpc3Bvc2VkIjowfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3950fab1a15c19c34ae7-5c900594fc822b99916f",
+          "file": "map-scene/map-scene-hatch.smoke.ts",
+          "line": 17,
+          "column": 3
+        },
+        {
+          "title": "source HATCH compound contour 0 holes across cells at DPR 2",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2195,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:16.090Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "hatch-coverage",
+                      "contentType": "application/json",
+                      "body": "eyJob2xlcyI6MCwiZHByIjoyLCJzdHJva2VXaWR0aCI6MzAsIm92ZXJ2aWV3Ijp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6NzcyODQsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoyMzA0MDAsInNhbXBsZXMiOltdfSwiem9vbWVkIjp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6MTI5OTYwLCJob2xlTGVha3MiOjAsIm1pc3NpbmdTdHJva2UiOjAsInBpeGVscyI6MjMwNDAwLCJzYW1wbGVzIjpbXX0sImNvbXBsZXRlZFpvb20iOjAuMDI1MzkwNjI1LCJlcnJvcnMiOltdLCJsb2FkcyI6ODAwLCJ0aWxlcyI6NDAwLCJkaXNwb3NlZCI6MH0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3950fab1a15c19c34ae7-c22aaefacb3ad3c58a04",
+          "file": "map-scene/map-scene-hatch.smoke.ts",
+          "line": 17,
+          "column": 3
+        },
+        {
+          "title": "source HATCH compound contour 1 holes across cells at DPR 1",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2219,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:18.288Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "hatch-coverage",
+                      "contentType": "application/json",
+                      "body": "eyJob2xlcyI6MSwiZHByIjoxLCJzdHJva2VXaWR0aCI6MzAsIm92ZXJ2aWV3Ijp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6MzExMTQsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoxMDI0MDAsInNhbXBsZXMiOltdfSwiem9vbWVkIjp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6NTE5OTYsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoxMDI0MDAsInNhbXBsZXMiOltdfSwiY29tcGxldGVkWm9vbSI6MC4wMjUzOTA2MjUsImVycm9ycyI6W10sImxvYWRzIjo3NjgsInRpbGVzIjozODQsImRpc3Bvc2VkIjowfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3950fab1a15c19c34ae7-d32b355c5c2890f5398d",
+          "file": "map-scene/map-scene-hatch.smoke.ts",
+          "line": 17,
+          "column": 3
+        },
+        {
+          "title": "source HATCH compound contour 1 holes across cells at DPR 2",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2379,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:20.512Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "hatch-coverage",
+                      "contentType": "application/json",
+                      "body": "eyJob2xlcyI6MSwiZHByIjoyLCJzdHJva2VXaWR0aCI6MzAsIm92ZXJ2aWV3Ijp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6NjkxODQsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoyMzA0MDAsInNhbXBsZXMiOltdfSwiem9vbWVkIjp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6MTE2MDM2LCJob2xlTGVha3MiOjAsIm1pc3NpbmdTdHJva2UiOjAsInBpeGVscyI6MjMwNDAwLCJzYW1wbGVzIjpbXX0sImNvbXBsZXRlZFpvb20iOjAuMDI1MzkwNjI1LCJlcnJvcnMiOltdLCJsb2FkcyI6NzY4LCJ0aWxlcyI6Mzg0LCJkaXNwb3NlZCI6MH0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3950fab1a15c19c34ae7-b8a0cb6592b2d0d3bc80",
+          "file": "map-scene/map-scene-hatch.smoke.ts",
+          "line": 17,
+          "column": 3
+        },
+        {
+          "title": "source HATCH compound contour 2 holes across cells at DPR 1",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2105,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:22.896Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "hatch-coverage",
+                      "contentType": "application/json",
+                      "body": "eyJob2xlcyI6MiwiZHByIjoxLCJzdHJva2VXaWR0aCI6MzAsIm92ZXJ2aWV3Ijp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6MzAyNzMsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoxMDI0MDAsInNhbXBsZXMiOltdfSwiem9vbWVkIjp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6NTA1NTIsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoxMDI0MDAsInNhbXBsZXMiOltdfSwiY29tcGxldGVkWm9vbSI6MC4wMjUzOTA2MjUsImVycm9ycyI6W10sImxvYWRzIjo3NjYsInRpbGVzIjozODMsImRpc3Bvc2VkIjowfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3950fab1a15c19c34ae7-72154ab73fcde298905f",
+          "file": "map-scene/map-scene-hatch.smoke.ts",
+          "line": 17,
+          "column": 3
+        },
+        {
+          "title": "source HATCH compound contour 2 holes across cells at DPR 2",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2319,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:25.006Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "hatch-coverage",
+                      "contentType": "application/json",
+                      "body": "eyJob2xlcyI6MiwiZHByIjoyLCJzdHJva2VXaWR0aCI6MzAsIm92ZXJ2aWV3Ijp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6NjcyNDgsImhvbGVMZWFrcyI6MCwibWlzc2luZ1N0cm9rZSI6MCwicGl4ZWxzIjoyMzA0MDAsInNhbXBsZXMiOltdfSwiem9vbWVkIjp7ImRpZmZlcmVudCI6MCwiY292ZXJlZCI6MTEyNzMwLCJob2xlTGVha3MiOjAsIm1pc3NpbmdTdHJva2UiOjAsInBpeGVscyI6MjMwNDAwLCJzYW1wbGVzIjpbXX0sImNvbXBsZXRlZFpvb20iOjAuMDI1MzkwNjI1LCJlcnJvcnMiOltdLCJsb2FkcyI6NzY2LCJ0aWxlcyI6MzgzLCJkaXNwb3NlZCI6MH0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3950fab1a15c19c34ae7-8c77b62ee88fde73c4ad",
+          "file": "map-scene/map-scene-hatch.smoke.ts",
+          "line": 17,
+          "column": 3
+        }
+      ]
+    },
+    {
+      "title": "map-scene/map-scene-order.smoke.ts",
+      "file": "map-scene/map-scene-order.smoke.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "canonical painter coverage across cells and draft z at DPR 1",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2036,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:27.352Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "ordered-coverage",
+                      "contentType": "application/json",
+                      "body": "ewogICJiYXNlIjogewogICAgImRpZmZlcmVudCI6IDYsCiAgICAiY292ZXJlZCI6IDE2NDUwLAogICAgInBpeGVscyI6IDQ5MTUyLAogICAgInNhbXBsZXMiOiBbCiAgICAgIHsKICAgICAgICAieCI6IDExNiwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTIzLAogICAgICAgICAgMCwKICAgICAgICAgIDEyMywKICAgICAgICAgIDEyMwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMjMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDExNywKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTE3LAogICAgICAgICAgMCwKICAgICAgICAgIDExNywKICAgICAgICAgIDExNwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTcKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDExOCwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTEzLAogICAgICAgICAgMCwKICAgICAgICAgIDExMywKICAgICAgICAgIDExMwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDExOSwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTEyLAogICAgICAgICAgMCwKICAgICAgICAgIDExMiwKICAgICAgICAgIDExMgogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTIKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDEyMCwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTEzLAogICAgICAgICAgMCwKICAgICAgICAgIDExMywKICAgICAgICAgIDExMwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDEyMSwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgOTMsCiAgICAgICAgICA1MSwKICAgICAgICAgIDE0NCwKICAgICAgICAgIDE0NAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTcwLAogICAgICAgICAgODUsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxNTMKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxNjUsCiAgICAgICAgICA5MCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDE0NAogICAgICAgIF0KICAgICAgfQogICAgXQogIH0sCiAgImJldHdlZW4iOiB7CiAgICAiZGlmZmVyZW50IjogNiwKICAgICJjb3ZlcmVkIjogMTY2NTAsCiAgICAicGl4ZWxzIjogNDkxNTIsCiAgICAic2FtcGxlcyI6IFsKICAgICAgewogICAgICAgICJ4IjogMTE2LAogICAgICAgICJ5IjogMTQ0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMjMsCiAgICAgICAgICAwLAogICAgICAgICAgMTIzLAogICAgICAgICAgMTIzCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgMTI4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyMwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTE3LAogICAgICAgICJ5IjogMTQ0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMTcsCiAgICAgICAgICAwLAogICAgICAgICAgMTE3LAogICAgICAgICAgMTE3CiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgMTI4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDExNwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTE4LAogICAgICAgICJ5IjogMTQ0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMTMsCiAgICAgICAgICAwLAogICAgICAgICAgMTEzLAogICAgICAgICAgMTEzCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgMTI4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDExMwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTE5LAogICAgICAgICJ5IjogMTQ0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMTIsCiAgICAgICAgICAwLAogICAgICAgICAgMTEyLAogICAgICAgICAgMTEyCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgMTI4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDExMgogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTIwLAogICAgICAgICJ5IjogMTQ0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMTMsCiAgICAgICAgICAwLAogICAgICAgICAgMTEzLAogICAgICAgICAgMTEzCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgMTI4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDExMwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTIxLAogICAgICAgICJ5IjogMTQ0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICA5MywKICAgICAgICAgIDUxLAogICAgICAgICAgMTQ0LAogICAgICAgICAgMTQ0CiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAxNzAsCiAgICAgICAgICA4NSwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDE1MwogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDE2NSwKICAgICAgICAgIDkwLAogICAgICAgICAgMjU1LAogICAgICAgICAgMTQ0CiAgICAgICAgXQogICAgICB9CiAgICBdCiAgfSwKICAicmVvcmRlcmVkIjogewogICAgImRpZmZlcmVudCI6IDYsCiAgICAiY292ZXJlZCI6IDE2NjUwLAogICAgInBpeGVscyI6IDQ5MTUyLAogICAgInNhbXBsZXMiOiBbCiAgICAgIHsKICAgICAgICAieCI6IDExNiwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTIzLAogICAgICAgICAgMCwKICAgICAgICAgIDEyMywKICAgICAgICAgIDEyMwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMjMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDExNywKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTE3LAogICAgICAgICAgMCwKICAgICAgICAgIDExNywKICAgICAgICAgIDExNwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTcKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDExOCwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTEzLAogICAgICAgICAgMCwKICAgICAgICAgIDExMywKICAgICAgICAgIDExMwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDExOSwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTEyLAogICAgICAgICAgMCwKICAgICAgICAgIDExMiwKICAgICAgICAgIDExMgogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTIKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDEyMCwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTEzLAogICAgICAgICAgMCwKICAgICAgICAgIDExMywKICAgICAgICAgIDExMwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDEyOAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxMTMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDEyMSwKICAgICAgICAieSI6IDE0NCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgOTMsCiAgICAgICAgICA1MSwKICAgICAgICAgIDE0NCwKICAgICAgICAgIDE0NAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTcwLAogICAgICAgICAgODUsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxNTMKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxNjUsCiAgICAgICAgICA5MCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDE0NAogICAgICAgIF0KICAgICAgfQogICAgXQogIH0sCiAgImZyYWN0aW9uYWwiOiB7CiAgICAiZGlmZmVyZW50IjogMCwKICAgICJjb3ZlcmVkIjogOTU4OSwKICAgICJwaXhlbHMiOiA0OTE1MiwKICAgICJzYW1wbGVzIjogW10KICB9LAogICJmcmFjdGlvbmFsRmlsbFJlY3REaWFnbm9zdGljIjogewogICAgImRpZmZlcmVudCI6IDAsCiAgICAiY292ZXJlZCI6IDk1ODksCiAgICAicGl4ZWxzIjogNDkxNTIsCiAgICAic2FtcGxlcyI6IFtdCiAgfSwKICAicmVzdG9yZWQiOiB7CiAgICAiZGlmZmVyZW50IjogMCwKICAgICJjb3ZlcmVkIjogOTU4OSwKICAgICJwaXhlbHMiOiA0OTE1MiwKICAgICJzYW1wbGVzIjogW10KICB9LAogICJlcnJvcnMiOiBbXSwKICAibWVtb3J5IjogMjM5MTIxNiwKICAiZGlzcG9zZWQiOiAwCn0="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "17ebf37251b8e70a53e7-da90d419760f5e418639",
+          "file": "map-scene/map-scene-order.smoke.ts",
+          "line": 9,
+          "column": 27
+        },
+        {
+          "title": "canonical painter coverage across cells and draft z at DPR 2",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2061,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:29.394Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "ordered-coverage",
+                      "contentType": "application/json",
+                      "body": "ewogICJiYXNlIjogewogICAgImRpZmZlcmVudCI6IDAsCiAgICAiY292ZXJlZCI6IDM3MTc4LAogICAgInBpeGVscyI6IDExMDU5MiwKICAgICJzYW1wbGVzIjogW10KICB9LAogICJiZXR3ZWVuIjogewogICAgImRpZmZlcmVudCI6IDAsCiAgICAiY292ZXJlZCI6IDM3NjU4LAogICAgInBpeGVscyI6IDExMDU5MiwKICAgICJzYW1wbGVzIjogW10KICB9LAogICJyZW9yZGVyZWQiOiB7CiAgICAiZGlmZmVyZW50IjogMCwKICAgICJjb3ZlcmVkIjogMzc2NTgsCiAgICAicGl4ZWxzIjogMTEwNTkyLAogICAgInNhbXBsZXMiOiBbXQogIH0sCiAgImZyYWN0aW9uYWwiOiB7CiAgICAiZGlmZmVyZW50IjogMjYsCiAgICAiY292ZXJlZCI6IDIxNTcxLAogICAgInBpeGVscyI6IDExMDU5MiwKICAgICJzYW1wbGVzIjogWwogICAgICB7CiAgICAgICAgIngiOiAxNjYsCiAgICAgICAgInkiOiAxODksCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICA0CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY2LAogICAgICAgICJ5IjogMTkwLAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgNAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDE5MSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAyNTYsCiAgICAgICAgInkiOiAxOTEsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDEyOCwKICAgICAgICAgIDc2LAogICAgICAgICAgMTUzLAogICAgICAgICAgMTc5CiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAxODEsCiAgICAgICAgICAxMTIsCiAgICAgICAgICAyMTcsCiAgICAgICAgICAxNzYKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxODIsCiAgICAgICAgICAxMDgsCiAgICAgICAgICAyMTgsCiAgICAgICAgICAxNzkKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDE5MiwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAxNjYsCiAgICAgICAgInkiOiAxOTMsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICA0CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY2LAogICAgICAgICJ5IjogMTk0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgNAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDE5NSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAxNjYsCiAgICAgICAgInkiOiAxOTYsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICA0CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMjU2LAogICAgICAgICJ5IjogMTk3LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMDIsCiAgICAgICAgICA1MSwKICAgICAgICAgIDE1MywKICAgICAgICAgIDE1MwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTY4LAogICAgICAgICAgODcsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxNTAKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxNzAsCiAgICAgICAgICA4NSwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDE1MwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY2LAogICAgICAgICJ5IjogMTk4LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgNAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDIwMCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9CiAgICBdCiAgfSwKICAiZnJhY3Rpb25hbEZpbGxSZWN0RGlhZ25vc3RpYyI6IHsKICAgICJkaWZmZXJlbnQiOiAzNjgsCiAgICAiY292ZXJlZCI6IDIxNTc4LAogICAgInBpeGVscyI6IDExMDU5MiwKICAgICJzYW1wbGVzIjogWwogICAgICB7CiAgICAgICAgIngiOiAxNjEsCiAgICAgICAgInkiOiA3NSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTMzLAogICAgICAgICAgMzMsCiAgICAgICAgICAwLAogICAgICAgICAgMTY2CiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAxOTIsCiAgICAgICAgICA2MywKICAgICAgICAgIDAsCiAgICAgICAgICAxNjkKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAyMTYsCiAgICAgICAgICAzOSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNjMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2MiwKICAgICAgICAieSI6IDc1LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMjIsCiAgICAgICAgICA1MSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzMKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDE2MywKICAgICAgICAgIDkyLAogICAgICAgICAgMCwKICAgICAgICAgIDE3OAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDE4MCwKICAgICAgICAgIDc1LAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTYzLAogICAgICAgICJ5IjogNzUsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDEyMiwKICAgICAgICAgIDUxLAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTYzLAogICAgICAgICAgOTIsCiAgICAgICAgICAwLAogICAgICAgICAgMTc4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMTgwLAogICAgICAgICAgNzUsCiAgICAgICAgICAwLAogICAgICAgICAgMTczCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAxNjQsCiAgICAgICAgInkiOiA3NSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTIyLAogICAgICAgICAgNTEsCiAgICAgICAgICAwLAogICAgICAgICAgMTczCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAxNjMsCiAgICAgICAgICA5MiwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzgKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxODAsCiAgICAgICAgICA3NSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NSwKICAgICAgICAieSI6IDc1LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMjIsCiAgICAgICAgICA1MSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzMKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDE2MywKICAgICAgICAgIDkyLAogICAgICAgICAgMCwKICAgICAgICAgIDE3OAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDE4MCwKICAgICAgICAgIDc1LAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY2LAogICAgICAgICJ5IjogNzUsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDEyMiwKICAgICAgICAgIDUxLAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTYzLAogICAgICAgICAgOTIsCiAgICAgICAgICAwLAogICAgICAgICAgMTc4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMTgwLAogICAgICAgICAgNzUsCiAgICAgICAgICAwLAogICAgICAgICAgMTczCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAxNjcsCiAgICAgICAgInkiOiA3NSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTIyLAogICAgICAgICAgNTEsCiAgICAgICAgICAwLAogICAgICAgICAgMTczCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAxNjMsCiAgICAgICAgICA5MiwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzgKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxODAsCiAgICAgICAgICA3NSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2OCwKICAgICAgICAieSI6IDc1LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMjIsCiAgICAgICAgICA1MSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzMKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDE2MywKICAgICAgICAgIDkyLAogICAgICAgICAgMCwKICAgICAgICAgIDE3OAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDE4MCwKICAgICAgICAgIDc1LAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY5LAogICAgICAgICJ5IjogNzUsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDEyMiwKICAgICAgICAgIDUxLAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTYzLAogICAgICAgICAgOTIsCiAgICAgICAgICAwLAogICAgICAgICAgMTc4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMTgwLAogICAgICAgICAgNzUsCiAgICAgICAgICAwLAogICAgICAgICAgMTczCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAxNzAsCiAgICAgICAgInkiOiA3NSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMTIyLAogICAgICAgICAgNTEsCiAgICAgICAgICAwLAogICAgICAgICAgMTczCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAxNjMsCiAgICAgICAgICA5MiwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzgKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxODAsCiAgICAgICAgICA3NSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzMKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE3MSwKICAgICAgICAieSI6IDc1LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMjIsCiAgICAgICAgICA1MSwKICAgICAgICAgIDAsCiAgICAgICAgICAxNzMKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDE2MywKICAgICAgICAgIDkyLAogICAgICAgICAgMCwKICAgICAgICAgIDE3OAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDE4MCwKICAgICAgICAgIDc1LAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTcyLAogICAgICAgICJ5IjogNzUsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDEyMiwKICAgICAgICAgIDUxLAogICAgICAgICAgMCwKICAgICAgICAgIDE3MwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTYzLAogICAgICAgICAgOTIsCiAgICAgICAgICAwLAogICAgICAgICAgMTc4CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMTgwLAogICAgICAgICAgNzUsCiAgICAgICAgICAwLAogICAgICAgICAgMTczCiAgICAgICAgXQogICAgICB9CiAgICBdCiAgfSwKICAicmVzdG9yZWQiOiB7CiAgICAiZGlmZmVyZW50IjogMjYsCiAgICAiY292ZXJlZCI6IDIxNTcxLAogICAgInBpeGVscyI6IDExMDU5MiwKICAgICJzYW1wbGVzIjogWwogICAgICB7CiAgICAgICAgIngiOiAxNjYsCiAgICAgICAgInkiOiAxODksCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICA0CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY2LAogICAgICAgICJ5IjogMTkwLAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgNAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDE5MSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAyNTYsCiAgICAgICAgInkiOiAxOTEsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDEyOCwKICAgICAgICAgIDc2LAogICAgICAgICAgMTUzLAogICAgICAgICAgMTc5CiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAxODEsCiAgICAgICAgICAxMTIsCiAgICAgICAgICAyMTcsCiAgICAgICAgICAxNzYKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxODIsCiAgICAgICAgICAxMDgsCiAgICAgICAgICAyMTgsCiAgICAgICAgICAxNzkKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDE5MiwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAxNjYsCiAgICAgICAgInkiOiAxOTMsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICA0CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY2LAogICAgICAgICJ5IjogMTk0LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgNAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDE5NSwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9LAogICAgICB7CiAgICAgICAgIngiOiAxNjYsCiAgICAgICAgInkiOiAxOTYsCiAgICAgICAgImFjdHVhbCI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdLAogICAgICAgICJleHBlY3RlZCI6IFsKICAgICAgICAgIDI1NSwKICAgICAgICAgIDAsCiAgICAgICAgICAyNTUsCiAgICAgICAgICA0CiAgICAgICAgXSwKICAgICAgICAiY3B1IjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMjU2LAogICAgICAgICJ5IjogMTk3LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAxMDIsCiAgICAgICAgICA1MSwKICAgICAgICAgIDE1MywKICAgICAgICAgIDE1MwogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMTY4LAogICAgICAgICAgODcsCiAgICAgICAgICAyNTUsCiAgICAgICAgICAxNTAKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAxNzAsCiAgICAgICAgICA4NSwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDE1MwogICAgICAgIF0KICAgICAgfSwKICAgICAgewogICAgICAgICJ4IjogMTY2LAogICAgICAgICJ5IjogMTk4LAogICAgICAgICJhY3R1YWwiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXSwKICAgICAgICAiZXhwZWN0ZWQiOiBbCiAgICAgICAgICAyNTUsCiAgICAgICAgICAwLAogICAgICAgICAgMjU1LAogICAgICAgICAgNAogICAgICAgIF0sCiAgICAgICAgImNwdSI6IFsKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAKICAgICAgICBdCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAieCI6IDE2NiwKICAgICAgICAieSI6IDIwMCwKICAgICAgICAiYWN0dWFsIjogWwogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwLAogICAgICAgICAgMAogICAgICAgIF0sCiAgICAgICAgImV4cGVjdGVkIjogWwogICAgICAgICAgMjU1LAogICAgICAgICAgMCwKICAgICAgICAgIDI1NSwKICAgICAgICAgIDQKICAgICAgICBdLAogICAgICAgICJjcHUiOiBbCiAgICAgICAgICAwLAogICAgICAgICAgMCwKICAgICAgICAgIDAsCiAgICAgICAgICAwCiAgICAgICAgXQogICAgICB9CiAgICBdCiAgfSwKICAiZXJyb3JzIjogW10sCiAgIm1lbW9yeSI6IDEzNTc0ODgsCiAgImRpc3Bvc2VkIjogMAp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "17ebf37251b8e70a53e7-174329be1c1b442f64ad",
+          "file": "map-scene/map-scene-order.smoke.ts",
+          "line": 9,
+          "column": 27
+        }
+      ]
+    },
+    {
+      "title": "map-scene/map-scene-webgl.smoke.ts",
+      "file": "map-scene/map-scene-webgl.smoke.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "common map compact worker, draft holes and context recovery at 1024px",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 843,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:31.468Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "common-map-gpu-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJvdmVydmlld0xvb2t1cHMiOiAwLAogICJwaWNrZWQiOiAibGluZS1nb2xkZW4iLAogICJsb2NhbFBpY2siOiAiZ29sZGVuLWdyb3VwIiwKICAiYmVmb3JlRnJhbWVJZCI6ICJnb2xkZW4tZ3JvdXAiLAogICJob2xlQWxwaGEiOiAwLAogICJmZXRjaGVzIjogMSwKICAibG9va3VwcyI6IDEsCiAgIm1lbW9yeUJ5dGVzIjogOTA0ODUsCiAgImFmdGVyRGlzcG9zZSI6IDAsCiAgInNvdXJjZVN0aWxsVmlzaWJsZSI6IHRydWUsCiAgInByZW1hdHVyZVJlc3RvcmVSZW5kZXJzIjogMCwKICAicmVuZGVyRXJyb3JzIjogW10KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f0412fba9598cac7ed58-fcc990420920b0becfad",
+          "file": "map-scene/map-scene-webgl.smoke.ts",
+          "line": 5,
+          "column": 34
+        },
+        {
+          "title": "common map compact worker, draft holes and context recovery at 320px",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 742,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-12T07:49:32.315Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "common-map-gpu-evidence",
+                      "contentType": "application/json",
+                      "body": "ewogICJvdmVydmlld0xvb2t1cHMiOiAwLAogICJwaWNrZWQiOiAibGluZS1nb2xkZW4iLAogICJsb2NhbFBpY2siOiAiZ29sZGVuLWdyb3VwIiwKICAiYmVmb3JlRnJhbWVJZCI6ICJnb2xkZW4tZ3JvdXAiLAogICJob2xlQWxwaGEiOiAwLAogICJmZXRjaGVzIjogMSwKICAibG9va3VwcyI6IDEsCiAgIm1lbW9yeUJ5dGVzIjogOTAwMjcsCiAgImFmdGVyRGlzcG9zZSI6IDAsCiAgInNvdXJjZVN0aWxsVmlzaWJsZSI6IHRydWUsCiAgInByZW1hdHVyZVJlc3RvcmVSZW5kZXJzIjogMCwKICAicmVuZGVyRXJyb3JzIjogW10KfQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f0412fba9598cac7ed58-e7fc82c5d657d46f7d78",
+          "file": "map-scene/map-scene-webgl.smoke.ts",
+          "line": 5,
+          "column": 34
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-12T07:49:03.757Z",
+    "duration": 29370.684,
+    "expected": 14,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

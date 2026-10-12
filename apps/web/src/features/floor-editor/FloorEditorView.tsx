@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, TriangleAlert, Undo2, Redo2 } from "lucide-react";
+import { ArrowLeft, Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, TriangleAlert, Undo2, Redo2 } from "lucide-react";
 import { type DragEvent, type Ref, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
@@ -35,7 +35,6 @@ import { useFloorEditorStore } from "./editor-store";
 import type { CadImportReviewState, FloorEditorState, FloorImportApplyResult } from "./editor-types";
 import { snapPointToGridWithinBounds, type Point } from "./geometry";
 
-import { useCadImportScene } from "./CadImportSceneCanvas";
 import { registerMobileBackGuard } from "../mobile/mobile-back";
 
 interface FloorEditorViewProps {
@@ -161,7 +160,6 @@ export function FloorEditorView({
   const [isResetPending, setIsResetPending] = useState(false);
   const [importReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
   const cadImportReview = importReview?.job.floorId === initialState.floor.id ? importReview : null;
-  const [focusedCadCandidateId, setFocusedCadCandidateId] = useState<string | null>(null);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
   const [confirmReload, setConfirmReload] = useState(false);
   const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
@@ -173,7 +171,6 @@ export function FloorEditorView({
   const noticeFloorId = useRef(initialState.floor.id);
   const floorId = initialState.floor.id;
   const siteId = initialState.floor.siteId;
-  const importSceneQuery = useCadImportScene(floorId, cadImportReview);
   const revisionsQuery = useInfiniteQuery({
     queryKey: ["floor-editor-revisions", siteId, floorId],
     queryFn: ({ pageParam }) => listFloorEditorRevisions(floorId, pageParam === undefined ? {} : { cursor: pageParam }),
@@ -413,16 +410,6 @@ export function FloorEditorView({
     await onSaved(authoritative);
   }, [adoptBaseline, baseline, draftScope, floorId, onSaved, queryClient, siteId, userId]);
 
-  const toggleCadCandidate = useCallback((candidateId: string) => {
-    setCadImportReview((current) => {
-      if (!current) return current;
-      const accepted = new Set(current.acceptedCandidateIds);
-      if (accepted.has(candidateId)) accepted.delete(candidateId);
-      else accepted.add(candidateId);
-      return { ...current, acceptedCandidateIds: [...accepted] };
-    });
-  }, []);
-
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const appliedOverlay = appliedOverlayQuery.data?.overlay;
   const currentAppliedOverlay = appliedOverlay && state
@@ -431,17 +418,14 @@ export function FloorEditorView({
     && appliedOverlay.renderedAssetPath === state.floor.floorPlan?.imageUrl
     ? appliedOverlay
     : null;
-  const nativeReview = cadImportReview && cadImportReview.scene?.kind !== "legacy";
-  const visibleCadCandidates = nativeReview
-    ? importSceneQuery.data ? cadImportReview.candidates : []
-    : cadImportReview?.candidates ?? currentAppliedOverlay?.candidates ?? [];
-  const visibleCadViewport = nativeReview ? importSceneQuery.data
-    : cadImportReview?.job.renderedViewport ?? currentAppliedOverlay?.renderedViewport;
-  const visibleCadBackgroundUrl = nativeReview ? ""
-    : cadImportReview?.job.renderedAssetPath ?? currentAppliedOverlay?.renderedAssetPath;
+  // Prepared imports belong exclusively to the modal. The editor retains its
+  // committed document/camera and never adopts preview geometry before apply.
+  const visibleCadCandidates = currentAppliedOverlay?.candidates ?? [];
+  const visibleCadViewport = currentAppliedOverlay?.renderedViewport;
+  const visibleCadBackgroundUrl = currentAppliedOverlay?.renderedAssetPath;
   const acceptedCadCandidateIds = useMemo(() => new Set(
-    cadImportReview?.acceptedCandidateIds ?? currentAppliedOverlay?.candidates.map(candidate => candidate.id) ?? []
-  ), [cadImportReview?.acceptedCandidateIds, currentAppliedOverlay?.candidates]);
+    currentAppliedOverlay?.candidates.map(candidate => candidate.id) ?? []
+  ), [currentAppliedOverlay?.candidates]);
   const cadResetSummary = useMemo(() => ({
     fixtureCount: state?.floor.id === floorId ? state.fixtures.length : initialState.fixtures.length,
     objectCount: state?.floor.id === floorId ? state.objects.length : initialState.objects.length,
@@ -486,17 +470,27 @@ export function FloorEditorView({
   }
 
   return (
-    <section className="flex h-full min-h-min min-w-0 flex-col gap-2">
+    <section className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
       <header className="shrink-0 [&_[role=tooltip]]:pointer-events-none" data-testid="editor-toolbar">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <Heading as="h1" variant="customer-page-title" className="truncate">{initialState.floor.name} 맵 편집</Heading>
             <Text variant="caption" tone="secondary">리비전 {baseline?.floor.mapRevision ?? initialState.floor.mapRevision}{isDirty ? " · 저장하지 않은 변경사항" : " · 저장됨"}</Text>
           </div>
-          <div className="flex min-w-0 items-center gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <CadImportPanel floorId={floorId}
+              expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
+              leaseToken={leaseToken} leaseFence={leaseFence}
+              disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || map.preparing}
+              isDirty={isDirty} resetSummary={cadResetSummary} review={cadImportReview}
+              onReviewChange={setCadImportReview} onBusyChange={handleCadBusyChange}
+              onApplied={handleCadApplied} onConflict={() => setSaveStatus("conflict")} />
             {floors && onFloorChange && <SelectBox label="층 선택" className="w-32 min-w-0 [&>label]:sr-only" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
-            <Button size="sm" onClick={onCancel}>맵으로 돌아가기</Button>
-            <Button size="sm" variant="primary" className="text-action-primary-foreground" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave}>저장</Button>
+            <Button size="sm" aria-label="맵으로 돌아가기" title="맵으로 돌아가기"
+              className="max-compact:min-h-13 max-compact:min-w-13 max-compact:px-0" onClick={onCancel}>
+              <ArrowLeft size={18} className="compact:hidden" aria-hidden="true" /><span className="max-compact:sr-only">맵으로 돌아가기</span>
+            </Button>
+            <Button size="sm" variant="primary" className="min-h-13 min-w-13 text-action-primary-foreground" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave}>저장</Button>
           </div>
         </div>
         <div className="flex flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
@@ -556,9 +550,9 @@ export function FloorEditorView({
 
       {/* Canvas errors must stay actionable above an open narrow panel. Bound
           that notice to 80px and reserve 96px including its existing top inset. */}
-      {/* Preserve 240px of canvas content plus its two border pixels. This
-          intrinsic minimum must flow through the route to document scrolling. */}
-      <div className={`relative flex min-h-[242px] min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
+      {/* The toolbar keeps its intrinsic height; the workspace and panels
+          shrink into the remaining viewport height instead of growing the page. */}
+      <div className="relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden" data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
         {/* Keep panels mounted while collapsed: import jobs, form drafts and the
             fixture drag registry must outlive a layout-only visibility change. */}
         {/* Opacity/pointer-events expose the drop surface without removing or
@@ -589,15 +583,7 @@ export function FloorEditorView({
             cadCandidates={visibleCadCandidates}
             cadBackgroundUrl={visibleCadBackgroundUrl}
             cadViewport={visibleCadViewport}
-            cadReviewActive={Boolean(cadImportReview)}
-            cadImportScene={nativeReview ? {
-              floorId, jobId: cadImportReview.job.jobId, manifest: importSceneQuery.data ?? null,
-              isError: importSceneQuery.isError, onRetry: () => void importSceneQuery.refetch()
-            } : null}
             acceptedCadCandidateIds={acceptedCadCandidateIds}
-            focusedCadCandidateId={focusedCadCandidateId}
-            onFocusedCadCandidateChange={setFocusedCadCandidateId}
-            onToggleCadCandidate={cadImportReview && !readOnly ? toggleCadCandidate : undefined}
             mapEditor={map}
             placementDraftPoint={placementFixture ? placementDraft?.point : null}
             onPlacementPointChange={placementFixture ? (point) => updatePlacementPoint(placementFixture.id, point) : undefined}
@@ -607,8 +593,9 @@ export function FloorEditorView({
             onCancel={() => { setPlacementDraft(null); setOpenPanel("tools"); requestAnimationFrame(() => rowRegistry.focus(placementFixture.id)); }}
             onConfirm={confirmPlacement} /> : null}
         </main>
-        <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "grid" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-[280px] shrink-0"} min-h-0 min-w-0 content-start gap-3 overflow-y-auto rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
-          <div className="grid grid-cols-4 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"], ["details", "자료"]].map(([value, label]) => <Button size="sm" className="h-13 min-h-13" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
+        <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-[280px] shrink-0"} min-h-0 min-w-0 flex-col gap-3 overflow-hidden rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
+          <div className="grid shrink-0 grid-cols-4 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"], ["details", "자료"]].map(([value, label]) => <Button size="sm" className="h-13 min-h-13" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
+          <div className={panelTab !== "details" ? "min-h-0 flex-1 overflow-y-auto overscroll-contain" : "hidden"}>
           {panelTab === "properties" && (map.shapeCount && (map.selectionCount > 1 || !map.selection.length)
             ? <MapSelectionProperties key={JSON.stringify([map.selectionKey, map.bounds])} editor={map} readOnly={readOnly || isMutationPending} />
             : map.selection.length
@@ -617,26 +604,8 @@ export function FloorEditorView({
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
-          <div className={panelTab === "details" ? "grid gap-3" : "hidden"} aria-hidden={panelTab !== "details"}>
-          <CadImportPanel
-            floorId={floorId}
-            expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
-            leaseToken={leaseToken}
-            leaseFence={leaseFence}
-            disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || map.preparing}
-            isDirty={isDirty}
-            resetSummary={cadResetSummary}
-            review={cadImportReview}
-            focusedCandidateId={focusedCadCandidateId}
-            onReviewChange={(next) => {
-              setCadImportReview(next);
-              if (!next) setFocusedCadCandidateId(null);
-            }}
-            onFocusedCandidateChange={setFocusedCadCandidateId}
-            onBusyChange={handleCadBusyChange}
-            onApplied={handleCadApplied}
-            onConflict={() => setSaveStatus("conflict")}
-          />
+          </div>
+          <div className={panelTab === "details" ? "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" : "hidden"} aria-hidden={panelTab !== "details"}>
           <FixtureIdentifyPanel floorId={floorId} readOnly={readOnly || isMutationPending} leaseToken={leaseToken} leaseFence={leaseFence} />
           <RevisionPanel
             historyEntryRef={historyEntry}
@@ -705,8 +674,8 @@ function RevisionPanel({
   onRestore: (revision: number) => void;
 }) {
   return (
-    <section ref={historyEntryRef} tabIndex={-1} className="grid gap-3 border-t border-border-subtle p-3" aria-label="맵 버전">
-      <div className="grid gap-1">
+    <section ref={historyEntryRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-t border-border-subtle p-3" aria-label="맵 버전">
+      <div className="grid shrink-0 gap-1">
         <Text variant="overline" tone="secondary">버전</Text>
         <Heading as="h3" variant="card-title">변경 기록</Heading>
       </div>
@@ -719,7 +688,7 @@ function RevisionPanel({
       ) : null}
       {!isLoading && !isError && revisions.length === 0 ? <Text variant="body-sm" tone="secondary">저장된 버전이 없습니다.</Text> : null}
       {!isLoading && !isError && revisions.length > 0 ? (
-        <ol className="grid list-none gap-0 p-0" data-testid="editor-revision-list">
+        <ol className="m-0 grid min-h-0 flex-1 list-none content-start gap-0 overflow-y-auto overscroll-contain p-0" data-testid="editor-revision-list">
           {revisions.map((revision) => (
             <li className="flex items-center justify-between gap-2.5 border-t border-border-default py-2.5 first:border-t-0 first:pt-0" key={revision.revision}>
               <div className="grid min-w-0 gap-0.5">

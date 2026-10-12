@@ -62,6 +62,7 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
   const [holeKey, setHoleKey] = useState<string | null>(null);
   const [removeKey, setRemoveKey] = useState<string | null>(null);
   const pickEpoch = useRef(0);
+  const pendingRendererPick = useRef<ReturnType<MapSceneCanvasHandle["pick"]> | null>(null);
   const exclusions = range?.selected === selected && range.scope === scope ? { excludedElementIds: range.excludedElementIds, excludedGroupIds: range.excludedGroupIds } : undefined;
   const key = JSON.stringify([scope, selected, filters, exclusions]);
   const selectionKey = JSON.stringify([key, fixtureIds]);
@@ -335,7 +336,16 @@ export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId:
           .find(element => hitMapElement(element, world, 4 / current.zoom, current.zoom));
         if (local) { selectPicked(local); return; }
       }
-      const result = await handle.current?.pick(point);
+      // A fresh double-click can arrive before its first async pick resolves.
+      // Drain that request before the latest intent reaches the renderer: its
+      // busy null is not a miss, and must not clear selection or win the epoch.
+      if (pendingRendererPick.current) await pendingRendererPick.current.catch(() => null);
+      if (!captured || useFloorEditorStore.getState().mapScope !== captured || epoch !== pickEpoch.current) return;
+      const request = handle.current?.pick(point) ?? Promise.resolve(null);
+      pendingRendererPick.current = request;
+      let result: Awaited<typeof request>;
+      try { result = await request; }
+      finally { if (pendingRendererPick.current === request) pendingRendererPick.current = null; }
       const current = useFloorEditorStore.getState();
       if (!captured || current.mapScope !== captured || epoch !== pickEpoch.current) return;
       if (!result) { if (!additive) current.clearSelection(); return; }

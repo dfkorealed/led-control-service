@@ -1,0 +1,17 @@
+
+> @led-control/web@0.1.0 build /Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web
+> tsc --noEmit && vite build
+
+src/features/floor-editor/FloorEditorView.test.tsx(528,53): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.
+  Overload 2 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.
+src/features/floor-editor/FloorEditorView.test.tsx(529,59): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.
+  Overload 2 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.
+/Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @led-control/web@0.1.0 build: `tsc --noEmit && vite build`
+Exit status 2

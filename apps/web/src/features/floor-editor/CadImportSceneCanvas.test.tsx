@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import type { PropsWithChildren } from "react";
 import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
-import type { MapSceneCanvasProps } from "../map-scene/MapSceneCanvas";
+import type { MapSceneCanvasHandle, MapSceneCanvasProps } from "../map-scene/MapSceneCanvas";
 import { createMapDocumentSource } from "../../api/map-document";
 import { CadImportSceneCanvas, useCadImportScene } from "./CadImportSceneCanvas";
 import type { CadImportReviewState } from "./editor-types";
@@ -167,6 +167,73 @@ describe("prepared import canvas", () => {
   const props = () => ({ floorId: "floor-1", jobId: "job-1", manifest: { ...ref,
     source: createMapDocumentSource({ floorId: "floor-1", jobId: "job-1", authScope: authScope() }) },
     pan: { x: 20, y: 40 }, zoom: 0.5, viewport: { width: 800, height: 600 } });
+  it("retains camera identity through paint readiness and equivalent parent viewport renders", () => {
+    const { wrapper } = setup(); const value = props(); const onDisplayStateChange = vi.fn();
+    const view = render(<CadImportSceneCanvas {...value} onDisplayStateChange={onDisplayStateChange} />, { wrapper });
+    const camera = canvas.props!.camera;
+    act(() => canvas.props?.onPaintReady?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+    expect(canvas.props!.camera).toBe(camera);
+    view.rerender(<CadImportSceneCanvas {...value} pan={{ ...value.pan }} viewport={{ ...value.viewport }}
+      onDisplayStateChange={onDisplayStateChange} />);
+    expect(canvas.props!.camera).toBe(camera);
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+    view.rerender(<CadImportSceneCanvas {...value} pan={{ x: 100, y: 150 }} onDisplayStateChange={onDisplayStateChange} />);
+    expect(canvas.props!.camera).not.toBe(camera);
+    expect(canvas.props!.camera).toMatchObject({ centerX: 600, centerY: 300 });
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+  });
+  it("waits for visible coverage paint rather than a document handle, fails closed, and rechecks after retry", () => {
+    const { wrapper } = setup(); const onDisplayStateChange = vi.fn();
+    render(<CadImportSceneCanvas {...props()} onDisplayStateChange={onDisplayStateChange} />, { wrapper });
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+    act(() => canvas.props?.onReady?.({} as MapSceneCanvasHandle));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+    act(() => canvas.props?.onPaintReady?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+    const oldPaint = canvas.props?.onPaintReady;
+    act(() => canvas.props?.onError?.(new Error("display failed")));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("error");
+    fireEvent.click(screen.getByRole("button", { name: "도면 다시 불러오기" }));
+    act(() => oldPaint?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+    act(() => canvas.props?.onReady?.({} as MapSceneCanvasHandle));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+    act(() => canvas.props?.onPaintReady?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+    act(() => canvas.props?.onPaintReady?.(false));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+  });
+  it("requires coverage for a resized viewport and rejects its predecessor's late paint", () => {
+    const { wrapper } = setup(); const value = props(); const onDisplayStateChange = vi.fn();
+    const view = render(<CadImportSceneCanvas {...value} onDisplayStateChange={onDisplayStateChange} />, { wrapper });
+    act(() => canvas.props?.onPaintReady?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+    const oldPaint = canvas.props?.onPaintReady;
+    view.rerender(<CadImportSceneCanvas {...value} viewport={{ width: 1000, height: 700 }} onDisplayStateChange={onDisplayStateChange} />);
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+    act(() => oldPaint?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+    act(() => canvas.props?.onPaintReady?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+  });
+  it("rejects stale renderer readiness after document replacement or authorization loss", () => {
+    const { wrapper } = setup(); const value = props(); const onDisplayStateChange = vi.fn();
+    const view = render(<CadImportSceneCanvas {...value} onDisplayStateChange={onDisplayStateChange} />, { wrapper });
+    const oldReady = canvas.props?.onPaintReady;
+    const oldError = canvas.props?.onError;
+    view.rerender(<CadImportSceneCanvas {...value} manifest={{ ...value.manifest, generationId: "new" }} onDisplayStateChange={onDisplayStateChange} />);
+    act(() => oldReady?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+    act(() => canvas.props?.onPaintReady?.(true));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+    act(() => oldError?.(new Error("previous generation failed")));
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
+    view.rerender(<CadImportSceneCanvas {...value} jobId="wrong-job" onDisplayStateChange={onDisplayStateChange} />);
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("error");
+    view.rerender(<CadImportSceneCanvas {...value} viewport={{ width: 0, height: 0 }} onDisplayStateChange={onDisplayStateChange} />);
+    expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
+  });
   it("uses a read-only common renderer and the candidate pan/zoom frame", async () => {
     const { wrapper } = setup(); const value = props(); const view = render(<CadImportSceneCanvas {...value} />, { wrapper });
     await screen.findByTestId("common-preview");

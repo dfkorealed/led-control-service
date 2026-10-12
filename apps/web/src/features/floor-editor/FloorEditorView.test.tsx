@@ -12,7 +12,19 @@ import { MemoryRouter } from "react-router-dom";
 import { SessionStatusProvider, ToastRegion } from "../../components/ui";
 import { handleMobileBack } from "../mobile/mobile-back";
 
-vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="common-map-canvas" /> }));
+const previewPaint = vi.hoisted(() => ({ automatic: true, props: null as import("../map-scene/MapSceneCanvas").MapSceneCanvasProps | null }));
+vi.mock("../map-scene/MapSceneCanvas", async () => {
+  const { useEffect } = await import("react");
+  return { MapSceneCanvas: (props: import("../map-scene/MapSceneCanvas").MapSceneCanvasProps) => {
+    previewPaint.props = props;
+    useEffect(() => {
+      props.onReady?.({} as import("../map-scene/MapSceneCanvas").MapSceneCanvasHandle);
+      if (previewPaint.automatic) props.onPaintReady?.(true);
+      return () => props.onReady?.(null);
+    }, [props.source.scopeKey, props.documentRef.generationId, props.documentRef.revision]);
+    return <canvas data-testid="common-map-canvas" />;
+  } };
+});
 
 const floorEditorApi = vi.hoisted(() => ({
   applyFloorImportJob: vi.fn(),
@@ -160,6 +172,26 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
       </QueryClientProvider>
     )
   };
+}
+
+function installPreparedImport(jobId: string) {
+    const prepared = { formatVersion: 1, generationId: "prepared-generation", revision: 0,
+      width: 16384, height: 8192, gridSize: 80, elementCount: 0,
+      manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } };
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (!input.includes(`/import-jobs/${jobId}/map-document`)) throw new Error(`Unexpected preview request: ${input}`);
+      const response = input.includes("/manifest?") ? {
+        generationId: prepared.generationId, revision: 0, canonical: prepared.manifest,
+        groups: [], layers: [], displayLayerBindings: [], display: {
+          version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "region-1",
+          manifestAssetId: "00000000-0000-4000-8000-000000000002", width: 16384, height: 8192,
+          gridSize: 80, padding: 0, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
+          byteSize: 1, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 16384, maxY: 8192 },
+          transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: []
+        }
+      } : prepared;
+      return new Response(JSON.stringify(response), { headers: { "Content-Type": "application/json" } });
+    }));
 }
 
 describe("FloorEditorView", () => {
@@ -454,6 +486,9 @@ describe("FloorEditorView", () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
   beforeEach(() => {
+    previewPaint.automatic = true;
+    previewPaint.props = null;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
     floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValue({ overlay: null });
     floorEditorApi.getCadSceneState.mockResolvedValue(null);
@@ -481,13 +516,17 @@ describe("FloorEditorView", () => {
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null });
   });
 
-  it("preserves an intrinsic workspace minimum without wrapping camera controls", () => {
+  it("keeps the workspace inside its finite viewport without wrapping camera controls", () => {
     renderEditor();
     expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("shrink-0", "flex-nowrap");
     const workspace = screen.getByTestId("floor-editor-layout");
-    expect(workspace).toHaveClass("min-h-[242px]");
-    expect(workspace.parentElement).toHaveClass("min-h-min");
-    expect(workspace.parentElement).not.toHaveClass("overflow-hidden");
+    expect(workspace).toHaveClass("min-h-0");
+    expect(workspace).not.toHaveClass("min-h-[242px]");
+    expect(workspace.parentElement).toHaveClass("min-h-0", "overflow-hidden");
+    expect(screen.getByTestId("editor-toolbar")).toHaveClass("shrink-0");
+    expect(screen.getByRole("button", { name: "CAD 가져오기" }).parentElement).toHaveClass("flex-wrap");
+    expect(screen.getByRole("button", { name: /^저장$/ })).toHaveClass("min-h-13", "min-w-13");
+    expect(screen.getByRole("button", { name: /^맵으로 돌아가기$/ })).toHaveClass("max-compact:min-w-13", "max-compact:min-h-13");
   });
 
   it("renders toolbar canvas properties save and cancel controls", () => {
@@ -819,9 +858,11 @@ describe("FloorEditorView", () => {
     renderEditor(editorState);
 
     expect(screen.queryByRole("region", { name: "도면 자산" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "CAD 가져오기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "CAD 가져오기" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    expect(screen.getByRole("dialog", { name: "CAD 가져오기" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
     fireEvent.click(screen.getByRole("tab", { name: "자료" }));
-    expect(screen.getByRole("region", { name: "CAD 가져오기" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "맵 버전" })).toBeInTheDocument();
   });
 
@@ -1206,9 +1247,10 @@ describe("FloorEditorView", () => {
   });
 
   it("previews CAD review results without registering fixtures and applies with the editor authority", async () => {
+    previewPaint.automatic = false;
     const originalBounds = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      return this.dataset.testid === "floor-editor-canvas" ? new DOMRect(0, 0, 800, 600) : originalBounds.call(this);
+      return ["floor-editor-canvas", "cad-import-preview"].includes(this.dataset.testid ?? "") ? new DOMRect(0, 0, 800, 600) : originalBounds.call(this);
     });
     const jobId = "00000000-0000-4000-8000-000000000020";
     const candidateId = "00000000-0000-4000-8000-000000000030";
@@ -1334,57 +1376,58 @@ describe("FloorEditorView", () => {
     floorEditorApi.getFloorEditorState.mockResolvedValueOnce(authoritative);
     const onReload = vi.fn();
     const onSaved = vi.fn();
-    const prepared = { formatVersion: 1, generationId: "prepared-generation", revision: 0,
-      width: 16384, height: 8192, gridSize: 80, elementCount: 0,
-      manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } };
-    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-      if (!input.includes(`/import-jobs/${jobId}/map-document`)) throw new Error(`Unexpected preview request: ${input}`);
-      const response = input.includes("/manifest?") ? {
-        generationId: prepared.generationId, revision: 0, canonical: prepared.manifest,
-        groups: [], layers: [], displayLayerBindings: [], display: {
-          version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "region-1",
-          manifestAssetId: "00000000-0000-4000-8000-000000000002", width: 16384, height: 8192,
-          gridSize: 80, padding: 0, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
-          byteSize: 1, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 16384, maxY: 8192 },
-          transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: []
-        }
-      } : prepared;
-      return new Response(JSON.stringify(response), { headers: { "Content-Type": "application/json" } });
-    }));
+    installPreparedImport(jobId);
     renderEditor(editorState, { onReload, onSaved }, "preview-user");
     expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "자료" }));
 
+    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    const cameraBeforeReview = { zoom: useFloorEditorStore.getState().zoom, pan: useFloorEditorStore.getState().pan };
     fireEvent.change(screen.getByLabelText("CAD 파일"), {
       target: { files: [new File(["dxf"], "parking.dxf", { type: "application/dxf" })] }
     });
-    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
 
     await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
-    await waitFor(() => expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-width", "16384"));
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", "");
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-height", "8192");
-    expect(screen.queryByText("편집할 맵을 준비해주세요.")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-rendered-fixture-count", "0");
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-rendered-object-count", "0");
-    expect(screen.getByRole("button", { name: "이동" })).toBeEnabled();
+    const modal = screen.getByRole("dialog", { name: "CAD 가져오기" });
+    const preview = within(modal).getByRole("region", { name: "CAD 도면 미리보기" });
+    await waitFor(() => expect(previewPaint.props?.onReady).toBeDefined());
+    expect(preview).toHaveAttribute("data-preview-ready", "false");
+    expect(within(modal).getByRole("button", { name: "확인 및 적용" })).toBeDisabled();
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    act(() => previewPaint.props?.onPaintReady?.(true));
+    await waitFor(() => expect(preview).toHaveAttribute("data-preview-ready", "true"));
+    expect(Number(preview.getAttribute("data-zoom"))).toBeCloseTo(0.0458984375);
+    const behind = screen.getByTestId("floor-editor-canvas");
+    expect(behind).toHaveAttribute("data-map-width", "1200");
+    expect(behind).toHaveAttribute("data-map-height", "800");
+    expect(behind).toHaveAttribute("data-cad-candidate-count", "0");
+    expect(behind).not.toContainElement(preview);
     expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
+    expect(useFloorEditorStore.getState().zoom).toBe(cameraBeforeReview.zoom);
+    expect(useFloorEditorStore.getState().pan).toEqual(cameraBeforeReview.pan);
+    expect(within(modal).queryByRole("checkbox")).not.toBeInTheDocument();
 
-    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(0.0458984375);
-    act(() => useFloorEditorStore.getState().setZoom(0.75));
-    await waitFor(() => expect(useFloorEditorStore.getState().zoom).toBe(0.75));
-
-    act(() => useFloorEditorStore.getState().setViewport({ width: 800, height: 600 }));
-    fireEvent.click(screen.getByRole("button", { name: "맵 맞춤" }));
-    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(0.0458984375);
-
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
-    const resetDialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    fireEvent.click(screen.getByRole("button", { name: "확인 및 적용" }));
+    let resetDialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
     expect(resetDialog).toHaveTextContent("조명 1개가 미배치 상태로 변경");
     expect(resetDialog).toHaveTextContent("수동 도형 1개가 삭제");
     expect(resetDialog).toHaveTextContent("기존 CAD 슬롯 1개가 삭제");
     expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    act(() => previewPaint.props?.onPaintReady?.(false));
+    expect(within(resetDialog).getByRole("button", { name: "교체 후 적용" })).toBeDisabled();
+    act(() => previewPaint.props?.onPaintReady?.(true));
+    expect(within(resetDialog).getByRole("button", { name: "교체 후 적용" })).toBeEnabled();
+    act(() => previewPaint.props?.onError?.(new Error("late tile failure")));
+    expect(within(resetDialog).getByRole("button", { name: "교체 후 적용" })).toBeDisabled();
+    fireEvent.click(within(resetDialog).getByRole("button", { name: "취소" }));
+    fireEvent.click(within(modal).getByRole("button", { name: "도면 다시 불러오기" }));
+    await waitFor(() => expect(within(modal).getByTestId("common-map-canvas")).toBeInTheDocument());
+    expect(within(modal).getByRole("button", { name: "확인 및 적용" })).toBeDisabled();
+    act(() => previewPaint.props?.onPaintReady?.(true));
+    await waitFor(() => expect(within(modal).getByRole("button", { name: "확인 및 적용" })).toBeEnabled());
+    fireEvent.click(within(modal).getByRole("button", { name: "확인 및 적용" }));
+    resetDialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
     fireEvent.click(within(resetDialog).getByRole("button", { name: "교체 후 적용" }));
 
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-b2", jobId, {
@@ -1590,15 +1633,18 @@ describe("FloorEditorView", () => {
       createdAt: "2026-09-17T00:00:00.000Z",
       updatedAt: "2026-09-17T00:00:01.000Z"
     });
-    renderEditor();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 600));
+    installPreparedImport(jobId);
+    renderEditor(editorState, {}, "preview-user");
 
     await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "확인 및 적용" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "확인 및 적용" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" }))
       .getByRole("button", { name: "교체 후 적용" }));
 
     expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "CAD 가져오기" })).getByRole("button", { name: "닫기" }));
     fireEvent.click(screen.getByRole("button", { name: "편집 복구" }));
     expect(screen.getByRole("button", { name: "최신 버전 다시 불러오기" })).toBeInTheDocument();
   });

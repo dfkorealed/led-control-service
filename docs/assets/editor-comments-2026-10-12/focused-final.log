@@ -1,0 +1,16 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/editor-comments-20261012/apps/web
+
+ ✓ src/features/floor-editor/MapDocumentInitialization.test.tsx (3 tests) 125ms
+ ✓ src/features/floor-editor/FloorEditorCanvas.common-map.test.tsx (45 tests) 1327ms
+ ✓ src/features/floor-editor/CadImportPanel.test.tsx (71 tests) 5996ms
+   ✓ CadImportPanel > keeps every region in one select without dropping later regions and decodes only one preview 3443ms
+   ✓ CadImportPanel > hydrates a durable review job on mount with every slot candidate and no individual selection UI 318ms
+ ✓ src/features/floor-editor/FloorEditorView.test.tsx (76 tests) 7516ms
+   ✓ FloorEditorView > reuses fixture, object, and available-slot indexes while pan and zoom only requery them 619ms
+
+ Test Files  4 passed (4)
+      Tests  195 passed (195)
+   Start at  21:29:15
+   Duration  10.50s (transform 1.36s, setup 353ms, collect 6.54s, tests 14.96s, environment 2.31s, prepare 523ms)
+

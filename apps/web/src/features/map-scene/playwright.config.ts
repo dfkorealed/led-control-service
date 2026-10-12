@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const port = 15179;
 export default defineConfig({
-  testDir: "..", testMatch: ["map-scene/map-scene-webgl.smoke.ts", "map-scene/map-scene-http-webgl.smoke.ts", "map-scene/map-scene-order.smoke.ts", "map-scene/map-scene-hatch.smoke.ts", "map-scene/map-scene-scale.smoke.ts", "cad-scene/cad-scene-webgl.smoke.ts",
+  testDir: "..", testMatch: ["map-scene/map-scene-camera.smoke.ts", "map-scene/map-scene-webgl.smoke.ts", "map-scene/map-scene-http-webgl.smoke.ts", "map-scene/map-scene-order.smoke.ts", "map-scene/map-scene-hatch.smoke.ts", "map-scene/map-scene-scale.smoke.ts", "cad-scene/cad-scene-webgl.smoke.ts",
     ...(process.env.MAP_SCENE_ARTIFACT_RESULTS ? ["map-scene/map-scene-artifact.smoke.ts"] : [])], workers: 1, timeout: 30_000,
   outputDir: fileURLToPath(new URL("../../../.local/map-scene-smoke", import.meta.url)),
   reporter: [["list"], ["json", { outputFile: fileURLToPath(new URL("../../../.local/map-scene-smoke/report.json", import.meta.url)) }]],

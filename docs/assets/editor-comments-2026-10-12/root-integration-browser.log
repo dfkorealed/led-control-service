@@ -1,0 +1,35 @@
+
+[WebServer] (node:49902) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:49917) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:49935) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:50076) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 9 tests using 1 worker
+
+
+(node:50100) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/9] [chromium] › e2e/cad-import-journey.spec.ts:41:3 › map editor comments CAD 1039x909 opens a centered import dialog and restores its trigger
+[2/9] [chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1039x909 selects one preview and recovers failed apply with lease fence
+
+[chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1039x909 selects one preview and recovers failed apply with lease fence
+CAD browser console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)
+[3/9] [chromium] › e2e/cad-import-journey.spec.ts:41:3 › map editor comments CAD 1434x909 opens a centered import dialog and restores its trigger
+[4/9] [chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1434x909 selects one preview and recovers failed apply with lease fence
+
+[chromium] › e2e/cad-import-journey.spec.ts:72:3 › map editor comments CAD 1434x909 selects one preview and recovers failed apply with lease fence
+CAD browser console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)
+[5/9] [chromium] › e2e/cad-import-journey.spec.ts:185:3 › map editor comments CAD read-only lease cannot mutate a recovered import
+[6/9] [chromium] › e2e/cad-import-journey.spec.ts:185:3 › map editor comments CAD missing-fence lease cannot mutate a recovered import
+[7/9] [chromium] › e2e/cad-import-journey.spec.ts:210:3 › Native WebGL: region 선택부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)
+[8/9] [chromium] › e2e/map-editor-viewport.spec.ts:95:3 › map editor comments 1039x909 keep shell and information bounded with internal history pagination
+[9/9] [chromium] › e2e/map-editor-viewport.spec.ts:95:3 › map editor comments 1434x909 keep shell and information bounded with internal history pagination
+  9 passed (40.3s)

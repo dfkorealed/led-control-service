@@ -18,6 +18,22 @@
 - 같은 초기 환경·Node·argv의 API PID72418과 기존 Web PID57162가 실행 중이다. 2026-10-12 06:29:09 UTC에 index/live/ready 200·의존성 5개 up·비로그인 auth 401, API 재기동 후 697초 오류 로그 0건 및 시험 DB/helper 정리를 확인했다. 실제 로그인·실장비·장기 무오류 또는 전체 제품 기능을 검증한 것은 아니다.
 - [기존 실행 체크리스트의 R1–R5](superpowers/plans/2026-09-18-cad-native-map-rendering.md)를 완료했다. 독립 DB/API 검증 뒤 이번 `before.dump`의 exact 경로·regular file identity·4,846,327bytes·SHA-256을 재대조해 06:29:30 UTC에 영구 삭제하고 부재를 확인했다. 다른 백업은 삭제하지 않았으며 검사 결과·원 로그는 보호된 `.local/db-migrations-20261012-hDROA0PJ`에 보존한다. DB reset·원장 수정·맵 backfill·수동 조명 명령·원격 배포는 하지 않았다. 아래 과거 서비스 미실행 기록은 해당 시점 이력이며, 별도 E1–E4 작업은 아직 통합하지 않았다.
 
+## 2026-10-12 맵 편집 패널·CAD 팝업·이동 렌더링 개선: 구현·검증·로컬 메인 통합 완료
+
+- 현재 판정: 승인한 E1–E4를 완료했다. 오른쪽 패널·변경 기록 내부 스크롤, 중앙 CAD 단일 큰 미리보기와 확인/적용, 기존 타일 재사용 및 작은 화면 입력 보완을 마쳤다. PixiJS/Konva를 유지했고 서버·DB·장비·현재 맵은 변경하지 않았다.
+- 제품 소스 고정 Chromium 19/19 PASS(exit0)와 Web 전체 3,641 PASS/기존 Control 5 FAIL/3 SKIP(exit1)를 확인했다. 이후 테스트 조회 옵션 2줄만 타입에 맞게 바꾼 집중 195/195 PASS·fresh typecheck/build exit0·UI 정책 0/0·독립 추가 P1/P2 0이다. 전체 Web GREEN, 실제 대형 CAD/WebView/HIL 완료로 표현하지 않는다.
+- 사용자의 명시적 메인 병합 승인으로 MAIN `codex/mvp1-cloud-web`의 `4ada1454`에 기능 브랜치 `70d44081`을 정상 merge했다. Web 전체 소스는 검증한 기능 브랜치와 동일하며 사용자 AGENTS·최근 API/BIO 수리·DB 문서·기존 개발 서버와 현재 맵 데이터를 보존했다. 위 DB 작업의 ‘아직 통합하지 않았다’는 당시 기록이며 현재 E1–E4는 로컬 메인에 통합했다. 원격 push는 하지 않았다.
+- 병합 소스에서 fresh Web 전체 3,641 PASS/동일한 기존 Control 5 FAIL/3 SKIP(exit1, 190.46초), Chromium 관련 여정 9/9 PASS(exit0, 40.3초), 타입 포함 build exit0·UI 정책 위반 0/0을 재확인했다. 원 로그의 공백은 그대로 보존하고 소스/Markdown diff-check는 exit0이다. [기능 검증 manifest](assets/editor-comments-2026-10-12/manifest.json)와 [메인 통합 증거](assets/editor-comments-2026-10-12/root-integration-proof.json)에 결과와 소스/원 로그 SHA를 기록했다. 전체 Web GREEN이나 실장비 완료로 확대하지 않는다.
+
+### 중간 검증 이력
+
+- 사용자가 브라우저 주석 4건과 대표 도면 하나/선택 목록 방식을 승인했다. UI·렌더링·브라우저 QA 담당을 나눠 작업한다. 25개 Web WIP의 exact SHA 복사·ROOT 소유 변경 복구 후 `codex/editor-comments-20261012`에서 진행하며 사용자 AGENTS/다른 담당의 런타임 작업은 보존한다.
+- [기존 맵 실행 체크리스트 E1–E4](superpowers/plans/2026-09-18-cad-native-map-rendering.md)가 정본이다. 중간 실제 1039px 레이아웃과 중앙 팝업 열기는 확인했으나 CAD 복구/preview·WebGL HATCH·최종 QA는 미완료다. 렌더링 기술 교체·DB 초기화·실장비 변경은 이번 작업에서 하지 않는다.
+- E1/E3 구현·직접 검증을 완료하고 E2/E4 최종 검증 중이다. UI 집중355 PASS·렌더링202 PASS/기존2 SKIP·실제WebGL14/14 PASS와 P2 두 건의 paint readiness/pending wanted 보호 보완을 확보했다. 전체 첫 cohort의 9FAIL은 보존하고 최종소스 전체 Web·QA·독립 리뷰를 다시 진행한다. 그중 Control5는 동일 의존성의 clean416785d0에서도 동일 재현한 기존 실패이며 이번 제품 변경과 분리한다.
+- 재개 후 전체 pre-camera-memo cohort는3,628 PASS/기존 Control5 FAIL/3 SKIP로 종료했다. 브라우저33건의20 PASS/13 FAIL 중 native preview readiness 반복은 camera `useMemo`와 RED→GREEN17로 보완했고 최신 빌드 exit0·독립 critical 리뷰 열린P1/P2 0이다. 해당 전체 cohort를 후속 수정의 전체검증으로 확대하지 않는다. 최신 CAD 정상 흐름·props selection·320px/hit QA와 기존 실패 대조를 진행하며 Control/MAIN 변경은 총괄 별도 조율을 기다린다. 원 로그·exact 실패명은 E4 기록에 유지한다.
+- 중단 후 재개: 중복 double-click pick을 제거한 UI 집중399 PASS를 취합했다. 최신 Native 브라우저는 그룹 진입·속성 변경·저장·새로고침 후 픽셀 보존까지 통과했으나, 새로고침 직후 단독 double-click의 선택 소실이 남아 후속 수정 중이다. 320px의 최종 canvas 높이는178px로 0이 아니며 metadata readiness 실패는 renderer platform 전환 시 초기화 경로를 조사한다. 이 두 정상 흐름 관문이 통과하기 전 완료·MAIN 반영으로 표시하지 않는다.
+- 후속 수리: renderer platform 변경의 document/camera/promotion effect를 함께 재실행(RED3→GREEN9), 비동기 pick을 직렬화해 busy 반환과 실제 miss를 분리(집중412 PASS)했다. renderer 전체 집중208 PASS/기존2 SKIP·WebGL14/14 PASS·타입 exit0을 확인하고 `76155d80`으로 보존했다. 추가 정상 사용 QA에서 드래그 종료의 RAF 보정 전 좌표 저장과 모바일 저장·재시도 버튼 hit 문제를 확인하여 두 파일만 보완했고 직접 RED2→120 PASS를 확보했다. 최종 브라우저 및 전체 Web/빌드는 후속 관문이다. 이전 전체검증 재시작은 소스 후속 수정 때문에 Ctrl-C(exit130)로 중지했으며 전체검증 결과로 집계하지 않는다.
+
 ## 2026-10-12 설정 CAD — 별도 브랜치 검증 후 보존 로컬 병합 완료
 
 - 사용자 지시대로 원 설정 담당자의 별도 `codex/cad-import-corrections-20261012`에서 검증한제품be35/최종문서13fb를 UI완료58bd 위 정상로컬merge5e9b640b로통합했다. 총괄이24소유diff/6원로그SHA·집중224/실제첨부DWG2/2/전체3266PASS1209기존환경SKIP·원타입/빌드exit0와전담독립리뷰C/I/M0을대조했다. 원pnpm경로1FAIL은보존하며후속GREEN과합산/소급하지않는다.

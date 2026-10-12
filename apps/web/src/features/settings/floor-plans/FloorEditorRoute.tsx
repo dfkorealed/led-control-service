@@ -115,15 +115,17 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
   const activeLease = leaseState.floorId === floorId ? leaseState.lease : { editable: false };
 
   return (
-    <div className="flex h-full min-h-min min-w-0 flex-col [&>section]:min-h-min [&>section]:flex-1">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden [&>section]:min-h-0 [&>section]:flex-1">
       {!activeLease.editable ? (
-        <FeedbackState
-          tone="warning"
-          icon={LockKeyhole}
-          title={activeLease.holderName ? `${activeLease.holderName}님이 이 도면을 편집 중입니다.` : "편집 권한을 확보하지 못했습니다."}
-          description="현재 버전은 읽기 전용으로 확인할 수 있습니다."
-          action={<Button variant="secondary" disabled={leaseState.isAcquiring} onClick={leaseState.retry}>편집 권한 다시 요청</Button>}
-        />
+        <div className="shrink-0">
+          <FeedbackState
+            tone="warning"
+            icon={LockKeyhole}
+            title={activeLease.holderName ? `${activeLease.holderName}님이 이 도면을 편집 중입니다.` : "편집 권한을 확보하지 못했습니다."}
+            description="현재 버전은 읽기 전용으로 확인할 수 있습니다."
+            action={<Button variant="secondary" disabled={leaseState.isAcquiring} onClick={leaseState.retry}>편집 권한 다시 요청</Button>}
+          />
+        </div>
       ) : null}
       <FloorEditorView
         key={`${selectedSiteId}:${floorId}`}

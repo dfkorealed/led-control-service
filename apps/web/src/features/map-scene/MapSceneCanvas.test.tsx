@@ -1,6 +1,6 @@
 import { createRef, StrictMode } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
 import type { MapDisplayTile } from "@led-control/shared/map-display-contracts";
 import type { CadSceneRenderBackend } from "../cad-scene/CadSceneRenderer";
@@ -32,6 +32,77 @@ function harness() {
 afterEach(cleanup);
 
 describe("common map Canvas lifecycle", () => {
+  it.each(["desktop", "mobile"] as const)("replays unchanged document, camera and promotion on a %s platform transition", async platform => {
+    const h = harness(), promotedElementIds = ["selected"];
+    const cameras: Array<MockInstance<MapSceneRenderer["setCamera"]>> = [];
+    const promotions: Array<MockInstance<MapSceneRenderer["setPromotedElementIds"]>> = [];
+    const createRenderer = (options: MapSceneRendererOptions) => {
+      const renderer = h.props.createRenderer(options);
+      cameras.push(vi.spyOn(renderer, "setCamera"));
+      promotions.push(vi.spyOn(renderer, "setPromotedElementIds"));
+      return renderer;
+    };
+    const view = render(<MapSceneCanvas {...h.props} createRenderer={createRenderer} platform={platform} promotedElementIds={promotedElementIds} />);
+    await waitFor(() => expect(h.props.onReady).toHaveBeenCalledWith(expect.any(Object)));
+    const previousCanvas = view.container.querySelector("canvas");
+    h.props.onReady.mockClear();
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer}
+      platform={platform === "desktop" ? "mobile" : "desktop"} promotedElementIds={promotedElementIds} />);
+    expect(h.renderers).toHaveLength(2);
+    expect(view.container.querySelector("canvas")).not.toBe(previousCanvas);
+    expect(h.renderers[0].memoryBytes).toBe(0);
+    expect(cameras[1]).toHaveBeenCalledWith(camera);
+    expect(promotions[1]).toHaveBeenCalledWith(promotedElementIds);
+    await waitFor(() => expect(h.source.getManifest).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(h.props.onReady.mock.calls.at(-1)?.[0]).toMatchObject({ setCamera: expect.any(Function) }));
+    expect(h.backend.resize).toHaveBeenLastCalledWith(camera.viewportWidth, camera.viewportHeight, 1);
+    expect(h.props.onError).not.toHaveBeenCalled();
+  });
+
+  it("fences old document adoption and paint callbacks when platform changes", async () => {
+    const h = harness(), onPaintReady = vi.fn();
+    const manifest = await h.source.getManifest(documentRef, new AbortController().signal);
+    let release!: (value: typeof manifest) => void;
+    vi.mocked(h.source.getManifest).mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+    const options: MapSceneRendererOptions[] = [];
+    const createRenderer = (value: MapSceneRendererOptions) => { options.push(value); return h.props.createRenderer(value); };
+    const view = render(<MapSceneCanvas {...h.props} createRenderer={createRenderer} platform="desktop" onPaintReady={onPaintReady} />);
+    await waitFor(() => expect(h.source.getManifest).toHaveBeenCalledTimes(2));
+    const signal = vi.mocked(h.source.getManifest).mock.calls[1][1];
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer} platform="mobile" onPaintReady={onPaintReady} />);
+    await waitFor(() => expect(h.props.onReady.mock.calls.at(-1)?.[0]).toMatchObject({ setCamera: expect.any(Function) }));
+    expect(signal.aborted).toBe(true);
+    const notifications = h.props.onManifest.mock.calls.length;
+    onPaintReady.mockClear();
+    await act(async () => { release(manifest); options[0].onPaintReady?.(true); });
+    expect(h.props.onManifest).toHaveBeenCalledTimes(notifications);
+    expect(onPaintReady).not.toHaveBeenCalledWith(true);
+    act(() => options[1].onPaintReady?.(true));
+    expect(onPaintReady).toHaveBeenLastCalledWith(true);
+    expect(h.props.onError).not.toHaveBeenCalled();
+  });
+
+  it("keeps metadata readiness separate from paint and fences old scope callbacks", async () => {
+    const h = harness(), onPaintReady = vi.fn();
+    const options: MapSceneRendererOptions[] = [];
+    const createRenderer = (value: MapSceneRendererOptions) => { options.push(value); return h.props.createRenderer(value); };
+    const view = render(<MapSceneCanvas {...h.props} createRenderer={createRenderer} onPaintReady={onPaintReady} />);
+    await waitFor(() => expect(h.props.onReady).toHaveBeenCalledWith(expect.any(Object)));
+    expect(onPaintReady).toHaveBeenLastCalledWith(false);
+    expect(onPaintReady).not.toHaveBeenCalledWith(true);
+    act(() => options[0].onPaintReady?.(true));
+    expect(onPaintReady).toHaveBeenLastCalledWith(true);
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer} onPaintReady={onPaintReady}
+      source={{ ...h.source, scopeKey: "principal:new" }} />);
+    await waitFor(() => expect(options).toHaveLength(2));
+    onPaintReady.mockClear();
+    act(() => options[0].onPaintReady?.(true));
+    expect(onPaintReady).not.toHaveBeenCalled();
+    act(() => options[1].onPaintReady?.(true));
+    expect(onPaintReady).toHaveBeenLastCalledWith(true);
+    view.unmount();
+    expect(onPaintReady).toHaveBeenLastCalledWith(false);
+  });
   it("keeps the actual canvas and renderer on revision/camera/callback updates and publishes structures", async () => {
     const h = harness(); const ref = createRef<MapSceneCanvasHandle>();
     const view = render(<MapSceneCanvas {...h.props} ref={ref} />);

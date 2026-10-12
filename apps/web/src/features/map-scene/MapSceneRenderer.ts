@@ -20,6 +20,8 @@ export interface MapSceneRendererOptions extends Pick<CadSceneRendererOptions<Ma
   "backendFactory" | "platform" | "devicePixelRatio" | "maximumConcurrentTileLoads" | "onError" | "onDegraded"> {
   source: MapSceneSource;
   onManifest?: (manifest: MapSceneManifest) => void;
+  /** Current document's visible coverage has reached an actual renderer frame. */
+  onPaintReady?: (ready: boolean) => void;
   maximumMemoryBytes?: number;
   maximumOriginalBytes?: number;
 }
@@ -38,6 +40,9 @@ export class MapSceneRenderer {
   private readonly owner = "map-source";
   private readonly onError: (error: Error) => void;
   private readonly onManifest: (manifest: MapSceneManifest) => void;
+  private readonly onPaintReady: (ready: boolean) => void;
+  private paintReady: boolean | null = null;
+  private expectedDisplay: MapDisplayManifest | null = null;
   private document: MapDocumentRef | null = null;
   private requestedDocument: MapDocumentRef | null = null;
   private manifest: MapSceneManifest | null = null;
@@ -72,7 +77,8 @@ export class MapSceneRenderer {
     this.source = options.source;
     this.scopeKey = options.source.scopeKey;
     if (!this.scopeKey) throw new Error("Map source requires an authenticated scope key");
-    this.onError = options.onError ?? (() => undefined);
+    this.onPaintReady = options.onPaintReady ?? (() => undefined);
+    this.onError = error => { this.setPaintReady(false); options.onError?.(error); };
     this.onManifest = options.onManifest ?? (() => undefined);
     const mobile = options.platform === "mobile";
     this.budget = new CadSceneMemoryBudget(options.maximumMemoryBytes ?? (mobile ? 32 : 128) * MiB);
@@ -89,7 +95,14 @@ export class MapSceneRenderer {
     const worker = this.source.decodeDisplayTile
       ? { decode: this.source.decodeDisplayTile.bind(this.source), destroy() {} } : createCadSceneWorkerClient<MapDisplayTile>();
     this.scene = new CadSceneRenderer<MapDisplayManifest>({ ...options, manifest: emptyDisplay(), displayQuality: true,
-      backendFactory: options.backendFactory ?? (() => new MapRasterBackend(this.budget, name => this.displayLayerIds.get(name))),
+      onError: this.onError,
+      backendFactory: options.backendFactory ?? (() => new MapRasterBackend(this.budget, name => this.displayLayerIds.get(name),
+        (ready, manifest) => {
+          // Metadata adoption and raster publication are independent. An old
+          // document's late frame must never unlock the incoming preview.
+          if (!this.disposed && this.expectedDisplay === manifest && this.source.scopeKey === this.scopeKey &&
+              (!ready || this.camera !== null && this.renderedCamera === this.camera)) this.setPaintReady(ready);
+        })),
       maximumCacheBytes: this.budget.maximumBytes, memoryBudget: this.budget,
       loadTile: (tile, signal) => this.loadDisplayTile(tile, signal),
       worker: { destroy: () => worker.destroy(), decode: async (bytes, descriptor, quality) => {
@@ -162,6 +175,8 @@ export class MapSceneRenderer {
       throw new Error("Cannot adopt an older map revision");
     }
     const epoch = ++this.epoch;
+    this.expectedDisplay = null;
+    this.setPaintReady(false);
     this.controller.abort();
     this.controller = new AbortController();
     this.originals.cancelPending();
@@ -267,6 +282,7 @@ export class MapSceneRenderer {
       // Masks must be installed before the new base starts loading.
       this.applyVisibility();
       this.scene.setManifest(manifest.display);
+      this.expectedDisplay = manifest.display;
       this.onManifest(manifest);
       if (this.camera) this.scheduleCamera();
     } catch (error) {
@@ -278,6 +294,7 @@ export class MapSceneRenderer {
   setCamera(camera: CadSceneCamera): void {
     this.assertAlive();
     this.camera = { ...validateCadSceneCamera(camera) };
+    this.setPaintReady(false);
     this.scheduleCamera();
   }
 
@@ -412,6 +429,8 @@ export class MapSceneRenderer {
 
   dispose(): void {
     if (this.disposed) return;
+    this.expectedDisplay = null;
+    this.setPaintReady(false);
     this.disposed = true; this.epoch++;
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
@@ -461,9 +480,17 @@ export class MapSceneRenderer {
       // display work. Never await a previous viewport's request here.
       void this.scene.setCamera(this.camera).catch(error => this.onError(asError(error)));
       this.renderedCamera = this.camera;
-      try { if (cadDisplayZoomBand(this.camera.zoom) !== this.draftBand) this.refreshDraft(); }
+      // Native drafts retain canonical paths; changing a tessellation band
+      // must not invalidate their raster cells during every zoom gesture.
+      try { if (!this.nativePaint && cadDisplayZoomBand(this.camera.zoom) !== this.draftBand) this.refreshDraft(); }
       catch (error) { this.onError(asError(error)); }
     });
+  }
+
+  private setPaintReady(ready: boolean): void {
+    if (this.paintReady === ready) return;
+    this.paintReady = ready;
+    this.onPaintReady(ready);
   }
 
   private applyVisibility(dirty?: Bounds[]): void {

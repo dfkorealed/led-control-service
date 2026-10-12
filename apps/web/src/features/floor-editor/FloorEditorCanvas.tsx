@@ -236,6 +236,8 @@ export function FloorEditorCanvas({
   const renderedPan = renderedCamera?.pan ?? pan;
   const renderedZoom = renderedCamera?.zoom ?? zoom;
   const renderedTransform = { pan: renderedPan, zoom: renderedZoom };
+  const virtualizedCamera = useRef(renderedTransform);
+  virtualizedCamera.current = renderedTransform;
   const worldBounds = mapViewportBounds(renderedTransform, viewport);
   // Spatial-index rectangles use x/y, while shared camera geometry uses left/top.
   const viewportBounds = { x: worldBounds.left, y: worldBounds.top, width: worldBounds.width, height: worldBounds.height };
@@ -250,7 +252,13 @@ export function FloorEditorCanvas({
     const currentMap = mapEditorRef.current;
     const camera = cameraFromTransform({ pan: nextPan, zoom: nextZoom }, viewport);
     if (camera) currentMap?.handle.current?.setCamera(camera);
-    if (refreshVirtualizedView) setCameraRenderVersion((version) => version + 1);
+    // Spatial queries already include 160 screen pixels of overscan. Keep the
+    // React subtree until half that margin is consumed; transforms remain live.
+    const sampled = virtualizedCamera.current;
+    if (refreshVirtualizedView && (Math.abs(nextPan.x - sampled.pan.x) >= 80 ||
+      Math.abs(nextPan.y - sampled.pan.y) >= 80 || nextZoom / sampled.zoom > 1.1 || nextZoom / sampled.zoom < 1 / 1.1)) {
+      setCameraRenderVersion((version) => version + 1);
+    }
   }, [viewport.height, viewport.width]);
   const commitCamera = useCallback(() => {
     if (wheelCommitTimer.current !== null) clearTimeout(wheelCommitTimer.current);
@@ -867,7 +875,9 @@ export function FloorEditorCanvas({
     data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
     data-map-width={bounds.width} data-map-height={bounds.height}
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
-    onDoubleClick={(event) => { if (pathDraft) finishPath(); else if (activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), true, event.shiftKey); }}
+    // Selection drill already runs on mouseup/overlay click with detail=2.
+    // Re-picking here can hit a masked original while child hydration is pending.
+    onDoubleClick={() => { if (pathDraft) finishPath(); }}
     onMouseDownCapture={event => { if (spacePan.current || event.button === 1) { begin(event); event.stopPropagation(); } }}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; mapCreationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMapCreation(null); setMarquee(null); setIsPanning(false); } }}
     onPointerDown={beginTouch} onPointerMove={moveTouch} onPointerUp={finishTouch} onPointerCancel={(event) => finishTouch(event, true)}
@@ -929,6 +939,12 @@ export function FloorEditorCanvas({
         {visibleObjects.map((object) => {
           let ref = objectRefCallbacks.current.get(object.id);
           if (!ref) { ref = (node) => { if (node) objectNodes.current.set(object.id, node); else objectNodes.current.delete(object.id); }; objectRefCallbacks.current.set(object.id, ref); }
+          const alignDraggedNode = (node: Konva.Node) => {
+            const moving = clampObjectToMap({ x: node.x(), y: node.y(), width: object.width, height: object.height }, bounds);
+            const aligned = alignRectToGuides(moving, guideTargets.current, bounds, 6 / useFloorEditorStore.getState().zoom);
+            node.position(aligned.point);
+            renderAlignmentGuides(aligned.guides);
+          };
           return <FloorMapObjectNode key={object.id} object={object} interactive={!readOnly && !layers.objects.locked && !object.locked && activeTool === "select"} selected={selection?.id === object.id}
             setNodeRef={ref} onSelect={() => useFloorEditorStore.getState().selectObject(object.id)}
             onDragStart={() => {
@@ -940,18 +956,22 @@ export function FloorEditorCanvas({
               const token = dragInteraction.current?.token ?? null;
               scheduleDragMove(() => {
                 if (!isDragInteractionCurrent(token, "object", object.id)) return;
-                const store = useFloorEditorStore.getState();
-                const moving = clampObjectToMap({ x: node.x(), y: node.y(), width: object.width, height: object.height }, bounds);
-                const aligned = alignRectToGuides(moving, guideTargets.current, bounds, 6 / store.zoom);
-                node.position(aligned.point);
-                renderAlignmentGuides(aligned.guides);
+                alignDraggedNode(node);
               });
             }}
             onChange={(patch) => {
               const token = dragInteraction.current?.token ?? null;
               flushDragMove();
               if (isDragInteractionCurrent(token, "object", object.id)) {
-                useFloorEditorStore.getState().updateObject(object.id, clampPoint({ x: patch.x ?? object.x, y: patch.y ?? object.y }, bounds));
+                // The child captured its patch before the pending alignment
+                // frame was flushed. Commit the node's final aligned position.
+                const node = objectNodes.current.get(object.id);
+                // Konva may also restore its final raw pointer coordinate after
+                // the last RAF; apply the same alignment once at commit time.
+                if (node) alignDraggedNode(node);
+                useFloorEditorStore.getState().updateObject(object.id, clampPoint({
+                  x: node?.x() ?? patch.x ?? object.x, y: node?.y() ?? patch.y ?? object.y
+                }, bounds));
               }
               cancelDragInteraction();
             }}
@@ -996,9 +1016,9 @@ export function FloorEditorCanvas({
         </Label>}
       </Layer>
     </Stage>
-    {backgroundStatus === "error" ? <div className="absolute inset-x-3 top-3 z-5 flex flex-col gap-1 border border-status-danger-border bg-surface-panel p-1.5 shadow-panel compact:flex-row compact:items-center compact:justify-between compact:gap-3 compact:p-3" role="alert">
-      <span className="min-w-0 break-keep text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
-      <Button size="sm" variant="secondary" className="min-w-11 shrink-0 self-end whitespace-nowrap compact:self-auto" onClick={retryBackground}>도면 다시 시도</Button>
+    {backgroundStatus === "error" ? <div className="absolute inset-x-3 top-3 z-5 flex items-start gap-2 border border-status-danger-border bg-surface-panel p-1.5 shadow-panel compact:items-center compact:gap-3 compact:p-3" role="alert">
+      <span className="min-w-0 flex-1 break-keep text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
+      <Button size="sm" variant="secondary" className="min-h-13 min-w-13 shrink-0 whitespace-nowrap" onClick={retryBackground}>도면 다시 시도</Button>
     </div> : null}
     {!cadReviewActive ? <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} /> : null}
     {!cadReviewActive && !onPlacementPointChange ? <EditorMinimap /> : null}
@@ -1032,24 +1052,34 @@ function collectGuideTargets(state: FloorEditorState | null, excludedFixtures: S
 }
 
 function MapGrid({ width, height, gridSize, zoom, color }: { width: number; height: number; gridSize: number; zoom: number; color: string }) {
-  const lineCount = width / gridSize + height / gridSize;
-  const displayStep = gridSize * Math.max(1, Math.ceil(lineCount / 2_000));
   return (
     <Shape
       name="map-grid"
       listening={false}
       stroke={color}
-      strokeWidth={1 / zoom}
+      strokeWidth={1}
+      strokeScaleEnabled={false}
       opacity={0.65}
       sceneFunc={(context, shape) => {
+        const layer = shape.getLayer(), stage = shape.getStage();
+        const liveZoom = layer?.scaleX() ?? zoom;
+        const left = Math.max(0, -(layer?.x() ?? 0) / liveZoom);
+        const top = Math.max(0, -(layer?.y() ?? 0) / liveZoom);
+        const right = Math.min(width, ((stage?.width() ?? width * liveZoom) - (layer?.x() ?? 0)) / liveZoom);
+        const bottom = Math.min(height, ((stage?.height() ?? height * liveZoom) - (layer?.y() ?? 0)) / liveZoom);
+        if (right <= left || bottom <= top) return;
+        // Snap remains on the canonical grid. Display alone decimates lines
+        // below eight screen pixels and never walks the off-screen map extent.
+        const lineCount = (right - left + bottom - top) / gridSize;
+        const displayStep = gridSize * Math.max(1, Math.ceil(8 / (gridSize * liveZoom)), Math.ceil(lineCount / 2_000));
         context.beginPath();
-        for (let x = displayStep; x < width; x += displayStep) {
-          context.moveTo(x, 0);
-          context.lineTo(x, height);
+        for (let x = Math.max(displayStep, Math.ceil(left / displayStep) * displayStep); x < right; x += displayStep) {
+          context.moveTo(x, top);
+          context.lineTo(x, bottom);
         }
-        for (let y = displayStep; y < height; y += displayStep) {
-          context.moveTo(0, y);
-          context.lineTo(width, y);
+        for (let y = Math.max(displayStep, Math.ceil(top / displayStep) * displayStep); y < bottom; y += displayStep) {
+          context.moveTo(left, y);
+          context.lineTo(right, y);
         }
         context.strokeShape(shape);
       }}
