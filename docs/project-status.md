@@ -2,6 +2,15 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 BIO 수동 제어 TIMEOUT 이력 판정 — 소프트웨어 수리·검증 완료 / 런타임 반영 대기
+
+- 실제 명령 `337f5ac3-76fd-4abc-b41b-bab2a3d896c1`은70%·원4대상 중 B1-L004가 `failed/TIMEOUT/brightness=null`, 나머지3개가 `succeeded/70`이다. 서버가 BIO TIMEOUT을 확정 실패로 해석해 `partially_applied`와 `일부 조명 적용 실패`를 만들었다. 응답 부재를70% 성공으로 합성할 수는 없다.
+- backend가 원문 aggregate·대상 집합·신원·hash 검증 후 `failed+TIMEOUT`을 기존 STATUS_TIMEOUT처럼 `timed_out/unknown`으로 정규화했다. 이력의 `실제 상태 확인 필요`와 기존 Get/겹침 Set 잠금으로 연결되며 확정 mismatch 실패는 유지한다. API3파일·제어 메뉴 문서를 함께 수정했고 공유 계약·Prisma/schema 변경0이다.
+- 실제4결과/70% assertion RED 2FAIL/6PASS/139SKIP 뒤 scoped5 suites259PASS/1SKIP, 전체API264PASS/84SKIP suites·3271PASS/1209SKIP tests(875.833s), typecheck/build/diffcheck exit0을 확인했다. 환경 의존 PostgreSQL/Redis/broker/Vault/HIL opt-in skip은 실제 검증 완료와 구분한다. fresh 읽기 QA는 문서 포함 C/I/M0·Ready to merge Yes로 승인했다. 제품·제어문서 커밋 `03bb454d`를 MAIN `codex/mvp1-cloud-web`에 ff-only 통합했고, 테스트한 소유 파일 SHA를 같은 소스로 유지했다.
+- 읽기 전용 Pi docker inspect에서 문제 시각을 포함해 실행된 task2c image72b1af7d9105/revision27138ae5의 BIO catch가 관측 부재에도 failed를 반환하는 구버전 구조를 확인했다. 해당 시간대 로그0줄·rawACK 미보관으로 정확한 USB/RF 또는 brightness/mode GET 유실 단계와 컨테이너 최종 귀속은 미확정이다.
+- 실행중API PID90698은 `bio-pulse-event-integration`의 센서 현장시험용 overlay를 사용하며 `제어 페이지 담당자`가 관리하고 있다. 이 수리에서 API/Pi stop/start/exec·장비 Get/Set·DB 수정·remote0이다. 시험 owner와 반영 순서·overlay 보존을 합의하기 전 재시작하지 않는다. 다른 사용자 채팅에 수정 커밋을 전달하는 것은 명시적인 사용자 메시지 발송 승인 뒤에 한다.
+- 기존337f 기록은 보존했다. 후속0% 성공이 있는 과거70%를 단순 unknown으로 변경하면 원4대상에 Set 잠금이 생기고 현재 Get은 당시70% 적용의 증명이 되지 않는다. 과거 보정은 별도 감사·before snapshot·신원/보관/후속 명령 CAS·잠금/현재상태 의미 검토가 필요하며, 성공 덮어쓰기나 단순 UPDATE는 실행하지 않는다. [실행 체크리스트](superpowers/plans/2026-10-12-bio-command-timeout-classification.md), 원 증거는 수리 worktree의 `.local/command-ack-timeout-20261012/backend/{report.md,source-and-results.json,red-generated.log,scoped-green.log,api-full.log,typecheck.log,build.log}`에 보존했다.
+
 ## 2026-10-12 로컬 API·DB 최신 적용 — 기존 12개 migration 반영·검증·이번 백업 삭제 완료
 
 - 사용자 승인으로 기존 `Shell·인증·운영 담당자`가 MAIN `416785d0`의 미적용 migration 12개를 백업·복원 시험 후 실제 로컬 DB에 적용했다. 복원 시험과 실제 `prisma migrate deploy` 모두 exit 0이며 완료 138/138·미적용 0·실패 0이다. 기존 원장 127행과 알려진 과거 checksum 차이는 수정 없이 보존했고, 신규 완료 12행의 checksum은 SQL과 일치한다. 운영 기록 전용 브랜치의 `0f655645`도 로컬 통합했다.
