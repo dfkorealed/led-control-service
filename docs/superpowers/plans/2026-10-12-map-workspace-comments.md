@@ -19,7 +19,7 @@
 - 순수 snapshot 60초 지연만 기존 알람센터의 현재 화면 상태로 안내한다. toast/최근 알림/서버 incident/새 unread count는 생성하지 않는다. 조회 실패·잘못된/미래 metadata 경고를 일괄 무음화하지 않는다.
 - 보이는 모니터링 제목 제거, 접근성 h1 보존. 층·검색/목록·시각·새로고침 한 행; 좁은 화면 버튼은 44px 아이콘·접근 가능한 이름, 시각 HH:mm 축약과 전체 정보 설명 보존.
 - 상세는 지도 내부 하단 약 절반 nonmodal overlay. 지도 rect·카메라·renderer lifetime 불변, header/닫기 고정, 본문 내부 scroll, Escape/focus 복귀/scroll 기억 유지, overlay wheel이 지도 확대를 유발하지 않는다.
-- PC 선택 패널은 empty도 전체 행 높이. 모바일은 지도 하단 ‘선택 조명 N개’ → 44px ‘전체 보기’ → 같은 패널의 bounded 내부 목록. 새 drawer/query 없음.
+- PC 선택 패널은 empty도 전체 행 높이. 모바일은 ‘선택 조명 N개’ → 바로 아래 44px ‘전체 보기’를 유지하고, 목록은 지도 내부 하단 보조 패널에서 내부 스크롤한다. 사용자 후속 승인으로 목록/More는 한 번에 하나만 열며 지도 rect·카메라·renderer 크기를 줄이지 않는다. 새 query/command owner 없음.
 - 수동-active 모바일만 유한 높이 shell/workspace. floor·scope·목록 한 44px 행, brightness 숫자·slider·Apply·More 한 44px 행. presets/history/recovery 상세는 내부 More; 오류/복구 존재를 보이는 표시와 live 안내로 유지한다.
 - raw draft·invalid blur/Enter·첫 Apply 차단·명시 Apply·권한/잠금·UUID·명령 복구 수명·scope reset을 보존한다. CSS overflow-hide로 누락을 덮지 않는다. schedules/events/editor/embedded 기본 동작 변경 없음.
 - 기존 Button/Card/SelectBox/IconButton/OperationMapPanel 및 token을 사용한다. 실제 두 소비자의 overlay chrome가 반복되면 Task1이 `components/ui/maps`에 최소 공통 컴포넌트를 만들고 API를 보고한 뒤 Task2가 소비한다. 새 shared/API 계약 없음.
@@ -46,12 +46,14 @@ Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 �
 - [ ] Task3 한정 browser·정적 관문·실제 UI/UX 리뷰, 발견 문제 owner 수리.
 - [ ] Task4 독립 통합 리뷰·fresh MAIN 확인·로컬 머지·회복 가능한 정리.
 
-### 현재 인계 — 실제 QA 보완 후 모바일 표현 선택 대기
+### 현재 인계 — 사용자 승인한 지도 하단 단일 보조 패널로 재개
 
 - 수리 source `69b1e9a3`는 모바일 남은 높이 전달과 좁은 PC 이력 줄바꿈을 보완했다. 지정 제어 UI 담당 소유2파일/직접7files83PASS(274비선택)·타입/UI0·0, 총괄 동일source정책79PASS·타입포함buildexit0를 확인했다. 원82PASS/1timeout·분리3PASS를 최종83에 합산하지 않는다.
 - 실제 첫6는0PASS6FAIL, 수리source동일failed6 재검사는2PASS(case5 resize/6 PC)4FAIL(case1–4)이다. 원 config-load1FAIL/5미실행은 실제body0으로 구분한다. 원 PNG/geometry/log는 ignored SDD `page-session-ux-report.md` 및 runs에 보존했다. 최종6전체 통과나 merge readiness로 확대하지 않는다.
 - 기본map0은 해소됐지만320×600 map62px/390×600 map70px이며 긴 목록 확장후 다시map0/canvas소실이다. 동일 화면의 비지도 공간은538/530px, 목록90+More150 동시세로펼침은추가244px이다. ‘지도 우세·페이지scroll0·기존44px/중요상태·동시세로펼침’은 현재정보를유지한 채 함께충족할수없어 표현선택을사용자에게묻는다. 최소compactchrome재배치는후속권고이며아직적용하지않았다.
-- 선택 제안은 지도 크기를 유지하는 하나의 하단 보조 패널에서 목록/More를 전환하거나, 기존세로펼침을유지하되보조읽기동안지도축소를허용하는것이다. 어느쪽도아직승인되지않았다. 사용자선택전제품/실행/merge STOP, 지정제어UI·UX원세션WAIT. 기본브랜치/다른작업/스태시/원격은변경하지않는다.
+- 위 선택 대기는 당시 이력이다. 사용자가 ‘지도 크기를 유지하고, 목록·더보기를 한 번에 하나씩 여는 지도 하단 보조 패널’을 승인했다. 지정 제어 UI 원 세션만 제품 수리를 재개하고, UX 원 세션은 같은 최대6고유 case의 준비를 갱신한다. 최종 source SHA 인계 전 실제 browser 실행은 대기한다. 기본브랜치/다른작업/스태시/원격은변경하지않는다.
+- 기본62/70px 지도를 그대로 유지하는 overlay만으로는 C7–8을 충족하지 못한다. 수동-active 모바일만 중복 현장/층 요약·범례와 모드 전환을 기존 More 접근 경로로 압축하고 현재 수동 모드 식별을 유지한다. 층/scope/목록44px 한 행, 지도, 선택 count→바로 아래 전체 보기44px, 실행44px, 중요 상태/live, nav 순서와 안전 동작을 보존한다. 기본 지도240px 이상 목표·map box와 가림 없는 exposed area는 후속 실제 측정이며 source/class만으로 완료 처리하지 않는다.
+- 보조 패널은 nonmodal·고정 header/닫기·본문 내부 scroll, 목록↔More 상호배타, Escape/실제 opener focus 복귀·scope reset을 유지한다. 전환은 원 draft/UUID/query와 renderer를 재마운트하거나 복제하지 않는다. PC/schedule/event/default/editor/embedded 기본값은 변경하지 않는다.
 - 모니터링case1은실제pin재클릭을생략한재열기harness오류다. case2는bodycenter가nav에가리는실측+center-onlyharness한계이며native문서이동/노출점wheel을아직실행하지않아끝도달불가제품결함으로단정하지않는다. 후속승인된failedscope에서수리·검증한다.
 
 ### Task 1: 모니터링 C1–5
@@ -76,7 +78,7 @@ Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 �
 
 **소유:** ControlView/ManualExecutionPanel/target-selection 및 직접 tests/docs/menus/control.md. CustomerShell manual-active-only height, 선택적 FloorMapViewport compact chrome 및 direct tests는 이 담당만 소유. Task1 maps API 변경 시 승인된 API 소비만.
 
-**필수 문맥:** 위 공통 제약 전부 적용. Task1 결과 source/API 확인 후 구현. PC 선택 panel h-full empty 포함·long list internal scroll. mobile map-bottom 선택 count → 바로 아래44 ‘전체 보기’ inline expand·internal list scroll; close/scopereset 보존. manual-active shell h-dvh/min-h0/navigation safe reserve, finite grid remaining map dominant; floor/scope/list44 한 행 및 brightness numeric/slider/Apply/More44 한 행. 긴 presets/history/recovery More internal scroll. raw draft/invalid/first Apply/explicit apply/lock/permissions/UUID/command lifecycle 보존; 중요 상태는 collapsed에도 visible/live. schedules/events/default/editor/embedded behavior 변경0.
+**필수 문맥:** 위 공통 제약 전부 적용. Task1 결과 source/API 확인 후 구현. PC 선택 panel h-full empty 포함·long list internal scroll. mobile 선택 count → 바로 아래44 ‘전체 보기’ 유지, 승인된 지도 하단 nonmodal 보조 패널에 목록/More를 하나씩 표시·internal scroll; map rect 유지·close/focus/scopereset 보존. manual-active shell h-dvh/min-h0/navigation safe reserve, finite grid remaining map dominant; floor/scope/list44 한 행 및 brightness numeric/slider/Apply/More44 한 행. 긴 presets/history/recovery More internal scroll. raw draft/invalid/first Apply/explicit apply/lock/permissions/UUID/command lifecycle 보존; 중요 상태는 collapsed에도 visible/live. schedules/events/default/editor/embedded behavior 변경0.
 
 1. 선택 panel 확장/empty/focus/scope reset, compact input/More 복구/command safety의 직접 실패 테스트를 먼저 실행한다. shared optional compact props 도입 시 default 소비자 회귀 test도 직접 확인한다.
 2. 최소 제품 구현 후 직접 GREEN, 기존 중복 command owner/query/drawer 만들지 않는다. 카메라 reparent/remount를 피한다.
