@@ -16,7 +16,7 @@
 
 ### 부족하거나 개선이 필요한 기능
 
-- 직접 컴포넌트/gesture 회귀는 소프트웨어 증거다. 실제 PC·320/390px 한 행, overlay 전후 map rect/camera 동일성, 내부 scroll과 fixed navigation 위 hit는 총괄의 한정 browser 관문에서 별도로 확인한다.
+- 직접 컴포넌트/gesture 회귀와 별도로 `2290a877` 실제 UI case1/2에서 1194px PC의 중간 버튼/Space 이동·휠 줌·단일 선택·한 행 툴바·약 절반 상세 및 map rect/camera/renderer 불변·재열기/초점 복귀, 390×600 dark의 툴바/nav 연속44px hit·HH:mm/전체 접근 가능한 시각·상세 끝 도달·native 문서 스크롤0→83과 상세 scroll 복원을 확인했다([영구 결과와 원 증거](../assets/map-workspace-comments-2026-10-12/README.md)). 모바일은 무스크롤 화면 계약이 아니며 PC 상세의 양의 내부 scroll 범위·모바일 상단 복귀·모니터링320px 실제 화면·새 e35 여섯 case 일괄 실행·OS 키보드·live API·HIL·물리 슬라이더 드래그는 이 결과로 완료를 주장하지 않는다.
 - 지연 화면 상태에는 읽음/지우기 동작이 없다. 최근 알림이나 서버 incident의 읽음이 현재 지연의 해결을 뜻하지 않는다.
 
 ### 관련 파일
