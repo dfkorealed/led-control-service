@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
@@ -51,6 +51,9 @@ describe("operator shell route boundary", () => {
 
   it("exposes the protected sensor profile route without mounting the site admin editor", async () => {
     renderShell("/operator/sensor-profiles");
+    // 첫 lazy import의 CI transform 시간은 DOM 조회의 기본 제한보다 길 수 있다.
+    // 실제 모듈 로딩과 React 반영을 기다린 뒤 기존 route 계약을 검증한다.
+    await act(async () => { await vi.dynamicImportSettled(); });
     expect(await screen.findByRole("heading", { name: "센서 호환 프로파일" })).toBeVisible();
     expect(screen.getByRole("link", { name: "센서 프로파일" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("heading", { name: "현장 관리자 계정" })).not.toBeInTheDocument();

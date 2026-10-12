@@ -57,6 +57,63 @@ function assertCrlTrustedAndFresh(crl, ca) {
   assert.ok(Date.parse(nextUpdate) > Date.now() + 24 * 60 * 60 * 1000);
 }
 
+function statEnvironment(directory, flavor) {
+  const bin = join(directory, "stat-bin");
+  const trace = join(directory, "stat-probes.log");
+  mkdirSync(bin);
+  const executable = join(bin, "stat");
+  // 실제 sandbox 파일 권한을 읽되 플랫폼별 probe 출력/종료 계약만 재현한다.
+  // GNU stat의 실패한 -f probe는 stdout을 남길 수 있으므로 조용한 실패로 대체하지 않는다.
+  writeFileSync(executable, `#!/usr/bin/env node
+const { appendFileSync, statSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.STAT_TRACE, args[0] + "\\n");
+if (process.env.STAT_FLAVOR === "gnu" && args[0] === "-f") {
+  process.stdout.write("File: sandbox filesystem\\nBlock size: 4096\\n");
+  process.stderr.write("stat: cannot read file system information for '%Lp'\\n");
+  process.exit(1);
+}
+const supported = process.env.STAT_FLAVOR === "bsd" ? args[0] === "-f" && args[1] === "%Lp" : args[0] === "-c" && args[1] === "%a";
+if (!supported) process.exit(2);
+process.stdout.write((statSync(args[2]).mode & 0o777).toString(8) + "\\n");
+`);
+  chmodSync(executable, 0o755);
+  return { PATH: `${bin}:${process.env.PATH}`, STAT_FLAVOR: flavor, STAT_TRACE: trace };
+}
+
+for (const flavor of ["gnu", "bsd"]) {
+  test(`preserves exact key permissions with ${flavor} stat probes`, () => {
+    const directory = sandbox();
+    try {
+      const environment = { PKI_ENV: "lab", ...statEnvironment(directory, flavor) };
+      const stdout = run(directory, environment);
+      const manufacturing = output(directory);
+      const key = join(manufacturing, "station.key");
+      const station = join(manufacturing, "station.crt");
+      const certificate = readFileSync(station, "utf8");
+      const privateKey = readFileSync(key, "utf8");
+      assert.equal(mode(key), 0o600);
+      assert.equal(mode(join(manufacturing, "manufacturing-ca.key")), 0o600);
+      assert.equal(mode(station), 0o644);
+      assert.doesNotMatch(stdout, /PRIVATE KEY|token/i);
+      run(directory, environment);
+      assert.equal(readFileSync(station, "utf8"), certificate);
+      assert.equal(readFileSync(key, "utf8"), privateKey);
+
+      chmodSync(key, 0o644);
+      assert.match(runFailure(directory, environment), /private key 권한은 0600/);
+      assert.equal(mode(key), 0o644);
+      assert.equal(readFileSync(station, "utf8"), certificate);
+      assert.equal(readFileSync(key, "utf8"), privateKey);
+      const probes = readFileSync(environment.STAT_TRACE, "utf8").trim().split("\n");
+      assert.ok(probes.includes("-f"));
+      assert.equal(probes.includes("-c"), flavor === "gnu");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 test("issues a separate EC manufacturing CA and a client-auth-only station identity with restricted permissions", () => {
   const directory = sandbox();
   try {
