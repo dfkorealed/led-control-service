@@ -103,6 +103,8 @@ describe("operator shell route boundary", () => {
     expect(screen.getByRole("navigation", { name: "운영자 메뉴" })).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "주 메뉴" })).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: "계정 및 보안" })).not.toBeInTheDocument();
   });
 
   it("redirects an unknown direct URL to site admin management", async () => {
@@ -118,7 +120,11 @@ describe("operator shell route boundary", () => {
     expect(screen.getByRole("navigation", { name: "운영자 메뉴" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "현장 관리자" })).toHaveAttribute("href", "/operator/site-admins?source=account#sessions");
     expect(screen.getByRole("link", { name: "계정 보안" })).toHaveAttribute("aria-current", "page");
-    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "계정 및 보안", level: 1 })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    expect(screen.getByRole("dialog", { name: "비밀번호 변경" })).toBeVisible();
     expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith("/auth/mfa");
     expect(apiGet).toHaveBeenCalledWith("/auth/sessions");

@@ -63,7 +63,9 @@ if (args[0] === "status") {
 } else if (args[0] === "write" && args[1] === "-field=certificate") {
   const csr = args.find((argument) => argument.startsWith("csr=@"));
   if (!csr) process.exit(2);
-  process.stdout.write(execFileSync("openssl", ["ca", "-batch", "-config", process.env.FAKE_VAULT_CA_CONFIG, "-in", csr.slice(5), "-out", "/dev/stdout", "-notext"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trimEnd());
+  // Node pipes use Unix sockets on Linux, which fopen("/dev/stdout") cannot reopen.
+  // OpenSSL's default stdout stream writes directly to the inherited descriptor.
+  process.stdout.write(execFileSync("openssl", ["ca", "-batch", "-config", process.env.FAKE_VAULT_CA_CONFIG, "-in", csr.slice(5), "-notext"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trimEnd());
 } else {
   process.exit(2);
 }
@@ -103,7 +105,7 @@ test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and productio
     const revokedClient = createRevokedClientCertificate(ca);
     const vault = writeSigningVault(directory, ca);
     const bundle = join(directory, "bundle");
-    const output = runIssue({
+    const issueEnvironment = {
       VAULT_BIN: vault,
       VAULT_ADDR: "https://vault.internal:8200",
       PKI_ENV: "lab",
@@ -116,7 +118,8 @@ test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and productio
       FAKE_VAULT_CA_CERT: ca.certificate,
       FAKE_VAULT_CA_CONFIG: ca.config,
       FAKE_VAULT_CRL: ca.crl
-    });
+    };
+    const output = runIssue(issueEnvironment);
     assert.match(output, /Public service certificate bundle is ready/);
     const currentBundle = join(bundle, "current");
     for (const name of ["mqtt-server.crt", "mqtt-server.key", "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key", "mqtt-client.crl", "device-ca.crt", "device.crl"]) {
@@ -180,6 +183,15 @@ test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and productio
       /unable to verify the first certificate|self-signed certificate in certificate chain/i
     );
     assert.equal(acceptedConnections, 1);
+
+    assert.match(runIssue(issueEnvironment), /Service certificate bundle is already current/);
+    const apiKey = join(currentBundle, "api.key");
+    chmodSync(apiKey, 0o644);
+    try {
+      assert.throws(() => runIssue(issueEnvironment), /api key가 안전하지 않습니다/);
+    } finally {
+      chmodSync(apiKey, 0o600);
+    }
   } finally {
     await new Promise((resolve) => server?.close(resolve) ?? resolve());
     rmSync(directory, { recursive: true, force: true });

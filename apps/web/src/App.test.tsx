@@ -332,9 +332,25 @@ async function chooseSelect(label: string, option: string) {
   fireEvent.keyUp(document.activeElement!, { key: "Enter" });
 }
 
+async function findSettingsCard(label: string) {
+  // Navigation tabs and whole-card links share labels; the card owns an h2.
+  const heading = await screen.findByRole("heading", { name: label, level: 2 });
+  const card = heading.closest<HTMLAnchorElement>("a");
+  expect(card).not.toBeNull();
+  expect(card).toHaveAccessibleName(label);
+  return card!;
+}
+
+async function openPasswordChangeDialog() {
+  // Security routes now expose password editing through the shared modal.
+  expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "비밀번호 변경" }));
+  return screen.findByRole("dialog", { name: "비밀번호 변경" });
+}
+
 async function openMonitoringInspector() {
-  fireEvent.click(await screen.findByRole("button", { name: "조명 검색·상세" }));
-  return screen.findByRole("dialog", { name: "조명 검색·상세" });
+  fireEvent.click(await screen.findByRole("button", { name: "조명 검색/목록" }));
+  return screen.findByRole("dialog", { name: "조명 검색/목록" });
 }
 
 async function openSelectedMonitoringDetail() {
@@ -615,7 +631,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "도면 관리", level: 1 })).toBeInTheDocument();
     expect(window.location.search).toBe("?siteId=site-2");
     expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("href", "/settings?siteId=site-2");
     const settingsTabs = screen.getByRole("navigation", { name: "설정 메뉴" });
@@ -667,8 +683,11 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: section.label })).toBeInTheDocument();
-    if (section.path === "/settings/security") expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: section.pageTitle, level: 1 })).toBeInTheDocument();
+    if (section.path === "/settings/security") {
+      await openPasswordChangeDialog();
+      expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
+    }
     if (section.path === "/settings/registration") expect(screen.getByLabelText("등록 층")).toBeInTheDocument();
   });
 
@@ -774,7 +793,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "설정", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정", level: 1 })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "현장 및 층" })).not.toBeInTheDocument();
   });
 
@@ -784,7 +803,8 @@ describe("App", () => {
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "계정 및 보안", level: 1 })).toBeInTheDocument();
+    await openPasswordChangeDialog();
     expect(window.location.pathname).toBe("/settings/security");
     expect(window.location.search).toBe("?siteId=site-2");
     expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
@@ -882,7 +902,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
 
-    expect(await screen.findByRole("heading", { name: "설정", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정", level: 1 })).toBeInTheDocument();
     expect(queryClient.getQueryData(["dashboard", "default"])).toMatchObject({
       site: { installationStatus: "installed", address: "서울시 강남구" }
     });
@@ -903,8 +923,8 @@ describe("App", () => {
     const inspector = await openMonitoringInspector();
     expect(screen.queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
     expect(within(inspector).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
-    await chooseSelect("상세 조명 선택", "B2-L01 · 정상");
-    fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
+    fireEvent.click(within(inspector).getByRole("button", { name: "B2-L01 정상" }));
+    await openSelectedMonitoringDetail();
     const detailSheet = await screen.findByRole("dialog", { name: "조명 상세" });
     expect(within(detailSheet).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B2-L01");
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
@@ -1016,7 +1036,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>("header");
+    const topbar = (await screen.findByTestId("shell-current-menu")).closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByTestId("gateway-status-badge")).not.toBeInTheDocument();
     const statusTrigger = await within(topbar!).findByRole("button", { name: "알람센터, 미읽음 0건" });
@@ -1036,7 +1056,7 @@ describe("App", () => {
     await waitFor(() => expect(statusTrigger).toHaveFocus());
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
-    expect(await screen.findByRole("group", { name: "조명 등록" })).toHaveTextContent("Gateway 미등록");
+    expect(await findSettingsCard("조명 등록")).toHaveTextContent("Gateway 미등록");
   });
 
   it("shows actual gateway values in settings", async () => {
@@ -1062,7 +1082,7 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: "설정" }));
 
-    const gatewayStatus = await screen.findByRole("group", { name: "조명 등록" });
+    const gatewayStatus = await findSettingsCard("조명 등록");
     expect(gatewayStatus).toHaveTextContent("설정 게이트웨이");
     expect(gatewayStatus).toHaveTextContent("GW-SETTINGS-001");
     expect(gatewayStatus).toHaveTextContent("오프라인");
@@ -1082,7 +1102,7 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: "설정" }));
 
-    expect(await screen.findByRole("group", { name: "조명 등록" })).toHaveTextContent("Gateway 미등록");
+    expect(await findSettingsCard("조명 등록")).toHaveTextContent("Gateway 미등록");
   });
 
   it("switches monitoring floors and updates the detail panel from map selection", async () => {
@@ -1097,13 +1117,13 @@ describe("App", () => {
     expect(await openSelectedMonitoringDetail()).toHaveTextContent("B2-L02");
     fireEvent.click(screen.getByRole("button", { name: "조명 상세 닫기" }));
     // Finish the sheet's deferred focus return before keyboard floor selection.
-    await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색·상세" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색/목록" })).toHaveFocus());
     await chooseSelect("맵 선택", "B1");
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
     expect(screen.queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
     const unselectedInspector = await openMonitoringInspector();
     expect(within(unselectedInspector).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
-    fireEvent.click(within(unselectedInspector).getByRole("button", { name: "조명 검색·상세 닫기" }));
+    fireEvent.click(within(unselectedInspector).getByRole("button", { name: "조명 검색/목록 닫기" }));
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
     const detail = await openSelectedMonitoringDetail();
@@ -1158,8 +1178,8 @@ describe("App", () => {
 
     expect(screen.queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
     const inspector = await openMonitoringInspector();
-    await chooseSelect("상세 조명 선택", "B2-L-OFFLINE · 오프라인");
-    fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
+    fireEvent.click(within(inspector).getByRole("button", { name: "B2-L-OFFLINE 오프라인" }));
+    await openSelectedMonitoringDetail();
     const sheet = await screen.findByRole("dialog", { name: "조명 상세" });
     expect(within(sheet).getByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
   });
@@ -1206,7 +1226,7 @@ describe("App", () => {
     expect(screen.queryByText("18:00-22:00")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
-    expect(await screen.findByRole("heading", { name: "설정", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정", level: 1 })).toBeInTheDocument();
     expect(screen.queryByText("MVP 2 준비")).not.toBeInTheDocument();
     expect(screen.queryByText("통신 음영 검토")).not.toBeInTheDocument();
   });
@@ -1455,7 +1475,7 @@ describe("App", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
-    const topbar = screen.getByRole("heading", { name: "설정" }).closest<HTMLElement>("header");
+    const topbar = screen.getByTestId("shell-current-menu").closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByText("로그아웃에 실패했습니다", { exact: false })).not.toBeInTheDocument();
     expect(trigger).toBeEnabled();
@@ -1734,7 +1754,7 @@ describe("App", () => {
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "설정", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정", level: 1 })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
     expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
   });

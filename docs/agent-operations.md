@@ -83,6 +83,7 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 
 ## Software CI와 HIL gate
 
+- Unit의 disposable PostgreSQL fixture는 runner의 PostgreSQL 16 server bindir를 사용한다. `pg_config` major 16과 `initdb`, `pg_ctl`, `psql`, `postgres` executable/version을 모두 확인한 뒤에만 `GITHUB_PATH`에 bindir를 추가하고 canonical test를 실행한다. 도구 누락·버전 불일치에서 실패하며 외부 DB 연결이나 테스트 skip으로 대체하지 않는다.
 - `.github/workflows/ci.yml`은 `quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit`의 단일 `needs` chain이다. 모든 독립 software job은 Ubuntu, Node 22, pnpm 9.15.0과 frozen install을 새로 수행하고, frozen install 직후 API Prisma Client를 생성한 다음에만 validation을 시작한다. Canonical root `lint`/`typecheck`/`test`/`build`를 우회하지 않는다.
 - Integration은 GitHub Actions의 disposable PostgreSQL 16과 Redis 7 healthcheck 뒤에만 실행한다. 일반 suite는 `led_control`, inventory/certificate 전역 cleanup이 있는 PKI concurrency 17개는 전용 `pki_concurrency` DB를 사용하고 두 DB 모두 전체 `prisma migrate deploy`를 적용한다. Redis editor lease는 DB 15, fixture identify는 DB 14로 분리한다. 필수 URL 또는 `RUN_REDIS_INTEGRATION=true`가 없거나 DB identity가 다르면 테스트를 skip하지 않고 migration 전에 실패한다. 지정 suite는 cleanup 충돌을 막기 위해 `--runInBand`로 실행한다.
 - Real-backend core는 host PostgreSQL server/client, Redis, Mosquitto, OpenSSL, `lsof`/`procps`와 Chromium dependency를 설치하고 `E2E_REAL_BACKEND_LAB=1`, Chromium 한 worker로 `installation-customer-journey.spec.ts`만 실행한다. Fixed lab port를 공유하는 real suite를 같은 job에서 병렬화하지 않는다.

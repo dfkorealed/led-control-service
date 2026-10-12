@@ -28,7 +28,14 @@ die() {
 }
 
 file_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  local mode
+  # GNU stat can print filesystem data before rejecting BSD's format arguments.
+  # Discard output from failed probes so exact 600/644 checks receive only a mode.
+  if mode="$(stat -f '%Lp' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$mode"
+  else
+    stat -c '%a' "$1"
+  fi
 }
 
 assert_no_symlink_ancestors() {

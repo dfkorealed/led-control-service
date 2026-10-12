@@ -20,9 +20,15 @@ const baseTemplate = {
     BucketName: { Type: 'String', AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]' },
     DomainName: { Type: 'String', Default: '' },
     CertificateArn: { Type: 'String', Default: '', Description: 'Existing ISSUED ACM certificate in us-east-1; do not create or replace certificates.' },
-    HostedZoneId: { Type: 'String', Default: '', Description: 'Existing public Route 53 zone; required with DomainName.' }
+    HostedZoneId: { Type: 'String', Default: '', Description: 'Existing public Route 53 zone for managed DNS; leave empty to manage the domain CNAME in an external DNS provider.' }
   },
-  Conditions: { CustomDomain: { 'Fn::Not': [{ 'Fn::Equals': [ref('DomainName'), ''] }] } },
+  Conditions: {
+    CustomDomain: { 'Fn::Not': [{ 'Fn::Equals': [ref('DomainName'), ''] }] },
+    ManagedDns: { 'Fn::And': [
+      { 'Fn::Not': [{ 'Fn::Equals': [ref('DomainName'), ''] }] },
+      { 'Fn::Not': [{ 'Fn::Equals': [ref('HostedZoneId'), ''] }] }
+    ] }
+  },
   Resources: {
     LandingBucket: { Type:'AWS::S3::Bucket', DeletionPolicy:'Retain', UpdateReplacePolicy:'Retain', Properties:{
       BucketName:ref('BucketName'), PublicAccessBlockConfiguration:{BlockPublicAcls:true,IgnorePublicAcls:true,BlockPublicPolicy:true,RestrictPublicBuckets:true},
@@ -49,8 +55,8 @@ const baseTemplate = {
       {Sid:'CloudFrontRead',Effect:'Allow',Principal:{Service:'cloudfront.amazonaws.com'},Action:'s3:GetObject',Resource:['index.html','404.html','assets/*','brand/*'].map(key=>sub(`\${LandingBucket.Arn}/${key}`)),Condition:{StringEquals:{'AWS:SourceArn':sub('arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${LandingDistribution}')}}},
       {Sid:'DenyInsecureTransport',Effect:'Deny',Principal:'*',Action:'s3:*',Resource:[attr('LandingBucket','Arn'),sub('${LandingBucket.Arn}/*')],Condition:{Bool:{'aws:SecureTransport':'false'}}}
     ]}}},
-    DomainRecord:{Type:'AWS::Route53::RecordSet',Condition:'CustomDomain',Properties:{HostedZoneId:ref('HostedZoneId'),Name:ref('DomainName'),Type:'A',AliasTarget:{DNSName:attr('LandingDistribution','DomainName'),HostedZoneId:'Z2FDTNDATAQYW2'}}},
-    DomainIpv6Record:{Type:'AWS::Route53::RecordSet',Condition:'CustomDomain',Properties:{HostedZoneId:ref('HostedZoneId'),Name:ref('DomainName'),Type:'AAAA',AliasTarget:{DNSName:attr('LandingDistribution','DomainName'),HostedZoneId:'Z2FDTNDATAQYW2'}}}
+    DomainRecord:{Type:'AWS::Route53::RecordSet',Condition:'ManagedDns',Properties:{HostedZoneId:ref('HostedZoneId'),Name:ref('DomainName'),Type:'A',AliasTarget:{DNSName:attr('LandingDistribution','DomainName'),HostedZoneId:'Z2FDTNDATAQYW2'}}},
+    DomainIpv6Record:{Type:'AWS::Route53::RecordSet',Condition:'ManagedDns',Properties:{HostedZoneId:ref('HostedZoneId'),Name:ref('DomainName'),Type:'AAAA',AliasTarget:{DNSName:attr('LandingDistribution','DomainName'),HostedZoneId:'Z2FDTNDATAQYW2'}}}
   },
   Outputs:{BucketName:{Value:ref('LandingBucket')},DistributionId:{Value:ref('LandingDistribution')},DistributionDomain:{Value:attr('LandingDistribution','DomainName')},OacId:{Value:ref('LandingOac')}}
 };

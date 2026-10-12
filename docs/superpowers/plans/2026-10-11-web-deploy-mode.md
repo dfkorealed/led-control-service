@@ -39,6 +39,38 @@
 
 - [x] 총괄이 체크리스트·상태판 최신화, 검토된 커밋·미리보기/정확한 사용 명령·최초 환경 입력·실제 공개 상태 보고. 기존 root 서비스/다른 worktree는 보존한다. 첫 로컬FF `cc6b9a7a`→`d95f0a96` exit0·clean·제품diff0와 기존5173의 공개세경로/login200을 확인했다. 운영 AWS·fullCI·remote push는 수행하지 않았다. 영구 증거를 보존하고 이번 임시 preview/worktree만 정리한다.
 
+## Task 4 — 2026-10-12 호스팅케이알 외부 DNS 후속
+
+사용자가 `kinda.dfkorealed.com` / 호스팅케이알과 수동 AWS 배포를 선택했다. 호스팅케이알 공식 NS 레코드 지원은 확인되지 않아 CNAME 연결을 사용한다. 기존 수정 즉시 반영 요청에 따라 앞서 제시한 외부 DNS 지원 설계로 진행한다. 리소스 생성/인증서 발급/DNS 변경/AWS 배포는 사용자가 직접 수행한다.
+
+- [x] Step1: 단일 담당이 `scripts/landing/deploy.mjs`, `template.mjs`, 관련 테스트와 `infra/landing/config.example.json`, 기존 AWS runbook을 수정한다. `domainName`+같은 계정 `us-east-1` 인증서가 있으면 `hostedZoneId` 빈 값은 수동 외부 DNS, 유효한 Z ID는 기존 Route 53 자동 연결로 판별한다. 도메인 없음은 CloudFront 기본 주소를 유지한다. 별도 환경 플래그는 추가하지 않는다.
+- [x] Step2: 실패 테스트→구현→전체 Node 배포 계약을 검증했다(`9a13a444`, RED6→22/22PASS, Node24; Node22/fullCI/liveAWS는 미검증). 외부 DNS에는 Route 53 조회/쓰기/리소스 생성이 없으며 CF 도메인/인증서는 유지한다. Route 53 호환, 잘못된 인증서/zone 거절, domain 없이 cert/zone 거절, 미발급·미일치 cert 원격 쓰기 전 거절, landing/service 모드 보존과 check/deploy/rollback DNS 안내를 검증한다.
+- [x] Step3: 독립 QA가 고정 diff·증거·초보자 수동 절차를 검토했다. ACM 읽기 권한 예시 누락 I1을 ffbd8b09로 수정하고 재검토 I1 ADDRESSED/new C0/I0/M0·specYES/qualityAPPROVED/source통합YES를 받았다. 소유권/비공개 S3/OAC/hash/lock/rollback/CI 관문과 기존 backend/UI를 보존한다.
+- [x] Step4: 검토된 소스를 로컬 기본 브랜치에 반영하고 체크리스트·상태판을 함께 갱신한다. 코드 검증과 실제 AWS/DNS/TLS 성공을 구분해 정확한 명령과 호스팅케이알 입력값을 보고한다. f31e56fa→2b3d9aae FF 이후 기본 checkout에서 Node계약23/23·diffcheck0을 재확인했다. 실제 AWS/DNS/배포는 사용자 수동 관문으로 남는다.
+
+검토 초점: empty hostedZoneId와 malformed ID 구분, custom domain 인증서 안전 검증, CFN의 CustomDomain과 DNS 생성 조건 분리, 기존 관리 DNS에서 외부 DNS로 의도치 않게 전환하여 레코드가 삭제되는 경우, 실제 DistributionDomain과 CNAME 안내 일치. 기존 managed DNS stack의 설정 전환은 자동 허용하지 않고 명확한 실패로 보호한다.
+
+
+## Task 5 — 2026-10-12 직접 공개 배포·무료 플랜 유지
+
+사용자가 직접 배포를 요청하여 Task4의 수동 운영 경계를 변경했다. 최초 서울 요청의 계정 제한을 확인한 뒤 사용자는 현재 무료 플랜을 유지하고 크레딧 소진 뒤 서울 이전을 선택했다. 현재 공개 범위는 landing, 회사 DNS는 호스팅케이알, 리소스 리전은 기존 ap-southeast-2다. CloudFront viewer 인증서는 서비스 요구에 따라 us-east-1을 사용한다. 과금 플랜·고급 기능·SCP는 변경하지 않으며 향후 서울 이전은 새 리소스와 DNS 전환 작업으로 별도 진행한다.
+
+- [x] AWS CLI 임시 세션과 STS 회사 계정 확인. 서울 로그인 오류를 공식 문서와 실제 프로젝트 설정으로 조사하고 프로젝트의 기존 Sydney 리전에서 CLI 연결을 완료했다.
+- [x] 읽기 전용 리전/인증서/DNS 사전 확인. 서울 ListStacks는 조직 SCP explicit deny, Sydney ListStacks는 성공/빈 목록. AWS Settings는 신규 경험 Free Plan 및 Sydney 지정, us-east-1 ACM 목록 없음, 권한 NS 호스팅케이알, kinda CNAME 조회 없음.
+- [x] 사용자 계정 변경 선택: 현재 무료 플랜 유지·기존 Sydney 리전 공개 배포, 서울 이전은 크레딧 소진 뒤 별도 진행. 자동 전환/예약하지 않는다.
+- [x] Node22.23.3 공식 archive checksum 확인·pnpm9.15 frozen install, fresh landing build와 공개 계약23/23. 새 canonical 원격 branch에 source3540ea41 push 완료.
+- [ ] 정확한 reviewed source의 canonical CI 전체 성공. run38194736652는 quality 성공/unit 실패/후속4 skipped. isolated Ubuntu 원RED0/2→승인381aa7d6 세 파일의 focusedGREEN2/2·Mac root152PASS/기존환경4SKIP를 회수했다. Compose 생략 출력·OpenSSL stdout·GNU/BSD stat 오염 최소수정은 독립 C/I/M0·spec/qualityPASS·통합YES 승인 뒤 clean root에 d270c3a9로 통합했다. 추가Linux root의 환경 차이 실패는 전체GREEN으로 주장하지 않으며 실제 nonroot/init runner의 새 exactSHA CI를 확인한다. workflow/skip/production policy 완화는 금지한다.
+  - 후속f4fc4d94/run38196386765: quality 성공·실제Linux root152PASS/4기존환경SKIP/0FAIL, 원수정은 실제CI통과. Web3567PASS/20FAIL/3기존SKIP이며 App17/FixtureGroupDialog1/OperatorShell1/SettingsShell1의 네 파일을 단일 Web writer가 현재계약과 대조·최소교정 후 독립 review한다. 현재승인계약과의 fixture/selector 불일치를 확인했고 실제 Operator security h1 owner누락에는 해당route의 공통PageHeader+operator메뉴문서 범위만 추가승인했다. API/role/dirtylogout/focus·모달 동작을 보존한다. 검토용6de105fe 승인6파일은 원RED20FAIL/96PASS→동일네파일116/116PASS·Web타입0/diffcheck0이다. 독립exact381aa7d6→6de105fe C/I/M0·spec/qualityPASS·통합YES로 승인해 root4404bf8d에cherry-pick/제품diff0확인후docs포함d6c49828 exactSHA CI에전달했다. 외부AGENTS.md unstaged추가는보존/미커밋하며root전체clean으로표시하지않는다. 전체CI후속4단계 미실행/공개gate를 유지한다.
+  - 현재exactd6c49828/run38197956442 qualitySUCCESS/unitFAIL/후속4SKIP. 원수정root152PASS/기존4ENVskip·Web3587PASS/3baselineSKIP·shared546/automation28/mobile109PASS. Gateway1828PASS/2FAIL은기존담당의read-only조사, API3 migration files45진단헤더(원46중Console1제외, 실패총계아님)(initdbENOENT, finaltotalsunfinished)는독립backend/CI조사로분리한다. 추가scope승인전mutation금지/skip·timeout·gate약화금지이며전체CI/공개gate미완료다. AWS FREE/ACTIVE 플랜은 그대로다.
+  - 원인확정후승인: Gateway두test의coldstartup/diagnostic→exit분리(750ms/기존5s·routing smoke유지)와중복launcher제거. API는existingPG16.15bindir PATH누락으로 unitworkflow+ci-workflows회귀2파일만승인(existingtools preflight/GITHUB_PATH/order/skip금지). APIproduction/schema·외부DB·apt/service변경없음, ownfreshfixture검증과독립review후통합한다.
+  - Gateway67898b15 독립C/I/M0·spec/qualityPASS·통합YES, root04e5ab06 cherry-pick/diff0. 원baselinefiltered2PASS63제외 vs최종두file65PASSskip0 분리.
+  - CI PG 준비 c55a4a9c: unit의 PostgreSQL 16·네 tool 검증 후 GITHUB_PATH 추가, 계약43/43·actual Bash wrongversion/missingtool fail-closed, fresh CAD3 RED44FAIL/2PASS/기존1SKIP→GREEN46PASS/기존1SKIP. 독립 C/I/M0·spec/qualityPASS·통합YES, root91b35da5에동일두파일통합. 첫 macOS 전체API의 비운 locale startup 오류는 완료 근거에서 제외하며 동일source PATH+LC_ALL=C 검증과 새 exactSHA canonical 여섯 gate를 확인한다. skip/timeout/gate 약화·외부 DB 연결 없음.
+- [x] 실제 같은 계정 ACM DNS 인증서 발급·호스팅케이알 검증 CNAME 저장, 권한 DNS 응답과 ISSUED 확인. 기존 회사 DNS 보존, 갱신용 CNAME 유지.
+- [ ] Sydney 전용 stack provision 및 실제 DistributionId 구성. private ignored config와 AWS validate-template은 준비됐으며 CI green 전 실제 provision은 보류한다.
+- [ ] mode-bound release build/deploy 완료 뒤 호스팅케이알 kinda CNAME 연결, HTTPS 공개 경로/차단 경로 smoke, 실제 결과 기록.
+
+현재 ACM 인증서 발급과 검증 CNAME 저장은 완료했지만 stack/S3/CloudFront 생성과 서비스 공개는 미완료다. 인증서·한정 로컬 테스트 성공을 전체 CI·배포 성공으로 표시하지 않는다.
+
 ## Ownership
 
 긴밀한 공유 계약이므로 한 implementer에게 `apps/web/**`, `infra/landing/**`, `scripts/landing/**`, 필요 root package script, 공개 메뉴3문서와 기존 AWS runbook을 승인한다. 서버/공유 MQTT/DB/인증서/기존 production Compose/CI 변경은 제외한다. 총괄만 이 계획·spec·project-status를 갱신한다.

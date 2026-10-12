@@ -30,6 +30,14 @@ vi.mock("../registration/RegistrationPanel", () => ({ RegistrationPanel: () => <
 vi.mock("../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => null }));
 vi.mock("../../api/site-users", () => ({ useSiteUsers: () => ({ data: { users: [], count: 0, limit: 100 } }) }));
 
+function settingsCard(label: string) {
+  // Card headings distinguish whole-card links from the same-named tabs.
+  const card = screen.getByRole("heading", { name: label, level: 2 }).closest<HTMLAnchorElement>("a");
+  expect(card).not.toBeNull();
+  expect(card).toHaveAccessibleName(label);
+  return card!;
+}
+
 describe("SettingsShell", () => {
   it.each([
     ["/settings", "설정"], ["/settings/site/", "현장 관리"], ["/settings/users", "사용자 관리"],
@@ -131,21 +139,22 @@ describe("SettingsShell", () => {
     );
 
     expect(screen.getByRole("heading", { name: "설정" })).toBeInTheDocument();
-    const site = screen.getByRole("group", { name: "현장 관리" });
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(5);
+    const site = settingsCard("현장 관리");
     expect(site).toHaveTextContent(mockDashboard.site.name);
 
-    const floors = screen.getByRole("group", { name: "맵 관리" });
+    const floors = settingsCard("맵 관리");
     expect(floors).toHaveTextContent(`${mockDashboard.floors.length}개 층`);
     expect(floors).toHaveTextContent(`맵 설정 ${mockDashboard.floors.length}개`);
-    expect(within(floors).getByRole("link", { name: "맵 관리 열기" })).toHaveAttribute(
+    expect(floors).toHaveAttribute(
       "href",
       "/settings/floor-plans?siteId=site-1#fragment"
     );
 
-    expect(screen.getByRole("group", { name: "조명 등록" })).toHaveTextContent(`등록 조명 ${mockDashboard.summary.totalFixtures}개`);
-    expect(screen.getByRole("group", { name: "유저 관리" })).toHaveTextContent("사용자 0명");
-    const security = screen.getByRole("group", { name: "계정 보안" });
-    expect(within(security).getByRole("link", { name: "계정 보안 열기" })).toHaveAttribute(
+    expect(settingsCard("조명 등록")).toHaveTextContent(`등록 조명 ${mockDashboard.summary.totalFixtures}개`);
+    expect(settingsCard("유저 관리")).toHaveTextContent("사용자 0명");
+    const security = settingsCard("계정 보안");
+    expect(security).toHaveAttribute(
       "href",
       "/settings/security?siteId=site-1#fragment"
     );

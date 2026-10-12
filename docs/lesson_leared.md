@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-12 / CI의 운영체제와 도구 출력 계약을 실제로 재현한다
+
+- **발생한 문제**: Ubuntu CI에서 Compose 2.38.2가 원본 YAML의 `create_host_path: false`를 normalized JSON `bind: {}`로 생략했다. OpenSSL은 Node의 출력 파이프인 `/dev/stdout`을 파일로 다시 열지 못했고, GNU `stat`의 실패한 BSD 옵션 출력이 GNU fallback의 권한 값에 섞여 정상 600 개인 키도 거부했다. macOS focused 테스트 통과만으로는 이를 확인할 수 없었다.
+- **예방**: 실제 CI 버전의 격리 Ubuntu 환경에서 원 실패를 먼저 재현한다. Compose는 원본의 명시 false와 normalized true 거부를 함께 검사한다. OpenSSL은 기본 stdout을 직접 캡처하며 실패 stderr를 보존한다. OS별 stat probe는 성공한 출력만 반환하고 정확한 권한 검사 기준은 그대로 유지한다.
+- **검증 경계**: 원 Linux focused 0/2에서 최소 세 파일 수정 후 2/2를 확인했고 정상 600 재사용·위험한 644 개인 키 거부를 실제 fixture로 검증했다. macOS root script 152 PASS/기존 환경 의존 4 SKIP는 전체 canonical CI나 공개 배포 성공을 대신하지 않는다. 독립 검토는 C/I/M0로 승인했다. 추가 전체 Linux 컨테이너 검사의 root/PID1·의존성 준비 차이 실패는 실제 CI 성공/실패와 구분하며 새 exact SHA의 canonical CI가 남아 있다.
+
 ## 2026-10-08 / 시험 브리지 실패도 원시 진단 근거를 남긴다
 
 - **발생한 문제**: 실제 장비는 observing에 진입했지만 브리지는 waiting52회 뒤 `TRANSPORT_UNAVAILABLE`로 종료해 안내 타이머를 시작하지 못했다. 실패 SSH 종료 상태/stdout/stderr/RTT가 버려져 실패 종료·stderr·지연 상한 중 어느 원인인지 확정할 수 없었다.

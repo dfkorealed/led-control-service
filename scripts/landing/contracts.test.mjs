@@ -9,7 +9,7 @@ import { createArtifact } from '../../apps/web/scripts/public-deploy-contract.mj
 import { createTemplate } from './template.mjs';
 const config = {accountId:'123456789012',region:'ap-northeast-2',stackName:'kinda-landing-test',bucket:'kinda-landing-test-123456789012',distributionId:'DIST12345',apiOriginDomain:'api.kinda-lighting.com'};
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-function fakeAws() {
+function fakeAws({target=config,existingStack=true,certificateStatus='ISSUED',certificateNames=[target.domainName]}={}) {
   const calls = [], objects = new Map();
   let active = {mode:'landing',release:'unpublished'}, pending, failActivation = false, account = config.accountId;
   const run = async args => {
@@ -17,12 +17,18 @@ function fakeAws() {
     const value = flag => args[args.indexOf(flag)+1];
     const command = args.slice(0,2).join(' ');
     if (command === 'sts get-caller-identity') return {Account:account};
-    if (command === 'cloudformation describe-stacks') return {Stacks:[{StackId:`arn:aws:cloudformation:${config.region}:${config.accountId}:stack/${config.stackName}/id`,StackStatus:'UPDATE_COMPLETE',Tags:[{Key:'Purpose',Value:'kinda-static-landing'}],Outputs:Object.entries({BucketName:config.bucket,DistributionId:config.distributionId,OacId:'OAC123',DeployMode:active.mode,ReleaseId:active.release}).map(([OutputKey,OutputValue])=>({OutputKey,OutputValue}))}]};
+    if (command === 'cloudformation describe-stacks') {
+      if (!existingStack) throw Error(`Stack ${target.stackName} does not exist`);
+      return {Stacks:[{StackId:`arn:aws:cloudformation:${target.region}:${target.accountId}:stack/${target.stackName}/id`,StackStatus:'UPDATE_COMPLETE',Tags:[{Key:'Purpose',Value:'kinda-static-landing'}],Parameters:Object.entries({BucketName:target.bucket,DomainName:target.domainName??'',CertificateArn:target.certificateArn??'',HostedZoneId:target.hostedZoneId??'',ApiOriginDomain:target.apiOriginDomain??''}).map(([ParameterKey,ParameterValue])=>({ParameterKey,ParameterValue})),Outputs:Object.entries({BucketName:target.bucket,DistributionId:target.distributionId,OacId:'OAC123',DistributionDomain:'d123.cloudfront.net',DeployMode:active.mode,ReleaseId:active.release}).map(([OutputKey,OutputValue])=>({OutputKey,OutputValue}))}]};
+    }
+    if (command === 'acm describe-certificate') return {Certificate:{Status:certificateStatus,SubjectAlternativeNames:certificateNames}};
+    if (command === 'route53 get-hosted-zone') return {HostedZone:{Name:'dfkorealed.com.',Config:{PrivateZone:false}}};
+    if (command === 'route53 list-resource-record-sets') return {ResourceRecordSets:[]};
     if (command === 's3api head-bucket') return {};
     if (command === 's3api get-public-access-block') return {PublicAccessBlockConfiguration:{BlockPublicAcls:true,IgnorePublicAcls:true,BlockPublicPolicy:true,RestrictPublicBuckets:true}};
     if (command === 's3api get-bucket-ownership-controls') return {OwnershipControls:{Rules:[{ObjectOwnership:'BucketOwnerEnforced'}]}};
     if (command === 'cloudfront get-origin-access-control') return {OriginAccessControl:{OriginAccessControlConfig:{OriginAccessControlOriginType:'s3',SigningBehavior:'always',SigningProtocol:'sigv4'}}};
-    if (command === 'cloudfront get-distribution') return {Distribution:{ARN:`arn:aws:cloudfront::${config.accountId}:distribution/${config.distributionId}`,Status:'Deployed',DistributionConfig:{Enabled:true,Origins:{Items:[{DomainName:`${config.bucket}.s3.${config.region}.amazonaws.com`,OriginAccessControlId:'OAC123',S3OriginConfig:{OriginAccessIdentity:''}},...(active.mode==='service'?[{Id:'service-api',DomainName:config.apiOriginDomain,CustomOriginConfig:{OriginProtocolPolicy:'https-only'}}]:[])]}}}};
+    if (command === 'cloudfront get-distribution') return {Distribution:{ARN:`arn:aws:cloudfront::${target.accountId}:distribution/${target.distributionId}`,DomainName:'d123.cloudfront.net',Status:'Deployed',DistributionConfig:{Enabled:true,Aliases:{Items:target.domainName?[target.domainName]:[]},ViewerCertificate:target.domainName?{ACMCertificateArn:target.certificateArn}:{CloudFrontDefaultCertificate:true},Origins:{Items:[{DomainName:`${target.bucket}.s3.${target.region}.amazonaws.com`,OriginAccessControlId:'OAC123',S3OriginConfig:{OriginAccessIdentity:''}},...(active.mode==='service'?[{Id:'service-api',DomainName:target.apiOriginDomain,CustomOriginConfig:{OriginProtocolPolicy:'https-only'}}]:[])]}}}};
     if (command === 's3api head-object') {
       const obj=objects.get(value('--key')); if(!obj)throw Error('HeadObject (404)');
       return {Metadata:obj.metadata,ETag:digest(obj.bytes)};
@@ -39,6 +45,7 @@ function fakeAws() {
       objects.delete(value('--key'));return {};
     }
     if(command==='cloudformation validate-template')return {};
+    if(command==='cloudformation create-stack')return {StackId:`arn:aws:cloudformation:${target.region}:${target.accountId}:stack/${target.stackName}/new`};
     if(command==='cloudformation update-stack') {
       const t=JSON.parse(await readFile(value('--template-body').slice(7),'utf8'));
       pending={mode:t.Outputs.DeployMode.Value,release:t.Outputs.ReleaseId.Value};
@@ -139,4 +146,116 @@ test('activation failure retains lock and exact conditional recovery can roll ba
     assert.equal(aws.objects.has('releases/deployment.lock'),false);
     assert.ok(aws.calls.find(a=>a[1]==='delete-object'&&a.includes('--if-match')));
   } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+const external = {...config,domainName:'kinda.dfkorealed.com',certificateArn:'arn:aws:acm:us-east-1:123456789012:certificate/11111111-2222-3333-4444-555555555555',hostedZoneId:''};
+const managed = {...external,hostedZoneId:'Z1234567890ABC'};
+test('custom domain template keeps aliases and certificate while external DNS creates no Route 53 records',()=>{
+  for(const mode of ['landing','service']) {
+    const t=createTemplate(mode,'r1');
+    assert.deepEqual(t.Resources.LandingDistribution.Properties.DistributionConfig.Aliases,{'Fn::If':['CustomDomain',[{Ref:'DomainName'}],{Ref:'AWS::NoValue'}]});
+    assert.equal(t.Resources.DomainRecord.Condition,'ManagedDns');
+    assert.equal(t.Resources.DomainIpv6Record.Condition,'ManagedDns');
+    assert.deepEqual(t.Conditions.ManagedDns,{'Fn::And':[{'Fn::Not':[{'Fn::Equals':[{Ref:'DomainName'},'']}]},{'Fn::Not':[{'Fn::Equals':[{Ref:'HostedZoneId'},'']}]}]});
+  }
+});
+test('config accepts empty external zone and rejects malformed zone or orphan certificate',()=>{
+  assert.equal(validateConfig(external),external);
+  assert.equal(validateConfig(managed),managed);
+  assert.throws(()=>validateConfig({...external,hostedZoneId:undefined}),/hostedZoneId/);
+  for(const hostedZoneId of ['Z','abc','Zbad-id',' Z123','Z123 '])assert.throws(()=>validateConfig({...external,hostedZoneId}),/hostedZoneId/);
+  assert.throws(()=>validateConfig({...config,certificateArn:external.certificateArn}),/Domain/);
+  assert.throws(()=>validateConfig({...config,hostedZoneId:managed.hostedZoneId}),/Domain/);
+});
+test('offline external plan has unresolved target and makes no AWS calls',async()=>{
+  const result=await runRelease({mode:'provision',deployMode:'landing',execute:false},external,()=>assert.fail('AWS forbidden'));
+  assert.deepEqual(result.dns,{mode:'external',recordType:'CNAME',name:'kinda.dfkorealed.com',target:null});
+  assert.match(result.note,/unresolved|unknown|stack/i);
+});
+test('external provision validates issued matching certificate but never queries Route 53',async()=>{
+  for(const deployMode of ['landing','service']) {
+    const aws=fakeAws({target:external,existingStack:false});
+    const result=await runRelease({mode:'provision',deployMode,execute:true},external,aws.run);
+    assert.match(result.StackId,/\/new$/);
+    assert.deepEqual(result.dns,{mode:'external',recordType:'CNAME',name:'kinda.dfkorealed.com',target:null});
+    assert.ok(aws.calls.some(a=>a[0]==='acm'&&a[1]==='describe-certificate'));
+    assert.ok(aws.calls.some(a=>a[0]==='cloudformation'&&a[1]==='create-stack'));
+    assert.equal(aws.calls.filter(a=>a[0]==='route53').length,0);
+  }
+  for(const [certificateStatus,certificateNames] of [['PENDING_VALIDATION',['kinda.dfkorealed.com']],['ISSUED',['other.dfkorealed.com']]]) {
+    const aws=fakeAws({target:external,existingStack:false,certificateStatus,certificateNames});
+    await assert.rejects(runRelease({mode:'provision',deployMode:'landing',execute:true},external,aws.run),/ISSUED.*cover/);
+    assert.equal(aws.calls.some(a=>a[0]==='cloudformation'&&['validate-template','create-stack'].includes(a[1])),false);
+    assert.equal(aws.calls.some(a=>a[0]==='route53'),false);
+  }
+});
+test('check, deploy and rollback report actual external CNAME target in both modes',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'external-dns-test-'));const aws=fakeAws({target:external});
+  try {
+    const checked=await runRelease({mode:'check',deployMode:'landing',execute:true},external,aws.run);
+    assert.deepEqual(checked.dns,{mode:'external',recordType:'CNAME',name:'kinda.dfkorealed.com',target:'d123.cloudfront.net'});
+    for(const [deployMode,release] of [['landing','r1'],['service','r2']]) {
+      await fixture(dir,deployMode,release);
+      const deployed=await runRelease({mode:'deploy',deployMode,execute:true,release,dist:dir},external,aws.run);
+      assert.deepEqual(deployed.dns,checked.dns);
+    }
+    const rolled=await runRelease({mode:'rollback',deployMode:'landing',execute:true,release:'r1'},external,aws.run);
+    assert.deepEqual(rolled.dns,checked.dns);
+    assert.equal(aws.calls.filter(a=>a[0]==='route53').length,0);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('managed DNS ownership cannot silently switch to external before any write',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'managed-dns-guard-'));const aws=fakeAws({target:managed});
+  try {
+    await fixture(dir,'landing','r1');
+    await assert.rejects(runRelease({mode:'deploy',deployMode:'landing',execute:true,release:'r1',dist:dir},external,aws.run),/DNS ownership|hostedZoneId/i);
+    assert.equal(aws.calls.some(a=>a[0]==='s3api'&&a[1]==='put-object'),false);
+    assert.equal(aws.calls.some(a=>a[0]==='cloudformation'&&a[1]==='update-stack'),false);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('existing external distribution rejects unissued or mismatching certificate before release writes',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'external-certificate-'));
+  try {
+    await fixture(dir,'landing','r1');
+    for(const [certificateStatus,certificateNames] of [['PENDING_VALIDATION',['kinda.dfkorealed.com']],['ISSUED',['other.dfkorealed.com']]]) {
+      const aws=fakeAws({target:external,certificateStatus,certificateNames});
+      await assert.rejects(runRelease({mode:'deploy',deployMode:'landing',execute:true,release:'r1',dist:dir},external,aws.run),/ISSUED.*cover/);
+      assert.equal(aws.calls.some(a=>a[0]==='s3api'&&a[1]==='put-object'),false);
+      assert.equal(aws.calls.some(a=>a[0]==='cloudformation'&&a[1]==='update-stack'),false);
+    }
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('default stack cannot gain a custom domain through an ordinary deploy',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'default-dns-guard-'));const aws=fakeAws({target:config});
+  try {
+    await fixture(dir,'landing','r1');
+    await assert.rejects(runRelease({mode:'deploy',deployMode:'landing',execute:true,release:'r1',dist:dir},external,aws.run),/DNS ownership/);
+    assert.equal(aws.calls.some(a=>a[0]==='s3api'&&a[1]==='put-object'),false);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('managed and default modes report their real distribution host',async()=>{
+  for(const [target,mode] of [[managed,'managed'],[config,'default']]) {
+    const aws=fakeAws({target});
+    const result=await runRelease({mode:'check',deployMode:'landing',execute:true},target,aws.run);
+    assert.equal(result.dns.mode,mode);
+    assert.equal(result.dns.target,'d123.cloudfront.net');
+  }
+});
+test('managed provision still checks the public Route 53 zone and existing records',async()=>{
+  const aws=fakeAws({target:managed,existingStack:false});
+  const result=await runRelease({mode:'provision',deployMode:'landing',execute:true},managed,aws.run);
+  assert.equal(result.dns.mode,'managed');
+  assert.deepEqual(aws.calls.filter(a=>a[0]==='route53').map(a=>a[1]),['get-hosted-zone','list-resource-record-sets']);
+  assert.ok(aws.calls.some(a=>a[0]==='cloudformation'&&a[1]==='create-stack'));
+});
+test('documented deploy role can only describe its exact us-east-1 ACM certificate',async()=>{
+  const policy=JSON.parse(await readFile(new URL('../../infra/landing/oidc-policy.example.json',import.meta.url),'utf8'));
+  const statements=policy.permissionsPolicy.Statement;
+  const acm=statements.filter(statement=>[].concat(statement.Action).some(action=>action.startsWith('acm:')));
+  assert.deepEqual(acm,[{
+    Effect:'Allow',
+    Action:['acm:DescribeCertificate'],
+    Resource:'arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/EXACT_CERTIFICATE_ID'
+  }]);
+  assert.equal(statements.some(statement=>[].concat(statement.Action).includes('*')),false);
 });

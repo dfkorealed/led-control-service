@@ -1,5 +1,7 @@
 import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
 import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
+import type { MeshNode, Prisma } from "@prisma/client";
+import type { BioSensorBlockedReason, BioSensorPreparationView } from "./bio-sensor-eligibility";
 
 const siteId = "00000000-0000-4000-8000-000000000001";
 const gatewayId = "00000000-0000-4000-8000-000000000002";
@@ -12,15 +14,29 @@ function report(overrides: Record<string, unknown> = {}) {
     sensorProtocol: "bio-usb-pulse", readiness: "ready", verifiedFingerprintId: "synthetic-profile",
     sensorModeVerifiedAt: now.toISOString(), verifiedAt: now.toISOString(), ...overrides };
 }
-function context(nodeOverrides: Record<string, unknown> = {}) {
-  const node = { id: meshNodeId, fixtureId: meshNodeId, vehicleSensorProtocol: "bio_usb_pulse",
+type CapabilityNode = Pick<MeshNode, "id" | "vehicleSensorProtocol" | "vehicleSensorCapabilityStatus" |
+  "vehicleSensorCapabilityVerifiedAt" | "vehicleSensorCapabilityRevision" | "vehicleSensorServerBound" |
+  "vehicleVendorEventModelBound" | "bioPulseReadiness" | "bioPulseCapabilityRevision" | "bioPulseProfileId" |
+  "bioPulseVerifiedAt" | "bioPulseSensorModeVerifiedAt"> & { fixtureId: string };
+function context(nodeOverrides: Partial<CapabilityNode> = {}, blockedReasons: BioSensorBlockedReason[] = []) {
+  const node: CapabilityNode = { id: meshNodeId, fixtureId: meshNodeId, vehicleSensorProtocol: "bio_usb_pulse",
     vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityVerifiedAt: null,
     vehicleSensorCapabilityRevision: 0n, vehicleSensorServerBound: false, vehicleVendorEventModelBound: false,
     bioPulseReadiness: "off", bioPulseCapabilityRevision: 0n, bioPulseProfileId: null, bioPulseVerifiedAt: null,
+    bioPulseSensorModeVerifiedAt: null,
     ...nodeOverrides };
+  const eligibility: BioSensorPreparationView & { fixtureId: string } = { fixtureId: meshNodeId,
+    preparationCandidate: true, status: "ready", commandId: "synthetic-preparation",
+    profileKey: "synthetic-profile", observedAt: now.toISOString(), blockedReasons };
   const calls: string[] = [];
   const tx = {
-    $queryRaw: jest.fn(async () => [node]), ...gatewayEventWatermarkMock(),
+    // Node ownership and current SQL eligibility are separate evidence. Never
+    // let an unrelated query fabricate a ready result from the advertised node.
+    $queryRaw: jest.fn(async (query: Prisma.Sql) => {
+      if (query.sql.includes('FROM "MeshNode" AS node')) return [node];
+      if (query.sql.includes('bio_sensor_blocked_reasons(') && query.sql.includes('FROM "Fixture" fixture')) return [eligibility];
+      throw new Error("unexpected BIO qualification fixture SQL");
+    }), ...gatewayEventWatermarkMock(),
     meshNode: { update: jest.fn(async ({ data }) => { calls.push("metadata"); Object.assign(node, data); return node; }) },
     processedGatewayEvent: { findUnique: jest.fn(async () => null), findFirst: jest.fn(async () => null),
       create: jest.fn(async () => ({})) },
@@ -39,11 +55,24 @@ describe("internal BIO capability qualification", () => {
     const { service, node, tx } = context();
     await expect(service.applyBioReport(report(), scope)).resolves.toEqual({ status: "applied", errorCode: null });
     expect(node).toMatchObject({ bioPulseReadiness: "ready", bioPulseCapabilityRevision: 2n,
-      bioPulseProfileId: "synthetic-profile", bioPulseVerifiedAt: now,
+      bioPulseProfileId: "synthetic-profile", bioPulseVerifiedAt: now, bioPulseSensorModeVerifiedAt: now,
       vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityRevision: 0n,
       vehicleSensorServerBound: false, vehicleVendorEventModelBound: false });
     expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
   });
+
+  it.each(["profile_unverified", "mode_unverified"] as const)(
+    "does not promote an advertised ready node when current SQL reports %s", async blockedReason => {
+      const { service, node, tx } = context({}, [blockedReason]);
+      await expect(service.applyBioReport(report(), scope)).resolves.toEqual({
+        status: "rejected", errorCode: "bio_current_evidence_unverified"
+      });
+      expect(node).toMatchObject({ bioPulseReadiness: "off", bioPulseCapabilityRevision: 0n,
+        bioPulseProfileId: null, bioPulseVerifiedAt: null, bioPulseSensorModeVerifiedAt: null });
+      expect(tx.meshNode.update).not.toHaveBeenCalled();
+      expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+    }
+  );
 
   it.each(["off", "shadow", "degraded"])("disables affected rules before %s metadata is persisted", async readiness => {
     const { service, calls, node } = context({ bioPulseReadiness: "ready", bioPulseCapabilityRevision: 1n,
@@ -62,7 +91,7 @@ describe("internal BIO capability qualification", () => {
 
   it("treats equal matching revision as duplicate without touching readiness", async () => {
     const { service, tx } = context({ bioPulseReadiness: "ready", bioPulseCapabilityRevision: 2n,
-      bioPulseProfileId: "synthetic-profile", bioPulseVerifiedAt: now });
+      bioPulseProfileId: "synthetic-profile", bioPulseVerifiedAt: now, bioPulseSensorModeVerifiedAt: now });
     await expect(service.applyBioReport(report(), scope)).resolves.toEqual({ status: "duplicate", errorCode: null });
     expect(tx.meshNode.update).not.toHaveBeenCalled();
   });
