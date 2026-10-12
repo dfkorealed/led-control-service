@@ -2,12 +2,21 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 AWS Agent Toolkit — 로컬 설정·실제 연결 검증 완료
+
+- [x] `uv 0.13.0`·AWS CLI `2.37.12` 설치를 확인했다. `kinda` 프로필의 선택 리전은 `ap-southeast-2`이며, CLI STS 접근과 자격 증명 출처 `login`을 확인했다. 이전 대기 요청의 만료로 닫힌 loopback 콜백 페이지와 현재 사용 가능한 인증 상태를 구분한다.
+- [x] 공식 `aws configure agent-toolkit --yes --region us-east-1 --profile kinda`가 exit0으로 Codex용 기본 AWS 스킬 23개와 `aws-mcp`를 설치했다. 원격 스킬 카탈로그 113개 조회도 exit0이다. `us-east-1`은 툴킷/MCP 서비스 주소이며 프로젝트 리전 변경이나 애플리케이션 배포가 아니다.
+- [x] `~/.codex/config.toml`에 `AWS_MCP_PROXY_PROFILES=kinda`를 보완하고 기존 비AWS 설정은 백업과 동일하게 보존했다. 원본 백업은 `/Users/kim-jh/.codex/aws-toolkit-backup-20261012.xKE1v5/config.toml.before`에 유지한다. [프로젝트 규칙](../AGENTS.md)에 공식 신규 AWS 경험 지침을 안정적인 시작/끝 마커로 추가하고, 원문 및 기존 프로젝트 규칙 보존을 diff exit0으로 확인했다.
+- [x] MCP initialize·도구 목록 9개 조회 및 `ap-southeast-2` STS `GetCallerIdentity` 실제 호출이 성공했다(`isError=false`, `api_calls` success). CLI와 동일한 `AccountFullAccessRole`이다. 검증용 proxy는 수동 SIGINT 뒤 exit130으로 종료하고 남은 proxy 프로세스가 없음을 확인했다. 종료 시 `CancelledError`/`KeyboardInterrupt` traceback은 의도적인 중단 로그이며 앞선 연결/API 성공과 구분한다. 기존 앱 서버·DB·장비·DNS·진행 중 배포 작업은 변경하지 않았다.
+- 다음 새 세션에서 설치한 스킬과 MCP 설정을 로드한다. 현재 세션 도구 목록의 자동 갱신이나 실제 리소스 배포·전체 서비스 검증 완료로 확대하지 않는다.
+
 ## 2026-10-12 실제 공개 배포 — 무료 플랜 유지·Sydney 리전 진행
 
 - 사용자가 수동 배포 지시를 변경하고 서울 리전의 직접 배포를 요청했다. `kinda.dfkorealed.com`, 호스팅케이알 DNS 유지, `WEB_DEPLOY_MODE=landing` 범위를 유지하며 [실행 체크리스트 Task5](superpowers/plans/2026-10-11-web-deploy-mode.md)와 동기화한다.
 - AWS CLI 2.37.12의 `kinda` 임시 로그인과 STS 회사 계정 확인은 완료했다. 현재 AWS Settings의 `Try Catch Finally` 프로젝트는 신규 AWS 경험의 무료 플랜이며 `ap-southeast-2`에 지정되어 있다. 해당 리전 `cloudformation:ListStacks`는 빈 목록으로 성공했지만 서울 `ap-northeast-2`의 같은 읽기 호출은 조직 SCP의 explicit deny로 실패했다. 로그인도 프로젝트 리전으로만 연결됐으며 이를 서울 배포 성공으로 해석하지 않는다.
 - 서울 사용에는 유료 플랜 전환·되돌릴 수 없는 고급 기능 활성화 및 조직 리전 정책 검토가 필요하다. 사용자는 지금 무료 플랜을 유지하고 크레딧 소진 뒤 서울 이전을 선택했다. 현재 공개 배포 리전은 기존 `ap-southeast-2`이며 고급 기능 활성화·과금 플랜 변경·SCP 변경은 하지 않는다. 추후 서울 이전은 리전 플래그만 바꾸는 작업이 아니라 새 리소스 provision·검증·DNS 전환이며 자동 예약하지 않는다.
 - Node 22.23.3 공식 archive의 SHA-256을 확인하고 pnpm 9.15.0 frozen install, fresh landing build, 공개 배포 계약 23/23을 통과했다. 새 원격 브랜치 `codex/kinda-landing-deploy-20261012`에 정확한 source `3540ea41a70ffe497360606e6c799e414f0aae9f`를 push했다. 실제 canonical 저장소는 `dfkorealed/led-control-service`다. [Software CI](https://github.com/dfkorealed/led-control-service/actions/runs/38194736652)는 quality 성공·unit 실패·후속 네 단계 skipped다. 격리 Ubuntu24.04·Compose2.38.2·OpenSSL3.0.13에서 두 원 실패0/2를 재현했다. 승인된 세 파일 수정381aa7d6은 Compose 생략 출력·OpenSSL stdout과 GNU/BSD stat 오염을 해결하고 Linux focused2/2(정상600재사용/위험644거부)·Mac root152PASS/기존환경4SKIP를 보고받았다. 독립 QA는 exact3540ea41→381aa7d6의 C/I/M0·spec/qualityPASS·통합YES를 확인했다. 총괄이 clean HEAD에서 d270c3a9로 cherry-pick했다. 추가 Linux 전체 run은 root/PID1·Linux 의존성 준비 차이로 다른 원본 테스트의 실패를 발견해 전체GREEN으로 주장하지 않는다. 실제 nonroot/init CI에 새 exactSHA를 전달하며 공개 관문은 아직이다.
+- 후속 exact `f4fc4d941e1637e11f2c77b2274a542bb15930bf` [CI run38196386765](https://github.com/dfkorealed/led-control-service/actions/runs/38196386765)는 quality 성공, 실제 Linux root script152PASS/기존환경4SKIP/FAIL0으로 원 실패를 해결했다. 이후 Web unit는3567PASS/20FAIL/기존3SKIP(실패파일4)에서 실패했다. App17·FixtureGroupDialog1·OperatorShell1·SettingsShell1을 단일 Web writer가 현재 제품/문서 계약과 대조한다. 승인 범위는 네 테스트 파일의 원인 확인 후 최소 fixture/selector 교정이며 skip/timeout·workflow·권한 계약 변경은 금지한다. 현재 설정 카드/제목·모니터링 검색/목록·저장 그룹 표현과 기존 테스트의 불일치를 문서/source로 확인했다. 운영자 security route는 AccountSecurityView의 제목 owner 이전 후 실제 h1이 누락되어 OperatorShell의 해당 route에 공통 PageHeader만 추가하고 operator 메뉴 문서를 갱신하는 범위를 추가 승인했다. 모달·API·role·dirty logout·focus 검증은 유지한다. 검토용6de105fe(승인6파일)는 prepared 원RED20FAIL/96PASS→동일네파일116/116PASS·Web타입0/diffcheck0을 보고받았고 독립 재검토 중이다. 전체 CI의 후속4단계와 공개 배포는 여전히 미완료다.
 - 같은 계정의 `us-east-1` ACM 인증서 `b06ca334-e043-47d1-9954-2c89513f32a2`를 요청하고 호스팅케이알에 실제 검증 CNAME 하나를 저장했다. 권한 NS의 응답과 ACM `ISSUED`를 확인했다. 기존 회사 A/MX/TXT/NS는 보존했다. 검증 CNAME은 갱신용으로 유지한다. `.local/landing-aws.json`의 Sydney 전용 stack/bucket 설정과 실제 AWS validate-template은 준비됐지만 stack/S3/CloudFront 생성, release 게시, 서비스 `kinda` CNAME 연결과 HTTPS smoke는 아직이다. CI 실패를 해결하기 전 공개하지 않는다.
 
 ## 2026-10-12 호스팅케이알 사용자 도메인 — 로컬 구현·검토·반영 완료
