@@ -75,11 +75,25 @@ def snapshot_workspace(source, destination, uid, gid):
         return ignored
 
     shutil.copytree(source, destination, symlinks=True, ignore=validate_links)
-    # Only newly copied inodes change owner/mode. Owner access also handles
-    # original runner-only 0700 directories and 0600 generated files.
     def fail_walk(error):
         raise error
 
+    # Source resolution alone can hide an excluded intermediate alias: a link
+    # through .local may resolve into packages in the source but break after
+    # copying. Check the complete copied graph before metadata changes or Jest
+    # startup; strict resolution also rejects missing targets and link cycles.
+    mirror = destination.resolve(strict=True)
+    for directory, dirs, files in os.walk(mirror, followlinks=False, onerror=fail_walk):
+        for entry in [Path(directory) / name for name in dirs + files]:
+            if not entry.is_symlink():
+                continue
+            if entry.readlink().is_absolute():
+                raise RuntimeError("copied workspace contains an absolute symlink: " + str(entry))
+            if not entry.resolve(strict=True).is_relative_to(mirror):
+                raise RuntimeError("workspace symlink escapes the copied mirror: " + str(entry))
+
+    # Only newly copied inodes change owner/mode. Owner access also handles
+    # original runner-only 0700 directories and 0600 generated files.
     for directory, dirs, files in os.walk(destination, followlinks=False, onerror=fail_walk):
         for entry in [Path(directory)] + [Path(directory) / name for name in dirs + files]:
             os.chown(entry, uid, gid, follow_symlinks=False)

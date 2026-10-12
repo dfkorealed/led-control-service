@@ -1,6 +1,10 @@
 # 킨다 공개 Web AWS 배포
 
-기준일: 2026-10-12. 실제 AWS 배포와 DNS 변경은 수행하지 않았다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
+기준일: 2026-10-12. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 사이트용 stack·S3·CloudFront와 `kinda` 연결 CNAME은 아직 생성하지 않았다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
+
+현재 계정의 무료 플랜을 유지하기로 선택했으므로 첫 사이트 배포 리전은 **Sydney `ap-southeast-2`**다. CloudFront용 ACM만 `us-east-1`에 둔다. 아래 Seoul 리전 예시는 일반 입력 형식 설명이며 현재 계정에 그대로 적용하지 않는다. 추후 Seoul 이전은 새 리소스 생성·검증·DNS 전환이 필요하다. 정확한 배포 후보의 canonical CI 여섯 단계가 통과하기 전에는 사이트 리소스를 생성하거나 콘텐츠를 게시하지 않는다. 최신 진행 상태는 [실행 계획](../superpowers/plans/2026-10-11-web-deploy-mode.md)을 참조한다.
+
+현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. Landing 전용 release 관문 분리는 아직 제안 단계이며 사용자 결정 전 이 문서의 관문을 변경하거나 사이트를 게시하지 않는다.
 
 ## 한 번 설정할 항목
 
@@ -38,7 +42,7 @@ WEB_DEPLOY_MODE=service node scripts/landing/deploy.mjs deploy --config .local/l
 
 각 새 배포는 새 release ID를 사용한다(영숫자로 시작하는 영숫자/하이픈/밑줄, 최대 80자). 변경하는 기능 선택값은 `WEB_DEPLOY_MODE=landing|service`뿐이다. 빈 문자열·오타는 오류이며 브라우저 런타임 토글이 아니다. **플래그 변경 뒤 같은 명령으로 재빌드·재배포해야 한다.** `deploy --execute`는 항상 `build:public`을 먼저 실행하며 이전 `--dist` 우회 옵션은 받지 않는다.
 
-`--execute`를 빼면 AWS 호출과 빌드가 없는 오프라인 계획만 출력한다. 실제 계정 접근·리소스·산출물 검증 완료를 뜻하지 않는다. 현재 환경에서는 실제 AWS 계정/배포 대상이 제공되지 않았으며 이 문서의 원격 명령을 실행하지 않았다.
+`--execute`를 빼면 AWS 호출과 빌드가 없는 오프라인 계획만 출력한다. 실제 계정 접근·리소스·산출물 검증 완료를 뜻하지 않는다. 현재 계정 연결과 인증서 검증이 완료됐더라도 `provision`·콘텐츠 `deploy`와 공개 smoke의 실제 성공은 별도로 확인한다.
 
 ## 두 모드의 산출물과 경로
 

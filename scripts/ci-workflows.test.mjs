@@ -272,6 +272,21 @@ with tempfile.TemporaryDirectory() as directory:
         except (RuntimeError,FileNotFoundError): pass
         else: raise AssertionError("accepted forbidden symlink "+target)
         bad.unlink()
+    # The final source target is included, but its intermediate alias is excluded.
+    # Validate the copied graph before changing any copied inode's metadata.
+    (source/".local/alias").symlink_to("../packages/shared/dist",target_is_directory=True)
+    bad.symlink_to(".local/alias",target_is_directory=True)
+    assert bad.resolve(strict=True)==shared.resolve(strict=True)
+    chown=module.os.chown; metadata_changes=[]
+    module.os.chown=lambda *args, **kwargs: metadata_changes.append(args)
+    try:
+        try: module.snapshot_workspace(source,root/"rejected-intermediate-alias",os.getuid(),os.getgid())
+        except (RuntimeError,FileNotFoundError): pass
+        else: raise AssertionError("accepted copied link through excluded intermediate alias")
+        assert metadata_changes==[], "invalid copied links must fail before metadata changes"
+    finally: module.os.chown=chown
+    assert original=={p:(p.lstat().st_ino,p.lstat().st_mode,p.lstat().st_uid) for p in original}
+    assert entry.read_text()=="installed package" and (shared/"index.js").read_text()=="prepared shared"
 print("owned snapshot runtime contracts passed")
 `], { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } });
   assert.equal(checked.status, 0, checked.stdout + checked.stderr);
