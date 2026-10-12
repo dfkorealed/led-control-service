@@ -2,12 +2,16 @@
 
 기준일: 2026-10-13
 
-## 2026-10-13 맵 편집 후속 재개: 로컬 실행 승인 대기
+## 2026-10-13 맵 편집 후속 재개: 승인된 로컬 실행 반영 완료
 
 - 로컬 `codex/mvp1-cloud-web`의 `313f046f`까지 구현·검증·문서 커밋을 확인했다. 기존 사용자 `AGENTS.md` 변경은 보존한다.
 - 재개 시점의 읽기 전용 확인에서 이전 API/Web PID57162/90698은 종료되어 있고 4000/5173/8883 listener는 없다. PostgreSQL5432와 Redis6379는 실행 중이다. 아래 2026-10-12 서버 유지 기록은 당시 관측이며 현재 상태로 해석하지 않는다.
 - 현재 소스의 공통 탭·편집 화면·저장 ACK 테스트를 pinned Node22/pnpm9로 다시 실행해 3파일/90개 PASS(exit0)를 확인했다. 전체 테스트/빌드 및 실제 브라우저 결과는 아래 이전 검증 cohort와 구분한다.
 - 다음 단계는 최신 로컬 API/Web 실행이다. API retention worker는 시작 후 매분 기존 초과 맵 기록을 정리하므로, 현재 포함 최신 30개만 남기는 로컬 실행·기록 정리 승인을 사용자에게 요청했다. 승인 전 서버 시작·DB 수정·장비/원격 작업을 실행하지 않는다. 승인 후 개발환경 preflight와 필요한 TLS/의존성 준비 상태를 확인하고, 승인하지 않은 인증서 발급·네트워크/장비 변경은 별도로 처리한다.
+- 사용자가 로컬 실행과 이전 기록 정리를 승인했다. 기존 TLS 파일과 local-app-only preflight를 확인했고 138개 migration은 이미 적용되어 있었다. pinned Node22/pnpm9의 `pnpm dev`를 실행했다(API3784/Web3528/MQTT3349, supervisor3222). 초기 API 컴파일 동안 Web proxy의 ECONNREFUSED가 발생했으며 컴파일 오류0 뒤 연결됐다.
+- 시작 당시 Docker/기존 MinIO가 종료되어 준비 점검의 objectStorage만 down이었다. Docker Desktop과 기존 `led-control-service-object-storage-1`만 시작해 영속 `led-control-service_object-storage-data`를 재사용했다. 다른 Docker DB/Redis/MQTT/Vault 컨테이너는 시작하지 않았다. 후속 same-origin `/api/health/live`·`ready`는 HTTP200이고 postgres/redis/mqtt/objectStorage/cadConverter 모두 up이다. 비로그인 `/api/auth/me`는 정상401이며 인증 검증을 우회하지 않았다.
+- 기동 전후 구조 비교의 7개 count/digest가 일치한다: 현장2·층3·조명6·게이트웨이1·맵 문서3·legacy 도형0·맵 설정3. 조명의 등록 귀속/이름/좌표/배치와 현재 맵 revision/document를 포함한다. 실시간 장비 상태·lease·session 등 정상 런타임 갱신은 이 보존 비교에 포함하지 않는다. 현재 층별 기록은13/1/1개로 이미30개 이하이므로 실제 맵 이력 삭제0이며 제한 검증을 위해 사용자 데이터에 가짜 이력을 추가하지 않는다.
+- 실제 브라우저의 기존 세션으로 모니터링→B1 맵 편집→기록→새로고침을 확인했다. revision31·CAD 표시·저장됨·공통 탭·기록 조회가 유지되며 새로고침 직후 잠깐 읽기 전용이었다가 기존 lease 재시도로 편집 가능 상태를 회복했다. 관측한 browser error 로그0, 게이트웨이0/1 경고는 별개다. 실제 맵 수정/저장/새 CAD 적용·장비 명령은 실행하지 않았다. 로그·구조 증거·화면은 ROOT `.local/editor-followup-20261013`에 보존하며 서버를 유지한다. 이전 전체 테스트/빌드 cohort는 재실행하지 않았다.
 
 ## 2026-10-12 맵 편집 추가 주석·반복 렌더링 후속: 로컬 반영 완료 / API 정책 반영 대기
 

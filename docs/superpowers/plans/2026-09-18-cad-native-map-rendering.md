@@ -15,7 +15,7 @@
 ### 2026-10-13 실행 반영 재개
 
 - [x] 로컬 구현/문서 커밋 `313f046f` 및 실제 서버 종료 상태를 확인했다. 4000/5173/8883 listener 없음, PostgreSQL/Redis 실행 중이다. 공통 탭·편집 화면·저장 ACK fresh 3파일/90개 PASS다.
-- [ ] 최신 코드로 로컬 API/Web 실행 및 초과 맵 이력 정리: 현재 포함 최신 30개 보존 정책의 실제 DB 적용 승인을 요청했다. 승인 전 기동하지 않는다. TLS/의존성 preflight 이후 기존 맵·현장·조명 보존 및 readiness를 확인하며, 인증서 발급·장비 배포·remote push는 이 단계에 포함하지 않는다.
+- [x] 사용자가 최신 코드의 로컬 실행·기록 정리를 승인했다. 기존 TLS/local-app-only preflight와 migration138개 up-to-date를 확인한 뒤 pinned `pnpm dev`를 기동했다. 종료된 Docker와 기존 MinIO만 복구하여 ready/live200·의존5개up·비로그인401을 확인했다. 실제 층별 기록13/1/1개는 이미30개 이하이므로 맵 이력 삭제0이고 가짜 초과 이력은 만들지 않았다. 구조7종 count/digest 불변과 실제 revision31/CAD/저장됨/기록·새로고침 뒤 lease 회복을 확인했다. supervisor3222/API3784/Web3528/MQTT3349를 유지하며 `.local/editor-followup-20261013`에 증거를 보존한다. 실제 맵 수정·장비/인증서/remote 변경과 전체 gate 재실행은 하지 않았다.
 
 사용자 승인: CAD 적용의 즉시 서버 저장 계약을 유지하는 권장안. 기존 PixiJS/Konva와 공통 맵 요소를 유지하며 초기화·실장비·현재 DB 변경·서비스 재시작 없이 기반 `c438bd71`의 격리 소스에서 구현한다. 상태판과 이 체크리스트를 함께 갱신한다.
 
