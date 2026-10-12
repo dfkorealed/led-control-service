@@ -1,0 +1,9 @@
+✔ documented deploy role can only describe its exact us-east-1 ACM certificate (3.956042ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 96.83225

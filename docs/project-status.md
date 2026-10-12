@@ -5,7 +5,7 @@
 ## 2026-10-12 호스팅케이알 사용자 도메인 — 로컬 후속 수정 진행 중
 
 - 사용자 선택은 `kinda.dfkorealed.com` / 호스팅케이알 / 회사 AWS 계정에서 수동 배포다. 공식 NS 추가 지원이 확인되지 않아 회사 DNS를 유지한 CNAME 연결이 필요하다. 기존 Route 53 필수 계약을 외부 DNS로 확장하고 [체크리스트 Task4](superpowers/plans/2026-10-11-web-deploy-mode.md)와 동기화한다.
-- `f31e56fa` 기준 격리 worktree에서 단일 담당이 변경·배포 계약 검증 후 독립 검토한다. 별도 환경 플래그는 추가하지 않고 WEB_DEPLOY_MODE 전환과 기존 보호 절차를 유지한다. 현재 실제 AWS/인증서/DNS 작업·배포는 수행하지 않았다.
+- `f31e56fa` 기준 격리 worktree에서 단일 담당 구현 `9a13a444`를 취합했다. RED 6건을 확인하고 최종 Node 배포 계약 22/22PASS·diffcheck0(Node24)을 보고받았으며 독립 QA의 I1(ACM 읽기 권한 예시 누락)을 ffbd8b09로 수정했고 재검토 I1 ADDRESSED/newC0/I0/M0·specYES/qualityAPPROVED/전체 후속 소스통합YES다. 최종 Node계약23/23·diffcheck0을 총괄이 재확인했다. 로컬 기본 브랜치 반영은 다음 단계다. Node22/canonical 전체 CI·실제 AWS/DNS/TLS는 미검증이다. 별도 환경 플래그는 추가하지 않고 WEB_DEPLOY_MODE 전환과 기존 보호 절차를 유지한다. 현재 실제 AWS/인증서/DNS 작업·배포는 수행하지 않았다.
 
 ## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증·승인된 로컬 통합 완료
 

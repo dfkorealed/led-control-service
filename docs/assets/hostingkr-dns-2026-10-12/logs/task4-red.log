@@ -1,0 +1,107 @@
+✔ CLI/config fail closed and offline plans never call AWS (1.546417ms)
+✔ private retained S3 and scoped OAC read policy survive mode templates (0.460167ms)
+✔ landing to service to landing and cross-mode rollback publish matching archives and retain old assets (45.388625ms)
+✔ wrong mode or stale bytes fail before all remote calls (3.452167ms)
+✔ activation failure retains lock and exact conditional recovery can roll back to prior mode (17.467291ms)
+✖ custom domain template keeps aliases and certificate while external DNS creates no Route 53 records (0.8075ms)
+✖ config accepts empty external zone and rejects malformed zone or orphan certificate (0.1505ms)
+✖ offline external plan has unresolved target and makes no AWS calls (0.151209ms)
+✖ external provision validates issued matching certificate but never queries Route 53 (0.13575ms)
+✖ check, deploy and rollback report actual external CNAME target in both modes (1.935458ms)
+✔ managed DNS ownership cannot silently switch to external before any write (0.471583ms)
+✖ managed and default modes report their real distribution host (0.181958ms)
+✔ service preflight requires a configured API before any remote call (0.87825ms)
+✔ mode template preserves API errors and forwards cookies, authorization, query and all methods uncached (0.899458ms)
+✔ edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures (1.497666ms)
+✔ both modes use the documented AWS CachingDisabled ID for default HTML behavior (0.329083ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 10
+ℹ fail 6
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 129.11325
+
+✖ failing tests:
+
+test at scripts/landing/contracts.test.mjs:153:1
+✖ custom domain template keeps aliases and certificate while external DNS creates no Route 53 records (0.8075ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'CustomDomain'
+  - 'ManagedDns'
+  
+      at TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/contracts.test.mjs:157:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'CustomDomain',
+    expected: 'ManagedDns',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/landing/contracts.test.mjs:162:1
+✖ config accepts empty external zone and rejects malformed zone or orphan certificate (0.1505ms)
+  Error: Explicit existing hostedZoneId required
+      at fail (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:12:30)
+      at validateConfig (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:42:49)
+      at TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/contracts.test.mjs:163:16)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at scripts/landing/contracts.test.mjs:169:1
+✖ offline external plan has unresolved target and makes no AWS calls (0.151209ms)
+  Error: Explicit existing hostedZoneId required
+      at fail (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:12:30)
+      at validateConfig (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:42:49)
+      at runRelease (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:169:3)
+      at TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/contracts.test.mjs:170:22)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at scripts/landing/contracts.test.mjs:174:1
+✖ external provision validates issued matching certificate but never queries Route 53 (0.13575ms)
+  Error: Explicit existing hostedZoneId required
+      at fail (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:12:30)
+      at validateConfig (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:42:49)
+      at runRelease (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:169:3)
+      at TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/contracts.test.mjs:177:24)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at scripts/landing/contracts.test.mjs:191:1
+✖ check, deploy and rollback report actual external CNAME target in both modes (1.935458ms)
+  Error: Explicit existing hostedZoneId required
+      at fail (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:12:30)
+      at validateConfig (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:42:49)
+      at runRelease (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/deploy.mjs:169:3)
+      at TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/contracts.test.mjs:194:25)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at scripts/landing/contracts.test.mjs:212:1
+✖ managed and default modes report their real distribution host (0.181958ms)
+  TypeError: Cannot read properties of undefined (reading 'mode')
+      at TestContext.<anonymous> (file:///Users/kim-jh/Documents/led-control-service/.worktrees/hostingkr-dns-20261012/scripts/landing/contracts.test.mjs:216:29)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)

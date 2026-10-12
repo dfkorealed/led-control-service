@@ -1,0 +1,31 @@
+✔ strict deployment mode defaults only when unset (0.476ms)
+✔ service exact routes cover shell nested routes but never arbitrary internal paths (0.1855ms)
+✔ artifact metadata binds mode to all emitted bytes and rejects stale metadata (23.626875ms)
+✔ CLI/config fail closed and offline plans never call AWS (2.068291ms)
+✔ private retained S3 and scoped OAC read policy survive mode templates (0.623959ms)
+✔ landing to service to landing and cross-mode rollback publish matching archives and retain old assets (58.52675ms)
+✔ wrong mode or stale bytes fail before all remote calls (3.692125ms)
+✔ activation failure retains lock and exact conditional recovery can roll back to prior mode (19.92475ms)
+✔ custom domain template keeps aliases and certificate while external DNS creates no Route 53 records (0.507667ms)
+✔ config accepts empty external zone and rejects malformed zone or orphan certificate (0.307542ms)
+✔ offline external plan has unresolved target and makes no AWS calls (0.165375ms)
+✔ external provision validates issued matching certificate but never queries Route 53 (3.614042ms)
+✔ check, deploy and rollback report actual external CNAME target in both modes (16.366583ms)
+✔ managed DNS ownership cannot silently switch to external before any write (2.586083ms)
+✔ existing external distribution rejects unissued or mismatching certificate before release writes (2.9775ms)
+✔ default stack cannot gain a custom domain through an ordinary deploy (1.911375ms)
+✔ managed and default modes report their real distribution host (0.152083ms)
+✔ managed provision still checks the public Route 53 zone and existing records (1.428958ms)
+✔ documented deploy role can only describe its exact us-east-1 ACM certificate (0.411ms)
+✔ service preflight requires a configured API before any remote call (0.798625ms)
+✔ mode template preserves API errors and forwards cookies, authorization, query and all methods uncached (0.786833ms)
+✔ edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures (4.006083ms)
+✔ both modes use the documented AWS CachingDisabled ID for default HTML behavior (0.32ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 175.05475

@@ -1,0 +1,30 @@
+✔ strict deployment mode defaults only when unset (0.841667ms)
+✔ service exact routes cover shell nested routes but never arbitrary internal paths (0.248ms)
+✔ artifact metadata binds mode to all emitted bytes and rejects stale metadata (20.620834ms)
+✔ CLI/config fail closed and offline plans never call AWS (1.969167ms)
+✔ private retained S3 and scoped OAC read policy survive mode templates (0.472625ms)
+✔ landing to service to landing and cross-mode rollback publish matching archives and retain old assets (52.319792ms)
+✔ wrong mode or stale bytes fail before all remote calls (5.432334ms)
+✔ activation failure retains lock and exact conditional recovery can roll back to prior mode (24.784ms)
+✔ custom domain template keeps aliases and certificate while external DNS creates no Route 53 records (0.478667ms)
+✔ config accepts empty external zone and rejects malformed zone or orphan certificate (0.314083ms)
+✔ offline external plan has unresolved target and makes no AWS calls (0.164625ms)
+✔ external provision validates issued matching certificate but never queries Route 53 (4.69025ms)
+✔ check, deploy and rollback report actual external CNAME target in both modes (16.318083ms)
+✔ managed DNS ownership cannot silently switch to external before any write (2.57575ms)
+✔ existing external distribution rejects unissued or mismatching certificate before release writes (2.982084ms)
+✔ default stack cannot gain a custom domain through an ordinary deploy (2.687083ms)
+✔ managed and default modes report their real distribution host (0.177125ms)
+✔ managed provision still checks the public Route 53 zone and existing records (0.967ms)
+✔ service preflight requires a configured API before any remote call (0.899583ms)
+✔ mode template preserves API errors and forwards cookies, authorization, query and all methods uncached (1.014333ms)
+✔ edge binds exact HTML release, gates mode assets and returns real 404 without remapping API failures (2.905833ms)
+✔ both modes use the documented AWS CachingDisabled ID for default HTML behavior (0.280541ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 210.309458
