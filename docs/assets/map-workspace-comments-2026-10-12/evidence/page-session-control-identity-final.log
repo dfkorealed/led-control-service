@@ -1,0 +1,12 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 43 skipped) 87ms
+ ✓ src/features/control/ControlView.test.tsx (167 tests | 166 skipped) 321ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 320ms
+
+ Test Files  2 passed (2)
+      Tests  2 passed | 209 skipped (211)
+   Start at  10:42:17
+   Duration  3.32s (transform 977ms, setup 169ms, collect 3.13s, tests 408ms, environment 828ms, prepare 598ms)
+

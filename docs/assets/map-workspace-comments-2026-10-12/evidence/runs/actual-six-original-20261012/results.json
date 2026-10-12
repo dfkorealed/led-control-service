@@ -1,0 +1,370 @@
+{
+  "config": {
+    "argv": [
+      "/private/tmp/atlas-ui-fidelity-node22.xde1wS/bin/node",
+      "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts"
+    ],
+    "configFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts",
+    "rootDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-original-20261012/results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium-ux-six-cases",
+        "name": "chromium-ux-six-cases",
+        "testDir": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments",
+        "testIgnore": [],
+        "testMatch": [
+          "page-session-ux.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "line",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-original-20261012/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "cwd": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012",
+      "command": "VITE_TEST_DATA_TOOLS_ENABLED=false WEB_PORT=15188 pnpm --filter @led-control/web dev",
+      "url": "http://127.0.0.1:15188",
+      "reuseExistingServer": false,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "page-session-ux.spec.ts",
+      "file": "page-session-ux.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "01 PC monitoring actual CAD and nonmodal detail",
+          "file": "page-session-ux.spec.ts",
+          "line": 163,
+          "column": 6,
+          "specs": [
+            {
+              "title": "1194 light: pan, single selection, half overlay and focus",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: Evidence run directory already exists; originals must not be overwritten",
+                        "stack": "Error: Evidence run directory already exists; originals must not be overwritten\n    at Object.<anonymous> (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts:17:31)",
+                        "location": {
+                          "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts",
+                          "column": 31,
+                          "line": 17
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39mpage-session-ux.config.ts:17\n\n  15 | const runDir = resolve(__dirname, \"runs\", run);\n  16 | const outputDir = resolve(runDir, \"results\");\n> 17 | if (existsSync(runDir)) throw new Error(\"Evidence run directory already exists; originals must not be overwritten\");\n     |                               ^\n  18 | if (!existsSync(resolve(__dirname, \"page-session-ux.spec.ts\"))) throw new Error(\"The actual six-case spec must exist before execution\");\n  19 | // Check only the assigned port. A missing/failed lsof is not interpreted as a free port.\n  20 | try {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts",
+                            "column": 31,
+                            "line": 17
+                          },
+                          "message": "Error: Evidence run directory already exists; originals must not be overwritten\n\n   at page-session-ux.config.ts:17\n\n  15 | const runDir = resolve(__dirname, \"runs\", run);\n  16 | const outputDir = resolve(runDir, \"results\");\n> 17 | if (existsSync(runDir)) throw new Error(\"Evidence run directory already exists; originals must not be overwritten\");\n     |                               ^\n  18 | if (!existsSync(resolve(__dirname, \"page-session-ux.spec.ts\"))) throw new Error(\"The actual six-case spec must exist before execution\");\n  19 | // Check only the assigned port. A missing/failed lsof is not interpreted as a free port.\n  20 | try {\n    at Object.<anonymous> (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts:17:31)"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:00:30.236Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts",
+                        "column": 31,
+                        "line": 17
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "21ca59d847606d268d34-6d6821e40fc8ffc62ca6",
+              "file": "page-session-ux.spec.ts",
+              "line": 166,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "02 short mobile monitoring",
+          "file": "page-session-ux.spec.ts",
+          "line": 184,
+          "column": 6,
+          "specs": [
+            {
+              "title": "390x600 dark: toolbar, HH:mm and detail scroll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:00:30.241Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "21ca59d847606d268d34-2a1512c1207f8b01a44e",
+              "file": "page-session-ux.spec.ts",
+              "line": 187,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "03 narrow finite manual workspace",
+          "file": "page-session-ux.spec.ts",
+          "line": 202,
+          "column": 6,
+          "specs": [
+            {
+              "title": "320x600 light: two rows, invalid first Apply and More",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:00:30.241Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "21ca59d847606d268d34-50342f6ecc2e786eef4b",
+              "file": "page-session-ux.spec.ts",
+              "line": 205,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "04 native touch and long inline selection",
+          "file": "page-session-ux.spec.ts",
+          "line": 239,
+          "column": 6,
+          "specs": [
+            {
+              "title": "390x600 dark: swipe then tap, 60 fixtures and internal ending",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:00:30.242Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "21ca59d847606d268d34-f42ee5a787500152f43a",
+              "file": "page-session-ux.spec.ts",
+              "line": 242,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "05 resize without remount/reset",
+          "file": "page-session-ux.spec.ts",
+          "line": 283,
+          "column": 6,
+          "specs": [
+            {
+              "title": "717x1227 to 390x844 light: inline/More, focus and raw31",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:00:30.242Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "21ca59d847606d268d34-4038a74ab31f8f7aea8d",
+              "file": "page-session-ux.spec.ts",
+              "line": 286,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "06 PC manual empty and long-list ownership",
+          "file": "page-session-ux.spec.ts",
+          "line": 319,
+          "column": 6,
+          "specs": [
+            {
+              "title": "1194 dark: equal-height empty panel and 60-row internal scroll",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-ux-six-cases",
+                  "projectName": "chromium-ux-six-cases",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-12T02:00:30.242Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "21ca59d847606d268d34-3f04f355152ca03f1492",
+              "file": "page-session-ux.spec.ts",
+              "line": 322,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-12T02:00:22.733Z",
+    "duration": 7540.496,
+    "expected": 0,
+    "skipped": 5,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

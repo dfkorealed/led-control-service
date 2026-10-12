@@ -56,6 +56,21 @@ describe("SpatialTargetSelector", () => {
 
   afterEach(cleanup);
 
+  it("C6-8 compact scope dropdown keeps the current targets until explicit confirmation", () => {
+    renderSelector({ presentation: "manual-workspace", compactWorkspace: true, selection: { mode: "fixtures", fixtureIds: [fixtureA] } });
+    fireEvent.click(screen.getByRole("button", { name: /선택 범위/ }));
+    fireEvent.click(screen.getByRole("option", { name: "층 전체" }));
+    expect(screen.getByRole("alertdialog", { name: "선택 방식 변경" })).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /선택 범위/ }));
+    fireEvent.click(screen.getByRole("option", { name: "저장된 구역" }));
+    fireEvent.click(screen.getByRole("button", { name: "변경" }));
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChange).toHaveBeenCalledWith({ mode: "group", groupId: "" });
+  });
+
   it("manual legend shares the camera footer while embedded placement remains unchanged", () => {
     const view = renderSelector({ presentation: "manual-workspace", selection: { mode: "fixtures", fixtureIds: [] } });
     const legend = screen.getByLabelText("지도 조명 상태 범례");

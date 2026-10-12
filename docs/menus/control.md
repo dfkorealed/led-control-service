@@ -1,5 +1,195 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 실제 toolbar 조명 목록 hit 실패 후 compact 대상 외곽 보완
+
+### 구현 완료
+
+- 수동 `singleColumnLayout`에서만 외곽 제어 대상 Card에 `rounded-none!`을 적용한다. padding0/border0/overflow-hidden 상태에서 우상끝 조명 목록48×44가 부모14px 모서리에 잘리는 원인을 제거한다. 내부 지도 OperationMapPanel의 둥근 프레임·공통 Card/default/PC·scroll/높이/handler는 유지한다.
+- toolbar/선택/More 좁은44px 대상의 실제 DOM ancestor를 함께 감사했다. 실행 More는 앞선 square SidePanel, 보조 콘텐츠는 기존 portal host와 padding8px body를 소비한다. 추가로 확정된 별도 miss는 없어 범위를 확대하지 않았다.
+
+### 미구현
+
+- e35c0c20의 320×600 light fake-API Chromium case3는 실제1PASS/0FAIL, exit0, 20.149886s로 완료됐으며 toolbar44·0/100 양끝8개 hit·raw31·상호배타 보조 패널·More 마지막 action/끝 스크롤·Escape 포커스·invalid101 첫 Apply 후31 복원/0POST·finite 최종 지도247px≥240을 확인했다([영구 결과 모음](../assets/map-workspace-comments-2026-10-12/README.md)).
+- 실제 OS keyboard·pointer Slider drag·live API·장비/HIL은 미검증이며, 다른 case1/2/4는2290·case5는f28·case6는4093 PC와 source carry 근거로 별도 유지하므로 e35에서 새로 six-case PASS한 것으로 해석하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- f2926e92 actual에서는0/100 각각 input/thumb/Apply/More 네 target continuous44=true까지 완료했다. 이후 toolbar 전체 검사에서 조명 목록48×44 hasMinimumArea=false로 새 중단됐다. 입력 실패로 기록하지 않으며 원fail·미도달aux/invalid 단계를 보존한다. 이는 당시 실패·미도달 이력이며, e35 case3 후속 검증에서는 해당 aux/invalid 단계까지 모두 도달해 통과했다.
+- 원PNG·toolbar x8/y87/304×44 및 list48×44·source flush 배치가 같은 부모 clipping을 가리킨다. 개별 list 좌표는 source/toolbar로 유도한 것이며 새 browser 측정이 아니다. 소스 감사·직접81개 회귀를 실제 후속 hit GREEN으로 해석하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx` 외곽 target Card caller와 Control/Shell/Spatial/ManualExecution/Viewport 소비자 회귀.
+- 감사한 무변경 `target-selection/{TargetSelectionToolbar,ManualSelectionPanel,SpatialTargetSelector}.tsx`, `manual-workspace/ManualAuxiliaryPanel.tsx`, 공통 `components/ui/{Card,SidePanel,maps/OperationMapPanel}.tsx`.
+
+### 갱신 규칙
+
+-48×44 가장자리 대상은 자신의 rect/radius와 실제 DOM parent의 round/overflow를 함께 확인한다. portal 콘텐츠는 React 논리 owner가 아니라 실제 host 계층으로 판단한다.
+-0/100 통과·toolbar 새실패·미도달aux/invalid·새source/hash/cohort·후속actual 결과를 구분한다. UUID/gesture/ref/lifetime과 지도 높이 budget을 유지한다.
+
+## 2026-10-12 실제 INPUT continuous44 실패 후 compact 부모 모서리 보완
+
+### 구현 완료
+
+- 수동 모바일 실행 SidePanel만 `rounded-none!`을 사용한다. padding0/border0인 부모의14px card 모서리가 가장자리 숫자 입력·더보기 hit를 잘라내는 예외를 제거한다. 공통 SidePanel/Card·PC/default 모서리·배경·scroll owner와 실행 행/지도 높이는 유지한다.
+- 앞선 compact Slider 양끝28px 여백과 숫자 입력 사각 모서리를 유지한다. handler·native input/ref·draft/invalid 복원·첫 Apply 차단·명령 UUID/frozen request/query는 변경하지 않았다.
+
+### 미구현
+
+- 새 source의320×600 INPUT·thumb0/100·Apply/More continuous44, 지도240+·aux/invalid 후속 stage actual은 총괄 source freeze 뒤 case3 한정 UX 관문이다. 본 담당 browser 실행0, 이미 통과한 case5 재검사0.
+
+### 부족하거나 개선이 필요한 기능
+
+- f28ea638 실제 case3에서 INPUT `밝기 수치` x8/y480/48×44 continuous44=false가 확정됐다. thumb0은 입력과 분리됐지만 outer SidePanel rounded14px/overflow clipping이 남았다. 44높이에 세로 여유0·48너비에 가로 여유4px이므로 맨 위 radius edge 약10px를 피하는44 정사각형을 확보할 수 없다.
+- source·원본 PNG·실측 좌표 대조를 바탕으로 최소 수리했다. 직접 React 동작 회귀·class 선언은 실제 geometry GREEN이 아니다. 원 actual RED와 미도달 stage를 보존하고 실제 OS touch/keyboard·장비/HIL 검증은 별도로 남긴다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`의 수동 실행 SidePanel caller와 Control/ManualExecution/Shell/Spatial/Viewport 직접 소비자 회귀.
+- 무변경 공통 `apps/web/src/components/ui/{SidePanel,Card}.tsx`, `styles/theme.css`의 radius token 및 `features/control/ManualExecutionPanel.tsx`.
+
+### 갱신 규칙
+
+- 가장자리 control의 actual continuous44는 input/button 자체뿐 아니라 rounded/overflow ancestor를 함께 확인한다. 공통/default card 정책을 변경하지 않고 compact caller의 예외를 주석으로 남긴다.
+- 원 f28 INPUT RED·source/hash/cohort·후속 실제 case3 판정을 분리한다. 지도 높이·scroll owner·raw/첫 Apply·UUID/frozen 복구 계약을 유지한다.
+
+## 2026-10-12 실제 Home→0 실패 후 수동 compact 슬라이더 양끝 보완
+
+### 구현 완료
+
+- 수동 compact 실행 행의 Slider caller에만 좌우28px 여백을 둔다. 기존52px thumb가 트랙0/100%에서26px씩 바깥으로 나오는 범위를 자기 열 안에 확보해 숫자 입력/적용 버튼의 조작 영역을 침범하지 않도록 한다. 실행 행44px·지도 finite 높이 배치는 유지한다.
+- 같은 compact 숫자 입력48×44는 사각 모서리를 사용해 연속44px 입력 영역의 모서리 손실을 피한다. 공통 Slider/NumberField와 기본·PC caller는 변경하지 않았다. 기존 native Home/End·draft/ref·invalid 복원/첫 Apply 차단·명령 UUID/handler는 유지한다.
+
+### 미구현
+
+- 변경 소스의 실제320×600/390×600 숫자 입력·thumb0/100·적용·더보기 continuous44 및 지도240+ 재판정은 총괄 source freeze 뒤 UX 후속 관문이다. 본 담당 actual browser 실행0.
+
+### 부족하거나 개선이 필요한 기능
+
+- 2290a877 actual case3는 Home→0 뒤48×44 target의 continuous44=false로 실패했다. 당시 지도269px·문서overflow0이었으며 실패 screenshot에는 thumb와 숫자 입력 오른쪽의 겹침이 보인다. 원본 RED는 보존한다.
+- native Home/End 직접 소비자 테스트는 양끝 draft 동기화·slider DOM/focus·명시 적용 계약의 회귀 근거다. 기존 구현에서도 통과하는 동작 회귀이며, CSS 여백/모서리 선언이나 JSDOM 결과를 실제 hit GREEN으로 해석하지 않는다. 실제 OS touch/keyboard·장비/HIL 검증은 수행하지 않았다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ManualExecutionPanel.tsx`와 `ManualExecutionPanel.test.tsx`.
+- 실제 Control/Shell/Spatial/Viewport 소비자 회귀 및 무변경 공통 `components/ui/fields/{Slider,NumberField}.tsx`.
+
+### 갱신 규칙
+
+- 슬라이더 끝값은0/100 모두에서 숫자 입력·thumb·적용·더보기의 독립 continuous44와 실행 행/지도 높이를 함께 확인한다. 원 actual RED·직접 동작 회귀·후속 actual geometry 판정을 구분한다.
+- compact caller 이외의 공통/default/PC 스타일 및 draft/명령 경로 변경을 동반하지 않는다. source/hash/raw cohort와 후속 UX freeze 결과를 각각 기록한다.
+
+## 2026-10-12 실제 continuous44 실패 후 수동 compact 버튼 보완
+
+### 구현 완료
+
+- 수동 compact camera 네 버튼은 기존52px coarse 프레임을 사용한다. compact overlay placement·zoom/reset/fit handler는 그대로이며 지도 flow 높이를 늘리지 않는다. 기본/editor/PC의 compactChrome=false 경로는 변경하지 않았다.
+- 수동 compact Apply/More/조명 목록/전체 보기/reader close/빠른 값/선택 해제는 재사용 feature class로 사각 외곽·높이44·최소너비48을 사용한다. basic 행을52로 늘리지 않아 지도 높이 budget을 보존한다. 버튼의 keyboard/disabled/권한/Apply guard 및 handler는 그대로다.
+
+### 미구현
+
+- 최종 source continuous44 및 map240+·overlay control/reader 마지막 action의 actual 재측정은 총괄 source freeze 후 UX 관문이다. 본 담당 browser 자동 재실행0.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이전4093 actual에서320 map251/390 map249·문서overflow0을 확인했으나 camera geometry44(배율47.625×44)의 usable43/연속44영역false가 실측됐다. 소스 보완·직접 동작 GREEN을 실제 hit 합격으로 해석하지 않는다.
+- 넓은 층/범위 select의 기존44 프레임과 numeric/slider·긴 이력 action의 actual hit/가림은 같은 후속 UX 관문에서 확인한다. 기준44/지도240은 완화하지 않았다. 새 public API/공통Button/default 스타일 변경0.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`와 직접 테스트.
+- `features/control/{ManualExecutionPanel,manual-workspace/ManualAuxiliaryPanel,target-selection/ManualSelectionPanel,target-selection/TargetSelectionToolbar}.tsx` 및 실제 Control/Shell/Spatial/ManualExecution 소비자 직접 테스트.
+
+### 갱신 규칙
+
+- geometry 선언과 실제 reachable continuous44를 구분하고 원 actual RED와 후속 source/실측 cohort를 각각 남긴다. compact true 전달 경로와 PC/default false 영향 경로를 명시한다.
+- 이번 버튼 보완은 camera/renderer/UUID/frozen request/query/복구·권한/raw31/첫Apply 계약을 함께 확인하고 실제 UX 후 최종 수치를 기록한다.
+
+## 2026-10-12 승인 후속 — 지도 하단 단일 보조 패널
+
+### 구현 완료
+
+- 수동 모바일의 목록·더보기는 지도 내부 하단의 하나의 nonmodal 보조 패널에서 상호배타로 표시한다. 고정 제목/닫기44와 공통 body 내부 scroll을 사용하며, 열기·전환·닫기가 지도 grid의 행 높이를 추가하지 않는다. 별도 drawer/selection/query/command owner를 만들지 않았다.
+- 지도 아래 `선택 조명 N개` → 바로 아래 `전체 보기`44, 숫자/slider/적용/더보기44 한 행, 중요한 상태/live와 navigation을 유지한다. 선택 범위와 층 dropdown의 시각적 label 빈 간격을 수동 compact caller에서만 없애고 accessible label은 유지한다.
+- 수동 모바일만 중복 현장 전체·층 집계·범례와 기존 제어 방식 전환을 더보기로 옮긴다. 기본 화면에는 현재 `수동 제어` 식별을 남긴다. 권한이 확인된 manual-active shell만 집계 행을 감추고 기존52px action을 가진 compact topbar 높이를 사용한다. 네 camera 기능은 같은 FloorMapViewport의 overlay chrome에서 접근하며 handler/camera/renderer는 그대로다.
+- 보조 콘텐츠는 고정 portal target을 사용해 화면 폭 변경에도 이력/복구 상세·React owner/ref/subscription을 유지한다. 이동 직전 내부 포커스가 있으면 같은 연결된 표시 요소에 preventScroll로 복원한다. Escape(실제 opener 포함)/닫기/동일 opener 재클릭은 실제 opener에 돌아간다. 현장·주체·층·선택 방식 경계는 보조 패널을 닫는다.
+- raw31·invalid blur/Enter·첫 invalid Apply 차단·별도 명시 적용, 권한/잠금·동일 UUID 복구를 유지한다. 기본 standalone/PC·자동화/editor/embedded 소비자는 기존 표시 정책을 유지한다. 공통 UI/public API 변경은 없다.
+
+### 미구현
+
+- 최종 source의 실제320/390×600 map240 목표·지도 우세·map rect/canvas/camera 불변, 마지막 action 도달·nav 겹침0·continuous44 hit·slider 끝 간섭 검증은 총괄 source freeze 이후 UX 후속 QA다.
+- 실제 OS keyboard/touch/safe-area 및 장비/HIL 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원69b1 실제 QA에서 기본 지도62/70px,390 긴 목록 펼침 후 height0/canvas 연결 해제를 확인했다. 새 보조 패널의 overlay만으로 이 결함을 덮지 않고 기본 화면의 반복 chrome부터 줄였다. 지도 min240 강제나 새 overflow clip은 추가하지 않았다. 현재 직접 테스트/선언된 layout을 실제 높이 PASS로 해석하지 않는다.
+- 보조 패널은 지도를 부분적으로 가리는 읽기 영역이다. 목록/더보기 전환과 두 펼침 상호배타, 내부 wheel/scroll 끝, 긴 오류·모드 전환 접근성·PC/모바일 portal 내부 포커스는 실제 QA에서도 확인한다. default-false 기존 compact opt-in과 manual-active 보고 경계를 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx`와 ControlView/ManualExecutionPanel/target-selection 및 직접 테스트.
+- `apps/web/src/features/shells/CustomerShell.tsx` 및 실제 Control 소비자 직접 테스트. FloorMapViewport/FloorScene/공통 ticker 제품은 변경하지 않았다.
+
+### 갱신 규칙
+
+- 원 actual RED, 직접 동작 RED/GREEN, source/static 및 actual geometry 결과를 구분한다. source commit과 실제 UX/review/MAIN 통합 관문은 별개다.
+- 후속 보조 표현 변경은 renderer·command/query owner와 내부 focus/UUID/raw guard를 함께 확인하고, 메뉴의 이전 세로-flow 기록은 과거 구현으로 읽는다.
+
+## 2026-10-12 실제 QA 후 수동 지도 높이·이력 폭 보완
+
+### 구현 완료
+
+- 수동 모바일 ControlView의 바깥 grid는 제어 방식 auto 행과 남은 높이 minmax(0,1fr) 행으로 나누고, manual tabpanel도 명시적인 남은 높이 행을 사용한다. 기존 implicit auto/content-start에서 size-contained 지도 intrinsic height0만 소비하던 경로를 수정했다. 새 지도 최소높이·overflow clip·renderer 재부모화는 추가하지 않았다.
+- 수동 제어의 좁은 실행 패널에 옮겨진 이력 ticker는 caller의 기존 className으로 내용 행과 action 행을 나눈다. 오류 안내·다시 조회·전체 보기·확인 필요한 명령을 남기고, 공통 ticker/default/다른 메뉴의 배치와 query/handler는 그대로다.
+
+### 미구현
+
+- frozen bea0dacb의 실제 QA에서 320×600·390×600·717×1227 지도 높이0을 확인했다. 이번 소스 수리 이후 같은 실제 QA의 높이·canvas·노출 면적·도달성 재측정은 UX/총괄 후속 관문이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 직접 소비자 테스트는 명령·draft·scope/default 회귀 근거다. CSS 행 선언 변경을 실제 지도 복구 PASS로 해석하지 않는다. 지도240 목표·두 펼침 동시 도달·44px hit·slider0/100 간섭은 실제 QA에서 판정한다.
+- PC1194 dark의 GET404 안내 세로 감김은 mock 오류 표현의 폭 경합이다. backend 고장으로 분류하지 않는다. 긴 메시지와 모든 action의 실제 줄바꿈/끝 도달은 기존 QA case6 재검증이 필요하다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx` 및 Control/Shell/ManualExecution/Spatial/Viewport/CommandHistory/RecentActivityTicker 직접 소비자 테스트.
+
+### 갱신 규칙
+
+- 실제 QA RED 원본과 소스 수리·직접 회귀·실제 기하 GREEN을 구분해 기록한다. 수동 제어 caller의 높이/폭 수정은 명령 owner/UUID·input·camera·기본 embedded 수명을 유지한다.
+
+## 2026-10-12 신규 지도 의견 C6–8 — 수동 제어
+
+### 구현 완료
+
+- 수동 제어 PC의 선택 대상 패널은 empty 상태에도 지도 행 높이를 소비하도록 구성하며, 선택 이름 목록은 해당 패널 내부 스크롤로 제한한다. 기존 resolved selection/UUID/clear/lock을 소비한다.
+- 모바일은 지도 아래 `선택 조명 N개`와 바로 다음 `전체 보기`로 같은 패널의 이름 목록을 인라인으로 펼친다. 목록을 닫거나 Escape로 닫으면 opener로 포커스를 복원하고, 현장·주체·층·선택 방식 경계에서 펼침을 초기화한다. 이 펼침을 위해 새 drawer/query를 만들지 않는다. 기존 전체 조명 목록 버튼의 drawer는 유지한다.
+- 권한이 확인된 manual-active 모바일만 finite h-dvh/min-h-0 shell과 기존 navigation safe reserve를 소비한다. 선택 toolbar는 층/선택 범위 dropdown/목록 icon 한 행, 실행은 숫자/slider/적용/더보기 한 행으로 구성한다. 자동화·그룹 관리·editor·embedded의 높이/renderer 기본 정책은 유지한다.
+- 빠른 값·이력·긴 복구 상세는 `더보기` 내부 스크롤에 유지하며, 접어도 명령 소유자/query/UUID를 제거하지 않는다. 중요한 조회 오류·불확정·확인 필요·잠금 상태는 접힌 상태에도 live summary로 남긴다. raw draft31·invalid blur/Enter·첫 invalid Apply 차단·별도 explicit Apply를 유지한다.
+- 선택적 `FloorMapViewport.compactChrome`은 수동 모바일 caller만 소비한다. 축소·100%·확대·화면 맞춤의 기존 동작, camera/renderer/gesture 수명과 기본 footer 최소240은 유지한다. compact caller는 실제 남은 높이를 사용하며 작은 화면에 강제 최소 높이를 두고 부모에서 잘라내지 않는다.
+
+### 미구현
+
+- 실제 브라우저의 PC panel full-row/empty/long list, 320·390×600 canvas240 목표, map 우세 비율·nav reserve·44px hit·한 행·document scroll0 검증은 총괄의 한정 Task3 QA 관문이다.
+- 물리 WebView/touch/safe-area·Gateway/RF/HIL 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 현재 검증은 직접 React 소비자의 명령·draft·selection·scope·default 수명 계약이다. CSS class 문자열 확인이나 JSDOM 크기를 실제 기하 통과로 해석하지 않는다. compact viewport는 min-h-0이므로 실제 chrome이 남긴 공간이240보다 작을 수 있으며 QA에서 수치와 모든 끝 내용의 도달을 확인해야 한다.
+- desktop 이력은 단일 실행 보조 영역에 유지하고 모바일에 같은 노드를 더보기로 접는다. query/명령 소유자를 복제하지 않았다. 동시에 선택 목록·More를 펼친 짧은 화면, 큰 글꼴·긴 오류·층/구역 목록·본문 마지막 action과 drawer 반환 focus는 실제 QA가 남아 있다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`, `ManualExecutionPanel.tsx` 및 직접 테스트.
+- `apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx`, `SpatialTargetSelector.tsx`, `TargetSelectionToolbar.tsx` 및 직접 테스트.
+- `apps/web/src/features/shells/CustomerShell.tsx`, `features/floor-map/FloorMapViewport.tsx` 및 직접 테스트.
+
+### 갱신 규칙
+
+- 수동 모바일 finite shell/선택 펼침/More 변경은 raw draft·explicit Apply·명령 복구/UUID·권한·scope/camera 수명을 함께 확인한다. 기본 embedded/자동화/다른 route에 compact 정책을 퍼뜨리지 않는다.
+- source/direct test 완료와 실제 browser 기하·최종 QA·독립 review·MAIN 통합 상태를 구분하고, 실제 검증 뒤240 목표·44px·문서/내부 scroll 결과를 기록한다.
+
 ## 2026-10-11 신규 조작 의견 — 현장명 단순화
 
 ### 구현 완료

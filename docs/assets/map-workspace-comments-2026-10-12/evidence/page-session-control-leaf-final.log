@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 31 skipped) 210ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests) 343ms
+
+ Test Files  2 passed (2)
+      Tests  22 passed | 31 skipped (53)
+   Start at  10:35:20
+   Duration  2.65s (transform 484ms, setup 149ms, collect 2.65s, tests 552ms, environment 791ms, prepare 410ms)
+

@@ -1,0 +1,1109 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+stderr | src/features/monitoring/FloorMap.test.tsx > FloorMap > navigates from a real marker with mouse without selecting until the next tap
+Error: Uncaught [TypeError: document.elementFromPoint is not a function]
+    at reportException (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/helpers/runtime-script-errors.js:66:24)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:353:9)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)
+    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)
+    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31)
+    at invokeGuardedCallbackAndCatchFirstError (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4291:25)
+    at executeDispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:9041:3) TypeError: document.elementFromPoint is not a function
+    at handleMarkerPointerUp (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/src/features/floor-map/FloorScene.tsx:265:32)
+    at HTMLUnknownElement.callCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14)
+    at HTMLUnknownElement.callTheUserObjectsOperation (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)
+    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)
+    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31)
+Error: Uncaught [TypeError: document.elementFromPoint is not a function]
+    at reportException (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/helpers/runtime-script-errors.js:66:24)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:353:9)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLButtonElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:217:9)
+    at HTMLButtonElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLButtonElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/events.js:19:20
+    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/@testing-library+react@16.3.2_@testing-library+dom@10.4.1_@types+react-dom@18.3.7_@types+reac_dn3zis5bbkj5p25wcjqgcim4vy/node_modules/@testing-library/react/dist/pure.js:107:16
+    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/@testing-library+react@16.3.2_@testing-library+dom@10.4.1_@types+react-dom@18.3.7_@types+reac_dn3zis5bbkj5p25wcjqgcim4vy/node_modules/@testing-library/react/dist/act-compat.js:47:24
+    at act (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react@18.3.1/node_modules/react/cjs/react.development.js:2512:16) TypeError: document.elementFromPoint is not a function
+    at handleMarkerPointerUp (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/src/features/floor-map/FloorScene.tsx:265:32)
+    at HTMLUnknownElement.callCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14)
+    at HTMLUnknownElement.callTheUserObjectsOperation (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)
+    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)
+    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31) {
+  stackStr: 'TypeError: document.elementFromPoint is not a function\n' +
+    '    at handleMarkerPointerUp (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/src/features/floor-map/FloorScene.tsx:265:32)\n' +
+    '    at HTMLUnknownElement.callCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14)\n' +
+    '    at HTMLUnknownElement.callTheUserObjectsOperation (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30)\n' +
+    '    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25)\n' +
+    '    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)\n' +
+    '    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)\n' +
+    '    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)\n' +
+    '    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)\n' +
+    '    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)\n' +
+    '    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31)',
+  nameStr: 'TypeError',
+  expected: 'undefined',
+  actual: 'undefined'
+}
+
+ ✓ src/features/monitoring/MonitoringView.test.tsx (110 tests | 107 skipped) 495ms
+stderr | src/features/monitoring/FloorMap.test.tsx > FloorMap > navigates from a real marker with touch without selecting until the next tap
+Error: Uncaught [TypeError: document.elementFromPoint is not a function]
+    at reportException (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/helpers/runtime-script-errors.js:66:24)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:353:9)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)
+    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)
+    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31)
+    at invokeGuardedCallbackAndCatchFirstError (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4291:25)
+    at executeDispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:9041:3) TypeError: document.elementFromPoint is not a function
+    at handleMarkerPointerUp (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/src/features/floor-map/FloorScene.tsx:265:32)
+    at HTMLUnknownElement.callCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14)
+    at HTMLUnknownElement.callTheUserObjectsOperation (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)
+    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)
+    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31)
+Error: Uncaught [TypeError: document.elementFromPoint is not a function]
+    at reportException (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/helpers/runtime-script-errors.js:66:24)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:353:9)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLButtonElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:217:9)
+    at HTMLButtonElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLButtonElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/events.js:19:20
+    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/@testing-library+react@16.3.2_@testing-library+dom@10.4.1_@types+react-dom@18.3.7_@types+reac_dn3zis5bbkj5p25wcjqgcim4vy/node_modules/@testing-library/react/dist/pure.js:107:16
+    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/@testing-library+react@16.3.2_@testing-library+dom@10.4.1_@types+react-dom@18.3.7_@types+reac_dn3zis5bbkj5p25wcjqgcim4vy/node_modules/@testing-library/react/dist/act-compat.js:47:24
+    at act (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react@18.3.1/node_modules/react/cjs/react.development.js:2512:16) TypeError: document.elementFromPoint is not a function
+    at handleMarkerPointerUp (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/src/features/floor-map/FloorScene.tsx:265:32)
+    at HTMLUnknownElement.callCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14)
+    at HTMLUnknownElement.callTheUserObjectsOperation (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30)
+    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25)
+    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)
+    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)
+    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)
+    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)
+    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)
+    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31) {
+  stackStr: 'TypeError: document.elementFromPoint is not a function\n' +
+    '    at handleMarkerPointerUp (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/src/features/floor-map/FloorScene.tsx:265:32)\n' +
+    '    at HTMLUnknownElement.callCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14)\n' +
+    '    at HTMLUnknownElement.callTheUserObjectsOperation (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30)\n' +
+    '    at innerInvokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25)\n' +
+    '    at invokeEventListeners (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3)\n' +
+    '    at HTMLUnknownElementImpl._dispatch (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9)\n' +
+    '    at HTMLUnknownElementImpl.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17)\n' +
+    '    at HTMLUnknownElement.dispatchEvent (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34)\n' +
+    '    at Object.invokeGuardedCallbackDev (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16)\n' +
+    '    at invokeGuardedCallback (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31)',
+  nameStr: 'TypeError',
+  expected: 'undefined',
+  actual: 'undefined'
+}
+
+ ❯ src/features/monitoring/FloorMap.test.tsx (17 tests | 2 failed | 15 skipped) 2176ms
+   × FloorMap > navigates from a real marker with mouse without selecting until the next tap 1137ms
+     → Unable to find role="dialog" and name "B1-L001 조명 정보"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem)); z-index: 4;"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem)); z-index: 4;"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture...
+   × FloorMap > navigates from a real marker with touch without selecting until the next tap 1038ms
+     → Unable to find role="dialog" and name "B1-L001 조명 정보"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture-connected"...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture-connected"...
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/monitoring/FloorMap.test.tsx > FloorMap > navigates from a real marker with mouse without selecting until the next tap
+TestingLibraryElementError: Unable to find role="dialog" and name "B1-L001 조명 정보"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem)); z-index: 4;"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem)); z-index: 4;"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/monitoring/FloorMap.test.tsx:88:25
+     86|     dispatchMapPointer(marker, "pointerup", { pointerId: 2, pointerTyp…
+     87|     fireEvent.click(marker, { detail: 1 });
+     88|     expect(await screen.findByRole("dialog", { name: "B1-L001 조명 정…
+       |                         ^
+     89|   });
+     90| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/features/monitoring/FloorMap.test.tsx > FloorMap > navigates from a real marker with touch without selecting until the next tap
+TestingLibraryElementError: Unable to find role="dialog" and name "B1-L001 조명 정보"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture-connected"...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"층 도면"[39m
+      [33mclass[39m=[32m"relative flex h-full min-h-min w-full min-w-0 flex-1 flex-col overflow-hidden bg-surface-inset"[39m
+      [33mdata-monitoring-map-shell[39m=[32m""[39m
+      [33mdata-zoom[39m=[32m"1"[39m
+      [33mrole[39m=[32m"region"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"min-h-min min-w-0 flex-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"relative h-full min-w-0 overflow-hidden bg-surface-inset flex min-h-min flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"상하좌우로 이동하고 확대 축소할 수 있는 지도"[39m
+            [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-[240px] flex-1 [contain:size]"[39m
+            [33mdata-testid[39m=[32m"monitoring-map-viewport"[39m
+            [33mdata-zoom[39m=[32m"1"[39m
+            [33mrole[39m=[32m"region"[39m
+            [33mtabindex[39m=[32m"0"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"grid min-h-full min-w-full place-items-center p-6"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none"[39m
+                [33mdata-floor-map-surface[39m=[32m""[39m
+                [33mstyle[39m=[32m"aspect-ratio: 1200 / 800; --floor-map-aspect-ratio: 1.5;"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33maria-hidden[39m=[32m"true"[39m
+                  [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 overflow-hidden"[39m
+                  [33mdata-floor-map-webgl-overlay[39m=[32m""[39m
+                [36m/>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"relative h-full w-full"[39m
+                  [33mdata-floor-scene[39m=[32m""[39m
+                  [33mdata-map-objects-interactive[39m=[32m"false"[39m
+                [36m>[39m
+                  [36m<img[39m
+                    [33malt[39m=[32m"B1 도면"[39m
+                    [33mclass[39m=[32m"pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"[39m
+                    [33mdraggable[39m=[32m"false"[39m
+                    [33msrc[39m=[32m"/demo.svg"[39m
+                  [36m/>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden"[39m
+                  [36m>[39m
+                    [36m<div>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"konvajs-content"[39m
+                        [33mrole[39m=[32m"presentation"[39m
+                        [33mstyle[39m=[32m"position: relative; user-select: none; width: 1px; height: 1px;"[39m
+                      [36m>[39m
+                        [36m<canvas[39m
+                          [33mheight[39m=[32m"1"[39m
+                          [33mstyle[39m=[32m"padding: 0px; margin: 0px; border: 0px; background: transparent; position: absolute; top: 0px; left: 0px; width: 1px; height: 1px; display: block;"[39m
+                          [33mwidth[39m=[32m"1"[39m
+                        [36m/>[39m
+                      [36m</div>[39m
+                    [36m</div>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33maria-hidden[39m=[32m"true"[39m
+                    [33mclass[39m=[32m"sr-only"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mdata-testid[39m=[32m"map-object-rectangle-1"[39m
+                    [36m>[39m
+                      [0mrectangle[0m
+                    [36m</span>[39m
+                  [36m</div>[39m
+                  [36m<button[39m
+                    [33maria-label[39m=[32m"B1-L001 정상 70%"[39m
+                    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+                    [33mdata-brightness-level[39m=[32m"8"[39m
+                    [33mdata-disabled[39m=[32m"false"[39m
+                    [33mdata-selected[39m=[32m"false"[39m
+                    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+                    [33mdata-variant[39m=[32m"ghost"[39m
+                    [33mstyle[39m=[32m"--fixture-left: 10%; --fixture-top: 10%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+                    [33mtitle[39m=[32m"B1-L001"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"pointer-events-none absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] bg-fixture-brightness-8 shadow-fixture-brightness-8 border-2! border-fixture-connected!"[39m
+                      [33mdata-spatial-map-marker-dot[39m=[32m"true"[39m
+                    [36m/>[39m
+                  [36m</button>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5"[39m
+            [33mdata-floor-map-footer[39m=[32m""[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0"[39m
+            [36m>[39m
+              [36m<ul[39m
+                [33maria-label[39m=[32m"조명 상태 범례"[39m
+                [33mclass[39m=[32m"pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"inline-flex items-center gap-1 text-fixture-connected"...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/monitoring/FloorMap.test.tsx:88:25
+     86|     dispatchMapPointer(marker, "pointerup", { pointerId: 2, pointerTyp…
+     87|     fireEvent.click(marker, { detail: 1 });
+     88|     expect(await screen.findByRole("dialog", { name: "B1-L001 조명 정…
+       |                         ^
+     89|   });
+     90| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 2 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+TypeError: document.elementFromPoint is not a function
+ ❯ handleMarkerPointerUp src/features/floor-map/FloorScene.tsx:265:32
+    263|     if (press.cancelled || pointerDistance(press, { x: event.clientX, …
+    264|         markerHit(event.clientX, event.clientY) !== press.id) return;
+    265|     const actualHit = document.elementFromPoint(event.clientX, event.c…
+       |                                ^
+    266|     const anchor = markerAnchors.current.get(press.id);
+    267|     // Clipping, a dialog or a CAD error overlay must not activate a c…
+ ❯ HTMLUnknownElement.callCallback ../../node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14
+ ❯ HTMLUnknownElement.callTheUserObjectsOperation ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30
+ ❯ innerInvokeEventListeners ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25
+ ❯ invokeEventListeners ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3
+ ❯ HTMLUnknownElementImpl._dispatch ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9
+ ❯ HTMLUnknownElementImpl.dispatchEvent ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17
+ ❯ HTMLUnknownElement.dispatchEvent ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34
+ ❯ Object.invokeGuardedCallbackDev ../../node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16
+ ❯ invokeGuardedCallback ../../node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31
+
+This error originated in "src/features/monitoring/FloorMap.test.tsx" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "navigates from a real marker with mouse without selecting until the next tap". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+TypeError: document.elementFromPoint is not a function
+ ❯ handleMarkerPointerUp src/features/floor-map/FloorScene.tsx:265:32
+    263|     if (press.cancelled || pointerDistance(press, { x: event.clientX, …
+    264|         markerHit(event.clientX, event.clientY) !== press.id) return;
+    265|     const actualHit = document.elementFromPoint(event.clientX, event.c…
+       |                                ^
+    266|     const anchor = markerAnchors.current.get(press.id);
+    267|     // Clipping, a dialog or a CAD error overlay must not activate a c…
+ ❯ HTMLUnknownElement.callCallback ../../node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4164:14
+ ❯ HTMLUnknownElement.callTheUserObjectsOperation ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventListener.js:26:30
+ ❯ innerInvokeEventListeners ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:350:25
+ ❯ invokeEventListeners ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:286:3
+ ❯ HTMLUnknownElementImpl._dispatch ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:233:9
+ ❯ HTMLUnknownElementImpl.dispatchEvent ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl.js:104:17
+ ❯ HTMLUnknownElement.dispatchEvent ../../node_modules/.pnpm/jsdom@25.0.1/node_modules/jsdom/lib/jsdom/living/generated/EventTarget.js:241:34
+ ❯ Object.invokeGuardedCallbackDev ../../node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4213:16
+ ❯ invokeGuardedCallback ../../node_modules/.pnpm/react-dom@18.3.1_@types+react@18.3.31_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:4277:31
+
+This error originated in "src/features/monitoring/FloorMap.test.tsx" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "navigates from a real marker with touch without selecting until the next tap". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 3 passed | 122 skipped (127)
+     Errors  2 errors
+   Start at  10:03:59
+   Duration  5.52s (transform 1.07s, setup 197ms, collect 4.13s, tests 2.67s, environment 1.05s, prepare 575ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/FloorMap.test.tsx -t navigates from a real marker|pure snapshot delay|screen heading nonvisual|detail nonmodal --reporter=dot

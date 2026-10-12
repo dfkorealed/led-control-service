@@ -1,0 +1,19 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 31 skipped) 244ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests) 400ms
+ ✓ src/features/control/target-selection/SpatialTargetSelector.test.tsx (33 tests | 30 skipped) 525ms
+   ✓ SpatialTargetSelector > C6-8 compact scope dropdown keeps the current targets until explicit confirmation 378ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 55 skipped) 1308ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 587ms
+   ✓ customer shell site context > forwards the existing navigation breakpoint to the real Control close action without resetting details 324ms
+ ✓ src/features/control/ControlView.test.tsx (167 tests | 159 skipped) 1455ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 488ms
+   ✓ ControlView 대상 선택 > preserves an in-flight UUID, frozen target and lock through inline details, filters and resize 354ms
+
+ Test Files  5 passed (5)
+      Tests  41 passed | 275 skipped (316)
+   Start at  10:39:36
+   Duration  4.75s (transform 1.73s, setup 522ms, collect 9.51s, tests 3.93s, environment 2.68s, prepare 374ms)
+

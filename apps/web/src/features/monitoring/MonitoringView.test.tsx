@@ -26,7 +26,7 @@ async function selectStatusFilter(name: string) {
 }
 
 function closeInspector() {
-  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("dialog", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색/목록 닫기" }));
+  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("complementary", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색/목록 닫기" }));
 }
 
 // Detail regressions explicitly choose a pin; finder-opening tests use
@@ -37,7 +37,7 @@ function openDetails(name?: string) {
   fireEvent.click(marker);
   openInspector();
   fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
-  return screen.getByRole("dialog", { name: "조명 상세" });
+  return screen.getByRole("complementary", { name: "조명 상세" });
 }
 
 function openCurrentStatus() {
@@ -47,6 +47,10 @@ function openCurrentStatus() {
 
 function floorMetric(label: string) {
   return within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByText(label).parentElement!;
+}
+
+function updatedAt() {
+  return screen.getByText(/마지막 갱신:/).closest("small")!;
 }
 
 const queryMocks = vi.hoisted(() => ({
@@ -101,6 +105,47 @@ describe("MonitoringView refresh", () => {
   const refetchDashboard = vi.fn();
   const refetchFixtures = vi.fn();
   const refetchMap = vi.fn();
+
+  it("keeps pure snapshot delay in the alarm center without a toast or recent notification and clears on recovery", () => {
+    const query = queryMocks.useFloorFixtures();
+    query.data.pages[0].generatedAt = new Date(Date.now() - 60_001).toISOString();
+    const view = render(<MonitoringView siteId="site-1" />);
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
+    expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toBeEmptyDOMElement();
+    queryMocks.useFloorFixtures.mockReturnValue({ ...query, data: { pages: [{ ...query.data.pages[0], generatedAt: new Date().toISOString() }] } });
+    view.rerender(<MonitoringView siteId="site-1" />);
+    expect(screen.getByRole("region", { name: "현재 화면 상태" })).not.toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+  });
+
+  it("keeps the screen heading nonvisual and all monitoring tools together with accessible actions", () => {
+    render(<MonitoringView siteId="site-1" />);
+    expect(screen.getByRole("heading", { level: 1, name: "모니터링" })).toHaveClass("sr-only");
+    const tools = screen.getByRole("group", { name: "모니터링 도구" });
+    expect(tools).toContainElement(screen.getByRole("button", { name: "새로고침" }));
+    expect(tools).toContainElement(screen.getByRole("button", { name: "조명 검색/목록" }));
+    expect(tools).toHaveTextContent("마지막 갱신:");
+  });
+
+  it("keeps detail nonmodal inside the map with stable viewport and scrolling across reopen", async () => {
+    render(<MonitoringView siteId="site-1" />);
+    const viewport = screen.getByTestId("monitoring-map-viewport");
+    openDetails();
+    const detail = screen.getByRole("complementary", { name: "조명 상세" });
+    expect(document.querySelector("[data-operation-map-panel]")).toContainElement(detail);
+    expect(detail).not.toHaveAttribute("aria-modal", "true");
+    await waitFor(() => expect(detail).toHaveFocus());
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    const body = detail.querySelector<HTMLElement>("[data-monitoring-detail-scroll]")!;
+    body.scrollTop = 37;
+    fireEvent.scroll(body);
+    fireEvent.keyDown(detail, { key: "Escape" });
+    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("monitoring-map-viewport")).toBe(viewport);
+    openDetails();
+    const reopened = screen.getByRole("complementary", { name: "조명 상세" });
+    await waitFor(() => expect(reopened.querySelector("[data-monitoring-detail-scroll]")).toHaveProperty("scrollTop", 37));
+  });
 
   it("exposes a single unified search/list opener", () => {
     render(<MonitoringView siteId="site-1" />);
@@ -162,7 +207,7 @@ describe("MonitoringView refresh", () => {
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
       expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
       expect(screen.getByTestId("shell-current-menu")).toHaveTextContent("모니터링");
-      expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByRole("button", { name: "새로고침" }));
+      expect(screen.getByRole("heading", { level: 1, name: "모니터링" })).toHaveClass("sr-only");
     } finally { read.mockRestore(); }
   });
 
@@ -204,8 +249,8 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
-    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", timestamp);
-    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent("2026-10-04 00:59:00");
+    expect(updatedAt().querySelector("time")).toHaveAttribute("datetime", timestamp);
+    expect(updatedAt()).toHaveTextContent("2026-10-04 00:59:00");
   });
 
   it("keeps selected pin during theme change", () => {
@@ -288,9 +333,9 @@ describe("MonitoringView refresh", () => {
       await chooseSelect("상태 필터", condition === "fault" ? "점검 필요" : "미배치");
     }
     await chooseFixture("B1-L001");
-    const opener = (screen.queryByRole("dialog", { name: "조명 상세" }) || screen.queryByRole("complementary", { name: "조명 상세" })) ? screen.getByRole("button", { name: "조명 검색/목록" }) : screen.getByRole("button", { name: "상세 보기" });
+    const opener = screen.queryByRole("complementary", { name: "조명 상세" }) ? screen.getByRole("button", { name: "조명 검색/목록" }) : screen.getByRole("button", { name: "상세 보기" });
     if (focusOpener) opener.focus();
-    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(opener);
+    if (!screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(opener);
     const detail = screen.getByRole("complementary", { name: "조명 상세" });
     // Let the old finder portal's return lifecycle finish before focusing the
     // desktop detail; its late return is not automatic-removal evidence.
@@ -422,10 +467,10 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(marker);
     const pin = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
     fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("조명 정보 확인 전 · 상태를 불러오는 중");
+    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("조명 정보 확인 전 · 상태를 불러오는 중");
     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] }, isPending: false, isFetching: false });
     view.rerender(<MonitoringView siteId="site-1" />);
-    expect(screen.getByRole("dialog", { name: "조명 상세" })).not.toHaveTextContent("B1-L001");
+    expect(screen.getByRole("complementary", { name: "조명 상세" })).not.toHaveTextContent("B1-L001");
     expect(marker).toHaveAttribute("data-selected", "true");
   });
 
@@ -439,12 +484,12 @@ describe("MonitoringView refresh", () => {
       fireEvent.click(await screen.findByRole("option", { name: condition === "fault" ? /^점검 필요$/ : /^미배치$/ }));
     }
     await chooseFixture( "B1-L001");
-    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toBeVisible();
+    if (!screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
+    expect(screen.getByRole("complementary", { name: "조명 상세" })).toBeVisible();
     const updated = { ...fixture, status: "online", health: null, name: condition === "search" ? "다른 이름" : fixture.name, placementStatus: "placed" };
     queryMocks.useFloorFixtures().data.pages[0].items = [updated];
     view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
-    expect(screen.queryByRole("dialog", { name: "조명 상세" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
     expect(document.querySelector('[data-spatial-map-marker][data-selected="true"]')).not.toBeInTheDocument();
     expect(document.querySelector("[data-monitoring-pin-popover]")).not.toBeInTheDocument();
     const reopened = openInspector();
@@ -461,8 +506,8 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(marker);
     const pin = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
     fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("저장된 조명");
-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("정보 확인 전 · 상태를 불러오는 중");
+    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("저장된 조명");
+    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("정보 확인 전 · 상태를 불러오는 중");
     expect(marker).toHaveAttribute("data-selected", "true");
     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
   });
@@ -539,7 +584,7 @@ describe("MonitoringView refresh", () => {
       expect(refetchFixtures).toHaveBeenCalledTimes(1);
       expect(refetchMap).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
+    expect(updatedAt()).toBeInTheDocument();
   });
 
   it("keeps one hardware request active and refreshes marker/detail without deriving counts from fixture pages", async () => {
@@ -1028,7 +1073,7 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    const updated = screen.getByText(/마지막 갱신:/);
+    const updated = updatedAt();
     expect(updated).toHaveTextContent(localTime);
     expect(updated).toHaveTextContent("현장 시간");
     expect(updated).not.toHaveTextContent(snapshotAt);
@@ -1040,7 +1085,7 @@ describe("MonitoringView refresh", () => {
   it("keeps pending snapshot metadata explicit without an invented time", () => {
     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: undefined, isPending: true });
     render(<MonitoringView siteId="site-1" />);
-    const updated = screen.getByText(/마지막 갱신:/);
+    const updated = updatedAt();
     expect(updated).toHaveTextContent("서버 snapshot 시각 확인 중");
     expect(updated.querySelector("time")).toBeNull();
   });
@@ -1062,10 +1107,10 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
     expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
-    expect(screen.getByText(/마지막 갱신:/)).not.toHaveTextContent(snapshotAt);
-    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", snapshotAt);
+    expect(updatedAt()).not.toHaveTextContent(snapshotAt);
+    expect(updatedAt().querySelector("time")).toHaveAttribute("datetime", snapshotAt);
   });
 
   it("keeps a future server snapshot explicit instead of presenting it as a normal relative update", () => {
@@ -1085,7 +1130,7 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent("시간 차이 확인 (2099-01-01 09:00:00)");
+    expect(updatedAt()).toHaveTextContent("시간 차이 확인 (2099-01-01 09:00:00)");
     expect(screen.getByRole("status")).toHaveTextContent("시간 차이 확인: 2099-01-01 09:00:00");
   });
 
@@ -1118,8 +1163,12 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
     act(() => vi.advanceTimersByTime(60_000));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(openCurrentStatus()).not.toHaveTextContent("현황 갱신이 지연되고 있습니다.");
     act(() => vi.advanceTimersByTime(1));
-    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+    // The alarm dialog hides sibling regions from accessibility; include hidden
+    // statuses so a duplicate transient toast would still fail this assertion.
+    expect(screen.queryByRole("status", { hidden: true })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "현재 화면 상태" })).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
   });
 
   it.each([
@@ -1529,7 +1578,7 @@ describe("MonitoringView refresh", () => {
     expect(within(selectedFinder).getByRole("button", { name: new RegExp(nextFixture.name) })).toHaveAttribute("aria-pressed", "true");
     expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
-    const detail = screen.getByRole("dialog", { name: "조명 상세" });
+    const detail = screen.getByRole("complementary", { name: "조명 상세" });
     expect(within(detail).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent(nextFixture.name);
     expect(within(detail).queryByText(fixture.name)).not.toBeInTheDocument();
     closeInspector();
@@ -1722,7 +1771,7 @@ function deferred<T>() {
 async function chooseFixture(option: string) {
   const list = screen.getByRole("list", { name: "조명 목록" });
   fireEvent.click(within(list).getByRole("button", { name: new RegExp(option.split(" · ")[0]) }));
-  if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) {
+  if (!screen.queryByRole("complementary", { name: "조명 상세" })) {
     await screen.findByRole("dialog", { name: `${option.split(" · ")[0]} 조명 정보` });
     openInspector();
   }

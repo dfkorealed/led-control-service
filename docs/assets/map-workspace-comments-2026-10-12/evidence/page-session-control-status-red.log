@@ -1,0 +1,63 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/control/ControlView.test.tsx (166 tests | 2 failed | 164 skipped) 1109ms
+   × ControlView 대상 선택 > C6-8 collapsed important status prioritizes 'query error' over an empty target 1027ms
+     → expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  명령 상태를 불러오지 못했습니다.
+Received:
+  제어 대상을 하나 이상 선택해 주세요.
+   × ControlView 대상 선택 > C6-8 collapsed important status prioritizes 'verification required' over an empty target 75ms
+     → expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  실제 상태 확인 필요
+Received:
+  제어 대상을 하나 이상 선택해 주세요.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > C6-8 collapsed important status prioritizes 'query error' over an empty target
+Error: expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  명령 상태를 불러오지 못했습니다.
+Received:
+  제어 대상을 하나 이상 선택해 주세요.
+ ❯ src/features/control/ControlView.test.tsx:414:62
+    412|       error: failure === "query error" ? new TypeError("offline") : nu…
+    413|     renderControl("admin", dashboard.site.id, USER_A, `/control?siteId…
+    414|     expect(screen.getByRole("status", { name: "제어 중요 상태" })).toH…
+       |                                                              ^
+    415|     expect(applyButton()).toBeDisabled();
+    416|     fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > C6-8 collapsed important status prioritizes 'verification required' over an empty target
+Error: expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  실제 상태 확인 필요
+Received:
+  제어 대상을 하나 이상 선택해 주세요.
+ ❯ src/features/control/ControlView.test.tsx:414:62
+    412|       error: failure === "query error" ? new TypeError("offline") : nu…
+    413|     renderControl("admin", dashboard.site.id, USER_A, `/control?siteId…
+    414|     expect(screen.getByRole("status", { name: "제어 중요 상태" })).toH…
+       |                                                              ^
+    415|     expect(applyButton()).toBeDisabled();
+    416|     fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 164 skipped (166)
+   Start at  10:30:59
+   Duration  4.22s (transform 837ms, setup 74ms, collect 1.98s, tests 1.11s, environment 468ms, prepare 223ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx -t collapsed important status --reporter=dot

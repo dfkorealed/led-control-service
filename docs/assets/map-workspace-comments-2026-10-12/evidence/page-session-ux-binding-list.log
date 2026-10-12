@@ -1,0 +1,8 @@
+Listing tests:
+  [chromium-ux-six-cases] › page-session-ux.spec.ts:166:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus
+  [chromium-ux-six-cases] › page-session-ux.spec.ts:187:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll
+  [chromium-ux-six-cases] › page-session-ux.spec.ts:205:7 › 03 narrow finite manual workspace › 320x600 light: two rows, invalid first Apply and More
+  [chromium-ux-six-cases] › page-session-ux.spec.ts:242:7 › 04 native touch and long inline selection › 390x600 dark: swipe then tap, 60 fixtures and internal ending
+  [chromium-ux-six-cases] › page-session-ux.spec.ts:286:7 › 05 resize without remount/reset › 717x1227 to 390x844 light: inline/More, focus and raw31
+  [chromium-ux-six-cases] › page-session-ux.spec.ts:322:7 › 06 PC manual empty and long-list ownership › 1194 dark: equal-height empty panel and 60-row internal scroll
+Total: 6 tests in 1 file

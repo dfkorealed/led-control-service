@@ -1,0 +1,187 @@
+{
+  "base": "f2926e927ab8c976ef1dbb282c932bdddfdf8685",
+  "files": [
+    {
+      "path": "apps/web/src/features/control/ControlView.tsx",
+      "owned": true,
+      "baselineSHA256": "5169dc70369168fe6b8e32a9a01155033180e20cd44313ee4abbb18eb816c84e",
+      "sourceSHA256": "32c82970d1cb7b12e6764dbff434f6efde82f0de8a89456cdea5042db5ad5b62",
+      "unchanged": false,
+      "commitSHA256": "32c82970d1cb7b12e6764dbff434f6efde82f0de8a89456cdea5042db5ad5b62",
+      "currentSHA256": "32c82970d1cb7b12e6764dbff434f6efde82f0de8a89456cdea5042db5ad5b62",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "docs/menus/control.md",
+      "owned": true,
+      "baselineSHA256": "4e1959ff068551d6f2d40f6ed9b757936ca766cf09dba20b441d071f2a56e16a",
+      "sourceSHA256": "ff67cd21bc34e87fce3ac8feff827e138d30655f2b14b4bb420a31049b4c2009",
+      "unchanged": false,
+      "commitSHA256": "ff67cd21bc34e87fce3ac8feff827e138d30655f2b14b4bb420a31049b4c2009",
+      "currentSHA256": "ff67cd21bc34e87fce3ac8feff827e138d30655f2b14b4bb420a31049b4c2009",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/components/ui/Card.tsx",
+      "owned": false,
+      "baselineSHA256": "c90dd96f3a65b02c89e4e4126f6594ec5fc47c1d2e3416b2dd436e4142f8cde7",
+      "sourceSHA256": "c90dd96f3a65b02c89e4e4126f6594ec5fc47c1d2e3416b2dd436e4142f8cde7",
+      "unchanged": true,
+      "commitSHA256": "c90dd96f3a65b02c89e4e4126f6594ec5fc47c1d2e3416b2dd436e4142f8cde7",
+      "currentSHA256": "c90dd96f3a65b02c89e4e4126f6594ec5fc47c1d2e3416b2dd436e4142f8cde7",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/components/ui/SidePanel.tsx",
+      "owned": false,
+      "baselineSHA256": "de21f569191e1ae5fd5e3857437e5fbc0396721d8be06866efb3d18f45d1bb7b",
+      "sourceSHA256": "de21f569191e1ae5fd5e3857437e5fbc0396721d8be06866efb3d18f45d1bb7b",
+      "unchanged": true,
+      "commitSHA256": "de21f569191e1ae5fd5e3857437e5fbc0396721d8be06866efb3d18f45d1bb7b",
+      "currentSHA256": "de21f569191e1ae5fd5e3857437e5fbc0396721d8be06866efb3d18f45d1bb7b",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/components/ui/maps/OperationMapPanel.tsx",
+      "owned": false,
+      "baselineSHA256": "524b7b9670b6c8bb7a89818c9c2c1fe45e9540117f18bc4bfffcd5678f27c0b2",
+      "sourceSHA256": "524b7b9670b6c8bb7a89818c9c2c1fe45e9540117f18bc4bfffcd5678f27c0b2",
+      "unchanged": true,
+      "commitSHA256": "524b7b9670b6c8bb7a89818c9c2c1fe45e9540117f18bc4bfffcd5678f27c0b2",
+      "currentSHA256": "524b7b9670b6c8bb7a89818c9c2c1fe45e9540117f18bc4bfffcd5678f27c0b2",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/components/ui/fields/Slider.tsx",
+      "owned": false,
+      "baselineSHA256": "1cd0dcff39ae4cbbdb1301718961a72037ef82456bb18fa7b37c110e50113e79",
+      "sourceSHA256": "1cd0dcff39ae4cbbdb1301718961a72037ef82456bb18fa7b37c110e50113e79",
+      "unchanged": true,
+      "commitSHA256": "1cd0dcff39ae4cbbdb1301718961a72037ef82456bb18fa7b37c110e50113e79",
+      "currentSHA256": "1cd0dcff39ae4cbbdb1301718961a72037ef82456bb18fa7b37c110e50113e79",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/components/ui/fields/NumberField.tsx",
+      "owned": false,
+      "baselineSHA256": "89eaf4c648f7b4e3b5bc710e7303c11800fcbec4c975a627265b7a2200971159",
+      "sourceSHA256": "89eaf4c648f7b4e3b5bc710e7303c11800fcbec4c975a627265b7a2200971159",
+      "unchanged": true,
+      "commitSHA256": "89eaf4c648f7b4e3b5bc710e7303c11800fcbec4c975a627265b7a2200971159",
+      "currentSHA256": "89eaf4c648f7b4e3b5bc710e7303c11800fcbec4c975a627265b7a2200971159",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.tsx",
+      "owned": false,
+      "baselineSHA256": "fcef27f038ded2d7f74a8ddb8e642bf329b0378ba7c1755e1f226ce061cc1eda",
+      "sourceSHA256": "fcef27f038ded2d7f74a8ddb8e642bf329b0378ba7c1755e1f226ce061cc1eda",
+      "unchanged": true,
+      "commitSHA256": "fcef27f038ded2d7f74a8ddb8e642bf329b0378ba7c1755e1f226ce061cc1eda",
+      "currentSHA256": "fcef27f038ded2d7f74a8ddb8e642bf329b0378ba7c1755e1f226ce061cc1eda",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.test.tsx",
+      "owned": false,
+      "baselineSHA256": "15a5535b88f637c0a11642b9b28c71681d121a8fe33f3b4ffe92bb44c965e6fb",
+      "sourceSHA256": "15a5535b88f637c0a11642b9b28c71681d121a8fe33f3b4ffe92bb44c965e6fb",
+      "unchanged": true,
+      "commitSHA256": "15a5535b88f637c0a11642b9b28c71681d121a8fe33f3b4ffe92bb44c965e6fb",
+      "currentSHA256": "15a5535b88f637c0a11642b9b28c71681d121a8fe33f3b4ffe92bb44c965e6fb",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+      "owned": false,
+      "baselineSHA256": "9d3e3ab9a6320f93bd5b560dc7052bca42f0f885309b21a27aaca40841acaddd",
+      "sourceSHA256": "9d3e3ab9a6320f93bd5b560dc7052bca42f0f885309b21a27aaca40841acaddd",
+      "unchanged": true,
+      "commitSHA256": "9d3e3ab9a6320f93bd5b560dc7052bca42f0f885309b21a27aaca40841acaddd",
+      "currentSHA256": "9d3e3ab9a6320f93bd5b560dc7052bca42f0f885309b21a27aaca40841acaddd",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx",
+      "owned": false,
+      "baselineSHA256": "5232d51bf47331ced19a80190a0b38856836a403772a0a4dcf3e18555739eed1",
+      "sourceSHA256": "5232d51bf47331ced19a80190a0b38856836a403772a0a4dcf3e18555739eed1",
+      "unchanged": true,
+      "commitSHA256": "5232d51bf47331ced19a80190a0b38856836a403772a0a4dcf3e18555739eed1",
+      "currentSHA256": "5232d51bf47331ced19a80190a0b38856836a403772a0a4dcf3e18555739eed1",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+      "owned": false,
+      "baselineSHA256": "cd44fd97636471890852347131586c4b39ea34d0ad3e818f4131b0495cfbd526",
+      "sourceSHA256": "cd44fd97636471890852347131586c4b39ea34d0ad3e818f4131b0495cfbd526",
+      "unchanged": true,
+      "commitSHA256": "cd44fd97636471890852347131586c4b39ea34d0ad3e818f4131b0495cfbd526",
+      "currentSHA256": "cd44fd97636471890852347131586c4b39ea34d0ad3e818f4131b0495cfbd526",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+      "owned": false,
+      "baselineSHA256": "1cac4b3f93f9399952a0feb2659efacac231d03c93e778668a04956c5a6d5f2e",
+      "sourceSHA256": "1cac4b3f93f9399952a0feb2659efacac231d03c93e778668a04956c5a6d5f2e",
+      "unchanged": true,
+      "commitSHA256": "1cac4b3f93f9399952a0feb2659efacac231d03c93e778668a04956c5a6d5f2e",
+      "currentSHA256": "1cac4b3f93f9399952a0feb2659efacac231d03c93e778668a04956c5a6d5f2e",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/floor-map/FloorMapViewport.tsx",
+      "owned": false,
+      "baselineSHA256": "8a15f62e15f571386a1f05c998e170a281abb6f142ab7dc0689ce147c3501b6b",
+      "sourceSHA256": "8a15f62e15f571386a1f05c998e170a281abb6f142ab7dc0689ce147c3501b6b",
+      "unchanged": true,
+      "commitSHA256": "8a15f62e15f571386a1f05c998e170a281abb6f142ab7dc0689ce147c3501b6b",
+      "currentSHA256": "8a15f62e15f571386a1f05c998e170a281abb6f142ab7dc0689ce147c3501b6b",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.tsx",
+      "owned": false,
+      "baselineSHA256": "5f8372a78fa488fbcbc6997ce9ddc1c923cfd48a3dffe9f00ab69cea8af80bd6",
+      "sourceSHA256": "5f8372a78fa488fbcbc6997ce9ddc1c923cfd48a3dffe9f00ab69cea8af80bd6",
+      "unchanged": true,
+      "commitSHA256": "5f8372a78fa488fbcbc6997ce9ddc1c923cfd48a3dffe9f00ab69cea8af80bd6",
+      "currentSHA256": "5f8372a78fa488fbcbc6997ce9ddc1c923cfd48a3dffe9f00ab69cea8af80bd6",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "apps/web/src/styles/theme.css",
+      "owned": false,
+      "baselineSHA256": "d7193e0d5535e84ca0ecc29fd29eef5091a3d0086ef817f7de558e812b210243",
+      "sourceSHA256": "d7193e0d5535e84ca0ecc29fd29eef5091a3d0086ef817f7de558e812b210243",
+      "unchanged": true,
+      "commitSHA256": "d7193e0d5535e84ca0ecc29fd29eef5091a3d0086ef817f7de558e812b210243",
+      "currentSHA256": "d7193e0d5535e84ca0ecc29fd29eef5091a3d0086ef817f7de558e812b210243",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "docs/project-status.md",
+      "owned": false,
+      "baselineSHA256": "ff17be902ba4634ac48912c295f9819a676ecf3664ada16679f06dc24b0ddca2",
+      "sourceSHA256": "ff17be902ba4634ac48912c295f9819a676ecf3664ada16679f06dc24b0ddca2",
+      "unchanged": true,
+      "commitSHA256": "ff17be902ba4634ac48912c295f9819a676ecf3664ada16679f06dc24b0ddca2",
+      "currentSHA256": "ff17be902ba4634ac48912c295f9819a676ecf3664ada16679f06dc24b0ddca2",
+      "commitMatchesSource": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-12-map-workspace-comments.md",
+      "owned": false,
+      "baselineSHA256": "18bb5a832ab19800d7cd6f69ac358450a95b75f00cc48159efaddb8b9a95b28c",
+      "sourceSHA256": "18bb5a832ab19800d7cd6f69ac358450a95b75f00cc48159efaddb8b9a95b28c",
+      "unchanged": true,
+      "commitSHA256": "18bb5a832ab19800d7cd6f69ac358450a95b75f00cc48159efaddb8b9a95b28c",
+      "currentSHA256": "18bb5a832ab19800d7cd6f69ac358450a95b75f00cc48159efaddb8b9a95b28c",
+      "commitMatchesSource": true
+    }
+  ],
+  "commit": "e35c0c209fab13f9be17ed3dcda079d8de642efd",
+  "parent": "f2926e927ab8c976ef1dbb282c932bdddfdf8685"
+}

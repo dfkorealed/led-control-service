@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { useFloorMapSnapshot } from "../../../api/queries";
 import { Button, ConfirmDialog, InlineStatusSummary, OperationMapPanel, Text } from "../../../components/ui";
@@ -8,6 +8,7 @@ import { resolveControlSelection, toggleFixtureSelection, type ControlMode, type
 import { humanizeDeviceResponseMessage } from "../control-copy";
 import { FixtureSelectionDrawer } from "./FixtureSelectionDrawer";
 import { SelectionSummaryPanel } from "./SelectionSummaryPanel";
+import { ManualAuxiliaryContent, ManualAuxiliaryPanel, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
 import { TargetSelectionToolbar } from "./TargetSelectionToolbar";
 
 export interface SpatialTargetSelectorProps {
@@ -18,6 +19,7 @@ export interface SpatialTargetSelectorProps {
   displaySelection?: ControlSelection;
   disabled: boolean;
   presentation?: "embedded" | "manual-workspace";
+  compactWorkspace?: boolean;
   allowedModes?: readonly ControlMode[];
   fixtureFilter?: (fixture: DashboardFixture) => boolean;
   fixtureFilterReason?: string;
@@ -42,7 +44,7 @@ export const spatialTargetDialogClassName = "grid! h-full! w-full! max-w-6xl gri
 
 export function SpatialTargetSelector({
   siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, fixtureFilterReason, fixtureBlockedReason, onInspectFixture, inspectionPanel, preferredFloorId, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
-  compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, presentation = "embedded", onCompactSheetHeightChange, onChange
+  compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, presentation = "embedded", compactWorkspace = false, onCompactSheetHeightChange, onChange
 }: SpatialTargetSelectorProps) {
   const resolvedSelection = displaySelection ?? selection;
   const selectionFloorId = floorForSelection(dashboard, selection);
@@ -52,6 +54,9 @@ export function SpatialTargetSelector({
   const listOpenerRef = useRef<HTMLButtonElement>(null);
   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
   const manualWorkspace = presentation === "manual-workspace";
+  const compactManual = manualWorkspace && compactWorkspace;
+  const auxiliary = useManualAuxiliary();
+  const compactAuxiliary = compactManual && Boolean(auxiliary);
   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
   const mapQuery = useFloorMapSnapshot(activeFloor?.id, siteId);
   const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, resolvedSelection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, resolvedSelection]);
@@ -117,18 +122,29 @@ export function SpatialTargetSelector({
     onChange({ mode: "fixtures", fixtureIds: [...next].sort() });
   }
 
+  const closeAuxiliary = auxiliary?.close;
+  useLayoutEffect(() => { closeAuxiliary?.(false); }, [siteId, activeFloor?.id, closeAuxiliary]);
+
   const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
-  const legend = <div className={manualWorkspace ? "pointer-events-none flex flex-wrap gap-2 text-label" : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
+  const floorStatus = <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
+          { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
+          { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
+          { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
+          { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
+        ]} />;
+  const selectionChoices = <>{selection.mode === "floor" ? <SelectionChoices compact={compactManual && !auxiliary} kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+    {selection.mode === "group" ? <SelectionChoices compact={compactManual && !auxiliary} kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}</>;
+  const legend = <div className={manualWorkspace ? (compactManual ? "pointer-events-none grid grid-cols-2 gap-x-1 text-caption" : "pointer-events-none flex flex-wrap gap-2 text-label") : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-offline" />오프라인</span>
     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-selected" />선택</span>
   </div>;
 
-  return <section className={`flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
+  return <section className={compactManual ? "flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1" : `flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
-      presentation={presentation}
+      presentation={presentation} compact={compactManual}
       compactDisclosure={hideEmbeddedSummary && !manualWorkspace} modeSelectionSemantics={modeSelectionSemantics}
       disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
       onOpenList={() => setListOpen(true)} listOpenerRef={listOpenerRef} managementAction={managementAction}
@@ -136,37 +152,38 @@ export function SpatialTargetSelector({
     {hideEmbeddedSummary && !manualWorkspace ? <Text className="compact:hidden" variant="caption">{resolved.fixtureIds.length}개 선택 · {selection.mode === "fixtures" ? "개별 조명" : selection.mode === "floor" ? "층 전체" : "저장된 구역"}</Text> : null}
     {/* Manual desktop's outer workspace owns short-window scrolling. Let chrome
         wheels chain to it; embedded/mobile panes retain their containment. */}
-    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
+    <div className={compactManual ? "grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-1" : `grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes
           lose their corners and cannot provide the required 48×48 target. */}
-      {/* Manual legend and camera share one wrapping flow footer, preserving
-          the 240px canvas minimum; embedded consumers keep their old strip. */}
-      <OperationMapPanel className="[&_[data-spatial-map-marker]]:rounded-none! min-h-min"
-        status={manualWorkspace ? <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
-          { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
-          { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
-          { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
-          { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
-        ]} /> : undefined}>
-        {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
+      {/* Mobile moves repeated summaries/legend into the common reader and
+          places camera controls over the map, preserving its finite row.
+          Desktop/default consumers retain their existing footer and minimum. */}
+      <OperationMapPanel className={`[&_[data-spatial-map-marker]]:rounded-none! ${compactManual ? "min-h-0 [&_[data-operation-map-chrome]]:px-1 [&_[data-operation-map-chrome]]:py-1 [&_[data-operation-map-chrome]_span]:text-caption [&_[data-operation-map-chrome]_strong]:text-caption [&_[data-operation-map-chrome]_[role=group]]:gap-x-2" : "min-h-min"}`}
+        status={manualWorkspace && !compactAuxiliary ? floorStatus : undefined}>
+        <div className={compactManual ? "relative flex min-h-0 min-w-0 flex-1 flex-col" : mapQuery.data && activeFloor ? "min-h-min min-w-0 flex-1" : "contents"}>
+        {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
           mode="pan" toolModePolicy={manualWorkspace ? "manual-cad" : "interaction-default"}
-          onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" footerStart={manualWorkspace ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
+          compactChrome={compactManual} onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement={compactAuxiliary ? "overlay" : "footer"} footerStart={manualWorkspace && !compactAuxiliary ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
-        </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
+        </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
+        <>
+          <ManualAuxiliaryPanel />
+          {auxiliary ? <ManualAuxiliaryContent kind="more" mobileOnly>
+            {floorStatus}{legend}
+          </ManualAuxiliaryContent> : null}
+        </>
+        </div>
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
         {mapQuery.data && !manualWorkspace ? legend : null}
       </OperationMapPanel>
-      {/* On desktop, long choice lists must scroll within the map row rather
-          than contribute their intrinsic height to that auto-sized grid row.
-          Compact inspection must reserve its intrinsic height: a zero-height
-          second grid row lets preparation buttons sit behind the map. The
-          outer content scrolls both map and inspection on those screens. */}
-      <div className={hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
-        {inspectionPanel}
-        {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
-        {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+      {/* Desktop list content is size-contained by the map row even when empty.
+          Manual mobile owns a bounded inline list; embedded preparation keeps
+          its natural-height inspection pane and existing scroll policy. */}
+      <div className={manualWorkspace ? (compactManual ? "min-h-0 min-w-0" : "h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain tablet:[contain:size]") : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
+        {manualWorkspace ? <div key={`${siteId}:${activeFloor?.id}:${selection.mode}`} className="h-full min-h-0">{inspectionPanel}</div> : inspectionPanel}
+        {auxiliary ? <ManualAuxiliaryContent kind="selection">{selectionChoices}</ManualAuxiliaryContent> : selectionChoices}
       </div>
     </div>
     <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled} returnFocusRef={listOpenerRef}
@@ -176,12 +193,12 @@ export function SpatialTargetSelector({
   </section>;
 }
 
-function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter, requiredGatewayId, onChange }: {
-  kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean;
+function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter, requiredGatewayId, onChange, compact = false }: {
+  compact?: boolean; kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean;
   fixtureFilter: SpatialTargetSelectorProps["fixtureFilter"]; requiredGatewayId: string | null; onChange: (selection: ControlSelection) => void;
 }) {
   const items = kind === "floor" ? dashboard.floors : dashboard.groups;
-  return <div className="mt-3 grid gap-2" role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
+  return <div className={`mt-3 grid min-h-0 gap-2 ${compact ? "max-h-[15dvh] overflow-y-auto overscroll-contain" : ""}`} role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
     {items.map((item) => {
       const candidate = kind === "floor" ? { mode: "floor" as const, floorId: item.id } : { mode: "group" as const, groupId: item.id };
       const candidateResolved = selectionWithConstraints(resolveControlSelection(dashboard, candidate), fixtureFilter, requiredGatewayId);

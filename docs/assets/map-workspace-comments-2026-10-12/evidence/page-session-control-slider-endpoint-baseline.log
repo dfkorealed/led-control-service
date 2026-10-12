@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (11 tests) 302ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  13:08:11
+   Duration  2.01s (transform 270ms, setup 61ms, collect 1.04s, tests 302ms, environment 384ms, prepare 51ms)
+

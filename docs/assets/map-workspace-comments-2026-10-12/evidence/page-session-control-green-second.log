@@ -1,0 +1,15 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 43 skipped) 91ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests | 8 skipped) 127ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 62 skipped) 481ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 480ms
+ ✓ src/features/control/ControlView.test.tsx (164 tests | 162 skipped) 490ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 337ms
+
+ Test Files  4 passed (4)
+      Tests  5 passed | 275 skipped (280)
+   Start at  10:26:15
+   Duration  3.30s (transform 1.07s, setup 366ms, collect 6.20s, tests 1.19s, environment 1.84s, prepare 316ms)
+

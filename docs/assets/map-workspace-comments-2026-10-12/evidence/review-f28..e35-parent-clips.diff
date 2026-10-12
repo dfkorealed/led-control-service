@@ -1,0 +1,89 @@
+diff --git a/apps/web/src/features/control/ControlView.tsx b/apps/web/src/features/control/ControlView.tsx
+index 74aad496..ac58849f 100644
+--- a/apps/web/src/features/control/ControlView.tsx
++++ b/apps/web/src/features/control/ControlView.tsx
+@@ -701,7 +701,9 @@ export function ControlView({
+       <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
+         {/* Subgrid shares the toolbar row without reparenting the live map or
+             command owner across breakpoints; map chrome and aside start together. */}
+-        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
++        {/* Compact padding is zero, so the outer card radius clips the flush
++            44px toolbar controls. Keep the inner map frame and desktop card. */}
++        <Card className={cn("flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full", singleColumnLayout && "rounded-none!")} aria-label="제어 대상 지도" data-control-target-card="">
+           <SpatialTargetSelector
+             key={data.site.id}
+             siteId={data.site.id}
+@@ -726,7 +728,10 @@ export function ControlView({
+           />
+         </Card>
+ 
+-        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
++        {/* With compact padding removed, the card radius clips the edge
++            inputs/buttons below a continuous 44px hit area. Square only this
++            mobile surface; retain the shared scroll owner and desktop card. */}
++        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 rounded-none! border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
+           <section aria-label="제어 대상" className={singleColumnLayout ? "sr-only" : "grid flex-none gap-3"}>
+             <div className="flex items-center justify-between gap-2">
+               <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
+diff --git a/docs/menus/control.md b/docs/menus/control.md
+index 4f8bd86f..1966976f 100644
+--- a/docs/menus/control.md
++++ b/docs/menus/control.md
+@@ -1,5 +1,57 @@
+ # 제어 메뉴 기능 현황
+ 
++## 2026-10-12 실제 toolbar 조명 목록 hit 실패 후 compact 대상 외곽 보완
++
++### 구현 완료
++
++- 수동 `singleColumnLayout`에서만 외곽 제어 대상 Card에 `rounded-none!`을 적용한다. padding0/border0/overflow-hidden 상태에서 우상끝 조명 목록48×44가 부모14px 모서리에 잘리는 원인을 제거한다. 내부 지도 OperationMapPanel의 둥근 프레임·공통 Card/default/PC·scroll/높이/handler는 유지한다.
++- toolbar/선택/More 좁은44px 대상의 실제 DOM ancestor를 함께 감사했다. 실행 More는 앞선 square SidePanel, 보조 콘텐츠는 기존 portal host와 padding8px body를 소비한다. 추가로 확정된 별도 miss는 없어 범위를 확대하지 않았다.
++
++### 미구현
++
++- 새 source의 실제 toolbar 목록 continuous44와 이후 aux/invalid 첫 Apply stage 재판정은 총괄 source freeze 뒤 UX case3 한정 관문이다. 본 담당 browser 실행0.
++
++### 부족하거나 개선이 필요한 기능
++
++- f2926e92 actual에서는0/100 각각 input/thumb/Apply/More 네 target continuous44=true까지 완료했다. 이후 toolbar 전체 검사에서 조명 목록48×44 hasMinimumArea=false로 새 중단됐다. 입력 실패로 기록하지 않으며 원fail·미도달aux/invalid 단계를 보존한다.
++- 원PNG·toolbar x8/y87/304×44 및 list48×44·source flush 배치가 같은 부모 clipping을 가리킨다. 개별 list 좌표는 source/toolbar로 유도한 것이며 새 browser 측정이 아니다. 소스 감사·직접81개 회귀를 실제 후속 hit GREEN으로 해석하지 않는다.
++
++### 관련 파일
++
++- `apps/web/src/features/control/ControlView.tsx` 외곽 target Card caller와 Control/Shell/Spatial/ManualExecution/Viewport 소비자 회귀.
++- 감사한 무변경 `target-selection/{TargetSelectionToolbar,ManualSelectionPanel,SpatialTargetSelector}.tsx`, `manual-workspace/ManualAuxiliaryPanel.tsx`, 공통 `components/ui/{Card,SidePanel,maps/OperationMapPanel}.tsx`.
++
++### 갱신 규칙
++
++-48×44 가장자리 대상은 자신의 rect/radius와 실제 DOM parent의 round/overflow를 함께 확인한다. portal 콘텐츠는 React 논리 owner가 아니라 실제 host 계층으로 판단한다.
++-0/100 통과·toolbar 새실패·미도달aux/invalid·새source/hash/cohort·후속actual 결과를 구분한다. UUID/gesture/ref/lifetime과 지도 높이 budget을 유지한다.
++
++## 2026-10-12 실제 INPUT continuous44 실패 후 compact 부모 모서리 보완
++
++### 구현 완료
++
++- 수동 모바일 실행 SidePanel만 `rounded-none!`을 사용한다. padding0/border0인 부모의14px card 모서리가 가장자리 숫자 입력·더보기 hit를 잘라내는 예외를 제거한다. 공통 SidePanel/Card·PC/default 모서리·배경·scroll owner와 실행 행/지도 높이는 유지한다.
++- 앞선 compact Slider 양끝28px 여백과 숫자 입력 사각 모서리를 유지한다. handler·native input/ref·draft/invalid 복원·첫 Apply 차단·명령 UUID/frozen request/query는 변경하지 않았다.
++
++### 미구현
++
++- 새 source의320×600 INPUT·thumb0/100·Apply/More continuous44, 지도240+·aux/invalid 후속 stage actual은 총괄 source freeze 뒤 case3 한정 UX 관문이다. 본 담당 browser 실행0, 이미 통과한 case5 재검사0.
++
++### 부족하거나 개선이 필요한 기능
++
++- f28ea638 실제 case3에서 INPUT `밝기 수치` x8/y480/48×44 continuous44=false가 확정됐다. thumb0은 입력과 분리됐지만 outer SidePanel rounded14px/overflow clipping이 남았다. 44높이에 세로 여유0·48너비에 가로 여유4px이므로 맨 위 radius edge 약10px를 피하는44 정사각형을 확보할 수 없다.
++- source·원본 PNG·실측 좌표 대조를 바탕으로 최소 수리했다. 직접 React 동작 회귀·class 선언은 실제 geometry GREEN이 아니다. 원 actual RED와 미도달 stage를 보존하고 실제 OS touch/keyboard·장비/HIL 검증은 별도로 남긴다.
++
++### 관련 파일
++
++- `apps/web/src/features/control/ControlView.tsx`의 수동 실행 SidePanel caller와 Control/ManualExecution/Shell/Spatial/Viewport 직접 소비자 회귀.
++- 무변경 공통 `apps/web/src/components/ui/{SidePanel,Card}.tsx`, `styles/theme.css`의 radius token 및 `features/control/ManualExecutionPanel.tsx`.
++
++### 갱신 규칙
++
++- 가장자리 control의 actual continuous44는 input/button 자체뿐 아니라 rounded/overflow ancestor를 함께 확인한다. 공통/default card 정책을 변경하지 않고 compact caller의 예외를 주석으로 남긴다.
++- 원 f28 INPUT RED·source/hash/cohort·후속 실제 case3 판정을 분리한다. 지도 높이·scroll owner·raw/첫 Apply·UUID/frozen 복구 계약을 유지한다.
++
+ ## 2026-10-12 실제 Home→0 실패 후 수동 compact 슬라이더 양끝 보완
+ 
+ ### 구현 완료

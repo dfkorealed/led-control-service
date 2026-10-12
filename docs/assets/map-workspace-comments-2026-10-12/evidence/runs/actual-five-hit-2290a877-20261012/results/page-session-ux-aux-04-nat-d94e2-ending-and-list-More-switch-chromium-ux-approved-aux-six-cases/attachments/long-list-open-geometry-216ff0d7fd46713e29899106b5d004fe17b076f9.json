@@ -1,0 +1,5957 @@
+{
+  "source": "2290a877d880efc60f91bbd3396a47d9361b3fbf",
+  "phase": "long-list-open",
+  "url": "http://127.0.0.1:15188/control?siteId=12121212-1212-4121-8121-121212121212&mode=manual",
+  "viewport": {
+    "width": 390,
+    "height": 600
+  },
+  "metrics": {
+    "sampledAt": "2026-10-12T03:56:43.451Z",
+    "theme": "dark",
+    "viewport": {
+      "width": 390,
+      "height": 600,
+      "dpr": 1,
+      "visual": {
+        "width": 390,
+        "height": 600,
+        "offsetTop": 0,
+        "offsetLeft": 0
+      }
+    },
+    "document": {
+      "scrollY": 0,
+      "scrollX": 0,
+      "scrollHeight": 600,
+      "clientHeight": 600,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "activeElement": {
+      "tag": "BUTTON",
+      "label": null
+    },
+    "map": {
+      "bounds": {
+        "x": 9,
+        "y": 138,
+        "width": 372,
+        "height": 249,
+        "right": 381,
+        "bottom": 387
+      },
+      "usable": {
+        "x": 9,
+        "y": 138,
+        "right": 381,
+        "bottom": 387,
+        "width": 372,
+        "height": 249
+      },
+      "scrollTop": 85,
+      "scrollLeft": 115,
+      "scrollHeight": 410,
+      "clientHeight": 249,
+      "overflowX": "auto",
+      "overflowY": "auto",
+      "hits": [
+        {
+          "x": 46.2,
+          "y": 162.9,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+        },
+        {
+          "x": 195,
+          "y": 162.9,
+          "reachesElement": true,
+          "tag": "BUTTON",
+          "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+        },
+        {
+          "x": 343.8,
+          "y": 162.9,
+          "reachesElement": true,
+          "tag": "DIV",
+          "label": "B2 도면"
+        },
+        {
+          "x": 46.2,
+          "y": 262.5,
+          "reachesElement": false,
+          "tag": "DIV",
+          "label": "지도 하단 보조 패널"
+        },
+        {
+          "x": 195,
+          "y": 262.5,
+          "reachesElement": false,
+          "tag": "DIV",
+          "label": "지도 하단 보조 패널"
+        },
+        {
+          "x": 343.8,
+          "y": 262.5,
+          "reachesElement": false,
+          "tag": "DIV",
+          "label": "지도 하단 보조 패널"
+        },
+        {
+          "x": 46.2,
+          "y": 362.1,
+          "reachesElement": false,
+          "tag": "BUTTON",
+          "label": "지도 하단 보조 패널"
+        },
+        {
+          "x": 195,
+          "y": 362.1,
+          "reachesElement": false,
+          "tag": "BUTTON",
+          "label": "지도 하단 보조 패널"
+        },
+        {
+          "x": 343.8,
+          "y": 362.1,
+          "reachesElement": false,
+          "tag": "BUTTON",
+          "label": "지도 하단 보조 패널"
+        }
+      ],
+      "camera": {
+        "x": 115,
+        "y": 85,
+        "zoom": "1.8"
+      },
+      "canvas": [
+        {
+          "bounds": {
+            "x": 9,
+            "y": 138,
+            "width": 372,
+            "height": 249,
+            "right": 381,
+            "bottom": 387
+          },
+          "bitmapWidth": 372,
+          "bitmapHeight": 249
+        }
+      ]
+    },
+    "regions": {
+      "toolbar": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 87,
+            "width": 374,
+            "height": 46,
+            "right": 382,
+            "bottom": 133
+          },
+          "usable": {
+            "x": 8,
+            "y": 87,
+            "right": 382,
+            "bottom": 133,
+            "width": 374,
+            "height": 46
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 46,
+          "clientHeight": 46,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 91.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 195,
+              "y": 91.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 344.6,
+              "y": 91.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "조명 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 110,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 195,
+              "y": 110,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 344.6,
+              "y": 110,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "조명 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 128.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 195,
+              "y": 128.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "공간 대상 선택"
+            },
+            {
+              "x": 344.6,
+              "y": 128.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "조명 목록"
+            }
+          ]
+        }
+      ],
+      "execution": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 462,
+            "width": 374,
+            "height": 44,
+            "right": 382,
+            "bottom": 506
+          },
+          "usable": {
+            "x": 8,
+            "y": 462,
+            "right": 382,
+            "bottom": 506,
+            "width": 374,
+            "height": 44
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 48,
+          "clientHeight": 44,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 466.4,
+              "reachesElement": true,
+              "tag": "INPUT",
+              "label": "밝기 수치"
+            },
+            {
+              "x": 195,
+              "y": 466.4,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 344.6,
+              "y": 466.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 실행"
+            },
+            {
+              "x": 45.4,
+              "y": 484,
+              "reachesElement": true,
+              "tag": "INPUT",
+              "label": "밝기 수치"
+            },
+            {
+              "x": 195,
+              "y": 484,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 344.6,
+              "y": 484,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 실행"
+            },
+            {
+              "x": 45.4,
+              "y": 501.6,
+              "reachesElement": true,
+              "tag": "INPUT",
+              "label": "밝기 수치"
+            },
+            {
+              "x": 195,
+              "y": 501.6,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "밝기"
+            },
+            {
+              "x": 344.6,
+              "y": 501.6,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "밝기 실행"
+            }
+          ]
+        }
+      ],
+      "selection": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 392,
+            "width": 374,
+            "height": 66,
+            "right": 382,
+            "bottom": 458
+          },
+          "usable": {
+            "x": 8,
+            "y": 392,
+            "right": 382,
+            "bottom": 458,
+            "width": 374,
+            "height": 66
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 66,
+          "clientHeight": 66,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 398.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 195,
+              "y": 398.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 344.6,
+              "y": 398.6,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 425,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 195,
+              "y": 425,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 344.6,
+              "y": 425,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 45.4,
+              "y": 451.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 195,
+              "y": 451.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            },
+            {
+              "x": 344.6,
+              "y": 451.4,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "선택 대상 목록"
+            }
+          ]
+        }
+      ],
+      "list": [
+        {
+          "bounds": {
+            "x": 18,
+            "y": 332.25,
+            "width": 354,
+            "height": 1968,
+            "right": 372,
+            "bottom": 2300.25
+          },
+          "usable": {
+            "x": 18,
+            "y": 332.25,
+            "right": 372,
+            "bottom": 386.25,
+            "width": 354,
+            "height": 54
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 1968,
+          "clientHeight": 1968,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 53.4,
+              "y": 337.65,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 337.65,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 336.6,
+              "y": 337.65,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 53.4,
+              "y": 359.25,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 359.25,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 336.6,
+              "y": 359.25,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 53.4,
+              "y": 380.85,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 380.85,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 336.6,
+              "y": 380.85,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            }
+          ]
+        }
+      ],
+      "more": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "usable": null,
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 0,
+          "clientHeight": 0,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": []
+        }
+      ],
+      "auxiliaryBody": [
+        {
+          "bounds": {
+            "x": 10,
+            "y": 246.25,
+            "width": 370,
+            "height": 139.75,
+            "right": 380,
+            "bottom": 386
+          },
+          "usable": {
+            "x": 10,
+            "y": 246.25,
+            "right": 380,
+            "bottom": 386,
+            "width": 370,
+            "height": 139.75
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 2062,
+          "clientHeight": 140,
+          "overflowX": "auto",
+          "overflowY": "auto",
+          "hits": [
+            {
+              "x": 47,
+              "y": 260.225,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 260.225,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 343,
+              "y": 260.225,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 47,
+              "y": 316.125,
+              "reachesElement": true,
+              "tag": "P",
+              "label": "층 목록"
+            },
+            {
+              "x": 195,
+              "y": 316.125,
+              "reachesElement": true,
+              "tag": "P",
+              "label": "층 목록"
+            },
+            {
+              "x": 343,
+              "y": 316.125,
+              "reachesElement": true,
+              "tag": "P",
+              "label": "층 목록"
+            },
+            {
+              "x": 47,
+              "y": 372.025,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 372.025,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 343,
+              "y": 372.025,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            }
+          ]
+        }
+      ],
+      "auxiliaryPanel": [
+        {
+          "bounds": {
+            "x": 9,
+            "y": 200.25,
+            "width": 372,
+            "height": 186.75,
+            "right": 381,
+            "bottom": 387
+          },
+          "usable": {
+            "x": 9,
+            "y": 200.25,
+            "right": 381,
+            "bottom": 387,
+            "width": 372,
+            "height": 186.75
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 185,
+          "clientHeight": 185,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 46.2,
+              "y": 218.925,
+              "reachesElement": true,
+              "tag": "H3",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 218.925,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 343.8,
+              "y": 218.925,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "보조 패널 닫기"
+            },
+            {
+              "x": 46.2,
+              "y": 293.625,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "층 목록"
+            },
+            {
+              "x": 195,
+              "y": 293.625,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "층 목록"
+            },
+            {
+              "x": 343.8,
+              "y": 293.625,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "층 목록"
+            },
+            {
+              "x": 46.2,
+              "y": 368.32500000000005,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 368.32500000000005,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 343.8,
+              "y": 368.32500000000005,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            }
+          ]
+        }
+      ],
+      "important": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 510,
+            "width": 374,
+            "height": 18,
+            "right": 382,
+            "bottom": 528
+          },
+          "usable": {
+            "x": 8,
+            "y": 510,
+            "right": 382,
+            "bottom": 528,
+            "width": 374,
+            "height": 18
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 18,
+          "clientHeight": 18,
+          "overflowX": "auto",
+          "overflowY": "auto",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 511.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 195,
+              "y": 511.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 344.6,
+              "y": 511.8,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 45.4,
+              "y": 519,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 195,
+              "y": 519,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 344.6,
+              "y": 519,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 45.4,
+              "y": 526.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 195,
+              "y": 526.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            },
+            {
+              "x": 344.6,
+              "y": 526.2,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "제어 중요 상태"
+            }
+          ]
+        }
+      ],
+      "mapPanel": [
+        {
+          "bounds": {
+            "x": 8,
+            "y": 137,
+            "width": 374,
+            "height": 251,
+            "right": 382,
+            "bottom": 388
+          },
+          "usable": {
+            "x": 8,
+            "y": 137,
+            "right": 382,
+            "bottom": 388,
+            "width": 374,
+            "height": 251
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 249,
+          "clientHeight": 249,
+          "overflowX": "hidden",
+          "overflowY": "hidden",
+          "hits": [
+            {
+              "x": 45.4,
+              "y": 162.1,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+            },
+            {
+              "x": 195,
+              "y": 162.1,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+            },
+            {
+              "x": 344.6,
+              "y": 162.1,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+            },
+            {
+              "x": 45.4,
+              "y": 262.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 262.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 344.6,
+              "y": 262.5,
+              "reachesElement": true,
+              "tag": "DIV",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 45.4,
+              "y": 362.9,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 195,
+              "y": 362.9,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 344.6,
+              "y": 362.9,
+              "reachesElement": true,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            }
+          ]
+        }
+      ],
+      "footer": [],
+      "nav": [
+        {
+          "bounds": {
+            "x": 0,
+            "y": 532,
+            "width": 390,
+            "height": 68,
+            "right": 390,
+            "bottom": 600
+          },
+          "usable": {
+            "x": 0,
+            "y": 532,
+            "right": 390,
+            "bottom": 600,
+            "width": 390,
+            "height": 68
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 67,
+          "clientHeight": 67,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 39,
+              "y": 538.8,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "모니터링"
+            },
+            {
+              "x": 195,
+              "y": 538.8,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 351,
+              "y": 538.8,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "설정"
+            },
+            {
+              "x": 39,
+              "y": 566,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모니터링"
+            },
+            {
+              "x": 195,
+              "y": 566,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 351,
+              "y": 566,
+              "reachesElement": true,
+              "tag": "A",
+              "label": "설정"
+            },
+            {
+              "x": 39,
+              "y": 593.2,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 195,
+              "y": 593.2,
+              "reachesElement": true,
+              "tag": "NAV",
+              "label": "모바일 주 메뉴"
+            },
+            {
+              "x": 351,
+              "y": 593.2,
+              "reachesElement": true,
+              "tag": "SPAN",
+              "label": "모바일 주 메뉴"
+            }
+          ]
+        }
+      ],
+      "cameraOverlay": [
+        {
+          "bounds": {
+            "x": 155,
+            "y": 317,
+            "width": 218,
+            "height": 62,
+            "right": 373,
+            "bottom": 379
+          },
+          "usable": {
+            "x": 155,
+            "y": 317,
+            "right": 373,
+            "bottom": 379,
+            "width": 218,
+            "height": 62
+          },
+          "scrollTop": 0,
+          "scrollLeft": 0,
+          "scrollHeight": 60,
+          "clientHeight": 60,
+          "overflowX": "visible",
+          "overflowY": "visible",
+          "hits": [
+            {
+              "x": 176.8,
+              "y": 323.2,
+              "reachesElement": false,
+              "tag": "P",
+              "label": "층 목록"
+            },
+            {
+              "x": 264,
+              "y": 323.2,
+              "reachesElement": false,
+              "tag": "P",
+              "label": "층 목록"
+            },
+            {
+              "x": 351.20000000000005,
+              "y": 323.2,
+              "reachesElement": false,
+              "tag": "P",
+              "label": "층 목록"
+            },
+            {
+              "x": 176.8,
+              "y": 348,
+              "reachesElement": false,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 264,
+              "y": 348,
+              "reachesElement": false,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 351.20000000000005,
+              "y": 348,
+              "reachesElement": false,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 176.8,
+              "y": 372.8,
+              "reachesElement": false,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 264,
+              "y": 372.8,
+              "reachesElement": false,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            },
+            {
+              "x": 351.20000000000005,
+              "y": 372.8,
+              "reachesElement": false,
+              "tag": "BUTTON",
+              "label": "지도 하단 보조 패널"
+            }
+          ]
+        }
+      ]
+    },
+    "selection": [
+      {
+        "label": "UX 조명 01 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -68.96875,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": -20.96875,
+          "bottom": 146.96875
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -17.140625,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 30.859375,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 9,
+          "y": 138,
+          "right": 30.859375,
+          "bottom": 146.96875,
+          "width": 21.859375,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 11.1859375,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 19.9296875,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 11.1859375,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 19.9296875,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 11.1859375,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 19.9296875,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 02 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 34.671875,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 82.671875,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 34.671875,
+          "y": 138,
+          "right": 82.671875,
+          "bottom": 146.96875,
+          "width": 48,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 39.471875,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 58.671875,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 77.871875,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 39.471875,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 58.671875,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 77.871875,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 39.471875,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 58.671875,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 77.871875,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 03 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 86.484375,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 134.484375,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 86.484375,
+          "y": 138,
+          "right": 134.484375,
+          "bottom": 146.96875,
+          "width": 48,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 91.284375,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 110.484375,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 129.684375,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 91.284375,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 110.484375,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 129.684375,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 91.284375,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 110.484375,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 129.684375,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 04 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 138.296875,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 186.296875,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 138.296875,
+          "y": 138,
+          "right": 186.296875,
+          "bottom": 146.96875,
+          "width": 48,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 143.096875,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 162.296875,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 181.496875,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 143.096875,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 162.296875,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 181.496875,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 143.096875,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 162.296875,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 181.496875,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 05 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 190.125,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 238.125,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 190.125,
+          "y": 138,
+          "right": 238.125,
+          "bottom": 146.96875,
+          "width": 48,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 194.925,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 214.125,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 233.325,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 194.925,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 214.125,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 233.325,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 194.925,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 214.125,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 233.325,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 06 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 241.9375,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 289.9375,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 241.9375,
+          "y": 138,
+          "right": 289.9375,
+          "bottom": 146.96875,
+          "width": 48,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.7375,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 265.9375,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 285.1375,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 246.7375,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 265.9375,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 285.1375,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 246.7375,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 265.9375,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 285.1375,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 07 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 293.75,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 341.75,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 293.75,
+          "y": 138,
+          "right": 341.75,
+          "bottom": 146.96875,
+          "width": 48,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 298.55,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 317.75,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 336.95,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 298.55,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 317.75,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 336.95,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 298.55,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 317.75,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 336.95,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 08 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 345.5625,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 393.5625,
+          "bottom": 146.96875
+        },
+        "usable": {
+          "x": 345.5625,
+          "y": 138,
+          "right": 381,
+          "bottom": 146.96875,
+          "width": 35.4375,
+          "height": 8.96875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 349.10625,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 363.28125,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 377.45625,
+            "y": 138.896875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 349.10625,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 363.28125,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 377.45625,
+            "y": 142.484375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 349.10625,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 363.28125,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 377.45625,
+            "y": 146.071875,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 09 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 10 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 397.375,
+          "y": 98.96875,
+          "width": 48,
+          "height": 48,
+          "right": 445.375,
+          "bottom": 146.96875
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 11 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -68.96875,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": -20.96875,
+          "bottom": 196.4375
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -17.140625,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 30.859375,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 9,
+          "y": 148.4375,
+          "right": 30.859375,
+          "bottom": 196.4375,
+          "width": 21.859375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 11.1859375,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 19.9296875,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 11.1859375,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 19.9296875,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 11.1859375,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 19.9296875,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 12 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 34.671875,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 82.671875,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 34.671875,
+          "y": 148.4375,
+          "right": 82.671875,
+          "bottom": 196.4375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 39.471875,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 58.671875,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 77.871875,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 39.471875,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 58.671875,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 77.871875,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 39.471875,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 58.671875,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 77.871875,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 13 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 86.484375,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 134.484375,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 86.484375,
+          "y": 148.4375,
+          "right": 134.484375,
+          "bottom": 196.4375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 91.284375,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 110.484375,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 129.684375,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 91.284375,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 110.484375,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 129.684375,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 91.284375,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 110.484375,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 129.684375,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 14 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 138.296875,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 186.296875,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 138.296875,
+          "y": 148.4375,
+          "right": 186.296875,
+          "bottom": 196.4375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 143.096875,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 162.296875,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 181.496875,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 143.096875,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 162.296875,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 181.496875,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 143.096875,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 162.296875,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 181.496875,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 15 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 190.125,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 238.125,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 190.125,
+          "y": 148.4375,
+          "right": 238.125,
+          "bottom": 196.4375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 194.925,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 214.125,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 233.325,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 194.925,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 214.125,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 233.325,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 194.925,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 214.125,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 233.325,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 16 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 241.9375,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 289.9375,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 241.9375,
+          "y": 148.4375,
+          "right": 289.9375,
+          "bottom": 196.4375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.7375,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 265.9375,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 285.1375,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 246.7375,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 265.9375,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 285.1375,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 246.7375,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 265.9375,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 285.1375,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 17 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 293.75,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 341.75,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 293.75,
+          "y": 148.4375,
+          "right": 341.75,
+          "bottom": 196.4375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 298.55,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 317.75,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 336.95,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 298.55,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 317.75,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 336.95,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 298.55,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 317.75,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 336.95,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 18 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 345.5625,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 393.5625,
+          "bottom": 196.4375
+        },
+        "usable": {
+          "x": 345.5625,
+          "y": 148.4375,
+          "right": 381,
+          "bottom": 196.4375,
+          "width": 35.4375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 349.10625,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 363.28125,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 377.45625,
+            "y": 153.2375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 349.10625,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 363.28125,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 377.45625,
+            "y": 172.4375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 349.10625,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 363.28125,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          },
+          {
+            "x": 377.45625,
+            "y": 191.6375,
+            "reachesElement": true,
+            "tag": "BUTTON",
+            "label": "UX 조명 19 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요."
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 20 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 397.375,
+          "y": 148.4375,
+          "width": 48,
+          "height": 48,
+          "right": 445.375,
+          "bottom": 196.4375
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 21 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -68.96875,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": -20.96875,
+          "bottom": 245.90625
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 22 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -17.140625,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 30.859375,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 9,
+          "y": 197.90625,
+          "right": 30.859375,
+          "bottom": 245.90625,
+          "width": 21.859375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 11.1859375,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 11.1859375,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "H3",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "H3",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 11.1859375,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 23 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 34.671875,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 82.671875,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 34.671875,
+          "y": 197.90625,
+          "right": 82.671875,
+          "bottom": 245.90625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 39.471875,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 39.471875,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "H3",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "H3",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "H3",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 39.471875,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 24 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 86.484375,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 134.484375,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 86.484375,
+          "y": 197.90625,
+          "right": 134.484375,
+          "bottom": 245.90625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 91.284375,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 91.284375,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "H3",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 91.284375,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 25 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 138.296875,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 186.296875,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 138.296875,
+          "y": 197.90625,
+          "right": 186.296875,
+          "bottom": 245.90625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 143.096875,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 143.096875,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 143.096875,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 26 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 190.125,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 238.125,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 190.125,
+          "y": 197.90625,
+          "right": 238.125,
+          "bottom": 245.90625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 194.925,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 194.925,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 194.925,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 27 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 241.9375,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 289.9375,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 241.9375,
+          "y": 197.90625,
+          "right": 289.9375,
+          "bottom": 245.90625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.7375,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 246.7375,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 246.7375,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 28 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 293.75,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 341.75,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 293.75,
+          "y": 197.90625,
+          "right": 341.75,
+          "bottom": 245.90625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 298.55,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 336.95,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 298.55,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 336.95,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 298.55,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 336.95,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 29 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 345.5625,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 393.5625,
+          "bottom": 245.90625
+        },
+        "usable": {
+          "x": 345.5625,
+          "y": 197.90625,
+          "right": 381,
+          "bottom": 245.90625,
+          "width": 35.4375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 349.10625,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 363.28125,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 377.45625,
+            "y": 202.70625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 363.28125,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 377.45625,
+            "y": 221.90625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 363.28125,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "보조 패널 닫기"
+          },
+          {
+            "x": 377.45625,
+            "y": 241.10625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 30 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 397.375,
+          "y": 197.90625,
+          "width": 48,
+          "height": 48,
+          "right": 445.375,
+          "bottom": 245.90625
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 31 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -68.96875,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": -20.96875,
+          "bottom": 295.390625
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 32 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -17.140625,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 30.859375,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 9,
+          "y": 247.390625,
+          "right": 30.859375,
+          "bottom": 295.390625,
+          "width": 21.859375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 11.1859375,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 11.1859375,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 11.1859375,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 33 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 34.671875,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 82.671875,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 34.671875,
+          "y": 247.390625,
+          "right": 82.671875,
+          "bottom": 295.390625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 39.471875,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 39.471875,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 58.671875,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 77.871875,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 39.471875,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 58.671875,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 77.871875,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 34 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 86.484375,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 134.484375,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 86.484375,
+          "y": 247.390625,
+          "right": 134.484375,
+          "bottom": 295.390625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 91.284375,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 91.284375,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 110.484375,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 129.684375,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 91.284375,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 110.484375,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 129.684375,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 35 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 138.296875,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 186.296875,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 138.296875,
+          "y": 247.390625,
+          "right": 186.296875,
+          "bottom": 295.390625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 143.096875,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 143.096875,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 162.296875,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 181.496875,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 143.096875,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 162.296875,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 181.496875,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 36 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 190.125,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 238.125,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 190.125,
+          "y": 247.390625,
+          "right": 238.125,
+          "bottom": 295.390625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 194.925,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 194.925,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 214.125,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 233.325,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 194.925,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 214.125,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 233.325,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 37 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 241.9375,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 289.9375,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 241.9375,
+          "y": 247.390625,
+          "right": 289.9375,
+          "bottom": 295.390625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.7375,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 246.7375,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 265.9375,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 285.1375,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 246.7375,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 265.9375,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 285.1375,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 38 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 293.75,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 341.75,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 293.75,
+          "y": 247.390625,
+          "right": 341.75,
+          "bottom": 295.390625,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 298.55,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 336.95,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 298.55,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 317.75,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 336.95,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 298.55,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 317.75,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 336.95,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 39 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 345.5625,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 393.5625,
+          "bottom": 295.390625
+        },
+        "usable": {
+          "x": 345.5625,
+          "y": 247.390625,
+          "right": 381,
+          "bottom": 295.390625,
+          "width": 35.4375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 349.10625,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 363.28125,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 377.45625,
+            "y": 252.190625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 363.28125,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 377.45625,
+            "y": 271.390625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 363.28125,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 377.45625,
+            "y": 290.590625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 40 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 397.375,
+          "y": 247.390625,
+          "width": 48,
+          "height": 48,
+          "right": 445.375,
+          "bottom": 295.390625
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 41 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -68.96875,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": -20.96875,
+          "bottom": 344.859375
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 42 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -17.140625,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 30.859375,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 9,
+          "y": 296.859375,
+          "right": 30.859375,
+          "bottom": 344.859375,
+          "width": 21.859375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 11.1859375,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 11.1859375,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 11.1859375,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 43 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 34.671875,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 82.671875,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 34.671875,
+          "y": 296.859375,
+          "right": 82.671875,
+          "bottom": 344.859375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 39.471875,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 58.671875,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 77.871875,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 39.471875,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 58.671875,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 77.871875,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 39.471875,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 44 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 86.484375,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 134.484375,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 86.484375,
+          "y": 296.859375,
+          "right": 134.484375,
+          "bottom": 344.859375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 91.284375,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 110.484375,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 129.684375,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 91.284375,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 110.484375,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 129.684375,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 91.284375,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 45 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 138.296875,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 186.296875,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 138.296875,
+          "y": 296.859375,
+          "right": 186.296875,
+          "bottom": 344.859375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 143.096875,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 162.296875,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 181.496875,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 143.096875,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 162.296875,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 181.496875,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 143.096875,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 46 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 190.125,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 238.125,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 190.125,
+          "y": 296.859375,
+          "right": 238.125,
+          "bottom": 344.859375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 194.925,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 214.125,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 233.325,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 194.925,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 214.125,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 233.325,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 194.925,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 47 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 241.9375,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 289.9375,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 241.9375,
+          "y": 296.859375,
+          "right": 289.9375,
+          "bottom": 344.859375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.7375,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 265.9375,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 285.1375,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 246.7375,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 265.9375,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 285.1375,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 246.7375,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 48 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 293.75,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 341.75,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 293.75,
+          "y": 296.859375,
+          "right": 341.75,
+          "bottom": 344.859375,
+          "width": 48,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 298.55,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 317.75,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 336.95,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 298.55,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 317.75,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 336.95,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 298.55,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 336.95,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 49 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 345.5625,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 393.5625,
+          "bottom": 344.859375
+        },
+        "usable": {
+          "x": 345.5625,
+          "y": 296.859375,
+          "right": 381,
+          "bottom": 344.859375,
+          "width": 35.4375,
+          "height": 48
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 349.10625,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 363.28125,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "층 목록"
+          },
+          {
+            "x": 377.45625,
+            "y": 301.659375,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 363.28125,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "P",
+            "label": "층 목록"
+          },
+          {
+            "x": 377.45625,
+            "y": 320.859375,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 363.28125,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 377.45625,
+            "y": 340.059375,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 50 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 397.375,
+          "y": 296.859375,
+          "width": 48,
+          "height": 48,
+          "right": 445.375,
+          "bottom": 344.859375
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 51 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -68.96875,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": -20.96875,
+          "bottom": 394.328125
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      },
+      {
+        "label": "UX 조명 52 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": -17.140625,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 30.859375,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 9,
+          "y": 346.328125,
+          "right": 30.859375,
+          "bottom": 387,
+          "width": 21.859375,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 11.1859375,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 11.1859375,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 11.1859375,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 19.9296875,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 28.673437500000002,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 53 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 34.671875,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 82.671875,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 34.671875,
+          "y": 346.328125,
+          "right": 82.671875,
+          "bottom": 387,
+          "width": 48,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 39.471875,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 39.471875,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 39.471875,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 58.671875,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 77.871875,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 54 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 86.484375,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 134.484375,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 86.484375,
+          "y": 346.328125,
+          "right": 134.484375,
+          "bottom": 387,
+          "width": 48,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 91.284375,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 91.284375,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 91.284375,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 110.484375,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 129.684375,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 55 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 138.296875,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 186.296875,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 138.296875,
+          "y": 346.328125,
+          "right": 186.296875,
+          "bottom": 387,
+          "width": 48,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 143.096875,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 143.096875,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 143.096875,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 162.296875,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 181.496875,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 56 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 190.125,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 238.125,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 190.125,
+          "y": 346.328125,
+          "right": 238.125,
+          "bottom": 387,
+          "width": 48,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 194.925,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 194.925,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 194.925,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 214.125,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 233.325,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 57 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 241.9375,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 289.9375,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 241.9375,
+          "y": 346.328125,
+          "right": 289.9375,
+          "bottom": 387,
+          "width": 48,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 246.7375,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 246.7375,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 246.7375,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 265.9375,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 285.1375,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 58 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 293.75,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 341.75,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 293.75,
+          "y": 346.328125,
+          "right": 341.75,
+          "bottom": 387,
+          "width": 48,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 298.55,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 336.95,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 298.55,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 336.95,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 298.55,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 317.75,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 336.95,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 59 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 345.5625,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 393.5625,
+          "bottom": 394.328125
+        },
+        "usable": {
+          "x": 345.5625,
+          "y": 346.328125,
+          "right": 381,
+          "bottom": 387,
+          "width": 35.4375,
+          "height": 40.671875
+        },
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": [
+          {
+            "x": 349.10625,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 363.28125,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 377.45625,
+            "y": 350.3953125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 363.28125,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "BUTTON",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 377.45625,
+            "y": 366.6640625,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 349.10625,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 363.28125,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          },
+          {
+            "x": 377.45625,
+            "y": 382.9328125,
+            "reachesElement": false,
+            "tag": "DIV",
+            "label": "지도 하단 보조 패널"
+          }
+        ]
+      },
+      {
+        "label": "UX 조명 60 정상 70% 선택됨 선택 불가: 구성원을 변경하려면 직접 선택으로 전환하세요.",
+        "pressed": "true",
+        "current": null,
+        "dataSelected": "true",
+        "bounds": {
+          "x": 397.375,
+          "y": 346.328125,
+          "width": 48,
+          "height": 48,
+          "right": 445.375,
+          "bottom": 394.328125
+        },
+        "usable": null,
+        "scrollTop": 0,
+        "scrollLeft": 0,
+        "scrollHeight": 48,
+        "clientHeight": 48,
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "hits": []
+      }
+    ],
+    "exposedMap": {
+      "mapBox": {
+        "x": 9,
+        "y": 138,
+        "width": 372,
+        "height": 249,
+        "right": 381,
+        "bottom": 387
+      },
+      "mapUsable": {
+        "x": 9,
+        "y": 138,
+        "right": 381,
+        "bottom": 387,
+        "width": 372,
+        "height": 249
+      },
+      "blockers": [
+        {
+          "selector": "[data-shell-navigation=\"compact\"]",
+          "bounds": {
+            "x": 0,
+            "y": 532,
+            "right": 390,
+            "bottom": 600,
+            "width": 390,
+            "height": 68
+          }
+        },
+        {
+          "selector": "[data-operation-map-panel] [role=\"group\"][aria-label=\"지도 확대 축소\"]",
+          "bounds": {
+            "x": 155,
+            "y": 317,
+            "right": 373,
+            "bottom": 379,
+            "width": 218,
+            "height": 62
+          }
+        },
+        {
+          "selector": "[data-manual-auxiliary-panel]",
+          "bounds": {
+            "x": 9,
+            "y": 200.25,
+            "right": 381,
+            "bottom": 387,
+            "width": 372,
+            "height": 186.75
+          }
+        }
+      ],
+      "rectangles": [
+        {
+          "x": 9,
+          "y": 138,
+          "right": 381,
+          "bottom": 200.25,
+          "width": 372,
+          "height": 62.25
+        }
+      ],
+      "area": 23157,
+      "limitation": "Opaque rectangular selectors only; hit samples are not continuous44 proof or OS-keyboard evidence."
+    }
+  },
+  "extra": {
+    "case": {
+      "id": 4,
+      "viewport": {
+        "width": 390,
+        "height": 600
+      },
+      "theme": "dark",
+      "route": "control",
+      "purpose": "basic map240/native swipe0-tap1/long60/exclusive aux/focus"
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/auth/me"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/me"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/floors/23232323-2323-4232-8232-232323232323/map-snapshot"
+      },
+      {
+        "method": "GET",
+        "path": "/api/commands"
+      },
+      {
+        "method": "GET",
+        "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/manifest"
+      },
+      {
+        "method": "GET",
+        "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/changes"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+      }
+    ],
+    "extra": {
+      "auxiliary": "list",
+      "baseline": {
+        "mapBounds": {
+          "x": 9,
+          "y": 138,
+          "width": 372,
+          "height": 249,
+          "right": 381,
+          "bottom": 387
+        },
+        "camera": {
+          "x": 115,
+          "y": 85,
+          "zoom": "1.8"
+        },
+        "exposedArea": 79112
+      },
+      "cameraPlacement": "overlay",
+      "baselineCameraOcclusionArea": 13516,
+      "additionalAuxiliaryOcclusionArea": 55955,
+      "actualExposedArea": 23157
+    }
+  }
+}

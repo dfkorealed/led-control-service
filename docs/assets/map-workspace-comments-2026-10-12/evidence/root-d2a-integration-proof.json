@@ -1,0 +1,27 @@
+{
+  "source": "d2a83cfb2a852654b01cc2ea44bac19a5f3b2bf8",
+  "ownerFilesMatched": 6,
+  "ourUiFilesUnchanged": 17,
+  "upstreamFilesUnchanged": 32,
+  "bothStatusRecordsPreserved": true,
+  "userMainAgentsSha": "832022567dd810c3668e5f9f1d3200988052e84fd8069554a3ab0db9976c04c6",
+  "uiPaths": [
+    "apps/web/src/features/control/ControlView.test.tsx",
+    "apps/web/src/features/control/ControlView.tsx",
+    "apps/web/src/features/control/ManualExecutionPanel.test.tsx",
+    "apps/web/src/features/control/ManualExecutionPanel.tsx",
+    "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+    "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+    "apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx",
+    "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx",
+    "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+    "apps/web/src/features/floor-map/FloorMapViewport.test.tsx",
+    "apps/web/src/features/floor-map/FloorMapViewport.tsx",
+    "apps/web/src/features/monitoring/FloorMap.test.tsx",
+    "apps/web/src/features/monitoring/FloorMap.tsx",
+    "apps/web/src/features/monitoring/MonitoringView.test.tsx",
+    "apps/web/src/features/monitoring/MonitoringView.tsx",
+    "apps/web/src/features/shells/CustomerShell.test.tsx",
+    "apps/web/src/features/shells/CustomerShell.tsx"
+  ]
+}

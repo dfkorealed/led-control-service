@@ -1,0 +1,12 @@
+{
+  "command": [
+    "pnpm",
+    "--filter",
+    "@led-control/web",
+    "ui:check"
+  ],
+  "exitCode": 0,
+  "elapsedSeconds": 3.636,
+  "startedAt": "2026-10-12T04:09:37.518847+00:00",
+  "endedAt": "2026-10-12T04:09:41.154512+00:00"
+}

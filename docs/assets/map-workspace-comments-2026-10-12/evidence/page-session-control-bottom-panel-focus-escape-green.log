@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/ControlView.test.tsx (171 tests | 167 skipped) 683ms
+   ✓ ControlView 대상 선택 > C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft 317ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 62 skipped) 446ms
+   ✓ customer shell site context > forwards the existing navigation breakpoint to the real Control close action without resetting details 446ms
+
+ Test Files  2 passed (2)
+      Tests  5 passed | 229 skipped (234)
+   Start at  12:02:45
+   Duration  4.45s (transform 779ms, setup 109ms, collect 2.19s, tests 1.13s, environment 628ms, prepare 128ms)
+

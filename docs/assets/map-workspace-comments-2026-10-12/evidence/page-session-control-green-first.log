@@ -1,0 +1,52 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 43 skipped) 130ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests | 8 skipped) 192ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 62 skipped) 595ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 595ms
+ ❯ src/features/control/ControlView.test.tsx (164 tests | 1 failed | 162 skipped) 522ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 391ms
+   × ControlView 대상 선택 > C6-8 mobile More preserves an uncertain request and keeps its important status visible while collapsed 130ms
+     → expect(element).toBeVisible()
+
+Received element is not visible (element is not in the document):
+  <div
+  aria-atomic="true"
+  aria-label="제어 중요 상태"
+  aria-live="polite"
+  class="max-h-20 overflow-y-auto overscroll-contain text-caption"
+  role="status"
+/>
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > C6-8 mobile More preserves an uncertain request and keeps its important status visible while collapsed
+Error: expect(element).toBeVisible()
+
+Received element is not visible (element is not in the document):
+  <div
+  aria-atomic="true"
+  aria-label="제어 중요 상태"
+  aria-live="polite"
+  class="max-h-20 overflow-y-auto overscroll-contain text-caption"
+  role="status"
+/>
+ ❯ src/features/control/ControlView.test.tsx:399:43
+    397|     const retry = await screen.findByRole("button", { name: "동일 요청…
+    398|     expect(retry).toBeEnabled();
+    399|     fireEvent.click(more); expect(status).toBeVisible();
+       |                                           ^
+    400|     fireEvent.click(more); fireEvent.click(retry);
+    401|     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 4 passed | 275 skipped (280)
+   Start at  10:25:22
+   Duration  4.01s (transform 1.66s, setup 432ms, collect 7.24s, tests 1.44s, environment 1.79s, prepare 993ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx src/features/control/ManualExecutionPanel.test.tsx src/features/shells/CustomerShell.test.tsx src/features/floor-map/FloorMapViewport.test.tsx -t C6-8 --reporter=dot

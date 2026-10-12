@@ -121,6 +121,29 @@ describe("customer shell site context", () => {
     expect(within(header).getByRole("link", { name: "내 계정 및 보안" })).toHaveAttribute("href", "/settings/security?siteId=site");
     expect(screen.getByRole("region", { name: "내 계정" })).toContainElement(screen.getByRole("button", { name: "로그아웃" }));
   });
+  it("C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize", async () => {
+    prepareRealManualConsumer();
+    let onChange: ((event: MediaQueryListEvent) => void) | undefined;
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)",
+      addEventListener: (_type: string, listener: typeof onChange) => { if (query === "(width < 760px)") onChange = listener; }, removeEventListener: vi.fn() })));
+    renderShell("/control?siteId=site&mode=manual");
+    const main = screen.getByRole("main");
+    const input = await screen.findByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(input, { target: { value: "31" } });
+    const page = document.querySelector("[data-control-screen]");
+    act(() => onChange?.({ matches: false } as MediaQueryListEvent));
+    expect(document.querySelector("[data-control-screen]")).toBe(page);
+    act(() => onChange?.({ matches: true } as MediaQueryListEvent));
+    expect(document.querySelector("[data-control-screen]")).toBe(page);
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
+    expect(input).toHaveValue("31");
+    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+    fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.queryByRole("button", { name: "더보기" })).not.toBeInTheDocument();
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
   it.each([[759.5, true], [760, false], [760.5, false]] as const)("publishes the strict CSS media contract at controlled width %s", (_width, compact) => {
     // Chromium rounds CSS iframe viewports to integer pixels. This controlled
     // media owner covers the requested fractional API boundary separately from
@@ -205,36 +228,34 @@ describe("customer shell site context", () => {
       : path.startsWith("/commands/") ? status
         : path.includes("monitoring-incidents") ? { incidents: [], activeCount: 0, unreadCount: 0, nextCursor: null } : { users: [], count: 0, limit: 100 });
     renderShell("/control?siteId=site");
+    fireEvent.click(await screen.findByRole("button", { name: "더보기" }));
     fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
     fireEvent.click(await screen.findByRole("button", { name: "상세 보기" }));
     const detail = screen.getByRole("region", { name: "최근 결과 상세" });
     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+    const focusedHistoryAction = within(screen.getByRole("region", { name: "제어 이력" })).getByRole("button", { name: "전체 보기" });
+    focusedHistoryAction.focus(); expect(focusedHistoryAction).toHaveFocus();
     act(() => onChange?.({ matches: false } as MediaQueryListEvent));
+    expect(focusedHistoryAction).toHaveFocus();
     expect(screen.getByRole("region", { name: "최근 결과 상세" })).toBe(detail);
     expect(detail).not.toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
     act(() => onChange?.({ matches: true } as MediaQueryListEvent));
+    expect(focusedHistoryAction).toHaveFocus();
     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
     expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
     expect(apiPost).not.toHaveBeenCalled();
   });
 
-  it.each([[759.5, true], [760, false], [760.5, false]] as const)("uses the real authorized manual report for remaining height at controlled width %s", async (_width, compact) => {
+  it.each([[759.5, true], [760, false], [760.5, false]] as const)("uses the real authorized manual report at controlled width %s", async (_width, compact) => {
     prepareRealManualConsumer();
     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     renderShell("/control?siteId=site&mode=manual");
-    await waitFor(() => expect(document.querySelector("[data-control-screen]")).not.toBeNull());
-    const main = screen.getByRole("main");
-    if (compact) {
-      expect(main.parentElement).toHaveClass("min-h-screen", "pb-shell-navigation-safe");
-      expect(main.parentElement).not.toHaveClass("h-dvh", "overflow-hidden");
-      expect(main.querySelector("[data-shell-content]")).not.toHaveClass("min-h-0", "overflow-auto");
-    } else {
-      await waitFor(() => expect(main.parentElement).toHaveClass("h-dvh", "min-h-0"));
-      expect(main.parentElement).not.toHaveClass("overflow-hidden");
-      expect(main).toHaveClass("min-h-0");
-      expect(main.querySelector("[data-shell-content]")).toHaveClass("grid", "min-h-0", "grid-rows-[minmax(0,1fr)]", "overflow-auto");
-      expect(document.querySelector("[data-shell-topbar]")).toHaveClass("shrink-0");
-    }
+    const input = await screen.findByRole("textbox", { name: "밝기 수치" });
+    expect(input).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "더보기" }) !== null).toBe(compact);
+    expect(screen.queryByRole("navigation", { name: "모바일 주 메뉴" }) !== null).toBe(compact);
+    if (compact) expect(screen.getByText("수동 제어", { selector: "p" })).toBeVisible();
+    else expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
     expect(apiPost).not.toHaveBeenCalled();
   });
 
@@ -250,7 +271,7 @@ describe("customer shell site context", () => {
     const route = document.querySelector("[data-control-screen]");
     fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
     act(() => mediaChange?.({ matches: true } as MediaQueryListEvent));
-    expect(screen.getByRole("main").parentElement).toHaveClass("min-h-screen");
+    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
     expect(document.querySelector("[data-control-screen]")).toBe(route);
     act(() => mediaChange?.({ matches: false } as MediaQueryListEvent));
     await waitFor(() => expect(screen.getByRole("main").parentElement).toHaveClass("h-dvh"));

@@ -1,0 +1,457 @@
+
+[WebServer] (node:73810) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] [WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+[WebServer] (node:73814) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:73833) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:73855) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:73926) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+
+(node:73937) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/6] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:289:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus
+  1) [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:289:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus 
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator:  locator('[data-monitoring-detail-scroll]').locator('dd').last()
+    Expected: "배치됨"
+    Received: "미배치"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveText" with timeout 5000ms
+      - waiting for locator('[data-monitoring-detail-scroll]').locator('dd').last()
+        14 × locator resolved to <dd class="m-0 min-w-0 break-words text-body-sm">미배치</dd>
+           - unexpected value "미배치"
+
+
+      231 |     const end = await internalEnd(page, body, mobile);
+      232 |     const lastInformation = body.locator("dd").last();
+    > 233 |     await expect(lastInformation).toHaveText("배치됨");
+          |                                   ^
+      234 |     await expect(lastInformation).toBeInViewport({ ratio: 1 });
+      235 |     await actualCenter(lastInformation);
+      236 |     expect(await mapCamera(map)).toEqual(before.map.camera);
+        at detail (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:233:35)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:301:7
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:290:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-88e9d4621cafd5f99de8721428dd4cb1ea449dc2.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/ready-15dd289a2d5db490065fe13b764421570ee3048e.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: native-gestures-geometry (application/json) ─────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/native-gestures-geometry-fbf9760396a8767465d2b160a7cf397bcc14688a.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: native-gestures (image/png) ─────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/native-gestures-6cd668dcd5a7dc54eae525f699a0018a359b6895.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: detail-open-geometry (application/json) ─────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-open-geometry-a878ee10fe4ecaee3bde858281b898a5a729a4e4.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: detail-open (image/png) ─────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/detail-open-c5b0160bb8ed944999bd967eeb8506d6ab04a92c.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #7: original-failure (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/original-failure-83ce4067d37870c627f6809fb8b6c5d666cf36f1.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #8: failure-geometry (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-b7afc6a72e1b8071e5313ab062d7f9becadf6a4f.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #9: failure (image/png) ─────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/attachments/failure-39ff1e119b2f24e0c12cdbcb477cf1ced242a12a.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #10: screenshot (image/png) ─────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-01-PC--54626-tion-half-overlay-and-focus-chromium-ux-approved-aux-six-cases/error-context.md
+
+
+
+(node:73986) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[2/6] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:310:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll
+  2) [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:310:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll 
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator:  locator('[data-monitoring-detail-scroll]').locator('dd').last()
+    Expected: "배치됨"
+    Received: "미배치"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveText" with timeout 5000ms
+      - waiting for locator('[data-monitoring-detail-scroll]').locator('dd').last()
+        14 × locator resolved to <dd class="m-0 min-w-0 break-words text-body-sm">미배치</dd>
+           - unexpected value "미배치"
+
+
+      231 |     const end = await internalEnd(page, body, mobile);
+      232 |     const lastInformation = body.locator("dd").last();
+    > 233 |     await expect(lastInformation).toHaveText("배치됨");
+          |                                   ^
+      234 |     await expect(lastInformation).toBeInViewport({ ratio: 1 });
+      235 |     await actualCenter(lastInformation);
+      236 |     expect(await mapCamera(map)).toEqual(before.map.camera);
+        at detail (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:233:35)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:319:7
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:311:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-6bcf0352413545dfa3d2eb3699018e53574045e2.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/ready-3c6f053faf27c46aa5d477da9136e90d664c074d.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: detail-open-geometry (application/json) ─────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-open-geometry-c8436816f33d0d3bd5875e5424d904fe921ad514.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: detail-open (image/png) ─────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-open-f73048d38cf78c576c4a33c6c84ae55a3450249a.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: detail-native-document-wheel-geometry (application/json) ────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-native-document-wheel-geometry-797e5c46241da4041191a7d8c09e8ecb7ad34e95.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: detail-native-document-wheel (image/png) ────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/detail-native-document-wheel-eab17446a2568d6354549cac590a337605cc6c62.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #7: original-failure (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/original-failure-0047f6b73991cc012123e3fd0eaf17694ee887e6.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #8: failure-geometry (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-0386f43f2a0f42a6fecfb456387153b0c9f3f999.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #9: failure (image/png) ─────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/attachments/failure-d568d29118d53fc1e4157cf39314f601fe3bac70.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #10: screenshot (image/png) ─────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-02-sho-2cc09-bar-HH-mm-and-detail-scroll-chromium-ux-approved-aux-six-cases/error-context.md
+
+
+
+(node:74038) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[3/6] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:329:7 › 03 narrow finite manual workspace › 320x600 light: map240, native0/100, first Apply and exclusive auxiliaries
+  3) [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:329:7 › 03 narrow finite manual workspace › 320x600 light: map240, native0/100, first Apply and exclusive auxiliaries 
+
+    Error: Touch targets below 44px within [data-operation-map-panel] [role="group"][aria-label="지도 확대 축소"]
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 34
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 축소",
+    +     "width": 43,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 47.625,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 배율 100%",
+    +     "width": 47,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 확대",
+    +     "width": 43,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 화면 맞춤",
+    +     "width": 44,
+    +   },
+    + ]
+
+       at ../../../apps/web/e2e/support/layout-assertions.ts:377
+
+      375 |   expect(targets.length, `Expected at least one visible enabled interactive target within ${rootSelector}`).toBeGreaterThan(0);
+      376 |   const undersized = targets.filter(({ hasMinimumArea }) => !hasMinimumArea);
+    > 377 |   expect(undersized, `Touch targets below 44px within ${rootSelector}`).toEqual([]);
+          |                                                                         ^
+      378 | }
+      379 |
+        at expectMinimumTouchTargets (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts:377:73)
+        at manualState (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:141:27)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:333:23
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:330:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-cb8952cdab7700b228b23eb2bec75018bf00e393.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-1708d4df06dadaf400ba52b509eee8b3570e764d.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: original-failure (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/original-failure-a3234be648a023e15641dfa2793dbaebe0279fdf.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: failure-geometry (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-0f53e1341a5c03740fcfe1de7ec3e2ce5a54ac4a.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: failure (image/png) ─────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-ccabeada3fcc6a716e2b1e04d73338a82fc8bb02.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/error-context.md
+
+
+
+(node:74061) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[4/6] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:380:7 › 04 native touch and long exclusive auxiliary selection › 390x600 dark: swipe0-tap1, long60 ending and list-More switch
+  4) [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:380:7 › 04 native touch and long exclusive auxiliary selection › 390x600 dark: swipe0-tap1, long60 ending and list-More switch 
+
+    Error: Touch targets below 44px within [data-operation-map-panel] [role="group"][aria-label="지도 확대 축소"]
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 34
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 축소",
+    +     "width": 43,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 47.625,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 배율 100%",
+    +     "width": 47,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 확대",
+    +     "width": 43,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 화면 맞춤",
+    +     "width": 44,
+    +   },
+    + ]
+
+       at ../../../apps/web/e2e/support/layout-assertions.ts:377
+
+      375 |   expect(targets.length, `Expected at least one visible enabled interactive target within ${rootSelector}`).toBeGreaterThan(0);
+      376 |   const undersized = targets.filter(({ hasMinimumArea }) => !hasMinimumArea);
+    > 377 |   expect(undersized, `Touch targets below 44px within ${rootSelector}`).toEqual([]);
+          |                                                                         ^
+      378 | }
+      379 |
+        at expectMinimumTouchTargets (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts:377:73)
+        at manualState (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:141:27)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:384:9
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:381:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-c536f0491081c74e23d8b19c241ea8fe54cee8f0.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/ready-63c5fcad62ec690a65c65a2e60b224975394a492.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: original-failure (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/original-failure-394b01b176b9f9487438de565b946fe9794d7902.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: failure-geometry (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-ebe88ea4df07a1125846a9a190ff1b820badbb5d.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: failure (image/png) ─────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/attachments/failure-dedfbb411ea9b1e86f9ffdd5261dee10a4b8cb8f.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-04-nat-d94e2-ending-and-list-More-switch-chromium-ux-approved-aux-six-cases/error-context.md
+
+
+
+(node:74088) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[5/6] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:427:7 › 05 resize without remount/reset › 717x1227 to 390x844 light: exclusive aux, focus and raw31
+  5) [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:427:7 › 05 resize without remount/reset › 717x1227 to 390x844 light: exclusive aux, focus and raw31 
+
+    Error: Touch targets below 44px within [data-operation-map-panel] [role="group"][aria-label="지도 확대 축소"]
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 34
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 축소",
+    +     "width": 43,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 47.625,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 배율 100%",
+    +     "width": 47,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 확대",
+    +     "width": 43,
+    +   },
+    +   Object {
+    +     "geometryHeight": 44,
+    +     "geometryWidth": 44,
+    +     "hasMinimumArea": false,
+    +     "height": 44,
+    +     "label": "지도 화면 맞춤",
+    +     "width": 44,
+    +   },
+    + ]
+
+       at ../../../apps/web/e2e/support/layout-assertions.ts:377
+
+      375 |   expect(targets.length, `Expected at least one visible enabled interactive target within ${rootSelector}`).toBeGreaterThan(0);
+      376 |   const undersized = targets.filter(({ hasMinimumArea }) => !hasMinimumArea);
+    > 377 |   expect(undersized, `Touch targets below 44px within ${rootSelector}`).toEqual([]);
+          |                                                                         ^
+      378 | }
+      379 |
+        at expectMinimumTouchTargets (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts:377:73)
+        at manualState (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:141:27)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:431:23
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:428:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-2a0d3a9142305f5b7efdd2bb3de1426f913cc1df.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/ready-ada38bac2058b44a554d875151564b30b098058d.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: original-failure (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/original-failure-c3b6493e81d02eb3a55dfa3fdddc9c1dd014aa5b.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: failure-geometry (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-7681c3293e4206e64af5bd78f9196843f44e8345.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: failure (image/png) ─────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/attachments/failure-92436e6194c8cf47f5f7bf79f1f0d4398b7186cb.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-aux-4093ff53-20261012/results/page-session-ux-aux-05-res-3f607-clusive-aux-focus-and-raw31-chromium-ux-approved-aux-six-cases/error-context.md
+
+
+
+(node:74114) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[6/6] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:464:7 › 06 PC manual empty and long-list ownership › 1194 dark: equal-height empty panel and 60-row internal scroll
+  5 failed
+    [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:289:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus 
+    [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:310:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll 
+    [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:329:7 › 03 narrow finite manual workspace › 320x600 light: map240, native0/100, first Apply and exclusive auxiliaries 
+    [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:380:7 › 04 native touch and long exclusive auxiliary selection › 390x600 dark: swipe0-tap1, long60 ending and list-More switch 
+    [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:427:7 › 05 resize without remount/reset › 717x1227 to 390x844 light: exclusive aux, focus and raw31 
+  1 passed (34.3s)

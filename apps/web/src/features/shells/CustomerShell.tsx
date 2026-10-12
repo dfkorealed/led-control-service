@@ -276,7 +276,9 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   const isControlWorkspace = location.pathname === "/control" && Boolean(capabilities?.control) && !gate;
   // The page owns resolved mode/site authorization. This stable setter is only
   // a layout handoff: execution locks, queries and theme never define its scope.
-  const isManualDesktopWorkspace = isControlWorkspace && manualWorkspaceActive && !isCompactNavigation;
+  const isManualWorkspace = isControlWorkspace && manualWorkspaceActive;
+  const isManualDesktopWorkspace = isManualWorkspace && !isCompactNavigation;
+  const isManualMobileWorkspace = isManualWorkspace && isCompactNavigation;
   const summaryScope: CustomerShellScope | null = authorizedSelectedSiteId
     ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: location.pathname } : null;
   const summaryValue: CustomerSiteSummary | null = summaryScope ? {
@@ -294,7 +296,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
     <SessionStatusProvider scope={JSON.stringify([principalKey(user), authorizedSelectedSiteId])}>
       <ShellStatusRegistration items={shellStatusItems} />
-      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "flex h-dvh min-h-0" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
+      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isManualWorkspace ? "flex h-dvh min-h-0" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
       {capabilities && !gate ? isCompactNavigation ? (
         <nav hidden={focus.active} className={focus.active ? "hidden" : "fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"} aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
@@ -310,10 +312,10 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
           </nav>
         </aside>
       ) : null}
-      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
+      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
         {/* Reserve intrinsic summary/action widths before giving the site label
             remaining space; otherwise a long label collapses the summary track. */}
-        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
+        <header hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-10 grid ${isManualMobileWorkspace ? "min-h-13" : "min-h-16"} min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2`} data-shell-topbar>
           <span className="sr-only" data-testid="shell-current-menu">{titleForPath(location.pathname)}</span>
           <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1" aria-label="현장 정보" data-shell-context>
             {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
@@ -336,7 +338,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
             {!isCompactNavigation ? <Link to={`/settings/security${location.search}${location.hash}`} aria-label="내 계정 및 보안"
               className="inline-flex min-h-13 min-w-13 items-center justify-center rounded-control text-content-secondary outline-none focus-visible:shadow-focus hover:bg-surface-inset"><UserRound size={20} aria-hidden="true" /></Link> : null}
           </div>
-          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
+          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isManualMobileWorkspace ? "hidden" : isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
         </header>
         {focus.active ? <div className="shrink-0 self-start px-2 pt-2"><Button type="button" variant="secondary" onClick={event => statusCenterRef.current?.open(event.currentTarget)}><Bell size={18} aria-hidden="true" />알람센터</Button></div> : null}
         <ToastRegion placement="flow" suppressVisual={isCompactNavigation} />
@@ -348,14 +350,11 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
             scrolls normally when live notice height exceeds the viewport. */}
         {/* Editor minima may exceed a short viewport. Keep ordinary document
             scrolling through both grids instead of clipping the workspace. */}
-        {/* Only an authorized Control workspace needs the available grid row,
-            not an intrinsic content-start row. Its min-content floor keeps a
-            short viewport in document flow; account/gate and other routes keep
-            their existing composition and scrolling policy. */}
-        {/* Manual desktop consumes remaining space below the dynamic header
-            and flow notices. Overflow remains reachable inside this workspace,
-            rather than clipping a short-screen map or command recovery action. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
+        {/* Only the page's authorized manual-active report gives mobile a
+            finite remaining row and safe-navigation reserve. Desktop retains
+            its outer scrollport; schedules/events/groups/account/editor keep
+            their existing flow. Mobile lists/More own reachable overflow. */}
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualMobileWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] px-2 py-1" : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
           {/* The eager account region stays outside the lazy route boundary so
               failed settings chunks and installation/permission gates retain
               the same logout controller, confirmation and initiating ref. */}

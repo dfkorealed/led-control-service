@@ -1,0 +1,174 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: page-session-ux.spec.ts >> 03 narrow finite manual workspace >> 320x600 light: two rows, invalid first Apply and More
+- Location: ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:206:7
+
+# Error details
+
+```
+Test timeout of 30000ms exceeded.
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - navigation "모바일 주 메뉴" [ref=e4]:
+    - link "모니터링" [ref=e6] [cursor=pointer]:
+      - /url: /monitoring?siteId=12121212-1212-4121-8121-121212121212&mode=manual
+      - img [ref=e7]
+      - generic [ref=e9]: 모니터링
+    - link "제어" [ref=e11] [cursor=pointer]:
+      - /url: /control?siteId=12121212-1212-4121-8121-121212121212&mode=manual
+      - img [ref=e12]
+      - generic [ref=e13]: 제어
+    - link "통계" [ref=e15] [cursor=pointer]:
+      - /url: /statistics/overview?siteId=12121212-1212-4121-8121-121212121212&mode=manual
+      - img [ref=e16]
+      - generic [ref=e18]: 통계
+    - link "설정" [ref=e20] [cursor=pointer]:
+      - /url: /settings?siteId=12121212-1212-4121-8121-121212121212&mode=manual
+      - img [ref=e21]
+      - generic [ref=e24]: 설정
+  - main [ref=e25]:
+    - generic [ref=e26]:
+      - generic [ref=e27]: 제어
+      - generic "현장 정보" [ref=e28]:
+        - img "킨다" [ref=e29]:
+          - img [ref=e30]
+          - strong [ref=e31]: 킨다
+        - paragraph [ref=e32]: 고객사 B2 현장
+        - generic [ref=e33]: 고객사 B2 현장
+      - generic [ref=e34]:
+        - button "알람센터, 확인 불가" [ref=e36] [cursor=pointer]:
+          - img [ref=e37]
+          - generic [ref=e40]: "?"
+        - button "다크 모드로 변경" [ref=e41] [cursor=pointer]:
+          - img [ref=e42]
+      - region "현장 전체" [ref=e44]:
+        - heading "현장 전체" [level=2] [ref=e45]
+        - paragraph [ref=e46]: 고객사 B2 현장
+        - generic [ref=e47]:
+          - generic [ref=e48]:
+            - term [ref=e49]: 전체
+            - definition [ref=e50]: 3대
+          - generic [ref=e51]:
+            - term [ref=e52]: 온라인
+            - definition [ref=e53]: 3대
+          - generic [ref=e54]:
+            - term [ref=e55]: 장애
+            - definition [ref=e56]: 0대
+          - generic [ref=e57]:
+            - term [ref=e58]: 오프라인
+            - definition [ref=e59]: 0대
+    - generic [ref=e61]:
+      - heading "조명 제어" [level=1] [ref=e62]
+      - tablist "제어 방식" [ref=e63]:
+        - generic [ref=e64]:
+          - tab "수동 제어" [selected] [ref=e65] [cursor=pointer]:
+            - generic [ref=e66]:
+              - img [ref=e68]
+              - generic [ref=e69]: 수동 제어
+          - tab "스케줄 제어" [ref=e70] [cursor=pointer]:
+            - generic [ref=e71]:
+              - img [ref=e73]
+              - generic [ref=e77]: 스케줄 제어
+          - tab "이벤트 제어" [ref=e78] [cursor=pointer]:
+            - generic [ref=e79]:
+              - img [ref=e81]
+              - generic [ref=e84]: 이벤트 제어
+          - tab "그룹/구역" [ref=e85] [cursor=pointer]:
+            - generic [ref=e86]:
+              - img [ref=e88]
+              - generic [ref=e92]: 그룹/구역
+      - tabpanel "수동 제어" [ref=e93]:
+        - generic [ref=e94]:
+          - region "제어 대상 지도" [ref=e95]:
+            - region "공간 대상 선택" [ref=e96]:
+              - generic [ref=e98]:
+                - generic [ref=e99]:
+                  - generic [ref=e100]: 표시 층
+                  - generic [ref=e101]:
+                    - button "표시 층" [ref=e102]:
+                      - generic [ref=e103]: B2
+                      - generic [ref=e104]: ▾
+                    - combobox [ref=e107]
+                - generic [ref=e108]:
+                  - generic [ref=e109]: 선택 범위
+                  - generic [ref=e110]:
+                    - button "선택 범위" [ref=e111]:
+                      - generic [ref=e112]: 개별 조명
+                      - generic [ref=e113]: ▾
+                    - combobox [ref=e116]
+                - button "조명 목록" [ref=e117] [cursor=pointer]:
+                  - img [ref=e118]
+              - generic [ref=e119]:
+                - generic [ref=e120]:
+                  - group "B2 도면 조명 상태" [ref=e123]:
+                    - generic [ref=e124]:
+                      - generic [ref=e126]: 전체
+                      - strong [ref=e127]: "3"
+                    - generic [ref=e128]:
+                      - generic [ref=e130]: 정상
+                      - strong [ref=e131]: "3"
+                    - generic [ref=e132]:
+                      - generic [ref=e134]: 장애
+                      - strong [ref=e135]: "0"
+                    - generic [ref=e136]:
+                      - generic [ref=e138]: 오프라인
+                      - strong [ref=e139]: "0"
+                  - generic [ref=e142]:
+                    - region "B2 도면" [ref=e143]:
+                      - generic [ref=e145]:
+                        - generic:
+                          - img
+                        - generic [ref=e146]:
+                          - button "UX 조명 01 정상 70%" [ref=e148] [cursor=pointer]
+                          - button "UX 조명 02 정상 70%" [ref=e149] [cursor=pointer]
+                          - button "UX 조명 03 정상 70%" [ref=e150] [cursor=pointer]
+                    - generic [ref=e151]:
+                      - generic [ref=e152]:
+                        - generic "지도 조명 상태 범례":
+                          - generic: 정상
+                          - generic: 장애
+                          - generic: 오프라인
+                          - generic: 선택
+                      - group "지도 확대 축소" [ref=e153]:
+                        - button "지도 축소" [ref=e154] [cursor=pointer]:
+                          - img [ref=e155]
+                        - button "지도 배율 100%" [ref=e156] [cursor=pointer]: 100%
+                        - button "지도 확대" [ref=e157] [cursor=pointer]:
+                          - img [ref=e158]
+                        - button "지도 화면 맞춤" [ref=e159] [cursor=pointer]:
+                          - img [ref=e160]
+                - region "선택 대상 목록" [ref=e167]:
+                  - generic [ref=e168]:
+                    - heading "선택 조명 0개" [level=3] [ref=e169]
+                    - button "전체 보기" [ref=e170] [cursor=pointer]
+          - complementary "밝기 실행" [ref=e171]:
+            - region "제어 대상" [ref=e172]:
+              - heading "제어 대상" [level=3] [ref=e174]
+              - generic [ref=e175]:
+                - strong [ref=e176]: 0개 선택
+                - generic [ref=e177]:
+                  - img [ref=e178]
+                  - generic [ref=e180]: 제어 불가
+            - generic [ref=e181]:
+              - generic [ref=e182]:
+                - generic [ref=e183]:
+                  - generic [ref=e184]: 밝기
+                  - generic [ref=e185]:
+                    - textbox "밝기 수치" [ref=e188]: "70"
+                    - generic [ref=e189]: "%"
+                - group "밝기" [ref=e190]:
+                  - slider "밝기" [ref=e198]: "70"
+                - button "밝기 적용" [disabled] [ref=e200]: 적용
+                - button "더보기" [ref=e201] [cursor=pointer]
+              - status "제어 중요 상태" [ref=e203]: 제어 대상을 하나 이상 선택해 주세요.
+```

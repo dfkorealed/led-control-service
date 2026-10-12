@@ -1,0 +1,333 @@
+
+[WebServer] (node:50519) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:50536) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:50554) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:50626) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 6 tests using 1 worker
+
+
+(node:50637) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:167:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus
+  1) [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:167:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus 
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: '상세 보기', exact: true })
+
+
+      123 |     expect(await mapCamera(map)).toEqual(before.map.camera);
+      124 |     // The original pin remains selected; its nonmodal popover is visible again.
+    > 125 |     await page.getByRole("button", { name: "상세 보기", exact: true }).click();
+          |                                                                    ^
+      126 |     await expect(body).toBeVisible();
+      127 |     await expect.poll(() => body.evaluate(element => element.scrollTop)).toBe(end.top);
+      128 |     await aside.press("Escape");
+        at detail (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:125:68)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:179:7
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:150:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:168:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/ready-geometry-aa6348520122544472420a11b12e32a96531ac8d.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/ready-3852218bb2fc6d803378f45a36fe66442cad6e05.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: native-gestures-geometry (application/json) ─────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/native-gestures-geometry-317e205459bbd7a52b3d2bfc28a9f53fe3049eca.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: native-gestures (image/png) ─────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/native-gestures-2ce7335db21124550ebcf0b35d83bbbee267d460.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: detail-open-geometry (application/json) ─────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/detail-open-geometry-ad7b489169d05f0a5cb097a4b03c8e7fdfdd4382.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: detail-open (image/png) ─────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/detail-open-017711019b27a0622dd248de560e98d4d0045008.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #7: detail-end-geometry (application/json) ──────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/detail-end-geometry-e38b7ab02425d8e33da55ad0389fb50fe415b14b.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #8: detail-end (image/png) ──────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/detail-end-0f55a02514dc71df2d716802d65df0cbf4dc6ccf.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #9: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/error-context.md
+
+    attachment #11: original-failure (application/json) ────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-01-PC-moni-59dd1-tion-half-overlay-and-focus-chromium-ux-six-cases/attachments/original-failure-9d733a72d0063fa33c2b6d80c4359b7b9bf86c0b.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #12: failure-capture-error (text/plain) ─────────────────────────────────────────────
+    Error: page.evaluate: Target page, context or browser has been closed
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+(node:51092) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[2/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:188:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll
+  2) [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:188:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll 
+
+    Error: locator.evaluate: Error: Native input target is clipped or covered
+        at eval (eval at evaluate (:303:30), <anonymous>:5:124)
+        at UtilityScript.evaluate (<anonymous>:305:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at eval (eval at evaluate (:303:30), <anonymous>:5:124)
+        at UtilityScript.evaluate (<anonymous>:305:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at actualCenter (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-support.ts:182:17)
+        at internalEnd (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:44:18)
+        at detail (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:115:17)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:197:7
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:150:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:189:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/ready-geometry-df44599a44e704b9a65e7d01ed64f5639615fba4.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/ready-fc8792f0e122582d2ea74fc5fc8f0cf777243e03.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: detail-open-geometry (application/json) ─────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/detail-open-geometry-d3889268294cf9f8f8ea644efe0827d9280f8b31.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: detail-open (image/png) ─────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/detail-open-614bf8767d361880e941f5baac26391e650d8a37.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: original-failure (application/json) ─────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/original-failure-167f78ef4c33f2f0b906b00998cd01d10f6789b6.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: failure-geometry (application/json) ─────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/failure-geometry-b1acecc92c86e8ed40805eb95f7442e22282b190.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #7: failure (image/png) ─────────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/attachments/failure-4ff01e3606ac8b8082d51fa45a0e47b5fd3ef81b.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #8: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-02-short-m-95f88-bar-HH-mm-and-detail-scroll-chromium-ux-six-cases/error-context.md
+
+
+
+(node:51122) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[3/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:206:7 › 03 narrow finite manual workspace › 320x600 light: two rows, invalid first Apply and More
+  3) [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:206:7 › 03 narrow finite manual workspace › 320x600 light: two rows, invalid first Apply and More 
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for locator('[data-spatial-map-marker="true"][aria-label^="UX 조명 01"]')
+        - locator resolved to <button type="button" aria-pressed="false" data-variant="ghost" data-selected="false" data-disabled="false" title="UX 조명 01 정상 70%" data-brightness-level="8" aria-label="UX 조명 01 정상 70%" data-spatial-map-marker="true" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button>
+      - attempting click action
+        2 × waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <div class="grid min-h-full min-w-full place-items-center p-6">…</div> intercepts pointer events
+        - retrying click action
+        - waiting 20ms
+        - waiting for element to be visible, enabled and stable
+        - element is visible, enabled and stable
+        - scrolling into view if needed
+        - done scrolling
+        - <button type="button" aria-pressed="false" data-variant="ghost" data-selected="false" data-disabled="false" title="UX 조명 03 정상 70%" data-brightness-level="8" aria-label="UX 조명 03 정상 70%" data-spatial-map-marker="true" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events
+      2 × retrying click action
+          - waiting 100ms
+          - waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <div class="grid min-h-full min-w-full place-items-center p-6">…</div> intercepts pointer events
+      13 × retrying click action
+           - waiting 500ms
+           - waiting for element to be visible, enabled and stable
+           - element is visible, enabled and stable
+           - scrolling into view if needed
+           - done scrolling
+           - <div class="grid min-h-full min-w-full place-items-center p-6">…</div> intercepts pointer events
+         - retrying click action
+           - waiting 500ms
+           - waiting for element to be visible, enabled and stable
+           - element is visible, enabled and stable
+           - scrolling into view if needed
+           - done scrolling
+           - <button type="button" aria-pressed="false" data-variant="ghost" data-selected="false" data-disabled="false" title="UX 조명 03 정상 70%" data-brightness-level="8" aria-label="UX 조명 03 정상 70%" data-spatial-map-marker="true" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events
+         - retrying click action
+           - waiting 500ms
+           - waiting for element to be visible, enabled and stable
+           - element is visible, enabled and stable
+           - scrolling into view if needed
+           - done scrolling
+           - <div class="grid min-h-full min-w-full place-items-center p-6">…</div> intercepts pointer events
+         - retrying click action
+           - waiting 500ms
+           - waiting for element to be visible, enabled and stable
+           - element is visible, enabled and stable
+           - scrolling into view if needed
+           - done scrolling
+           - <div class="grid min-h-full min-w-full place-items-center p-6">…</div> intercepts pointer events
+      - retrying click action
+        - waiting 500ms
+        - waiting for element to be visible, enabled and stable
+        - element is visible, enabled and stable
+        - scrolling into view if needed
+        - done scrolling
+        - <div class="grid min-h-full min-w-full place-items-center p-6">…</div> intercepts pointer events
+      - retrying click action
+        - waiting 500ms
+        - waiting for element to be visible, enabled and stable
+        - element is visible, enabled and stable
+        - scrolling into view if needed
+        - done scrolling
+        - <button type="button" aria-pressed="false" data-variant="ghost" data-selected="false" data-disabled="false" title="UX 조명 03 정상 70%" data-brightness-level="8" aria-label="UX 조명 03 정상 70%" data-spatial-map-marker="true" class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 px-3 py-0 text-body-sm text-content-primary hover:enabled:bg-surface-inset aria-pressed:bg-…>…</button> intercepts pointer events
+      - retrying click action
+        - waiting 500ms
+
+
+      211 |       await row(page, [input, page.locator('[data-slider-thumb]'), page.locator('[data-control-submit]'), more]);
+      212 |       const mapGoal = (await readGeometry(page, control)).map;
+    > 213 |       await firstMarker(page).click();
+          |                               ^
+      214 |       for (const endpoint of ["0", "100"]) {
+      215 |         await input.fill(endpoint);
+      216 |         await settle(page);
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:213:31
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:150:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:207:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/attachments/ready-geometry-a9febd6f2198ad059a9215318713fd8501505f47.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/attachments/ready-fd5d08b7bb478fd295a06e5504123d1794f769dd.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/error-context.md
+
+    attachment #5: original-failure (application/json) ─────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/attachments/original-failure-71df5d233ae7f5ca89568d38ef660217778fc0cb.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: failure-capture-error (text/plain) ──────────────────────────────────────────────
+    Error: page.evaluate: Target page, context or browser has been closed
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+(node:51270) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[4/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:248:7 › 04 native touch and long inline selection › 390x600 dark: swipe then tap, 60 fixtures and internal ending
+  4) [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:248:7 › 04 native touch and long inline selection › 390x600 dark: swipe then tap, 60 fixtures and internal ending 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+       at page-session-ux-support.ts:172
+
+      170 |     assertUnchanged: async () => {
+      171 |       expect(await viewport.evaluate(element => element.isConnected)).toBe(true);
+    > 172 |       expect(await canvas.evaluate(element => element.isConnected)).toBe(true);
+          |                                                                     ^
+      173 |       expect(await map.evaluate((element, previous) => element === previous, viewport)).toBe(true);
+      174 |       expect(await map.locator("canvas").first().evaluate((element, previous) => element === previous, canvas)).toBe(true);
+      175 |     },
+        at Object.assertUnchanged (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-support.ts:172:69)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:279:9
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:150:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:249:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/ready-geometry-51eeb0d922a8558edc2110fa0910a7b874ee8ab3.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/ready-bb32366ba4525bd24ec824d48056bb0e16c749fa.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: native-touch-geometry (application/json) ────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/native-touch-geometry-91437d4763ba8f37dd557643a8a842119836c6f6.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: native-touch (image/png) ────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/native-touch-cb188a4e9cc34895cfc12a7ebd4f5b5fa1682f84.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: original-failure (application/json) ─────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/original-failure-79c04beaac179b9a588d821730f3898f909599c6.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: failure-geometry (application/json) ─────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/failure-geometry-a7a79d4f7db92a1ec1b7d969d21654a6680ec896.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #7: failure (image/png) ─────────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/attachments/failure-82a84799568596b4d012ea6ff397f1547132cb9d.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #8: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../.superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-repair-69b1e9a3-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/error-context.md
+
+
+
+(node:51323) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[5/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:292:7 › 05 resize without remount/reset › 717x1227 to 390x844 light: inline/More, focus and raw31
+[6/6] [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:321:7 › 06 PC manual empty and long-list ownership › 1194 dark: equal-height empty panel and 60-row internal scroll
+  4 failed
+    [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:167:7 › 01 PC monitoring actual CAD and nonmodal detail › 1194 light: pan, single selection, half overlay and focus 
+    [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:188:7 › 02 short mobile monitoring › 390x600 dark: toolbar, HH:mm and detail scroll 
+    [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:206:7 › 03 narrow finite manual workspace › 320x600 light: two rows, invalid first Apply and More 
+    [chromium-ux-six-cases] › ../../.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.spec.ts:248:7 › 04 native touch and long inline selection › 390x600 dark: swipe then tap, 60 fixtures and internal ending 
+  2 passed (1.3m)
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test --config /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux.config.ts

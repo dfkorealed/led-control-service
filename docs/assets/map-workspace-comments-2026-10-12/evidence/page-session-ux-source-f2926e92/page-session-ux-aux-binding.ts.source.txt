@@ -1,0 +1,27 @@
+/** Fill only after reading the root's final frozen product source. Include the
+ * entire opaque auxiliary surface/header, not merely its inner scroll body.
+ * Empty binding deliberately blocks execution during product-owner work. */
+export const approvedAuxiliaryBinding: {
+  source: string;
+  surfaceSelectors: string[];
+  anchorSelector: string;
+  cameraPlacement: "unbound" | "footer" | "overlay";
+  cameraOverlaySurfaceSelectors: string[];
+  cameraTouchSelector: string;
+  bodySelector: string;
+  selectionContentSelector: string;
+  moreContentSelector: string;
+} = {
+  source: "f2926e927ab8c976ef1dbb282c932bdddfdf8685",
+  surfaceSelectors: ['[data-manual-auxiliary-panel]'],
+  // SpatialTargetSelector's relative map wrapper is the panel's direct parent.
+  anchorSelector: '[data-operation-map-panel] div:has(> [data-manual-auxiliary-panel])',
+  cameraPlacement: "overlay",
+  cameraOverlaySurfaceSelectors: ['[data-operation-map-panel] [role="group"][aria-label="지도 확대 축소"]'],
+  cameraTouchSelector: '[data-operation-map-panel] [role="group"][aria-label="지도 확대 축소"]',
+  bodySelector: '[data-manual-auxiliary-body]',
+  // Real portaled content has no former inline data attribute. Select its
+  // source-defined direct child; never add attributes or select hidden slots.
+  selectionContentSelector: '[data-manual-auxiliary-body] div:has(> ul[aria-label="선택 조명"])',
+  moreContentSelector: '[data-manual-auxiliary-body] div:has(> [role="group"][aria-label="빠른 밝기 값"])'
+};

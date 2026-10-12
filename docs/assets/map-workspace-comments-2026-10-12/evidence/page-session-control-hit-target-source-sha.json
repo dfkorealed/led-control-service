@@ -1,0 +1,20 @@
+{
+  "parent": "4093ff536e2ded9edfb1d1f1c3b25f53b54989b3",
+  "files": {
+    "apps/web/src/features/floor-map/FloorMapViewport.tsx": "8a15f62e15f571386a1f05c998e170a281abb6f142ab7dc0689ce147c3501b6b",
+    "apps/web/src/features/control/ManualExecutionPanel.tsx": "e9e392ca539a6d528071accc1b72b8ca92c417b47e95a3d47263abad8c88df0b",
+    "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx": "9d3e3ab9a6320f93bd5b560dc7052bca42f0f885309b21a27aaca40841acaddd",
+    "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx": "1cac4b3f93f9399952a0feb2659efacac231d03c93e778668a04956c5a6d5f2e",
+    "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx": "cd44fd97636471890852347131586c4b39ea34d0ad3e818f4131b0495cfbd526",
+    "docs/menus/control.md": "f9c29c2ceaac32e3f490c1dfe0f3a1916fa400a6b109d844b9087ec7f3e1d37e"
+  },
+  "preserved_scope": {
+    "docs/project-status.md": "14794d99e57fa0a74c86f72f615ab0c08ba1727597fe8c8e562c73ce3042e049",
+    "docs/superpowers/plans/2026-10-12-map-workspace-comments.md": "18bb5a832ab19800d7cd6f69ac358450a95b75f00cc48159efaddb8b9a95b28c",
+    "apps/web/src/features/control/ControlView.tsx": "971e894d1468236d749e4139a1466b66ee2770a5760cb862ebf4f98e2426733f",
+    "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx": "5232d51bf47331ced19a80190a0b38856836a403772a0a4dcf3e18555739eed1",
+    "apps/web/src/features/shells/CustomerShell.tsx": "5f8372a78fa488fbcbc6997ce9ddc1c923cfd48a3dffe9f00ab69cea8af80bd6",
+    "apps/web/src/features/floor-map/FloorScene.tsx": "7b9ee7f2a9822b76733955f786b66324d217d3b5300be678fcc00c0fad596d8d",
+    "apps/web/src/components/ui/Button.tsx": "311812c0d6cea0b864b01e4c2982f2e7552cd7c7b1ddc508b56643be012323ec"
+  }
+}

@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/CommandHistoryPanel.test.tsx (30 tests | 27 skipped) 2405ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'partial' draft survives filter reopen, then reads a valid correction 924ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'impossible' draft survives filter reopen, then reads a valid correction 743ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'reversed' draft survives filter reopen, then reads a valid correction 732ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed | 27 skipped (30)
+   Start at  11:12:13
+   Duration  6.35s (transform 852ms, setup 79ms, collect 2.54s, tests 2.40s, environment 368ms, prepare 236ms)
+

@@ -1,0 +1,24 @@
+{
+  "parent": "4710954854acffb67921114fbf7d664a2192b48c",
+  "files": {
+    "apps/web/src/features/control/ControlView.tsx": "971e894d1468236d749e4139a1466b66ee2770a5760cb862ebf4f98e2426733f",
+    "apps/web/src/features/control/ControlView.test.tsx": "89a07cad6c26c2afa1b6db2bf5bce98f8d8308b952c565080465fb96f033fd88",
+    "apps/web/src/features/control/ManualExecutionPanel.tsx": "c4479b93ab5814de5b10907db4b91e74fb8ca29f0875fe9b346383c747a405cf",
+    "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx": "ae195a75c4c8f53922090eca8eaccd38a28e82564a99f8fdf265b7cf418ea6a5",
+    "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx": "5232d51bf47331ced19a80190a0b38856836a403772a0a4dcf3e18555739eed1",
+    "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx": "59f19bbaaddd348fd3672874214f90ab1ad6c9dff8f931cd4d3a55b01366fb7e",
+    "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx": "b23bcc5c3985bb3be6fe07446f871c63b17e30d7a8bbbe65b633621dd6458196",
+    "apps/web/src/features/shells/CustomerShell.tsx": "5f8372a78fa488fbcbc6997ce9ddc1c923cfd48a3dffe9f00ab69cea8af80bd6",
+    "apps/web/src/features/shells/CustomerShell.test.tsx": "8c52167b2751d67b269bf43fa1880a4e97e50bdb78dc8ef2bd158833eb3b32cd",
+    "docs/menus/control.md": "cd2c8c6e108f3da995b3c2f28d471ddaba6411b273cb9453f2389ae5e0aa4cd7"
+  },
+  "preserved_scope": {
+    "docs/project-status.md": "14794d99e57fa0a74c86f72f615ab0c08ba1727597fe8c8e562c73ce3042e049",
+    "docs/superpowers/plans/2026-10-12-map-workspace-comments.md": "18bb5a832ab19800d7cd6f69ac358450a95b75f00cc48159efaddb8b9a95b28c",
+    "apps/web/src/features/floor-map/FloorMapViewport.tsx": "97192ead940958313d46273605620760e9155c8d806f3e7ae6f0b0b279556c49",
+    "apps/web/src/features/floor-map/FloorScene.tsx": "7b9ee7f2a9822b76733955f786b66324d217d3b5300be678fcc00c0fad596d8d",
+    "apps/web/src/components/ui/maps/OperationMapPanel.tsx": "524b7b9670b6c8bb7a89818c9c2c1fe45e9540117f18bc4bfffcd5678f27c0b2",
+    "apps/web/src/components/ui/operations/RecentActivityTicker.tsx": "c8c86a45f77a082923b56c09c8d2e8ce55de491cef7edab1a7675a2cef68ffae",
+    "apps/web/src/features/control/CommandHistoryPanel.tsx": "6f09eca4450beb006124ceefc0b057fca492f9221907a3e4de6fd16a8ab73718"
+  }
+}

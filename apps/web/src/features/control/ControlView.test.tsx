@@ -357,6 +357,146 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
+  it("C6-8 mobile expands selected names inline without replacing the map, draft, or command scope", () => {
+    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001"); selectFixture("B2-L002");
+    const map = screen.getByTestId("target-selection-map-viewport");
+    const scene = map.querySelector("[data-floor-scene]");
+    expect(scene).not.toBeNull();
+    const input = screen.getByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(input, { target: { value: "31" } });
+    const panel = screen.getByRole("region", { name: "선택 대상 목록" });
+    const toggle = within(panel).getByRole("button", { name: "전체 보기" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(panel).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    const auxiliary = screen.getByRole("region", { name: "지도 하단 보조 패널" });
+    expect(within(auxiliary).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L001");
+    expect(within(auxiliary).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.queryByRole("dialog", { name: "선택 조명" })).not.toBeInTheDocument();
+    fireEvent.keyDown(within(auxiliary).getByRole("list", { name: "선택 조명" }), { key: "Escape" });
+    expect(toggle).toHaveFocus(); expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map);
+    expect(map.querySelector("[data-floor-scene]")).toBe(scene);
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
+    expect(input).toHaveValue("31"); expect(mocks.apiPost).not.toHaveBeenCalled();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_B, `/control?siteId=${dashboard.site.id}`, true));
+    expect(within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" })).toHaveAttribute("aria-expanded", "false");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft", () => {
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001"); selectFixture("B2-L002");
+    const map = screen.getByTestId("target-selection-map-viewport");
+    const scene = map.querySelector("[data-floor-scene]"); expect(scene).not.toBeNull();
+    const input = screen.getByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(input, { target: { value: "31" } });
+    const listOpener = within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" });
+    const more = screen.getByRole("button", { name: "더보기" });
+    fireEvent.click(listOpener);
+    const auxiliary = screen.getByRole("region", { name: "지도 하단 보조 패널" });
+    expect(within(auxiliary).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L002");
+    fireEvent.click(more);
+    expect(screen.getByRole("region", { name: "지도 하단 보조 패널" })).toBe(auxiliary);
+    expect(within(auxiliary).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
+    expect(within(auxiliary).getByRole("group", { name: "빠른 밝기 값" })).toBeVisible();
+    expect(listOpener).toHaveAttribute("aria-expanded", "false"); expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("status", { name: "제어 중요 상태" })).toBeVisible();
+    fireEvent.keyDown(more, { key: "Escape" }); expect(more).toHaveFocus(); expect(more).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(listOpener);
+    fireEvent.click(within(auxiliary).getByRole("button", { name: "보조 패널 닫기" })); expect(listOpener).toHaveFocus();
+    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map); expect(map.querySelector("[data-floor-scene]")).toBe(scene);
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input); expect(input).toHaveValue("31");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it.each(["selection", "more"] as const)("C6-8 focused %s auxiliary action survives mobile-desktop-mobile without replacing its DOM or the map", kind => {
+    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001");
+    const map = screen.getByTestId("target-selection-map-viewport");
+    if (kind === "selection") fireEvent.click(within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" }));
+    else fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+    const focusedAction = kind === "selection" ? screen.getByRole("button", { name: "선택 해제" })
+      : within(screen.getByRole("region", { name: "제어 이력" })).getByRole("button", { name: "전체 보기" });
+    focusedAction.focus(); expect(focusedAction).toHaveFocus();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, `/control?siteId=${dashboard.site.id}`, false));
+    expect(focusedAction).toHaveFocus(); expect(focusedAction).toBeInTheDocument();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, `/control?siteId=${dashboard.site.id}`, true));
+    expect(focusedAction).toHaveFocus(); expect(focusedAction).toBeVisible();
+    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map); expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("C6-8 bottom reader leaves invalid blur, first Apply and Enter guards intact before an explicit raw31 request", async () => {
+    mocks.apiPost.mockResolvedValue({ id: commandIds.expected, dispatchCount: 1 });
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001");
+    const input = screen.getByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(input, { target: { value: "31" } });
+    fireEvent.input(input, { target: { value: "999" } });
+    const apply = applyButton(); expect(apply).toBeDisabled();
+    fireEvent.pointerDown(apply); fireEvent.blur(input, { relatedTarget: apply }); fireEvent.click(apply);
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    await act(async () => {});
+    const restored = screen.getByRole("textbox", { name: "밝기 수치" }); expect(restored).toHaveValue("31");
+    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+    fireEvent.input(restored, { target: { value: "42.5" } }); fireEvent.keyDown(restored, { key: "Enter" });
+    expect(mocks.apiPost).not.toHaveBeenCalled(); expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("31");
+    await act(async () => {}); fireEvent.click(applyButton());
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    expect(mocks.apiPost.mock.calls[0][1]).toMatchObject({ brightness: 31, target: { type: "fixture", fixtureId: fixtureIds.b2First } });
+  });
+
+  it("C6-8 shared bottom auxiliary resets on floor and principal changes and exposes mode switching only through More", () => {
+    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    expect(screen.queryByRole("tablist", { name: "제어 방식" })).not.toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "더보기" }); fireEvent.click(more);
+    expect(within(screen.getByRole("region", { name: "지도 하단 보조 패널" })).getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+    selectOption("표시 층", "B1"); expect(more).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(more);
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_B, `/control?siteId=${dashboard.site.id}`, true));
+    expect(screen.queryByRole("region", { name: "지도 하단 보조 패널" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("C6-8 mobile More preserves an uncertain request and keeps its important status visible while collapsed", async () => {
+    commandStore.configureActiveCommandPersistence(true);
+    mocks.apiPost.mockRejectedValueOnce(new TypeError("response lost")).mockResolvedValueOnce({ id: commandIds.retry, dispatchCount: 1 });
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001"); fireEvent.click(applyButton());
+    await waitFor(() => expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).not.toBeNull());
+    const more = screen.getByRole("button", { name: "더보기" });
+    const status = screen.getByRole("status", { name: "제어 중요 상태" });
+    await waitFor(() => expect(status).toHaveTextContent("응답"));
+    const frozen = commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id);
+    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
+    fireEvent.click(more);
+    const retry = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
+    expect(retry).toBeEnabled();
+    fireEvent.click(more); expect(status).toBeVisible();
+    fireEvent.click(more); fireEvent.click(retry);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+    expect(mocks.apiPost.mock.calls[0][1]).toEqual(frozen);
+    expect(mocks.apiPost.mock.calls[1][1]).toEqual(frozen);
+  });
+
+  it.each([
+    { failure: "query error", text: "명령 상태를 불러오지 못했습니다.", action: "명령 상태 다시 조회" },
+    { failure: "verification required", text: "실제 상태 확인 필요", action: "실제 상태 확인" }
+  ])("C6-8 collapsed important status prioritizes $failure over an empty target", ({ failure, text, action }) => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
+    mocks.useCommandStatus.mockReturnValue({ data: failure === "query error" ? null : createCommandStatus(commandIds.expected, "verification_required"),
+      error: failure === "query error" ? new TypeError("offline") : null, isFetching: false, refetch: vi.fn() });
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    expect(screen.getByRole("status", { name: "제어 중요 상태" })).toHaveTextContent(text);
+    expect(applyButton()).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+    expect(screen.getByRole("button", { name: action })).toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("atlas execution keeps one natural-flow map and execution surface with no numbered duplicate headings", () => {
     renderControl();
     const toolbar = document.querySelector<HTMLElement>("[data-target-selection-toolbar]");
@@ -369,8 +509,7 @@ describe("ControlView 대상 선택", () => {
     expect(screen.queryByText("02 / 밝기 실행")).not.toBeInTheDocument();
     expect(screen.queryByRole("complementary", { name: "선택 대상 요약" })).not.toBeInTheDocument();
     expect(execution).not.toHaveClass("hidden");
-    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toHaveClass("max-compact:overflow-visible");
-    expect(screen.getByRole("region", { name: "공간 대상 선택" })).toHaveClass("max-compact:overflow-visible");
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toContainElement(screen.getByTestId("target-selection-map-viewport"));
     expect(within(execution).getByText("0개 선택")).toBeInTheDocument();
     expect(within(execution).getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
@@ -1368,18 +1507,19 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByText("1개 선택")).toBeInTheDocument();
   });
 
-  it("keeps every control disabled for viewer accounts", () => {
+  it.each([false, true])("keeps every control disabled for viewer accounts with compact=%s", compact => {
     mocks.useControlDashboard.mockReturnValue({
       data: { ...dashboard, capabilities: { read: true, control: false, manage: false, commission: false } },
       isLoading: false,
       error: null
     });
-    renderControl("viewer");
+    renderControl("viewer", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, compact);
 
     expect(screen.getAllByText("조회 전용", { selector: "span" }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/조회 전용 계정입니다/)).not.toBeInTheDocument();
     expect(fixtureMarker("B2-L001")).toBeDisabled();
     expect(applyButton()).toBeDisabled();
+    if (compact) expect(screen.getByRole("status", { name: "제어 중요 상태" })).toHaveTextContent("조회 전용");
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 

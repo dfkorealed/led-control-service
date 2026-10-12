@@ -1,0 +1,12 @@
+{
+  "source_commit": "9f3e25d7460e215c242d775b83c6c32e3f32546f",
+  "direct_parent": "c4c2961bf380ac8e50cb6304d92029e0655e4c9a",
+  "owned_files": 13,
+  "commit_blobs_match_verified_sha": true,
+  "owned_working_diff_empty": true,
+  "coordinator_documents_unchanged_during_commit": true,
+  "remaining_status": [
+    " M docs/project-status.md",
+    " M docs/superpowers/plans/2026-10-12-map-workspace-comments.md"
+  ]
+}

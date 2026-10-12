@@ -1,0 +1,161 @@
+[
+  {
+    "original": ".superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-03-narrow--63429-nvalid-first-Apply-and-More-chromium-ux-six-cases/failure.json",
+    "source": "bea0dacb07d3d5c8e0b14e4659874da12ed6b2d4",
+    "viewport": {
+      "width": 320,
+      "height": 600
+    },
+    "map_bounds": {
+      "x": 9,
+      "y": 262,
+      "width": 302,
+      "height": 0,
+      "right": 311,
+      "bottom": 262
+    },
+    "map_client_height": 0,
+    "canvas_count": 0,
+    "exposed": {
+      "mapBox": {
+        "x": 9,
+        "y": 262,
+        "width": 302,
+        "height": 0,
+        "right": 311,
+        "bottom": 262
+      },
+      "mapUsable": null,
+      "blockers": [
+        {
+          "selector": "[data-shell-navigation=\"compact\"]",
+          "bounds": {
+            "x": 0,
+            "y": 532,
+            "right": 320,
+            "bottom": 600,
+            "width": 320,
+            "height": 68
+          }
+        }
+      ],
+      "rectangles": [],
+      "area": 0,
+      "limitation": "Opaque rectangular selectors only; hit samples are not continuous44 proof or OS-keyboard evidence."
+    },
+    "document": {
+      "scrollY": 0,
+      "scrollX": 0,
+      "scrollHeight": 600,
+      "clientHeight": 600,
+      "scrollWidth": 320,
+      "clientWidth": 320
+    }
+  },
+  {
+    "original": ".superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-04-native--2ebc9-ixtures-and-internal-ending-chromium-ux-six-cases/failure.json",
+    "source": "bea0dacb07d3d5c8e0b14e4659874da12ed6b2d4",
+    "viewport": {
+      "width": 390,
+      "height": 600
+    },
+    "map_bounds": {
+      "x": 9,
+      "y": 264,
+      "width": 372,
+      "height": 0,
+      "right": 381,
+      "bottom": 264
+    },
+    "map_client_height": 0,
+    "canvas_count": 0,
+    "exposed": {
+      "mapBox": {
+        "x": 9,
+        "y": 264,
+        "width": 372,
+        "height": 0,
+        "right": 381,
+        "bottom": 264
+      },
+      "mapUsable": null,
+      "blockers": [
+        {
+          "selector": "[data-shell-navigation=\"compact\"]",
+          "bounds": {
+            "x": 0,
+            "y": 532,
+            "right": 390,
+            "bottom": 600,
+            "width": 390,
+            "height": 68
+          }
+        }
+      ],
+      "rectangles": [],
+      "area": 0,
+      "limitation": "Opaque rectangular selectors only; hit samples are not continuous44 proof or OS-keyboard evidence."
+    },
+    "document": {
+      "scrollY": 0,
+      "scrollX": 0,
+      "scrollHeight": 600,
+      "clientHeight": 600,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    }
+  },
+  {
+    "original": ".superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-six-first-ui-20261012/results/page-session-ux-05-resize--97626-inline-More-focus-and-raw31-chromium-ux-six-cases/failure.json",
+    "source": "bea0dacb07d3d5c8e0b14e4659874da12ed6b2d4",
+    "viewport": {
+      "width": 717,
+      "height": 1227
+    },
+    "map_bounds": {
+      "x": 9,
+      "y": 262,
+      "width": 699,
+      "height": 0,
+      "right": 708,
+      "bottom": 262
+    },
+    "map_client_height": 0,
+    "canvas_count": 0,
+    "exposed": {
+      "mapBox": {
+        "x": 9,
+        "y": 262,
+        "width": 699,
+        "height": 0,
+        "right": 708,
+        "bottom": 262
+      },
+      "mapUsable": null,
+      "blockers": [
+        {
+          "selector": "[data-shell-navigation=\"compact\"]",
+          "bounds": {
+            "x": 0,
+            "y": 1159,
+            "right": 717,
+            "bottom": 1227,
+            "width": 717,
+            "height": 68
+          }
+        }
+      ],
+      "rectangles": [],
+      "area": 0,
+      "limitation": "Opaque rectangular selectors only; hit samples are not continuous44 proof or OS-keyboard evidence."
+    },
+    "document": {
+      "scrollY": 0,
+      "scrollX": 0,
+      "scrollHeight": 1227,
+      "clientHeight": 1227,
+      "scrollWidth": 717,
+      "clientWidth": 717
+    }
+  }
+]

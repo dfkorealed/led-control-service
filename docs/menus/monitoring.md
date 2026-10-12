@@ -1,5 +1,32 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-12 지도 조작·툴바·하단 상세 교정
+
+### 구현 완료
+
+- 지도는 기존 manual-cad opt-in과 pan 정책을 소비한다. PC 중간 버튼/Space 이동과 좌클릭 단일 선택, 모바일 marker 시작 swipe 이동과 tap 선택을 지원하며 영역 선택은 하지 않는다. 공통 viewport 기본값·renderer/camera 수명은 유지한다.
+- 순수 snapshot 60초 초과 지연은 기존 알람센터 ‘현재 화면 상태’에만 표시하고 상단 toast/최근 알림을 생성하지 않는다. 새 snapshot으로 복구하면 사라진다. 조회 실패·invalid/future 시각 경고는 기존 transient 안내를 유지하며 서버 현장 장애 알람·읽음/지우기·미읽음 수는 별도 계약이다.
+- loading/error/main의 h1은 sr-only로 보존한다. 층 선택·통합 검색/목록·마지막 갱신·새로고침을 한 도구 행으로 배치한다. 좁은 화면은 기존52px icon action과 accessible label, 현장 시간 HH:mm/전체 시각 설명을 사용한다. 시각 미확인 안내도 전체 접근 가능한 설명을 유지한다.
+- 조명 상세는 PC·모바일 동일한 지도 내부 하단 약 절반 nonmodal overlay다. 지도 영역은 줄이지 않으며 상세 본문만 스크롤한다. 닫기/Escape·현재 scope의 opener 복귀·선택/필터/삭제 수명과 상세 scroll 기억을 유지한다.
+- 기존 페이지 담당의 인수 검증에서 제품 `ac323a3d`와 동일한 소스의 직접 `MonitoringView`/`FloorMap` 2개 suite 127개가 일괄 통과했다. snapshot 60,000/60,001ms·복구·오류/시각 안내, marker gesture/단일 선택, 상세 열기/닫기·scroll/초점 수명을 확인한 소프트웨어 증거이며 실제 화면 geometry 완료를 뜻하지 않는다.
+
+### 미구현
+
+- 서버 snapshot 지연을 영구 incident로 저장하는 새 DTO/producer는 추가하지 않았다. API/DB/장비/배포/HIL 변경은 없다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 직접 컴포넌트/gesture 회귀와 별도로 `2290a877` 실제 UI case1/2에서 1194px PC의 중간 버튼/Space 이동·휠 줌·단일 선택·한 행 툴바·약 절반 상세 및 map rect/camera/renderer 불변·재열기/초점 복귀, 390×600 dark의 툴바/nav 연속44px hit·HH:mm/전체 접근 가능한 시각·상세 끝 도달·native 문서 스크롤0→83과 상세 scroll 복원을 확인했다([영구 결과와 원 증거](../assets/map-workspace-comments-2026-10-12/README.md)). 모바일은 무스크롤 화면 계약이 아니며 PC 상세의 양의 내부 scroll 범위·모바일 상단 복귀·모니터링320px 실제 화면·새 e35 여섯 case 일괄 실행·OS 키보드·live API·HIL·물리 슬라이더 드래그는 이 결과로 완료를 주장하지 않는다.
+- 지연 화면 상태에는 읽음/지우기 동작이 없다. 최근 알림이나 서버 incident의 읽음이 현재 지연의 해결을 뜻하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/{MonitoringView,FloorMap}.tsx` 및 직접 테스트. 기존 `components/ui/maps/OperationMapPanel.tsx`와 `features/floor-map/FloorMapViewport.tsx`의 계약을 소비하며 공통 제품 API 변경은 없다.
+
+### 갱신 규칙
+
+- 조회 metadata 지연·서버 장비 장애·transient 알림을 구분하고 직접 unit과 실제 geometry/HIL 범위를 합산하지 않는다. 아래 과거 desktop aside/mobile modal·보이는 h1 기록은 당시 구현 이력이며 현재 계약은 이 절을 따른다.
+
 ## 2026-10-11 신규 조작 의견 — 현장명 단순화·통합 검색/목록·고정 범례
 
 ### 구현 완료

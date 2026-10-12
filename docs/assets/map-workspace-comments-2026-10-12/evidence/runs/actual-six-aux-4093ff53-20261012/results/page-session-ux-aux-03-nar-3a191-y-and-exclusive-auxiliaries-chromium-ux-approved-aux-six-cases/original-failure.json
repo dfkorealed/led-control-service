@@ -1,0 +1,65 @@
+{
+  "source": "4093ff536e2ded9edfb1d1f1c3b25f53b54989b3",
+  "case": {
+    "id": 3,
+    "viewport": {
+      "width": 320,
+      "height": 600
+    },
+    "theme": "light",
+    "route": "control",
+    "purpose": "map240/finite/two44rows/slider endpoints/first Apply/exclusive aux"
+  },
+  "phase": "ready",
+  "url": "http://127.0.0.1:15188/control?siteId=12121212-1212-4121-8121-121212121212&mode=manual",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/monitoring-incidents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sites/12121212-1212-4121-8121-121212121212/floors/23232323-2323-4232-8232-232323232323/map-snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands"
+    },
+    {
+      "method": "GET",
+      "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/manifest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/floors/23232323-2323-4232-8232-232323232323/map-document/changes"
+    }
+  ],
+  "error": {
+    "message": "Touch targets below 44px within [data-operation-map-panel] [role=\"group\"][aria-label=\"지도 확대 축소\"]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 34\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 44,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 축소\",\u001b[39m\n\u001b[31m+     \"width\": 43,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 47.625,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 배율 100%\",\u001b[39m\n\u001b[31m+     \"width\": 47,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 44,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 확대\",\u001b[39m\n\u001b[31m+     \"width\": 43,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 44,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 화면 맞춤\",\u001b[39m\n\u001b[31m+     \"width\": 44,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m",
+    "stack": "Error: Touch targets below 44px within [data-operation-map-panel] [role=\"group\"][aria-label=\"지도 확대 축소\"]\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  -  1\u001b[39m\n\u001b[31m+ Received  + 34\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 44,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 축소\",\u001b[39m\n\u001b[31m+     \"width\": 43,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 47.625,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 배율 100%\",\u001b[39m\n\u001b[31m+     \"width\": 47,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 44,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 확대\",\u001b[39m\n\u001b[31m+     \"width\": 43,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+   Object {\u001b[39m\n\u001b[31m+     \"geometryHeight\": 44,\u001b[39m\n\u001b[31m+     \"geometryWidth\": 44,\u001b[39m\n\u001b[31m+     \"hasMinimumArea\": false,\u001b[39m\n\u001b[31m+     \"height\": 44,\u001b[39m\n\u001b[31m+     \"label\": \"지도 화면 맞춤\",\u001b[39m\n\u001b[31m+     \"width\": 44,\u001b[39m\n\u001b[31m+   },\u001b[39m\n\u001b[31m+ ]\u001b[39m\n    at expectMinimumTouchTargets (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web/e2e/support/layout-assertions.ts:377:73)\n    at manualState (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:141:27)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:333:23\n    at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:272:5)\n    at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:330:5"
+  }
+}

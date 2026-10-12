@@ -1,0 +1,1787 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/control/ControlView.test.tsx (169 tests | 2 failed | 167 skipped) 1535ms
+   × ControlView 대상 선택 > C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft 1320ms
+     → Unable to find an accessible element with the role "region" and name "지도 하단 보조 패널"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "알람센터, 현장 미선택":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"알람센터, 현장 미선택"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"알람센터, 현장 미선택"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "표시 층":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r2:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r2:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "선택 범위":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":rd:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":rd:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "조명 목록":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary text-body size-11 min-h-11! shrink-0 p-0"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B2-L001 정상 70% 선택됨":
+  [36m<button[39m
+    [33maria-label[39m=[32m"B2-L001 정상 70% 선택됨"[39m
+    [33maria-pressed[39m=[32m"true"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12! z-3"[39m
+    [33mdata-brightness-level[39m=[32m"8"[39m
+    [33mdata-disabled[39m=[32m"false"[39m
+    [33mdata-selected[39m=[32m"true"[39m
+    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mstyle[39m=[32m"--fixture-left: 0%; --fixture-top: 0%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+    [33mtitle[39m=[32m"B2-L001 정상 70%"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B2-L002 정상 60% 선택됨":
+  [36m<button[39m
+    [33maria-label[39m=[32m"B2-L002 정상 60% 선택됨"[39m
+    [33maria-pressed[39m=[32m"true"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12! z-3"[39m
+    [33mdata-brightness-level[39m=[32m"7"[39m
+    [33mdata-disabled[39m=[32m"false"[39m
+    [33mdata-selected[39m=[32m"true"[39m
+    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mstyle[39m=[32m"--fixture-left: 0%; --fixture-top: 0%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+    [33mtitle[39m=[32m"B2-L002 정상 60%"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B2-L003 오프라인 0% 선택 불가: 게이트웨이가 오프라인입니다.":
+  [36m<button[39m
+    [33maria-label[39m=[32m"B2-L003 오프라인 0% 선택 불가: 게이트웨이가 오프라인입니다."[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+    [33mdata-brightness-level[39m=[32m"1"[39m
+    [33mdata-disabled[39m=[32m"true"[39m
+    [33mdata-disabled-reason[39m=[32m"게이트웨이가 오프라인입니다."[39m
+    [33mdata-selected[39m=[32m"false"[39m
+    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mstyle[39m=[32m"--fixture-left: 0%; --fixture-top: 0%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+    [33mtitle[39m=[32m"B2-L003 오프라인 0%"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 축소":
+  [36m<button[39m
+    [33maria-label[39m=[32m"지도 축소"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body-sm aspect-square min-w-11 p-2 size-11 min-h-11!"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 배율 100%":
+  [36m<button[39m
+    [33maria-description[39m=[32m"누르면 100%로 재설정"[39m
+    [33maria-label[39m=[32m"지도 배율 100%"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary py-0 text-body-sm min-h-11! min-w-11 px-1"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"100%로 재설정"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 확대":
+  [36m<button[39m
+    [33maria-label[39m=[32m"지도 확대"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body-sm aspect-square min-w-11 p-2 size-11 min-h-11!"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 화면 맞춤":
+  [36m<button[39m
+    [33maria-label[39m=[32m"지도 화면 맞춤"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body-sm aspect-square min-w-11 p-2 size-11 min-h-11!"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "접기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":rp:"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body min-h-11! w-full"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "선택 해제":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "2개 조명에 밝기 적용":
+  [36m<button[39m
+    [33maria-label[39m=[32m"2개 조명에 밝기 적용"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-action-primary bg-action-primary text-content-inverse hover:enabled:border-action-primary-hover hover:enabled:bg-action-primary-hover active:enabled:bg-action-primary-active py-0 h-11 min-h-11! min-w-0 px-2 text-caption"[39m
+    [33mdata-control-submit[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "더보기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":rq:"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary py-0 h-11 min-h-11! min-w-11 px-2 text-caption"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "브라우저 뒤로":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "브라우저 앞으로":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "알림":
+  [36m<section[39m
+    [33maria-label[39m=[32m"알림"[39m
+    [33mclass[39m=[32m"pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"[39m
+    [33mdata-toast-placement[39m=[32m"overlay"[39m
+  [36m/>[39m
+
+  Name "제어 대상 지도":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상 지도"[39m
+    [33mclass[39m=[32m"rounded-panel border bg-surface-panel border-border-default flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full"[39m
+    [33mdata-control-target-card[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  Name "공간 대상 선택":
+  [36m<section[39m
+    [33maria-label[39m=[32m"공간 대상 선택"[39m
+    [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1"[39m
+    [33mdata-spatial-target-selector[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "B2 도면":
+  [36m<div[39m
+    [33maria-label[39m=[32m"B2 도면"[39m
+    [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-0 flex-1 [contain:size]"[39m
+    [33mdata-testid[39m=[32m"target-selection-map-viewport"[39m
+    [33mdata-zoom[39m=[32m"1"[39m
+    [33mrole[39m=[32m"region"[39m
+    [33mtabindex[39m=[32m"0"[39m
+  [36m/>[39m
+
+  Name "선택 대상 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"선택 대상 목록"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 gap-1"[39m
+    [33mdata-manual-selection-panel[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상"[39m
+    [33mclass[39m=[32m"sr-only"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 제어":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-section-title font-bold text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "선택 조명 2개":
+  [36m<h3[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"font-bold text-content-primary text-caption m-0"[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<h3[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tablist:
+
+  Name "제어 방식":
+  [36m<div[39m
+    [33maria-label[39m=[32m"제어 방식"[39m
+    [33mclass[39m=[32m"w-full min-w-0 max-w-full self-start overflow-x-auto"[39m
+    [33mrole[39m=[32m"tablist"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tab:
+
+  Name "수동 제어":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-manual"[39m
+    [33maria-selected[39m=[32m"true"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-manual"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "스케줄 제어":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-schedule"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-schedule"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "이벤트 제어":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-event"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-event"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "그룹/구역":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-group"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-group"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "수동 제어":
+  [36m<div[39m
+    [33maria-labelledby[39m=[32m"control-mode-manual"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] gap-1 tablet:flex tablet:flex-col"[39m
+    [33mdata-control-manual-panel[39m=[32m""[39m
+    [33mid[39m=[32m"control-mode-panel-manual"[39m
+    [33mrole[39m=[32m"tabpanel"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "B2 도면 조명 상태":
+  [36m<div[39m
+    [33maria-label[39m=[32m"B2 도면 조명 상태"[39m
+    [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  Name "지도 확대 축소":
+  [36m<div[39m
+    [33maria-label[39m=[32m"지도 확대 축소"[39m
+    [33mclass[39m=[32m"flex items-center gap-0 ml-auto shrink-0"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  Name "밝기":
+  [36m<div[39m
+    [33maria-label[39m=[32m"밝기"[39m
+    [33mclass[39m=[32m"contents"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m"react-aria-:r14:"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33mclass[39m=[32m"text-customer-metric font-bold tabular-nums max-compact:text-metric text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "선택 조명":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"선택 조명"[39m
+    [33mclass[39m=[32m"m-0 grid min-h-0 list-none gap-1 p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "00000000-0000-4000-8000-000000002001":
+  [36m<li[39m
+    [33mclass[39m=[32m"rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere"[39m
+    [33mtitle[39m=[32m"00000000-0000-4000-8000-000000002001"[39m
+  [36m/>[39m
+
+  Name "00000000-0000-4000-8000-000000002002":
+  [36m<li[39m
+    [33mclass[39m=[32m"rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere"[39m
+    [33mtitle[39m=[32m"00000000-0000-4000-8000-000000002002"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "밝기 실행":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"밝기 실행"[39m
+    [33mclass[39m=[32m"rounded-panel bg-surface-panel border-border-default max-w-full overflow-x-hidden overflow-y-auto overscroll-contain wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full flex min-h-0 min-w-0 w-full flex-col gap-1 border-0 p-0 compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain"[39m
+    [33mdata-control-panel[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "밝기 수치":
+  [36m<input[39m
+    [33maria-label[39m=[32m"밝기 수치"[39m
+    [33maria-roledescription[39m=[32m"Number field"[39m
+    [33mautocomplete[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-transparent bg-transparent py-2 px-1 text-body text-right"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":rr:"[39m
+    [33minputmode[39m=[32m"numeric"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"text"[39m
+    [33mvalue[39m=[32m"31"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  slider:
+
+  Name "밝기":
+  [36m<input[39m
+    [33maria-describedby[39m=[32m""[39m
+    [33maria-details[39m=[32m""[39m
+    [33maria-labelledby[39m=[32m"react-aria-:r14:"[39m
+    [33maria-orientation[39m=[32m"horizontal"[39m
+    [33maria-valuetext[39m=[32m"31"[39m
+    [33mid[39m=[32m":r17:"[39m
+    [33mmax[39m=[32m"100"[39m
+    [33mmin[39m=[32m"0"[39m
+    [33mstep[39m=[32m"1"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"range"[39m
+    [33mvalue[39m=[32m"31"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "제어 중요 상태":
+  [36m<div[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-label[39m=[32m"제어 중요 상태"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"max-h-20 overflow-y-auto overscroll-contain text-caption"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<output[39m
+    [33mdata-testid[39m=[32m"control-location"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"relative shrink-0"[39m
+    [36m>[39m
+      [36m<button[39m
+        [33maria-expanded[39m=[32m"false"[39m
+        [33maria-haspopup[39m=[32m"dialog"[39m
+        [33maria-label[39m=[32m"알람센터, 현장 미선택"[39m
+        [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"[39m
+        [33mdata-variant[39m=[32m"ghost"[39m
+        [33mtitle[39m=[32m"알람센터, 현장 미선택"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [36m<svg[39m
+          [33maria-hidden[39m=[32m"true"[39m
+          [33mclass[39m=[32m"lucide lucide-bell"[39m
+          [33mfill[39m=[32m"none"[39m
+          [33mheight[39m=[32m"20"[39m
+          [33mstroke[39m=[32m"currentColor"[39m
+          [33mstroke-linecap[39m=[32m"round"[39m
+          [33mstroke-linejoin[39m=[32m"round"[39m
+          [33mstroke-width[39m=[32m"2"[39m
+          [33mviewBox[39m=[32m"0 0 24 24"[39m
+          [33mwidth[39m=[32m"20"[39m
+          [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+        [36m>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M10.268 21a2 2 0 0 0 3.464 0"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"[39m
+          [36m/>[39m
+        [36m</svg>[39m
+      [36m</button>[39m
+    [36m</div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"알림"[39m
+      [33mclass[39m=[32m"pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"[39m
+      [33mdata-toast-placement[39m=[32m"overlay"[39m
+    [36m/>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"grid min-h-0 min-w-0 content-start tablet:h-full tablet:flex tablet:flex-col h-full grid-rows-[auto_minmax(0,1fr)] gap-1"[39m
+      [33mdata-control-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<h1[39m
+        [33mclass[39m=[32m"text-section-title font-bold text-content-primary sr-only m-0"[39m
+      [36m>[39m
+        [0m조명 제어[0m
+      [36m</h1>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"제어 방식"[39m
+        [33mclass[39m=[32m"w-full min-w-0 max-w-full self-start overflow-x-auto"[39m
+        [33mrole[39m=[32m"tablist"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex w-max min-w-full gap-2 pb-2"[39m
+          [33mdata-navigation-track[39m=[32m"true"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"control-mode-panel-manual"[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+            [33mdata-variant[39m=[32m"ghost"[39m
+            [33mid[39m=[32m"control-mode-manual"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"0"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"inline-flex shrink-0"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"2"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                [36m>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"21"[39m
+                    [33mx2[39m=[32m"14"[39m
+                    [33my1[39m=[32m"4"[39m
+                    [33my2[39m=[32m"4"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"10"[39m
+                    [33mx2[39m=[32m"3"[39m
+                    [33my1[39m=[32m"4"[39m
+                    [33my2[39m=[32m"4"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"21"[39m
+                    [33mx2[39m=[32m"12"[39m
+                    [33my1[39m=[32m"12"[39m
+                    [33my2[39m=[32m"12"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"8"[39m
+                    [33mx2[39m=[32m"3"[39m
+                    [33my1[39m=[32m"12"[39m
+                    [33my2[39m=[32m"12"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"21"[39m
+                    [33mx2[39m=[32m"16"[39m
+                    [33my1[39m=[32m"20"[39m
+                    [33my2[39m=[32m"20"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"12"[39m
+                    [33mx2[39m=[32m"3"[39m
+                    [33my1[39m=[32m"20"[39m
+                    [33my2[39m=[32m"20"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"14"[39m
+                    [33mx2[39m=[32m"14"[39m
+                    [33my1[39m=[32m"2"[39m
+                    [33my2[39m=[32m"6"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"8"[39m
+                    [33mx2[39m=[32m"8"[39m
+                    [33my1[39m=[32m"10"[39m
+                    [33my2[39m=[32m"14"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"16"[39m
+                    [33mx2[39m=[32m"16"[39m
+                    [33my1[39m=[32m"18"[39m
+                    [33my2[39m=[32m"22"[39m
+                  [36m/>[39m
+                [36m</svg>[39...
+   × ControlView 대상 선택 > C6-8 shared bottom auxiliary resets on floor and principal changes and exposes mode switching only through More 213ms
+     → expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <div
+  aria-label="제어 방식"
+  class="w-full min-w-0 max-w-full self-start overflow-x-auto"
+  role="tablist"
+>
+  <div
+    class="flex w-max min-w-full gap-2 pb-2"
+    data-navigation-track="true"
+  >
+    <button
+      aria-controls="control-mode-panel-manual"
+      aria-selected="true"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-manual"
+      role="tab"
+      tabindex="0"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-sliders-horizontal"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <line
+              x1="21"
+              x2="14"
+              y1="4"
+              y2="4"
+            />
+            <line
+              x1="10"
+              x2="3"
+              y1="4"
+              y2="4"
+            />
+            <line
+              x1="21"
+              x2="12"
+              y1="12"
+              y2="12"
+            />
+            <line
+              x1="8"
+              x2="3"
+              y1="12"
+              y2="12"
+            />
+            <line
+              x1="21"
+              x2="16"
+              y1="20"
+              y2="20"
+            />
+            <line
+              x1="12"
+              x2="3"
+              y1="20"
+              y2="20"
+            />
+            <line
+              x1="14"
+              x2="14"
+              y1="2"
+              y2="6"
+            />
+            <line
+              x1="8"
+              x2="8"
+              y1="10"
+              y2="14"
+            />
+            <line
+              x1="16"
+              x2="16"
+              y1="18"
+              y2="22"
+            />
+          </svg>
+        </span>
+        <span>
+          수동 제어
+        </span>
+      </span>
+    </button>
+    <button
+      aria-controls="control-mode-panel-schedule"
+      aria-selected="false"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-schedule"
+      role="tab"
+      tabindex="-1"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-calendar-clock"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"
+            />
+            <path
+              d="M16 2v4"
+            />
+            <path
+              d="M8 2v4"
+            />
+            <path
+              d="M3 10h5"
+            />
+            <path
+              d="M17.5 17.5 16 16.3V14"
+            />
+            <circle
+              cx="16"
+              cy="16"
+              r="6"
+            />
+          </svg>
+        </span>
+        <span>
+          스케줄 제어
+        </span>
+      </span>
+    </button>
+    <button
+      aria-controls="control-mode-panel-event"
+      aria-selected="false"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-event"
+      role="tab"
+      tabindex="-1"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-car-front"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"
+            />
+            <path
+              d="M7 14h.01"
+            />
+            <path
+              d="M17 14h.01"
+            />
+            <rect
+              height="8"
+              rx="2"
+              width="18"
+              x="3"
+              y="10"
+            />
+            <path
+              d="M5 18v2"
+            />
+            <path
+              d="M19 18v2"
+            />
+          </svg>
+        </span>
+        <span>
+          이벤트 제어
+        </span>
+      </span>
+    </button>
+    <button
+      aria-controls="control-mode-panel-group"
+      aria-selected="false"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-group"
+      role="tab"
+      tabindex="-1"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-layers"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+            />
+            <path
+              d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+            />
+            <path
+              d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+            />
+          </svg>
+        </span>
+        <span>
+          그룹/구역
+        </span>
+      </span>
+    </button>
+  </div>
+</div> instead
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft
+TestingLibraryElementError: Unable to find an accessible element with the role "region" and name "지도 하단 보조 패널"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "알람센터, 현장 미선택":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"dialog"[39m
+    [33maria-label[39m=[32m"알람센터, 현장 미선택"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"알람센터, 현장 미선택"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "표시 층":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":r2:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":r2:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "선택 범위":
+  [36m<button[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33maria-haspopup[39m=[32m"listbox"[39m
+    [33maria-labelledby[39m=[32m":rd:-label"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mdata-react-aria-pressable[39m=[32m"true"[39m
+    [33mid[39m=[32m":rd:"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "조명 목록":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 목록"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary text-body size-11 min-h-11! shrink-0 p-0"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B2-L001 정상 70% 선택됨":
+  [36m<button[39m
+    [33maria-label[39m=[32m"B2-L001 정상 70% 선택됨"[39m
+    [33maria-pressed[39m=[32m"true"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12! z-3"[39m
+    [33mdata-brightness-level[39m=[32m"8"[39m
+    [33mdata-disabled[39m=[32m"false"[39m
+    [33mdata-selected[39m=[32m"true"[39m
+    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mstyle[39m=[32m"--fixture-left: 0%; --fixture-top: 0%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+    [33mtitle[39m=[32m"B2-L001 정상 70%"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B2-L002 정상 60% 선택됨":
+  [36m<button[39m
+    [33maria-label[39m=[32m"B2-L002 정상 60% 선택됨"[39m
+    [33maria-pressed[39m=[32m"true"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12! z-3"[39m
+    [33mdata-brightness-level[39m=[32m"7"[39m
+    [33mdata-disabled[39m=[32m"false"[39m
+    [33mdata-selected[39m=[32m"true"[39m
+    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mstyle[39m=[32m"--fixture-left: 0%; --fixture-top: 0%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+    [33mtitle[39m=[32m"B2-L002 정상 60%"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "B2-L003 오프라인 0% 선택 불가: 게이트웨이가 오프라인입니다.":
+  [36m<button[39m
+    [33maria-label[39m=[32m"B2-L003 오프라인 0% 선택 불가: 게이트웨이가 오프라인입니다."[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-3 py-0 text-body-sm absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-pill! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected size-12! min-h-12!"[39m
+    [33mdata-brightness-level[39m=[32m"1"[39m
+    [33mdata-disabled[39m=[32m"true"[39m
+    [33mdata-disabled-reason[39m=[32m"게이트웨이가 오프라인입니다."[39m
+    [33mdata-selected[39m=[32m"false"[39m
+    [33mdata-spatial-map-marker[39m=[32m"true"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mstyle[39m=[32m"--fixture-left: 0%; --fixture-top: 0%; left: clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem)); top: clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem));"[39m
+    [33mtitle[39m=[32m"B2-L003 오프라인 0%"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 축소":
+  [36m<button[39m
+    [33maria-label[39m=[32m"지도 축소"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body-sm aspect-square min-w-11 p-2 size-11 min-h-11!"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 배율 100%":
+  [36m<button[39m
+    [33maria-description[39m=[32m"누르면 100%로 재설정"[39m
+    [33maria-label[39m=[32m"지도 배율 100%"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary py-0 text-body-sm min-h-11! min-w-11 px-1"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"100%로 재설정"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 확대":
+  [36m<button[39m
+    [33maria-label[39m=[32m"지도 확대"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body-sm aspect-square min-w-11 p-2 size-11 min-h-11!"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "지도 화면 맞춤":
+  [36m<button[39m
+    [33maria-label[39m=[32m"지도 화면 맞춤"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body-sm aspect-square min-w-11 p-2 size-11 min-h-11!"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "접기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":rp:"[39m
+    [33maria-expanded[39m=[32m"true"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body min-h-11! w-full"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "선택 해제":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "2개 조명에 밝기 적용":
+  [36m<button[39m
+    [33maria-label[39m=[32m"2개 조명에 밝기 적용"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-action-primary bg-action-primary text-content-inverse hover:enabled:border-action-primary-hover hover:enabled:bg-action-primary-hover active:enabled:bg-action-primary-active py-0 h-11 min-h-11! min-w-0 px-2 text-caption"[39m
+    [33mdata-control-submit[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "더보기":
+  [36m<button[39m
+    [33maria-controls[39m=[32m":rq:"[39m
+    [33maria-expanded[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary py-0 h-11 min-h-11! min-w-11 px-2 text-caption"[39m
+    [33mdata-variant[39m=[32m"secondary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "브라우저 뒤로":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "브라우저 앞으로":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "알림":
+  [36m<section[39m
+    [33maria-label[39m=[32m"알림"[39m
+    [33mclass[39m=[32m"pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"[39m
+    [33mdata-toast-placement[39m=[32m"overlay"[39m
+  [36m/>[39m
+
+  Name "제어 대상 지도":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상 지도"[39m
+    [33mclass[39m=[32m"rounded-panel border bg-surface-panel border-border-default flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full"[39m
+    [33mdata-control-target-card[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  Name "공간 대상 선택":
+  [36m<section[39m
+    [33maria-label[39m=[32m"공간 대상 선택"[39m
+    [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1"[39m
+    [33mdata-spatial-target-selector[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "B2 도면":
+  [36m<div[39m
+    [33maria-label[39m=[32m"B2 도면"[39m
+    [33mclass[39m=[32m"h-full w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing min-h-0 flex-1 [contain:size]"[39m
+    [33mdata-testid[39m=[32m"target-selection-map-viewport"[39m
+    [33mdata-zoom[39m=[32m"1"[39m
+    [33mrole[39m=[32m"region"[39m
+    [33mtabindex[39m=[32m"0"[39m
+  [36m/>[39m
+
+  Name "선택 대상 목록":
+  [36m<section[39m
+    [33maria-label[39m=[32m"선택 대상 목록"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 gap-1"[39m
+    [33mdata-manual-selection-panel[39m=[32m""[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<section[39m
+    [33maria-label[39m=[32m"제어 대상"[39m
+    [33mclass[39m=[32m"sr-only"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 제어":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-section-title font-bold text-content-primary sr-only m-0"[39m
+  [36m/>[39m
+
+  Name "선택 조명 2개":
+  [36m<h3[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"font-bold text-content-primary text-caption m-0"[39m
+  [36m/>[39m
+
+  Name "제어 대상":
+  [36m<h3[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tablist:
+
+  Name "제어 방식":
+  [36m<div[39m
+    [33maria-label[39m=[32m"제어 방식"[39m
+    [33mclass[39m=[32m"w-full min-w-0 max-w-full self-start overflow-x-auto"[39m
+    [33mrole[39m=[32m"tablist"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tab:
+
+  Name "수동 제어":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-manual"[39m
+    [33maria-selected[39m=[32m"true"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-manual"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "스케줄 제어":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-schedule"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-schedule"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "이벤트 제어":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-event"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-event"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "그룹/구역":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"control-mode-panel-group"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mid[39m=[32m"control-mode-group"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "수동 제어":
+  [36m<div[39m
+    [33maria-labelledby[39m=[32m"control-mode-manual"[39m
+    [33mclass[39m=[32m"grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] gap-1 tablet:flex tablet:flex-col"[39m
+    [33mdata-control-manual-panel[39m=[32m""[39m
+    [33mid[39m=[32m"control-mode-panel-manual"[39m
+    [33mrole[39m=[32m"tabpanel"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "B2 도면 조명 상태":
+  [36m<div[39m
+    [33maria-label[39m=[32m"B2 도면 조명 상태"[39m
+    [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  Name "지도 확대 축소":
+  [36m<div[39m
+    [33maria-label[39m=[32m"지도 확대 축소"[39m
+    [33mclass[39m=[32m"flex items-center gap-0 ml-auto shrink-0"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  Name "밝기":
+  [36m<div[39m
+    [33maria-label[39m=[32m"밝기"[39m
+    [33mclass[39m=[32m"contents"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m"react-aria-:r14:"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-semibold tabular-nums m-0"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<strong[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33mclass[39m=[32m"text-customer-metric font-bold tabular-nums max-compact:text-metric text-content-primary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "선택 조명":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"선택 조명"[39m
+    [33mclass[39m=[32m"m-0 grid min-h-0 list-none gap-1 p-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "00000000-0000-4000-8000-000000002001":
+  [36m<li[39m
+    [33mclass[39m=[32m"rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere"[39m
+    [33mtitle[39m=[32m"00000000-0000-4000-8000-000000002001"[39m
+  [36m/>[39m
+
+  Name "00000000-0000-4000-8000-000000002002":
+  [36m<li[39m
+    [33mclass[39m=[32m"rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere"[39m
+    [33mtitle[39m=[32m"00000000-0000-4000-8000-000000002002"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "밝기 실행":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"밝기 실행"[39m
+    [33mclass[39m=[32m"rounded-panel bg-surface-panel border-border-default max-w-full overflow-x-hidden overflow-y-auto overscroll-contain wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full flex min-h-0 min-w-0 w-full flex-col gap-1 border-0 p-0 compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain"[39m
+    [33mdata-control-panel[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "밝기 수치":
+  [36m<input[39m
+    [33maria-label[39m=[32m"밝기 수치"[39m
+    [33maria-roledescription[39m=[32m"Number field"[39m
+    [33mautocomplete[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-transparent bg-transparent py-2 px-1 text-body text-right"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mid[39m=[32m":rr:"[39m
+    [33minputmode[39m=[32m"numeric"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtitle[39m=[32m""[39m
+    [33mtype[39m=[32m"text"[39m
+    [33mvalue[39m=[32m"31"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  slider:
+
+  Name "밝기":
+  [36m<input[39m
+    [33maria-describedby[39m=[32m""[39m
+    [33maria-details[39m=[32m""[39m
+    [33maria-labelledby[39m=[32m"react-aria-:r14:"[39m
+    [33maria-orientation[39m=[32m"horizontal"[39m
+    [33maria-valuetext[39m=[32m"31"[39m
+    [33mid[39m=[32m":r17:"[39m
+    [33mmax[39m=[32m"100"[39m
+    [33mmin[39m=[32m"0"[39m
+    [33mstep[39m=[32m"1"[39m
+    [33mtabindex[39m=[32m"0"[39m
+    [33mtype[39m=[32m"range"[39m
+    [33mvalue[39m=[32m"31"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "제어 중요 상태":
+  [36m<div[39m
+    [33maria-atomic[39m=[32m"true"[39m
+    [33maria-label[39m=[32m"제어 중요 상태"[39m
+    [33maria-live[39m=[32m"polite"[39m
+    [33mclass[39m=[32m"max-h-20 overflow-y-auto overscroll-contain text-caption"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<output[39m
+    [33mdata-testid[39m=[32m"control-location"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"relative shrink-0"[39m
+    [36m>[39m
+      [36m<button[39m
+        [33maria-expanded[39m=[32m"false"[39m
+        [33maria-haspopup[39m=[32m"dialog"[39m
+        [33maria-label[39m=[32m"알람센터, 현장 미선택"[39m
+        [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"[39m
+        [33mdata-variant[39m=[32m"ghost"[39m
+        [33mtitle[39m=[32m"알람센터, 현장 미선택"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [36m<svg[39m
+          [33maria-hidden[39m=[32m"true"[39m
+          [33mclass[39m=[32m"lucide lucide-bell"[39m
+          [33mfill[39m=[32m"none"[39m
+          [33mheight[39m=[32m"20"[39m
+          [33mstroke[39m=[32m"currentColor"[39m
+          [33mstroke-linecap[39m=[32m"round"[39m
+          [33mstroke-linejoin[39m=[32m"round"[39m
+          [33mstroke-width[39m=[32m"2"[39m
+          [33mviewBox[39m=[32m"0 0 24 24"[39m
+          [33mwidth[39m=[32m"20"[39m
+          [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+        [36m>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M10.268 21a2 2 0 0 0 3.464 0"[39m
+          [36m/>[39m
+          [36m<path[39m
+            [33md[39m=[32m"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"[39m
+          [36m/>[39m
+        [36m</svg>[39m
+      [36m</button>[39m
+    [36m</div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"알림"[39m
+      [33mclass[39m=[32m"pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"[39m
+      [33mdata-toast-placement[39m=[32m"overlay"[39m
+    [36m/>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"grid min-h-0 min-w-0 content-start tablet:h-full tablet:flex tablet:flex-col h-full grid-rows-[auto_minmax(0,1fr)] gap-1"[39m
+      [33mdata-control-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<h1[39m
+        [33mclass[39m=[32m"text-section-title font-bold text-content-primary sr-only m-0"[39m
+      [36m>[39m
+        [0m조명 제어[0m
+      [36m</h1>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"제어 방식"[39m
+        [33mclass[39m=[32m"w-full min-w-0 max-w-full self-start overflow-x-auto"[39m
+        [33mrole[39m=[32m"tablist"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex w-max min-w-full gap-2 pb-2"[39m
+          [33mdata-navigation-track[39m=[32m"true"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"control-mode-panel-manual"[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"[39m
+            [33mdata-variant[39m=[32m"ghost"[39m
+            [33mid[39m=[32m"control-mode-manual"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"0"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"inline-flex shrink-0"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33mclass[39m=[32m"lucide lucide-sliders-horizontal"[39m
+                  [33mfill[39m=[32m"none"[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mstroke[39m=[32m"currentColor"[39m
+                  [33mstroke-linecap[39m=[32m"round"[39m
+                  [33mstroke-linejoin[39m=[32m"round"[39m
+                  [33mstroke-width[39m=[32m"2"[39m
+                  [33mviewBox[39m=[32m"0 0 24 24"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                [36m>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"21"[39m
+                    [33mx2[39m=[32m"14"[39m
+                    [33my1[39m=[32m"4"[39m
+                    [33my2[39m=[32m"4"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"10"[39m
+                    [33mx2[39m=[32m"3"[39m
+                    [33my1[39m=[32m"4"[39m
+                    [33my2[39m=[32m"4"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"21"[39m
+                    [33mx2[39m=[32m"12"[39m
+                    [33my1[39m=[32m"12"[39m
+                    [33my2[39m=[32m"12"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"8"[39m
+                    [33mx2[39m=[32m"3"[39m
+                    [33my1[39m=[32m"12"[39m
+                    [33my2[39m=[32m"12"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"21"[39m
+                    [33mx2[39m=[32m"16"[39m
+                    [33my1[39m=[32m"20"[39m
+                    [33my2[39m=[32m"20"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"12"[39m
+                    [33mx2[39m=[32m"3"[39m
+                    [33my1[39m=[32m"20"[39m
+                    [33my2[39m=[32m"20"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"14"[39m
+                    [33mx2[39m=[32m"14"[39m
+                    [33my1[39m=[32m"2"[39m
+                    [33my2[39m=[32m"6"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"8"[39m
+                    [33mx2[39m=[32m"8"[39m
+                    [33my1[39m=[32m"10"[39m
+                    [33my2[39m=[32m"14"[39m
+                  [36m/>[39m
+                  [36m<line[39m
+                    [33mx1[39m=[32m"16"[39m
+                    [33mx2[39m=[32m"16"[39m
+                    [33my1[39m=[32m"18"[39m
+                    [33my2[39m=[32m"22"[39m
+                  [36m/>[39m
+                [36m</svg>[39...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/control/ControlView.test.tsx:398:30
+    396|     const more = screen.getByRole("button", { name: "더보기" });
+    397|     fireEvent.click(listOpener);
+    398|     const auxiliary = screen.getByRole("region", { name: "지도 하단 보…
+       |                              ^
+    399|     expect(within(auxiliary).getByRole("list", { name: "선택 조명" }))…
+    400|     fireEvent.click(more);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > C6-8 shared bottom auxiliary resets on floor and principal changes and exposes mode switching only through More
+Error: expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <div
+  aria-label="제어 방식"
+  class="w-full min-w-0 max-w-full self-start overflow-x-auto"
+  role="tablist"
+>
+  <div
+    class="flex w-max min-w-full gap-2 pb-2"
+    data-navigation-track="true"
+  >
+    <button
+      aria-controls="control-mode-panel-manual"
+      aria-selected="true"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-action-primary-soft text-action-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-manual"
+      role="tab"
+      tabindex="0"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-sliders-horizontal"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <line
+              x1="21"
+              x2="14"
+              y1="4"
+              y2="4"
+            />
+            <line
+              x1="10"
+              x2="3"
+              y1="4"
+              y2="4"
+            />
+            <line
+              x1="21"
+              x2="12"
+              y1="12"
+              y2="12"
+            />
+            <line
+              x1="8"
+              x2="3"
+              y1="12"
+              y2="12"
+            />
+            <line
+              x1="21"
+              x2="16"
+              y1="20"
+              y2="20"
+            />
+            <line
+              x1="12"
+              x2="3"
+              y1="20"
+              y2="20"
+            />
+            <line
+              x1="14"
+              x2="14"
+              y1="2"
+              y2="6"
+            />
+            <line
+              x1="8"
+              x2="8"
+              y1="10"
+              y2="14"
+            />
+            <line
+              x1="16"
+              x2="16"
+              y1="18"
+              y2="22"
+            />
+          </svg>
+        </span>
+        <span>
+          수동 제어
+        </span>
+      </span>
+    </button>
+    <button
+      aria-controls="control-mode-panel-schedule"
+      aria-selected="false"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-schedule"
+      role="tab"
+      tabindex="-1"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-calendar-clock"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"
+            />
+            <path
+              d="M16 2v4"
+            />
+            <path
+              d="M8 2v4"
+            />
+            <path
+              d="M3 10h5"
+            />
+            <path
+              d="M17.5 17.5 16 16.3V14"
+            />
+            <circle
+              cx="16"
+              cy="16"
+              r="6"
+            />
+          </svg>
+        </span>
+        <span>
+          스케줄 제어
+        </span>
+      </span>
+    </button>
+    <button
+      aria-controls="control-mode-panel-event"
+      aria-selected="false"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-event"
+      role="tab"
+      tabindex="-1"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-car-front"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"
+            />
+            <path
+              d="M7 14h.01"
+            />
+            <path
+              d="M17 14h.01"
+            />
+            <rect
+              height="8"
+              rx="2"
+              width="18"
+              x="3"
+              y="10"
+            />
+            <path
+              d="M5 18v2"
+            />
+            <path
+              d="M19 18v2"
+            />
+          </svg>
+        </span>
+        <span>
+          이벤트 제어
+        </span>
+      </span>
+    </button>
+    <button
+      aria-controls="control-mode-panel-group"
+      aria-selected="false"
+      class="cursor-pointer focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2 text-body font-semibold outline-none focus-visible:shadow-focus rounded-control border border-transparent bg-transparent text-content-secondary hover:bg-surface-inset hover:text-content-primary min-w-28 shrink-0 whitespace-nowrap"
+      data-variant="ghost"
+      id="control-mode-group"
+      role="tab"
+      tabindex="-1"
+      type="button"
+    >
+      <span
+        class="inline-flex items-center justify-center gap-2"
+      >
+        <span
+          aria-hidden="true"
+          class="inline-flex shrink-0"
+        >
+          <svg
+            class="lucide lucide-layers"
+            fill="none"
+            height="18"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            width="18"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+            />
+            <path
+              d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+            />
+            <path
+              d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+            />
+          </svg>
+        </span>
+        <span>
+          그룹/구역
+        </span>
+      </span>
+    </button>
+  </div>
+</div> instead
+ ❯ src/features/control/ControlView.test.tsx:416:66
+    414|   it("C6-8 shared bottom auxiliary resets on floor and principal chang…
+    415|     const view = renderControl("admin", dashboard.site.id, USER_A, `/c…
+    416|     expect(screen.queryByRole("tablist", { name: "제어 방식" })).not.t…
+       |                                                                  ^
+    417|     const more = screen.getByRole("button", { name: "더보기" }); fireE…
+    418|     expect(within(screen.getByRole("region", { name: "지도 하단 보조 …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 167 skipped (169)
+   Start at  11:47:48
+   Duration  4.62s (transform 757ms, setup 85ms, collect 1.92s, tests 1.53s, environment 458ms, prepare 143ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx -t C6-8 shared bottom auxiliary --reporter=dot

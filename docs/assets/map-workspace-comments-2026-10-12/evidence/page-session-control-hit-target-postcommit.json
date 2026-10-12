@@ -1,0 +1,27 @@
+{
+  "source_commit": "c9b65514ee257854e56e7314157b4f6143ba6787",
+  "direct_parent": "4093ff536e2ded9edfb1d1f1c3b25f53b54989b3",
+  "commit_paths": [
+    "apps/web/src/features/control/ManualExecutionPanel.tsx",
+    "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+    "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+    "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+    "apps/web/src/features/floor-map/FloorMapViewport.tsx",
+    "docs/menus/control.md"
+  ],
+  "verified_sha_matches": true,
+  "preserved_scope_sha_matches": true,
+  "owned_diff_empty": true,
+  "remaining_status": [],
+  "direct_tests": {
+    "files": 5,
+    "passed": 79,
+    "failed": 0,
+    "skipped": 242,
+    "exit_code": 0,
+    "duration_seconds": 19.45
+  },
+  "typecheck_exit_code": 0,
+  "ui_check_exit_code": 0,
+  "actual_hit_green": false
+}

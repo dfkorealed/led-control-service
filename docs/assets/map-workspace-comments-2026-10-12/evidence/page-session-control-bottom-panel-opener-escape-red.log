@@ -1,0 +1,221 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/control/ControlView.test.tsx (169 tests | 1 failed | 168 skipped) 302ms
+   × ControlView 대상 선택 > C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft 301ms
+     → expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-controls=":r2:"
+  aria-expanded="true"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary py-0 h-11 min-h-11! min-w-11 px-2 text-caption"
+  data-variant="secondary"
+  type="button"
+>
+  더보기
+</button>
+Received element with focus:
+  <body>
+  <div>
+    <div
+      class="relative shrink-0"
+    >
+      <button
+        aria-expanded="false"
+        aria-haspopup="dialog"
+        aria-label="알람센터, 현장 미선택"
+        class="inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"
+        data-variant="ghost"
+        title="알람센터, 현장 미선택"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-bell"
+          fill="none"
+          height="20"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="20"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path … />
+          <path … />
+        </svg>
+      </button>
+    </div>
+    <section
+      aria-label="알림"
+      class="pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"
+      data-toast-placement="overlay"
+    />
+    <section
+      class="grid min-h-0 min-w-0 content-start tablet:h-full tablet:flex tablet:flex-col h-full grid-rows-[auto_minmax(0,1fr)] gap-1"
+      data-control-screen=""
+    >
+      <h1
+        class="text-section-title font-bold text-content-primary sr-only m-0"
+      >
+        조명 제어
+      </h1>
+      <p
+        class="text-caption font-normal text-content-primary m-0"
+      >
+        수동 제어
+      </p>
+      <div
+        aria-labelledby="control-mode-manual"
+        class="grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] gap-1 tablet:flex tablet:flex-col"
+        data-control-manual-panel=""
+        id="control-mode-panel-manual"
+        role="tabpanel"
+      >
+        <div
+          class="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-1 compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]"
+          data-control-layout=""
+        >
+          <section … />
+          <aside … />
+        </div>
+      </div>
+    </section>
+    <output
+      data-testid="control-location"
+    >
+      /control?siteId=00000000-0000-4000-8000-000000000003&mode=manual
+    </output>
+    <button
+      type="button"
+    >
+      브라우저 뒤로
+    </button>
+    <button
+      type="button"
+    >
+      브라우저 앞으로
+    </button>
+  </div>
+</body>
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/control/ControlView.test.tsx > ControlView 대상 선택 > C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft
+Error: expect(element).toHaveFocus()
+
+Expected element with focus:
+  <button
+  aria-controls=":r2:"
+  aria-expanded="true"
+  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary py-0 h-11 min-h-11! min-w-11 px-2 text-caption"
+  data-variant="secondary"
+  type="button"
+>
+  더보기
+</button>
+Received element with focus:
+  <body>
+  <div>
+    <div
+      class="relative shrink-0"
+    >
+      <button
+        aria-expanded="false"
+        aria-haspopup="dialog"
+        aria-label="알람센터, 현장 미선택"
+        class="inline-flex items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body relative min-h-13 min-w-13 p-0"
+        data-variant="ghost"
+        title="알람센터, 현장 미선택"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-bell"
+          fill="none"
+          height="20"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="20"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path … />
+          <path … />
+        </svg>
+      </button>
+    </div>
+    <section
+      aria-label="알림"
+      class="pointer-events-none fixed inset-x-3 top-3 z-1000 grid justify-items-end gap-2 compact:left-auto compact:right-4 compact:w-80"
+      data-toast-placement="overlay"
+    />
+    <section
+      class="grid min-h-0 min-w-0 content-start tablet:h-full tablet:flex tablet:flex-col h-full grid-rows-[auto_minmax(0,1fr)] gap-1"
+      data-control-screen=""
+    >
+      <h1
+        class="text-section-title font-bold text-content-primary sr-only m-0"
+      >
+        조명 제어
+      </h1>
+      <p
+        class="text-caption font-normal text-content-primary m-0"
+      >
+        수동 제어
+      </p>
+      <div
+        aria-labelledby="control-mode-manual"
+        class="grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] gap-1 tablet:flex tablet:flex-col"
+        data-control-manual-panel=""
+        id="control-mode-panel-manual"
+        role="tabpanel"
+      >
+        <div
+          class="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto] gap-1 compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]"
+          data-control-layout=""
+        >
+          <section … />
+          <aside … />
+        </div>
+      </div>
+    </section>
+    <output
+      data-testid="control-location"
+    >
+      /control?siteId=00000000-0000-4000-8000-000000000003&mode=manual
+    </output>
+    <button
+      type="button"
+    >
+      브라우저 뒤로
+    </button>
+    <button
+      type="button"
+    >
+      브라우저 앞으로
+    </button>
+  </div>
+</body>
+ ❯ src/features/control/ControlView.test.tsx:407:62
+    405|     expect(listOpener).toHaveAttribute("aria-expanded", "false"); expe…
+    406|     expect(screen.getByRole("status", { name: "제어 중요 상태" })).toB…
+    407|     fireEvent.keyDown(more, { key: "Escape" }); expect(more).toHaveFoc…
+       |                                                              ^
+    408|     fireEvent.click(listOpener);
+    409|     fireEvent.click(within(auxiliary).getByRole("button", { name: "보…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 168 skipped (169)
+   Start at  12:00:09
+   Duration  3.24s (transform 792ms, setup 74ms, collect 1.73s, tests 302ms, environment 361ms, prepare 406ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/control/ControlView.test.tsx -t C6-8 shared bottom auxiliary switches --reporter=dot

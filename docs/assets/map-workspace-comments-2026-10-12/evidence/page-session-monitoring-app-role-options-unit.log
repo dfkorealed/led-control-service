@@ -1,0 +1,17 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/App.test.tsx (69 tests) 8017ms
+   ✓ App > switches monitoring floors and updates the detail panel from map selection 376ms
+   ✓ App > renders redesigned landmarks for control statistics and settings 684ms
+   ✓ App > keeps command retry disabled while the logout API is pending 639ms
+   ✓ App > unblocks command retry when logout fails 393ms
+   ✓ App > recovers the third status-check after failed logout with transport result success 430ms
+   ✓ App > recovers the third status-check after failed logout with transport result failure 450ms
+   ✓ App > recovers the third status-check after failed logout with transport result abort 465ms
+
+ Test Files  1 passed (1)
+      Tests  69 passed (69)
+   Start at  12:52:19
+   Duration  10.57s (transform 1.82s, setup 103ms, collect 1.70s, tests 8.02s, environment 487ms, prepare 69ms)
+

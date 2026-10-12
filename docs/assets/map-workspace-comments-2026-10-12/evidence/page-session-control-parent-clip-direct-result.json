@@ -1,0 +1,24 @@
+{
+  "command": [
+    "pnpm",
+    "--filter",
+    "@led-control/web",
+    "exec",
+    "vitest",
+    "run",
+    "src/features/control/ControlView.test.tsx",
+    "src/features/shells/CustomerShell.test.tsx",
+    "src/features/control/target-selection/SpatialTargetSelector.test.tsx",
+    "src/features/control/ManualExecutionPanel.test.tsx",
+    "src/features/floor-map/FloorMapViewport.test.tsx",
+    "-t",
+    "C6-8|keeps every control disabled for viewer accounts|ManualExecutionPanel|SpatialTargetSelector|manual-cad|footer|maintains|resize|real authorized manual|manual route and query|navigation breakpoint to the real Control|preserves an in-flight UUID|retains original UUID|original frozen UUID",
+    "--maxWorkers=1",
+    "--minWorkers=1",
+    "--reporter=dot"
+  ],
+  "exitCode": 0,
+  "elapsedSeconds": 14.004,
+  "startedAt": "2026-10-12T04:24:47.782421+00:00",
+  "endedAt": "2026-10-12T04:25:01.786762+00:00"
+}

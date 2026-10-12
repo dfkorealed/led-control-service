@@ -2,6 +2,30 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 지도 작업 공간 — UI 한정 검증 완료·보존 병합 대기
+
+- 기존 모니터링·제어 UI 개선·UI/UX 세션이 신규8건과 승인된 단일 지도 하단 목록/More reader를 구현했다. 제품e35c0c20, 제어문서ea0019b1, same reviewer 새C/I/M0·UI scopedReadyYes다. 운영 인사이트/장비/원격은 변경하지 않았다.
+- 실제case1/2/4=2290·case3=e35·case5=f28·case6=4093PC/sourcecarry를 구분한다. 마지막320×600 case3는1PASS0FAIL/exit0/20.149886s,44hit·0/1008target·raw31·reader끝/초점·invalid첫Apply31복원0POST/documentoverflow0·최종지도247px≥240을 확인했다. 새e35six일괄PASS/전체Web/HIL/pointerSliderdrag/OSkeyboard로 확대하지 않는다. 직접81/정책79/타입포함build0은 별도cohort다.
+- 최신committedMAINa844를 UI별도branch에만 정상통합한 후보7d48은 UI18blob=QAe35/upstream5blob=a844 및 양쪽문서행·userAGENTS 보존/fresh tsc0을 root와 동일reviewer가 확인했다. 실제MAIN UI머지는 아직이다.
+- 사용자 지시대로 설정 담당CAD를 codex/cad-import-corrections-20261012 별도worktree로 분리했고 MAIN의 해당소유변경release를 확인했다. MAIN에 남은 사용자AGENTS/독립배포문서1줄씩은 미커밋으로 유지했다. 사용자가 배포 담당자 협의를 승인해 원 ‘랜딩페이지 담당자’에게 자기 문서의 안전한 커밋 경계와 잠시 공용문서 쓰기를 멈출 병합 창을 요청했다. root의foreignstage/stash/revert·서비스restart·remote변경0이다. 모니터링 최종 메뉴 증거867a0c13도 제품변경0으로 확인했다.
+- [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)와 [원자료·한계·Ruling3](assets/map-workspace-comments-2026-10-12/README.md)에 현재결과를 취합했다. 실제MAINmerge/backup/ownworktree정리는미완료다. 아래준비/실패/재개문장은보존한이력이며 현재판정은이절을따른다.
+
+## 2026-10-12 지도 작업 공간 신규 브라우저 주석 — 승인한 단일 하단 보조 패널 수리 재개
+
+- 사용자 신규 C1–8의 모니터링 제스처·알람센터·한 행 도구·지도 하단 상세, 수동 제어 선택 목록·지도 우선 모바일·간소화 밝기 구성을 승인받았다. 기존 모니터링/제어/UI·UX 담당 audit와 [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)를 기준으로 순차 구현한다.
+- clean MAIN `f31e56fa`에서 `.worktrees/map-workspace-comments-20261012` / `codex/map-workspace-comments-20261012`을 만들었다. 구현·직접 테스트·실제 UI/UX 검증·로컬 병합은 아직이다. 운영 인사이트·다른 메뉴/API/DB/실장비/기존 서비스/원격 변경은 없다. 과거 완료 증거와 이번 관문을 합산하지 않는다.
+- frozen offline install/workspace prepare exit0·계획 자기 점검·독립 Task1 brief 준비를 확인했다. 모니터링 담당이 C1–5 단독 writer로 구현하고 QA 담당은 기존 harness의 한정 case 구성만 감사한다. 제어 구현·실제 browser·UI/UX·최종 review/머지는 아직이다.
+- 사용자가 담당자는 기존 앱의 별도 페이지 세션이라고 정정하여 내부 추가 구현을 중단했다. `모니터링 페이지 담당자`/`제어 페이지 담당자`/`UI/UX 디자이너`에 직접 인계했다. 내부 모니터링 checkpoint `ac323a3d` 소유5파일과 원 실패·126PASS/1FAIL 뒤 경계/시각/gesture 국소 GREEN을 보존(최종127 일괄PASS 아님)했고 원 세션이 이를 인수해 진행한다. 내부 제어 제품diff0/QA실행0이며 실제검수·최종관문·머지는 아직이다. 제어 세션의 별도 장비 작업은 안전한 경계와 기존 승인 관문을 보존한다.
+- 위 제어 인계는 사용자 후속 정정으로 취소 요청을 전송했다. 제어 UI의 지정 담당은 `제어 UI 개선 담당자`이며 현재 활성·보관 목록에 없어 정확 링크/@멘션을 확인 중이다. 기존 `제어 페이지 담당자`의 장비 업무/세션 전체는 중지하지 않는다. 모니터링·UI/UX 인계와 별도 브랜치 원 증거는 유지하고 제어 UI 구현은 지정 세션 확인 전 시작하지 않는다.
+- 지정 링크의 `제어 UI 개선 담당자`(`01a0f776-b930-7eb2-a121-e05bef4d1581`)를 읽어 NEW Task2 단독 writer로 직접 배정했다. 위 미확인 문장은 당시 이력이다. 모니터링 원 세션은 제품ac323a3d 변경0로 인수·자체검토하고 direct2suite127PASS(exit0/18.14s)를 새로 확인, 메뉴문서87f658ef에 한계를 기록했다. 실제geometry·제어 구현/QA/UX/독립review·MAINmerge는 아직이다.
+- 제어 지정 세션의 직접 RED4+viewport1 원 로그를 확인했으며 source 구현 진행 중이다. 순수 CSS class assertion은 실제기하 증거가 아님을 전달했다. 기존 앱 UI/UX 세션은 ignored SDD의 최소 측정 harness 공통부만 준비하고 최종source 인계 후 실제6case를 실행한다. 제품·기존tests·API/DB/장비는 UX 수정범위가 아니며 최종관문/머지는 아직이다.
+- 제어 지정 세션 제품9f3e25d7 소유13파일과 원 RED/중간실패/최종선택41PASS·identity2국소PASS(41과중복)/타입exit0/UI기존0·신규0 보고서를 대조했다. 모드dropdown/인라인 목록·More·finite manual-only·원 UUID/query/draft/renderer 수명을 유지하고 empty 안내가 오류·권한을 가리던 추가RED도수리했다. 중간85/68 결과나 CSS class 확인을 최종전체PASS/실제기하로합산하지않는다. 이제 실제6case·UI/UX/최종policy·build/독립review로진행하며 MAINmerge는아직이다.
+- 위 준비 문장은 당시 이력이다. 기존 앱의 지정제어UI원세션이 실제map0 RED를받아69b1e9a3에서모바일남은높이전달·PC이력폭을최소수리했다(소유2파일/직접7files83PASS·타입/UI0·0). 총괄의같은source정책79PASS·타입포함buildexit0/기존932.47kB경고를확인했다. 실제6재검사는2PASS/4FAIL로미완료이고원첫6실패·하네스configbody0오류·원82/1timeout/분리3은별도보존하며합산하지않는다.
+- 짧은600px화면에서기본지도는320폭62px/390폭70px이며긴목록확장후다시지도0이다. UI/UX높이budget은비지도538/530px과동시목록/More추가244px을확인해지도우세·scroll0·44px/중요상태·동시세로펼침사이의표현선택이필요하다. 사용자에게하나의지도하단보조패널에서목록/More전환(지도크기유지)또는기존세로펼침/보조읽기중지도축소허용을묻고제품/QA/merge를보류한다. 아직선택적용/기능축소/기본브랜치변경0. 지정제어UI·UX원세션은WAIT이며다른제어세션장비업무는중지범위아니다.
+- 모니터링의재열기는pin재클릭을생략한harness오류,짧은상세body는nav가림실측과center-only측정한계를분리한다. native문서이동/노출점wheel미실행이라끝도달불가로확정하지않으며후속failedscope검증이남는다. 독립source검토C/I/M0은수리전소스검토이며actual관문이남아ReadyNo; 이번머지/전체Web/HIL/OSkeyboard/실장비완료주장은없다. [현재체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)에이어갈경계를기록했다.
+
+- 사용자 후속 답변으로 ‘지도 크기 유지 + 목록/More를 한 번에 하나씩 여는 지도 하단 보조 패널’을 승인받았다. 기존 표현 선택 대기는 당시 이력이며 지정 `제어 UI 개선 담당자`만 모바일 기본 지도 확대·상호배타 패널 수리를 재개한다. UX 원 세션은 동일6고유 case 준비만 갱신하고 최종 source 인계 후 실제 재검증한다. PC/다른모드·원 command/query/draft/renderer·44px/중요 상태/nav는 보존한다. 아직 수리 완료·실측 통과·최종 review·MAIN 병합 주장은 없다.
+
 ## 2026-10-12 AWS Agent Toolkit — 로컬 설정·실제 연결 검증 완료
 
 - [x] `uv 0.13.0`·AWS CLI `2.37.12` 설치를 확인했다. `kinda` 프로필의 선택 리전은 `ap-southeast-2`이며, CLI STS 접근과 자격 증명 출처 `login`을 확인했다. 이전 대기 요청의 만료로 닫힌 loopback 콜백 페이지와 현재 사용 가능한 인증 상태를 구분한다.

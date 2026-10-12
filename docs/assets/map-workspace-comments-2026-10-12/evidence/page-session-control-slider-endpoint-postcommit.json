@@ -1,0 +1,13 @@
+{
+  "commit": "f28ea638c3decae89bfd6180c8e81607226794e8",
+  "parent": "2290a877d880efc60f91bbd3396a47d9361b3fbf",
+  "committedAt": "2026-10-12T04:10:31.621358+00:00",
+  "commitFiles": [
+    "apps/web/src/features/control/ManualExecutionPanel.test.tsx",
+    "apps/web/src/features/control/ManualExecutionPanel.tsx",
+    "docs/menus/control.md"
+  ],
+  "status": "",
+  "ownedDiff": "",
+  "allSHA256Match": true
+}

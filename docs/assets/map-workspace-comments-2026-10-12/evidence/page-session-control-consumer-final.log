@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/target-selection/SpatialTargetSelector.test.tsx (33 tests | 30 skipped) 402ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 54 skipped) 1127ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 435ms
+ ✓ src/features/control/ControlView.test.tsx (166 tests | 110 skipped) 4727ms
+
+ Test Files  3 passed (3)
+      Tests  68 passed | 194 skipped (262)
+   Start at  10:33:04
+   Duration  7.69s (transform 1.20s, setup 245ms, collect 4.87s, tests 6.26s, environment 1.26s, prepare 842ms)
+

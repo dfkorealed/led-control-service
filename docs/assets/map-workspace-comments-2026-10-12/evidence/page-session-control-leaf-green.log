@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests) 341ms
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests) 372ms
+ ✓ src/features/control/target-selection/SpatialTargetSelector.test.tsx (32 tests) 1526ms
+   ✓ SpatialTargetSelector > keeps incremental rendering reachable inside the bounded drawer list 364ms
+
+ Test Files  3 passed (3)
+      Tests  85 passed (85)
+   Start at  10:27:54
+   Duration  4.07s (transform 719ms, setup 249ms, collect 4.06s, tests 2.24s, environment 1.45s, prepare 443ms)
+

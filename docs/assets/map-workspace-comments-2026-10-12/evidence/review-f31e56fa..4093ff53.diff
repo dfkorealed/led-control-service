@@ -1,0 +1,1989 @@
+diff --git a/apps/web/src/features/control/ControlView.test.tsx b/apps/web/src/features/control/ControlView.test.tsx
+index 82305e52..117b8cd3 100644
+--- a/apps/web/src/features/control/ControlView.test.tsx
++++ b/apps/web/src/features/control/ControlView.test.tsx
+@@ -357,6 +357,146 @@ describe("ControlView 대상 선택", () => {
+     expect(mocks.apiPost).not.toHaveBeenCalled();
+   });
+ 
++  it("C6-8 mobile expands selected names inline without replacing the map, draft, or command scope", () => {
++    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    selectFixture("B2-L001"); selectFixture("B2-L002");
++    const map = screen.getByTestId("target-selection-map-viewport");
++    const scene = map.querySelector("[data-floor-scene]");
++    expect(scene).not.toBeNull();
++    const input = screen.getByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    const panel = screen.getByRole("region", { name: "선택 대상 목록" });
++    const toggle = within(panel).getByRole("button", { name: "전체 보기" });
++    expect(toggle).toHaveAttribute("aria-expanded", "false");
++    expect(within(panel).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
++    fireEvent.click(toggle);
++    const auxiliary = screen.getByRole("region", { name: "지도 하단 보조 패널" });
++    expect(within(auxiliary).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L001");
++    expect(within(auxiliary).getAllByRole("listitem")).toHaveLength(2);
++    expect(screen.queryByRole("dialog", { name: "선택 조명" })).not.toBeInTheDocument();
++    fireEvent.keyDown(within(auxiliary).getByRole("list", { name: "선택 조명" }), { key: "Escape" });
++    expect(toggle).toHaveFocus(); expect(toggle).toHaveAttribute("aria-expanded", "false");
++    fireEvent.click(toggle);
++    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map);
++    expect(map.querySelector("[data-floor-scene]")).toBe(scene);
++    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
++    expect(input).toHaveValue("31"); expect(mocks.apiPost).not.toHaveBeenCalled();
++    view.rerender(controlElement(dashboard.site.id, "admin", USER_B, `/control?siteId=${dashboard.site.id}`, true));
++    expect(within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" })).toHaveAttribute("aria-expanded", "false");
++    expect(mocks.apiPost).not.toHaveBeenCalled();
++  });
++
++  it("C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft", () => {
++    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    selectFixture("B2-L001"); selectFixture("B2-L002");
++    const map = screen.getByTestId("target-selection-map-viewport");
++    const scene = map.querySelector("[data-floor-scene]"); expect(scene).not.toBeNull();
++    const input = screen.getByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    const listOpener = within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" });
++    const more = screen.getByRole("button", { name: "더보기" });
++    fireEvent.click(listOpener);
++    const auxiliary = screen.getByRole("region", { name: "지도 하단 보조 패널" });
++    expect(within(auxiliary).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L002");
++    fireEvent.click(more);
++    expect(screen.getByRole("region", { name: "지도 하단 보조 패널" })).toBe(auxiliary);
++    expect(within(auxiliary).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
++    expect(within(auxiliary).getByRole("group", { name: "빠른 밝기 값" })).toBeVisible();
++    expect(listOpener).toHaveAttribute("aria-expanded", "false"); expect(more).toHaveAttribute("aria-expanded", "true");
++    expect(screen.getByRole("status", { name: "제어 중요 상태" })).toBeVisible();
++    fireEvent.keyDown(more, { key: "Escape" }); expect(more).toHaveFocus(); expect(more).toHaveAttribute("aria-expanded", "false");
++    fireEvent.click(listOpener);
++    fireEvent.click(within(auxiliary).getByRole("button", { name: "보조 패널 닫기" })); expect(listOpener).toHaveFocus();
++    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map); expect(map.querySelector("[data-floor-scene]")).toBe(scene);
++    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input); expect(input).toHaveValue("31");
++    expect(mocks.apiPost).not.toHaveBeenCalled();
++  });
++
++  it.each(["selection", "more"] as const)("C6-8 focused %s auxiliary action survives mobile-desktop-mobile without replacing its DOM or the map", kind => {
++    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    selectFixture("B2-L001");
++    const map = screen.getByTestId("target-selection-map-viewport");
++    if (kind === "selection") fireEvent.click(within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" }));
++    else fireEvent.click(screen.getByRole("button", { name: "더보기" }));
++    const focusedAction = kind === "selection" ? screen.getByRole("button", { name: "선택 해제" })
++      : within(screen.getByRole("region", { name: "제어 이력" })).getByRole("button", { name: "전체 보기" });
++    focusedAction.focus(); expect(focusedAction).toHaveFocus();
++    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, `/control?siteId=${dashboard.site.id}`, false));
++    expect(focusedAction).toHaveFocus(); expect(focusedAction).toBeInTheDocument();
++    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, `/control?siteId=${dashboard.site.id}`, true));
++    expect(focusedAction).toHaveFocus(); expect(focusedAction).toBeVisible();
++    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map); expect(mocks.apiPost).not.toHaveBeenCalled();
++  });
++
++  it("C6-8 bottom reader leaves invalid blur, first Apply and Enter guards intact before an explicit raw31 request", async () => {
++    mocks.apiPost.mockResolvedValue({ id: commandIds.expected, dispatchCount: 1 });
++    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    selectFixture("B2-L001");
++    const input = screen.getByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    fireEvent.input(input, { target: { value: "999" } });
++    const apply = applyButton(); expect(apply).toBeDisabled();
++    fireEvent.pointerDown(apply); fireEvent.blur(input, { relatedTarget: apply }); fireEvent.click(apply);
++    expect(mocks.apiPost).not.toHaveBeenCalled();
++    await act(async () => {});
++    const restored = screen.getByRole("textbox", { name: "밝기 수치" }); expect(restored).toHaveValue("31");
++    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
++    fireEvent.input(restored, { target: { value: "42.5" } }); fireEvent.keyDown(restored, { key: "Enter" });
++    expect(mocks.apiPost).not.toHaveBeenCalled(); expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("31");
++    await act(async () => {}); fireEvent.click(applyButton());
++    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
++    expect(mocks.apiPost.mock.calls[0][1]).toMatchObject({ brightness: 31, target: { type: "fixture", fixtureId: fixtureIds.b2First } });
++  });
++
++  it("C6-8 shared bottom auxiliary resets on floor and principal changes and exposes mode switching only through More", () => {
++    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    expect(screen.queryByRole("tablist", { name: "제어 방식" })).not.toBeInTheDocument();
++    const more = screen.getByRole("button", { name: "더보기" }); fireEvent.click(more);
++    expect(within(screen.getByRole("region", { name: "지도 하단 보조 패널" })).getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
++    selectOption("표시 층", "B1"); expect(more).toHaveAttribute("aria-expanded", "false");
++    fireEvent.click(more);
++    view.rerender(controlElement(dashboard.site.id, "admin", USER_B, `/control?siteId=${dashboard.site.id}`, true));
++    expect(screen.queryByRole("region", { name: "지도 하단 보조 패널" })).not.toBeInTheDocument();
++    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
++    expect(mocks.apiPost).not.toHaveBeenCalled();
++  });
++
++  it("C6-8 mobile More preserves an uncertain request and keeps its important status visible while collapsed", async () => {
++    commandStore.configureActiveCommandPersistence(true);
++    mocks.apiPost.mockRejectedValueOnce(new TypeError("response lost")).mockResolvedValueOnce({ id: commandIds.retry, dispatchCount: 1 });
++    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    selectFixture("B2-L001"); fireEvent.click(applyButton());
++    await waitFor(() => expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).not.toBeNull());
++    const more = screen.getByRole("button", { name: "더보기" });
++    const status = screen.getByRole("status", { name: "제어 중요 상태" });
++    await waitFor(() => expect(status).toHaveTextContent("응답"));
++    const frozen = commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id);
++    expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
++    fireEvent.click(more);
++    const retry = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
++    expect(retry).toBeEnabled();
++    fireEvent.click(more); expect(status).toBeVisible();
++    fireEvent.click(more); fireEvent.click(retry);
++    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
++    expect(mocks.apiPost.mock.calls[0][1]).toEqual(frozen);
++    expect(mocks.apiPost.mock.calls[1][1]).toEqual(frozen);
++  });
++
++  it.each([
++    { failure: "query error", text: "명령 상태를 불러오지 못했습니다.", action: "명령 상태 다시 조회" },
++    { failure: "verification required", text: "실제 상태 확인 필요", action: "실제 상태 확인" }
++  ])("C6-8 collapsed important status prioritizes $failure over an empty target", ({ failure, text, action }) => {
++    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
++    mocks.useCommandStatus.mockReturnValue({ data: failure === "query error" ? null : createCommandStatus(commandIds.expected, "verification_required"),
++      error: failure === "query error" ? new TypeError("offline") : null, isFetching: false, refetch: vi.fn() });
++    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
++    expect(screen.getByRole("status", { name: "제어 중요 상태" })).toHaveTextContent(text);
++    expect(applyButton()).toBeDisabled();
++    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
++    expect(screen.getByRole("button", { name: action })).toBeInTheDocument();
++    expect(mocks.apiPost).not.toHaveBeenCalled();
++  });
++
+   it("atlas execution keeps one natural-flow map and execution surface with no numbered duplicate headings", () => {
+     renderControl();
+     const toolbar = document.querySelector<HTMLElement>("[data-target-selection-toolbar]");
+@@ -369,8 +509,7 @@ describe("ControlView 대상 선택", () => {
+     expect(screen.queryByText("02 / 밝기 실행")).not.toBeInTheDocument();
+     expect(screen.queryByRole("complementary", { name: "선택 대상 요약" })).not.toBeInTheDocument();
+     expect(execution).not.toHaveClass("hidden");
+-    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toHaveClass("max-compact:overflow-visible");
+-    expect(screen.getByRole("region", { name: "공간 대상 선택" })).toHaveClass("max-compact:overflow-visible");
++    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toContainElement(screen.getByTestId("target-selection-map-viewport"));
+     expect(within(execution).getByText("0개 선택")).toBeInTheDocument();
+     expect(within(execution).getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+   });
+@@ -1368,18 +1507,19 @@ describe("ControlView 대상 선택", () => {
+     expect(screen.getByText("1개 선택")).toBeInTheDocument();
+   });
+ 
+-  it("keeps every control disabled for viewer accounts", () => {
++  it.each([false, true])("keeps every control disabled for viewer accounts with compact=%s", compact => {
+     mocks.useControlDashboard.mockReturnValue({
+       data: { ...dashboard, capabilities: { read: true, control: false, manage: false, commission: false } },
+       isLoading: false,
+       error: null
+     });
+-    renderControl("viewer");
++    renderControl("viewer", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, compact);
+ 
+     expect(screen.getAllByText("조회 전용", { selector: "span" }).length).toBeGreaterThan(0);
+     expect(screen.queryByText(/조회 전용 계정입니다/)).not.toBeInTheDocument();
+     expect(fixtureMarker("B2-L001")).toBeDisabled();
+     expect(applyButton()).toBeDisabled();
++    if (compact) expect(screen.getByRole("status", { name: "제어 중요 상태" })).toHaveTextContent("조회 전용");
+     expect(mocks.apiPost).not.toHaveBeenCalled();
+   });
+ 
+diff --git a/apps/web/src/features/control/ControlView.tsx b/apps/web/src/features/control/ControlView.tsx
+index 5a2ccb2a..74aad496 100644
+--- a/apps/web/src/features/control/ControlView.tsx
++++ b/apps/web/src/features/control/ControlView.tsx
+@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
+ import { useQuery, useQueryClient } from "@tanstack/react-query";
+ import { useLocation, useNavigate } from "react-router-dom";
+ import type { AuthUser } from "../../api/auth";
+-import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
++import { Button, Card, Heading, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+ import {
+   commandReadRevalidation,
+   canonicalizeDimmingCommandInput,
+@@ -56,6 +56,8 @@ import {
+ } from "./active-command-session";
+ import { SpatialTargetSelector } from "./target-selection/SpatialTargetSelector";
+ import { ManualExecutionPanel } from "./ManualExecutionPanel";
++import { ManualAuxiliaryProvider } from "./manual-workspace/ManualAuxiliaryPanel";
++import { ManualSelectionPanel } from "./target-selection/ManualSelectionPanel";
+ 
+ const ScheduleControlPanel = lazy(async () => {
+   const module = await import("./automation/ScheduleControlPanel");
+@@ -72,6 +74,10 @@ const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
+ // the existing flex chain, while min-content children keep short screens in
+ // document flow instead of clipping the map to a fixed bottom edge.
+ const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col";
++// History now lives in the manual side pane even on desktop. Reserve its
++// content line before actions; viewport-wide ticker defaults cannot infer
++// the pane's available width. Other ticker consumers retain their defaults.
++const manualHistoryPaneClassName = "flex-wrap [&>div]:basis-full [&_[role=region]]:flex-wrap [&_[role=region]>div]:basis-full [&_[role=region]>button]:shrink-0 [&_[role=region]>button]:whitespace-nowrap";
+ 
+ export function ControlView({
+   siteId,
+@@ -560,6 +566,20 @@ export function ControlView({
+     void navigate({ pathname: location.pathname, search: `?${search.toString()}`, hash: location.hash });
+   }
+ 
++  // Command safety outranks an empty/current picker; recovery belongs to the
++  // frozen request even after a site refresh removes its selected fixtures.
++  const importantManualStatus = storageError || verificationError || (hasMismatchedCommandStatus
++    ? "명령 상태 식별자가 일치하지 않아 제어 잠금을 유지합니다."
++    : missingCommand ? "명령 원본 확인 필요 · 제어 잠금을 유지합니다."
++    : detailCommandId && commandQuery.retentionExpired ? "명령 상세 보관 기한이 지나 서버 확인이 필요합니다."
++    : detailCommandId && commandQuery.error && !matchingCommandIsTerminal ? "명령 상태를 불러오지 못했습니다. 더보기에서 다시 조회하세요."
++    : restorePending ? "명령 복구 확인 중"
++    : reconciledOriginalCommandId ? "차단 해제를 확인할 때까지 새 제어는 잠겨 있습니다."
++    : scopedActiveRequest && !scopedCommandId ? (replayRejected ? "안전을 위해 재전송할 수 없습니다. 더보기에서 확인하세요." : "응답을 확인하지 못했습니다. 더보기에서 동일 요청을 확인하세요.")
++    : displayedStatus ? manualCommandSummary(displayedStatus)
++    : isSubmitting ? "명령 전송 중"
++    : message || (readOnly ? "조회 전용" : blockMessage || (controlsLocked ? "새 제어 잠금 · 더보기에서 상태를 확인하세요." : "")));
++
+   const modeTabs = <><Heading as="h1" className="sr-only">조명 제어</Heading><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
+   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
+ 
+@@ -632,14 +652,56 @@ export function ControlView({
+     </section>;
+   }
+ 
++  const importantStatus = <div role="status" aria-label="제어 중요 상태" aria-live="polite" aria-atomic="true" className="max-h-20 overflow-y-auto overscroll-contain text-caption">
++                  {importantManualStatus}
++                </div>;
++  const auxiliaryContent = <>
++          {singleColumnLayout ? <>
++            <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />
++            <InlineStatusSummary label="현장 전체" items={[
++              { id: "total", label: "전체", value: data.summary.totalFixtures ?? null, tone: "neutral" },
++              { id: "online", label: "온라인", value: data.summary.onlineFixtures ?? null, tone: "success" },
++              { id: "fault", label: "장애", value: data.summary.faultFixtures ?? null, tone: "danger" },
++              { id: "offline", label: "오프라인", value: data.summary.offlineFixtures ?? null, tone: "warning" }
++            ]} />
++          </> : null}
++          {/* Auxiliary recovery stays mounted; the independent live summary
++              above preserves essential warnings while this region is closed. */}
++          <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
++          {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
++          {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
++          <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
++            replayRejected={replayRejected}
++            awaitingCaseRelease={Boolean(reconciledOriginalCommandId)} isCaseReleaseFetching={reconciledCaseRead.isFetching}
++            onRefreshCaseRelease={() => void reconciledCaseRead.refetch()}
++            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked || Boolean(storageError)} message={message} verificationError={verificationError}
++            displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
++            onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
++            commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
++            hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
++            isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
++          </div>
++        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
++          timeZone={data.site.timeZone}
++          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
++          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
++          onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
++          verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
++          compactDisclosure className={manualHistoryPaneClassName} />
++                </>;
++
++  // h-full alone leaves content-start's implicit auto rows at intrinsic
++  // height. The size-contained canvas contributes zero intrinsic height, so
++  // pass the finite remainder through explicit rows in manual mobile only.
+   return (
+-    <section className={controlScreenClassName} data-control-screen="">
+-      {modeTabs}
+-      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
+-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)_auto]" data-control-layout="">
++    <ManualAuxiliaryProvider enabled={singleColumnLayout} scope={`${userId}:${data.site.id}:${selection.mode}`}>
++    <section className={cn(controlScreenClassName, singleColumnLayout && "h-full grid-rows-[auto_minmax(0,1fr)] gap-1")} data-control-screen="">
++      {singleColumnLayout ? <><Heading as="h1" className="sr-only">조명 제어</Heading><Text variant="caption">수동 제어</Text></> : modeTabs}
++      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)] gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
++      <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
+         {/* Subgrid shares the toolbar row without reparenting the live map or
+             command owner across breakpoints; map chrome and aside start together. */}
+-        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:overflow-visible compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
++        <Card className="flex min-h-min min-w-0 flex-col overflow-hidden p-3 max-compact:min-h-0 max-compact:p-0 max-compact:border-0 max-compact:bg-transparent compact:min-h-0 compact:grid compact:col-start-1 compact:row-start-1 compact:col-span-full compact:row-span-2 compact:grid-cols-subgrid compact:grid-rows-subgrid compact:gap-4 compact:p-0 compact:border-0 compact:bg-transparent [&_[data-spatial-target-selector]]:compact:grid [&_[data-spatial-target-selector]]:compact:col-span-full [&_[data-spatial-target-selector]]:compact:row-span-2 [&_[data-spatial-target-selector]]:compact:grid-cols-subgrid [&_[data-spatial-target-selector]]:compact:grid-rows-subgrid [&_[data-spatial-target-selector]]:compact:gap-4 [&_[data-target-selection-toolbar]]:compact:col-span-full" aria-label="제어 대상 지도" data-control-target-card="">
+           <SpatialTargetSelector
+             key={data.site.id}
+             siteId={data.site.id}
+@@ -648,16 +710,10 @@ export function ControlView({
+             disabled={controlsLocked}
+             hideEmbeddedSummary
+             presentation="manual-workspace"
+-            inspectionPanel={<section aria-label="선택 대상 목록" className="grid min-h-0 gap-3 rounded-panel border border-border-default bg-surface-panel p-3">
+-              <div className="flex items-center justify-between gap-2">
+-                <Heading as="h3" variant="customer-card-title">선택 조명</Heading>
+-                <Button type="button" variant="ghost" disabled={controlsLocked || selectedFixtures.length === 0}
+-                  onClick={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }}>선택 해제</Button>
+-              </div>
+-              {selectedFixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
+-                {selectedFixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
+-              </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
+-            </section>}
++            compactWorkspace={singleColumnLayout}
++            inspectionPanel={<ManualSelectionPanel key={`${userId}:${data.site.id}:${selection.mode}`} fixtures={selectedFixtures}
++              compact={singleColumnLayout} locked={controlsLocked}
++              onClear={() => { setSelection({ mode: "fixtures", fixtureIds: [] }); setMessage(""); }} />}
+             onChange={(nextSelection) => {
+               setSelection(nextSelection);
+               const nextResolved = resolveControlSelection(data, nextSelection);
+@@ -670,43 +726,21 @@ export function ControlView({
+           />
+         </Card>
+ 
+-        <SidePanel className="flex min-h-0 w-full flex-col gap-3 p-3 compact:col-start-2 compact:row-start-2 compact:overflow-hidden" aria-label="밝기 실행" data-control-panel="">
+-          <section aria-label="제어 대상" className="grid flex-none gap-3">
++        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
++          <section aria-label="제어 대상" className={singleColumnLayout ? "sr-only" : "grid flex-none gap-3"}>
+             <div className="flex items-center justify-between gap-2">
+               <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
+             </div>
+             <div className="flex flex-wrap items-center justify-between gap-2">
+-              <Text as="strong" variant="customer-metric" aria-live="polite" aria-atomic="true">{selectedFixtures.length}개 선택</Text>
++              <Text as="strong" variant="customer-metric" aria-live={singleColumnLayout ? undefined : "polite"} aria-atomic="true">{selectedFixtures.length}개 선택</Text>
+               <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
+             </div>
+           </section>
+-          <ManualExecutionPanel brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
++          <ManualExecutionPanel key={`${userId}:${data.site.id}`} compact={singleColumnLayout} importantStatus={importantStatus}
++            moreContent={auxiliaryContent} brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+                 applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+                 onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+-          {/* Selection warnings belong below the fixed execution controls so
+-              late health/capability text cannot move the dial or Apply action. */}
+-          <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:flex-1 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
+-          {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
+-          {storageError ? <Text tone="danger" role="alert">{storageError}</Text> : null}
+-          <ManualControlFeedback singleColumnLayout={singleColumnLayout} scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
+-            replayRejected={replayRejected}
+-            awaitingCaseRelease={Boolean(reconciledOriginalCommandId)} isCaseReleaseFetching={reconciledCaseRead.isFetching}
+-            onRefreshCaseRelease={() => void reconciledCaseRead.refetch()}
+-            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked || Boolean(storageError)} message={message} verificationError={verificationError}
+-            displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
+-            onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
+-            commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)}
+-            hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
+-            isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
+-          </div>
+         </SidePanel>
+-        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
+-          timeZone={data.site.timeZone}
+-          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
+-          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
+-          onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
+-          verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
+-          compactDisclosure className="compact:col-span-full compact:row-start-3" />
+       </div>
+       <CommandVerificationCases key={`${userId}:${data.site.id}`} open={verificationCasesOpen} siteId={data.site.id} userId={userId}
+         canControl={canControl} canManage={canManage} originalCommandId={missingCommand ? scopedCommandId ?? undefined : undefined}
+@@ -716,9 +750,16 @@ export function ControlView({
+         returnFocusRef={verificationCasesOpenerRef} onClose={() => setVerificationCasesOpen(false)} />
+       </div>
+     </section>
++    </ManualAuxiliaryProvider>
+   );
+ }
+ 
++function manualCommandSummary(status: CommandStatusResponse) {
++  const result = presentRecentCommandResult(status);
++  return result.kind === "completed" ? result.label : result.kind === "pending" ? "명령 처리 중"
++    : result.kind === "verification" ? "실제 상태 확인 필요" : "결과 미확정 · 실제 상태를 확인해 주세요.";
++}
++
+ function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolean, readOnly: boolean, selectedFixtureCount: number) {
+   if (commandSessionBlocked) return "로그아웃 중";
+   if (controlsLocked && !readOnly) return "밝기 적용 중";
+@@ -781,16 +822,10 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
+   const result = presentRecentCommandResult(displayedStatus);
+   const hasFeedback = Boolean(scopedActiveRequest || scopedCommandId || isSubmitting || message || verificationError
+     || displayedStatus || hasMismatchedCommandStatus || (detailCommandId && (missingCommand || retentionExpired || commandError)));
+-  // The two-column workspace reserves space for execution controls above.
+-  // Contain only desktop feedback sizing so long results cannot enlarge that
+-  // row; all warnings/actions remain reachable by scrolling this positive-height
+-  // pane. Single-column layouts retain their original natural document flow.
+-  // Max-content rows prevent the status actions shrinking under inline details;
+-  // overflow is handled by the pane, never by overlapping or clipping buttons.
+-  // Size-query units give the nested detail the actual residual pane height,
+-  // not its max-content grid row height. The outer pane still scrolls all
+-  // warnings/actions; the inner viewport must fit wholly inside that pane.
+-  return <div className={`grid min-h-0 min-w-0 flex-none content-start gap-3 ${hasFeedback ? "compact:min-h-40" : ""} compact:auto-rows-max compact:flex-1 compact:overflow-y-auto compact:overscroll-contain compact:[container-type:size]`} data-control-panel-feedback="">
++  // This component stays mounted in More. Its owner/query/UUID and detail
++  // disclosure survive closing the presentation; the containing scrollport
++  // owns long recovery content instead of hiding it with an overflow clip.
++  return <div className="grid min-h-0 min-w-0 flex-none content-start gap-3" data-control-panel-feedback="">
+     {hasFeedback ? <Heading as="h4" variant={compact ? "label" : "card-title"}>최근 결과</Heading> : null}
+     <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
+       {scopedActiveRequest && !scopedCommandId && !replayRejected ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
+diff --git a/apps/web/src/features/control/ManualExecutionPanel.test.tsx b/apps/web/src/features/control/ManualExecutionPanel.test.tsx
+index 042dd0f0..f49eae1b 100644
+--- a/apps/web/src/features/control/ManualExecutionPanel.test.tsx
++++ b/apps/web/src/features/control/ManualExecutionPanel.test.tsx
+@@ -14,6 +14,27 @@ function setup(locked = false, eligible = true) {
+   render(<Draft />); return submit;
+ }
+ describe("ManualExecutionPanel", () => {
++  it("C6-8 compact More keeps the raw draft and explicit Apply independent of its auxiliary content", () => {
++    const submit = vi.fn();
++    function CompactDraft() {
++      const [brightness, setBrightness] = useState(70);
++      return <ManualExecutionPanel brightness={brightness} controlsLocked={false} canSubmit applyLabel="적용 대상" compact
++        moreContent={<button type="button">보조 작업</button>} onBrightnessChange={setBrightness} onSubmit={submit} />;
++    }
++    render(<CompactDraft />);
++    const input = screen.getByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    const more = screen.getByRole("button", { name: "더보기" });
++    expect(screen.queryByRole("button", { name: "보조 작업" })).not.toBeInTheDocument();
++    fireEvent.click(more);
++    fireEvent.click(screen.getByRole("button", { name: "보조 작업" }));
++    fireEvent.click(more);
++    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
++    expect(input).toHaveValue("31"); expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("31");
++    expect(submit).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: "적용 대상" })); expect(submit).toHaveBeenCalledOnce();
++  });
++
+   it("fidelity exposes one visible brightness label while the bare slider keeps its accessible input", () => {
+     setup();
+     expect(screen.getAllByText("밝기")).toHaveLength(1);
+diff --git a/apps/web/src/features/control/ManualExecutionPanel.tsx b/apps/web/src/features/control/ManualExecutionPanel.tsx
+index 4630ed37..c44070b7 100644
+--- a/apps/web/src/features/control/ManualExecutionPanel.tsx
++++ b/apps/web/src/features/control/ManualExecutionPanel.tsx
+@@ -1,4 +1,5 @@
+-import { useEffect, useRef, useState } from "react";
++import { useEffect, useId, useRef, useState, type ReactNode } from "react";
++import { ManualAuxiliaryContent, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
+ import { Button, NumberField, Slider, Text } from "../../components/ui";
+ 
+ export interface ManualExecutionPanelProps {
+@@ -8,10 +9,19 @@ export interface ManualExecutionPanelProps {
+   applyLabel: string;
+   onBrightnessChange: (value: number) => void;
+   onSubmit: () => void;
++  /** Manual mobile presentation only; desktop/default consumers keep all controls expanded. */
++  compact?: boolean;
++  moreContent?: ReactNode;
++  importantStatus?: ReactNode;
+ }
+ 
+ /** Draft presentation only: the parent retains command ownership and eligibility. */
+-export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit }: ManualExecutionPanelProps) {
++export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus }: ManualExecutionPanelProps) {
++  const [inlineMoreOpen, setMoreOpen] = useState(false);
++  const auxiliary = useManualAuxiliary();
++  const moreOpen = compact && auxiliary ? auxiliary.active === "more" : inlineMoreOpen;
++  const moreId = useId();
++  const moreRef = useRef<HTMLButtonElement>(null);
+   const [invalidDraft, setInvalidDraft] = useState(false);
+   const [restored, setRestored] = useState("");
+   const [inputRevision, setInputRevision] = useState(0);
+@@ -50,14 +60,27 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
+     setInputRevision(revision => revision + 1); onBrightnessChange(value);
+   }
+ 
+-  // Execution reserves intrinsic height; only the independent safety region
+-  // consumes residual desktop space, so Apply never shares a fractional pane.
+-  return <div className="grid min-h-0 flex-none content-start gap-3 overflow-y-auto overscroll-contain" data-control-panel-body=""
++  // One editable input stays mounted while auxiliary content is disclosed.
++  // Blur/Enter and the first invalid Apply guard remain owned by this draft.
++  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? "h-11 min-h-11! min-w-0 px-2 text-caption" : "max-compact:scroll-mb-shell-navigation-safe"}
++    aria-label={applyLabel} onClick={() => {
++      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
++      if (!rawValid.current || restoring.current || !canSubmit) return;
++      onSubmit();
++    }} disabled={!canSubmit || invalidDraft} data-control-submit="">{compact ? "적용" : applyLabel}</Button>;
++  const moreBody = <>
++      <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
++        {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className="whitespace-nowrap px-2" aria-pressed={brightness === value && !invalidDraft}
++          disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}
++      </div>
++      {moreContent}
++    </>;
++  return <div className={`grid min-h-0 min-w-0 flex-none content-start ${compact ? "gap-1" : "gap-3"}`} data-control-panel-body=""
+     onPointerDownCapture={event => {
+       if (event.target instanceof Element && event.target.closest("[data-control-submit]")) invalidApplyAttempt.current = !rawValid.current || restoring.current;
+     }}>
+-    <div className="grid gap-2 border-t border-border-default pt-3" data-control-brightness-card="">
+-      <div className="flex items-baseline justify-between gap-3" onInputCapture={captureDraft} onChangeCapture={captureDraft}
++    <div className={`grid min-w-0 ${compact ? "grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1" : "gap-2 border-t border-border-default pt-3"}`} data-control-execution-row="">
++      <div className={`flex min-w-0 ${compact ? "items-center" : "items-baseline justify-between gap-3"}`} onInputCapture={captureDraft} onChangeCapture={captureDraft}
+         onBlurCapture={event => {
+           if (event.target instanceof HTMLInputElement) {
+             if (!rawValid.current && event.relatedTarget === applyRef.current) invalidApplyAttempt.current = true;
+@@ -67,29 +90,30 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
+         onKeyDownCapture={event => {
+           if (event.target instanceof HTMLInputElement && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); restoreDraft(); }
+         }}>
+-        <Text as="span" variant="label">밝기</Text>
++        <Text as="span" variant="label" className={compact ? "sr-only" : undefined}>밝기</Text>
+         <div className="flex min-w-0 items-baseline gap-1">
+-          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size="lg"
+-            className="w-20" inputClassName="px-1 text-body text-right"
++          <NumberField key={inputRevision} aria-label="밝기 수치" variant="ghost" size={compact ? "sm" : "lg"}
++            className={compact ? "w-12" : "w-20"} inputClassName="px-1 text-body text-right"
+             minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} isInvalid={invalidDraft}
+             onChange={value => { if (rawValid.current && !restoring.current && value !== null && Number.isInteger(value) && value >= 0 && value <= 100) onBrightnessChange(value); }} />
+-          <Text as="span" variant="body" aria-hidden="true">%</Text>
++          <Text as="span" variant="caption" aria-hidden="true">%</Text>
+         </div>
+       </div>
+-      {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
+-      {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
+-      <Slider aria-label="밝기" presentation="bare" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
+-      <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
+-        {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className="whitespace-nowrap px-2" aria-pressed={brightness === value && !invalidDraft}
+-          disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}
+-      </div>
++      <Slider aria-label="밝기" presentation="bare" className="min-w-0" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
++      {apply}
++      <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? "h-11 min-h-11! min-w-11 px-2 text-caption" : "hidden"}
++        aria-expanded={moreOpen} aria-controls={auxiliary?.panelId ?? moreId} onClick={event => auxiliary ? auxiliary.toggle("more", event.currentTarget) : setMoreOpen(value => !value)}>더보기</Button>
+     </div>
+-    <Button ref={applyRef} variant="primary" type="button" className="max-compact:scroll-mb-shell-navigation-safe" onClick={() => {
+-      if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
+-      if (!rawValid.current || restoring.current || !canSubmit) return;
+-      onSubmit();
+-    }} disabled={!canSubmit || invalidDraft} data-control-submit="">
+-      {applyLabel}
+-    </Button>
++    {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
++    {restored ? <Text role="status" variant="caption">{restored}</Text> : null}
++    {/* Essential warnings stay readable/live even when lengthy recovery UI is closed. */}
++    {compact ? <div hidden={!auxiliary && moreOpen}>{importantStatus}</div> : null}
++    {/* Explicit display also honors hidden in the real CSS cascade: a grid
++        utility must not override the browser hidden-attribute default. */}
++    <div id={moreId} hidden={Boolean(auxiliary?.enabled) || (compact && !moreOpen)}
++      className={auxiliary?.enabled || (compact && !moreOpen) ? "hidden" : compact ? "grid max-h-[25dvh] min-h-0 min-w-0 gap-2 overflow-y-auto overscroll-contain" : "grid min-h-0 gap-3"}
++      data-control-more-content="" onKeyDown={event => {
++        if (compact && !auxiliary && event.key === "Escape") { event.stopPropagation(); setMoreOpen(false); moreRef.current?.focus({ preventScroll: true }); }
++      }}>{auxiliary ? <ManualAuxiliaryContent kind="more">{moreBody}</ManualAuxiliaryContent> : moreBody}</div>
+   </div>;
+ }
+diff --git a/apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx b/apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx
+new file mode 100644
+index 00000000..3d2398f5
+--- /dev/null
++++ b/apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx
+@@ -0,0 +1,106 @@
++import { createContext, useCallback, useContext, useId, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
++import { createPortal } from "react-dom";
++import { Button, Heading } from "../../../components/ui";
++
++type Kind = "selection" | "more";
++type Auxiliary = {
++  enabled: boolean;
++  active: Kind | null;
++  panelId: string;
++  host: HTMLDivElement | null;
++  registerHost: (host: HTMLDivElement | null) => void;
++  toggle: (kind: Kind, opener: HTMLButtonElement) => void;
++  close: (restoreFocus?: boolean) => void;
++};
++const Context = createContext<Auxiliary | null>(null);
++
++/** Manual presentation only: one nonmodal reader, no command/selection/query ownership. */
++export function ManualAuxiliaryProvider({ enabled, scope, children }: { enabled: boolean; scope: string; children: ReactNode }) {
++  const [opened, setOpened] = useState<{ scope: string; kind: Kind } | null>(null);
++  const [host, setHost] = useState<HTMLDivElement | null>(null);
++  const opener = useRef<HTMLButtonElement | null>(null);
++  const panelId = useId();
++  const active = enabled && opened?.scope === scope ? opened.kind : null;
++  const registerHost = useCallback((node: HTMLDivElement | null) => setHost(node), []);
++  const close = useCallback((restoreFocus = true) => {
++    setOpened(null);
++    if (restoreFocus && opener.current?.isConnected) opener.current.focus({ preventScroll: true });
++  }, []);
++  useLayoutEffect(() => { setOpened(null); }, [scope]);
++  useEffect(() => {
++    if (!active) return;
++    // The opener remains outside the nonmodal panel. Escape must close there
++    // too; nested dialogs/popovers that consume Escape retain precedence.
++    const escape = (event: KeyboardEvent) => {
++      if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); close(); }
++    };
++    document.addEventListener("keydown", escape);
++    return () => document.removeEventListener("keydown", escape);
++  }, [active, close]);
++  return <Context.Provider value={{ enabled, active, panelId, host, registerHost, close,
++    toggle: (kind, trigger) => {
++      opener.current = trigger;
++      if (active === kind) close(); else setOpened({ scope, kind });
++    } }}>{children}</Context.Provider>;
++}
++export function useManualAuxiliary() { return useContext(Context); }
++
++/** Keep the host and both content owners mounted while changing only visibility. */
++export function ManualAuxiliaryPanel() {
++  const auxiliary = useManualAuxiliary();
++  if (!auxiliary) return null;
++  return <section id={auxiliary.panelId} hidden={!auxiliary.active} aria-label="지도 하단 보조 패널"
++    className={auxiliary.active ? "absolute inset-x-0 bottom-0 z-10 grid max-h-[75%] min-h-0 grid-rows-[auto_minmax(0,1fr)] rounded-panel border border-border-default bg-surface-panel shadow-popover" : "hidden"}
++    data-manual-auxiliary-panel="" onKeyDown={event => {
++      if (event.key === "Escape" && !event.defaultPrevented) { event.stopPropagation(); event.preventDefault(); auxiliary.close(); }
++    }}>
++    <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border-default px-2">
++      <Heading as="h3" variant="customer-card-title">{auxiliary.active === "selection" ? "선택 조명 목록" : "제어 더보기"}</Heading>
++      <Button type="button" variant="ghost" className="min-h-11! min-w-11 shrink-0" aria-label="보조 패널 닫기" onClick={() => auxiliary.close()}>닫기</Button>
++    </div>
++    <div ref={auxiliary.registerHost} className="min-h-0 overflow-y-auto overscroll-contain p-2" data-manual-auxiliary-body="" />
++  </section>;
++}
++export function ManualAuxiliaryContent({ kind, children, mobileOnly = false }: { kind: Kind; children: ReactNode; mobileOnly?: boolean }) {
++  const auxiliary = useManualAuxiliary();
++  const inlineHost = useRef<HTMLDivElement>(null);
++  const focusToRestore = useRef<HTMLElement | null>(null);
++  const [container] = useState(() => {
++    const element = document.createElement("div");
++    element.style.display = "contents";
++    return element;
++  });
++  // React portals remount their children when their target changes. Keep one
++  // target for this presentation's lifetime, moving only its DOM host between
++  // the desktop inline slot and mobile reader. Feedback/history state, refs,
++  // subscriptions and callbacks survive media changes; the map never moves.
++  useLayoutEffect(() => {
++    const destination = auxiliary?.enabled ? auxiliary.host : inlineHost.current;
++    if (auxiliary && destination) {
++      destination.appendChild(container);
++      const focused = focusToRestore.current;
++      // Moving a connected DOM subtree clears native focus even though React
++      // keeps its owners. Restore only the same connected, displayed element;
++      // never steal focus from another scope or reveal a closed reader.
++      if (focused?.isConnected && (!auxiliary.enabled || auxiliary.active === kind)
++        && !focused.closest("[hidden]")) focused.focus({ preventScroll: true });
++      focusToRestore.current = null;
++    }
++    return () => {
++      focusToRestore.current = document.activeElement instanceof HTMLElement && container.contains(document.activeElement)
++        ? document.activeElement : null;
++      container.remove();
++    };
++  }, [auxiliary?.enabled, auxiliary?.host, Boolean(auxiliary), container]);
++  if (!auxiliary) return <>{children}</>;
++  const hidden = auxiliary.enabled ? auxiliary.active !== kind : mobileOnly;
++  return <>
++    <div ref={inlineHost} className={auxiliary.enabled ? "hidden" : "contents"} />
++    {createPortal(<div hidden={hidden} className={hidden ? "hidden" : auxiliary.enabled ? "grid min-w-0 gap-2" : "contents"}
++      onKeyDown={event => {
++        if (auxiliary.enabled && event.key === "Escape" && !event.defaultPrevented) {
++          event.stopPropagation(); event.preventDefault(); auxiliary.close();
++        }
++      }}>{children}</div>, container)}
++  </>;
++}
+diff --git a/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx b/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx
+new file mode 100644
+index 00000000..4780ae66
+--- /dev/null
++++ b/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx
+@@ -0,0 +1,38 @@
++import { useId, useRef, useState } from "react";
++import { ManualAuxiliaryContent, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
++import type { DashboardFixture } from "../../../api/queries";
++import { Button, Heading, Text } from "../../../components/ui";
++
++/** Presentation of the existing resolved selection; never owns targets or queries. */
++export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
++  fixtures: readonly DashboardFixture[];
++  compact: boolean;
++  locked: boolean;
++  onClear: () => void;
++}) {
++  const [inlineExpanded, setExpanded] = useState(false);
++  const auxiliary = useManualAuxiliary();
++  const expanded = compact && auxiliary ? auxiliary.active === "selection" : inlineExpanded;
++  const listId = useId();
++  const opener = useRef<HTMLButtonElement>(null);
++  const content = <>
++      <Button type="button" variant="ghost" disabled={locked || fixtures.length === 0} onClick={onClear}>선택 해제</Button>
++      {fixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
++        {fixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
++      </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
++    </>;
++  return <section aria-label="선택 대상 목록" data-manual-selection-panel=""
++    className={compact ? "grid min-h-0 min-w-0 gap-1" : "grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 rounded-panel border border-border-default bg-surface-panel p-3"}>
++    <div className="grid min-w-0 gap-1">
++      <Heading as="h3" variant="customer-card-title" className={compact ? "text-caption" : undefined}
++        aria-live={compact ? "polite" : undefined} aria-atomic="true">선택 조명 {fixtures.length}개</Heading>
++      <Button ref={opener} hidden={!compact} type="button" variant="secondary" className={compact ? "min-h-11! w-full" : "hidden"}
++        aria-expanded={expanded} aria-controls={auxiliary?.panelId ?? listId} onClick={event => auxiliary ? auxiliary.toggle("selection", event.currentTarget) : setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
++    </div>
++    <div id={listId} hidden={Boolean(auxiliary?.enabled) || (compact && !expanded)}
++      className={`${auxiliary?.enabled || (compact && !expanded) ? "hidden" : "grid"} min-h-0 min-w-0 content-start gap-2 overflow-y-auto overscroll-contain ${compact ? "max-h-[15dvh]" : ""}`}
++      onKeyDown={event => {
++        if (compact && !auxiliary && event.key === "Escape") { event.stopPropagation(); setExpanded(false); opener.current?.focus({ preventScroll: true }); }
++      }}>{auxiliary ? <ManualAuxiliaryContent kind="selection">{content}</ManualAuxiliaryContent> : content}</div>
++  </section>;
++}
+diff --git a/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx b/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx
+index 7d13278c..48657673 100644
+--- a/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx
++++ b/apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx
+@@ -56,6 +56,21 @@ describe("SpatialTargetSelector", () => {
+ 
+   afterEach(cleanup);
+ 
++  it("C6-8 compact scope dropdown keeps the current targets until explicit confirmation", () => {
++    renderSelector({ presentation: "manual-workspace", compactWorkspace: true, selection: { mode: "fixtures", fixtureIds: [fixtureA] } });
++    fireEvent.click(screen.getByRole("button", { name: /선택 범위/ }));
++    fireEvent.click(screen.getByRole("option", { name: "층 전체" }));
++    expect(screen.getByRole("alertdialog", { name: "선택 방식 변경" })).toBeInTheDocument();
++    expect(onChange).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: "취소" }));
++    expect(onChange).not.toHaveBeenCalled();
++    fireEvent.click(screen.getByRole("button", { name: /선택 범위/ }));
++    fireEvent.click(screen.getByRole("option", { name: "저장된 구역" }));
++    fireEvent.click(screen.getByRole("button", { name: "변경" }));
++    expect(onChange).toHaveBeenCalledOnce();
++    expect(onChange).toHaveBeenCalledWith({ mode: "group", groupId: "" });
++  });
++
+   it("manual legend shares the camera footer while embedded placement remains unchanged", () => {
+     const view = renderSelector({ presentation: "manual-workspace", selection: { mode: "fixtures", fixtureIds: [] } });
+     const legend = screen.getByLabelText("지도 조명 상태 범례");
+diff --git a/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx b/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx
+index d35330ef..9a3ac718 100644
+--- a/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx
++++ b/apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
++import { useLayoutEffect, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+ import type { Dashboard, DashboardFixture } from "../../../api/queries";
+ import { useFloorMapSnapshot } from "../../../api/queries";
+ import { Button, ConfirmDialog, InlineStatusSummary, OperationMapPanel, Text } from "../../../components/ui";
+@@ -8,6 +8,7 @@ import { resolveControlSelection, toggleFixtureSelection, type ControlMode, type
+ import { humanizeDeviceResponseMessage } from "../control-copy";
+ import { FixtureSelectionDrawer } from "./FixtureSelectionDrawer";
+ import { SelectionSummaryPanel } from "./SelectionSummaryPanel";
++import { ManualAuxiliaryContent, ManualAuxiliaryPanel, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
+ import { TargetSelectionToolbar } from "./TargetSelectionToolbar";
+ 
+ export interface SpatialTargetSelectorProps {
+@@ -18,6 +19,7 @@ export interface SpatialTargetSelectorProps {
+   displaySelection?: ControlSelection;
+   disabled: boolean;
+   presentation?: "embedded" | "manual-workspace";
++  compactWorkspace?: boolean;
+   allowedModes?: readonly ControlMode[];
+   fixtureFilter?: (fixture: DashboardFixture) => boolean;
+   fixtureFilterReason?: string;
+@@ -42,7 +44,7 @@ export const spatialTargetDialogClassName = "grid! h-full! w-full! max-w-6xl gri
+ 
+ export function SpatialTargetSelector({
+   siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, fixtureFilterReason, fixtureBlockedReason, onInspectFixture, inspectionPanel, preferredFloorId, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
+-  compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, presentation = "embedded", onCompactSheetHeightChange, onChange
++  compactSummary, compactDetails, managementAction, hideEmbeddedSummary = false, presentation = "embedded", compactWorkspace = false, onCompactSheetHeightChange, onChange
+ }: SpatialTargetSelectorProps) {
+   const resolvedSelection = displaySelection ?? selection;
+   const selectionFloorId = floorForSelection(dashboard, selection);
+@@ -52,6 +54,9 @@ export function SpatialTargetSelector({
+   const listOpenerRef = useRef<HTMLButtonElement>(null);
+   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
+   const manualWorkspace = presentation === "manual-workspace";
++  const compactManual = manualWorkspace && compactWorkspace;
++  const auxiliary = useManualAuxiliary();
++  const compactAuxiliary = compactManual && Boolean(auxiliary);
+   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
+   const mapQuery = useFloorMapSnapshot(activeFloor?.id, siteId);
+   const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, resolvedSelection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, resolvedSelection]);
+@@ -117,18 +122,29 @@ export function SpatialTargetSelector({
+     onChange({ mode: "fixtures", fixtureIds: [...next].sort() });
+   }
+ 
++  const closeAuxiliary = auxiliary?.close;
++  useLayoutEffect(() => { closeAuxiliary?.(false); }, [siteId, activeFloor?.id, closeAuxiliary]);
++
+   const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
+   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
+-  const legend = <div className={manualWorkspace ? "pointer-events-none flex flex-wrap gap-2 text-label" : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
++  const floorStatus = <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
++          { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
++          { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
++          { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
++          { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
++        ]} />;
++  const selectionChoices = <>{selection.mode === "floor" ? <SelectionChoices compact={compactManual && !auxiliary} kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
++    {selection.mode === "group" ? <SelectionChoices compact={compactManual && !auxiliary} kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}</>;
++  const legend = <div className={manualWorkspace ? (compactManual ? "pointer-events-none grid grid-cols-2 gap-x-1 text-caption" : "pointer-events-none flex flex-wrap gap-2 text-label") : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-offline" />오프라인</span>
+     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-selected" />선택</span>
+   </div>;
+ 
+-  return <section className={`flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
++  return <section className={compactManual ? "flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1" : `flex ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 flex-col gap-3 overflow-hidden ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""}`} aria-label="공간 대상 선택" data-spatial-target-selector="">
+     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
+-      presentation={presentation}
++      presentation={presentation} compact={compactManual}
+       compactDisclosure={hideEmbeddedSummary && !manualWorkspace} modeSelectionSemantics={modeSelectionSemantics}
+       disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
+       onOpenList={() => setListOpen(true)} listOpenerRef={listOpenerRef} managementAction={managementAction}
+@@ -136,37 +152,38 @@ export function SpatialTargetSelector({
+     {hideEmbeddedSummary && !manualWorkspace ? <Text className="compact:hidden" variant="caption">{resolved.fixtureIds.length}개 선택 · {selection.mode === "fixtures" ? "개별 조명" : selection.mode === "floor" ? "층 전체" : "저장된 구역"}</Text> : null}
+     {/* Manual desktop's outer workspace owns short-window scrolling. Let chrome
+         wheels chain to it; embedded/mobile panes retain their containment. */}
+-    <div className={`grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
++    <div className={compactManual ? "grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-1" : `grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
+       {/* The transparent coarse hit box stays rectangular; the shared inner
+           20px marker dot retains its circular appearance. Rounded hit boxes
+           lose their corners and cannot provide the required 48×48 target. */}
+-      {/* Manual legend and camera share one wrapping flow footer, preserving
+-          the 240px canvas minimum; embedded consumers keep their old strip. */}
+-      <OperationMapPanel className="[&_[data-spatial-map-marker]]:rounded-none! min-h-min"
+-        status={manualWorkspace ? <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
+-          { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
+-          { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
+-          { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
+-          { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
+-        ]} /> : undefined}>
+-        {mapQuery.data && activeFloor ? <div className="min-h-min min-w-0 flex-1"><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
++      {/* Mobile moves repeated summaries/legend into the common reader and
++          places camera controls over the map, preserving its finite row.
++          Desktop/default consumers retain their existing footer and minimum. */}
++      <OperationMapPanel className={`[&_[data-spatial-map-marker]]:rounded-none! ${compactManual ? "min-h-0 [&_[data-operation-map-chrome]]:px-1 [&_[data-operation-map-chrome]]:py-1 [&_[data-operation-map-chrome]_span]:text-caption [&_[data-operation-map-chrome]_strong]:text-caption [&_[data-operation-map-chrome]_[role=group]]:gap-x-2" : "min-h-min"}`}
++        status={manualWorkspace && !compactAuxiliary ? floorStatus : undefined}>
++        <div className={compactManual ? "relative flex min-h-0 min-w-0 flex-1 flex-col" : mapQuery.data && activeFloor ? "min-h-min min-w-0 flex-1" : "contents"}>
++        {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
+           mode="pan" toolModePolicy={manualWorkspace ? "manual-cad" : "interaction-default"}
+-          onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" footerStart={manualWorkspace ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
++          compactChrome={compactManual} onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement={compactAuxiliary ? "overlay" : "footer"} footerStart={manualWorkspace && !compactAuxiliary ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
+           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
+-        </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
++        </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
++        <>
++          <ManualAuxiliaryPanel />
++          {auxiliary ? <ManualAuxiliaryContent kind="more" mobileOnly>
++            {floorStatus}{legend}
++          </ManualAuxiliaryContent> : null}
++        </>
++        </div>
+         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
+         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
+         {mapQuery.data && !manualWorkspace ? legend : null}
+       </OperationMapPanel>
+-      {/* On desktop, long choice lists must scroll within the map row rather
+-          than contribute their intrinsic height to that auto-sized grid row.
+-          Compact inspection must reserve its intrinsic height: a zero-height
+-          second grid row lets preparation buttons sit behind the map. The
+-          outer content scrolls both map and inspection on those screens. */}
+-      <div className={hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
+-        {inspectionPanel}
+-        {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+-        {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
++      {/* Desktop list content is size-contained by the map row even when empty.
++          Manual mobile owns a bounded inline list; embedded preparation keeps
++          its natural-height inspection pane and existing scroll policy. */}
++      <div className={manualWorkspace ? (compactManual ? "min-h-0 min-w-0" : "h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain tablet:[contain:size]") : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
++        {manualWorkspace ? <div key={`${siteId}:${activeFloor?.id}:${selection.mode}`} className="h-full min-h-0">{inspectionPanel}</div> : inspectionPanel}
++        {auxiliary ? <ManualAuxiliaryContent kind="selection">{selectionChoices}</ManualAuxiliaryContent> : selectionChoices}
+       </div>
+     </div>
+     <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled} returnFocusRef={listOpenerRef}
+@@ -176,12 +193,12 @@ export function SpatialTargetSelector({
+   </section>;
+ }
+ 
+-function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter, requiredGatewayId, onChange }: {
+-  kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean;
++function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter, requiredGatewayId, onChange, compact = false }: {
++  compact?: boolean; kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean;
+   fixtureFilter: SpatialTargetSelectorProps["fixtureFilter"]; requiredGatewayId: string | null; onChange: (selection: ControlSelection) => void;
+ }) {
+   const items = kind === "floor" ? dashboard.floors : dashboard.groups;
+-  return <div className="mt-3 grid gap-2" role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
++  return <div className={`mt-3 grid min-h-0 gap-2 ${compact ? "max-h-[15dvh] overflow-y-auto overscroll-contain" : ""}`} role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
+     {items.map((item) => {
+       const candidate = kind === "floor" ? { mode: "floor" as const, floorId: item.id } : { mode: "group" as const, groupId: item.id };
+       const candidateResolved = selectionWithConstraints(resolveControlSelection(dashboard, candidate), fixtureFilter, requiredGatewayId);
+diff --git a/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx b/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
+index 2ae68091..3c222896 100644
+--- a/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
++++ b/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
+@@ -1,5 +1,6 @@
+ import { useState, type ReactNode, type RefObject } from "react";
+ import type { Dashboard } from "../../../api/queries";
++import { List } from "lucide-react";
+ import { Button, SelectBox } from "../../../components/ui";
+ import type { ControlMode, ControlSelection } from "../control-selection";
+ 
+@@ -19,13 +20,14 @@ interface TargetSelectionToolbarProps {
+   onClear?: () => void;
+   compactDisclosure?: boolean;
+   presentation?: "embedded" | "manual-workspace";
++  compact?: boolean;
+ }
+ 
+ const defaultModeLabels: Record<ControlMode, string> = { fixtures: "개별 조명", floor: "층 전체", group: "저장된 구역" };
+ 
+ export function TargetSelectionToolbar({
+   allowedModes, selection, activeFloorId, floors, modeLabels, modeSelectionSemantics = "current", disabled = false,
+-  onModeChange, onFloorChange, onOpenList, listOpenerRef, managementAction, onClear, compactDisclosure = false, presentation = "embedded"
++  onModeChange, onFloorChange, onOpenList, listOpenerRef, managementAction, onClear, compactDisclosure = false, presentation = "embedded", compact = false
+ }: TargetSelectionToolbarProps) {
+   const [toolsOpen, setToolsOpen] = useState(false);
+   const manual = presentation === "manual-workspace";
+@@ -38,18 +40,21 @@ export function TargetSelectionToolbar({
+         disabled={disabled} onClick={() => onModeChange(mode)}>{modeLabels?.[mode] ?? defaultModeLabels[mode]}</Button>)}
+       {onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
+     </div> : null;
+-  const floor = <SelectBox label={<span className="sr-only">표시 층</span>} className={manual ? "min-w-0 flex-1 compact:w-48 compact:flex-none" : undefined}
++  const floor = <SelectBox label={<span className="sr-only">표시 층</span>} className={manual ? (compact ? "min-w-0 flex-1 gap-0 [&>label]:sr-only" : "min-w-0 flex-1 compact:w-48 compact:flex-none") : undefined}
+     items={floors.map((item) => ({ id: item.id, label: item.name }))}
+     selectedKey={activeFloorId} isDisabled={disabled || floors.length === 0} onSelectionChange={(floorId) => floorId && onFloorChange(floorId)} />;
+   const actions = <>
+-    <Button ref={listOpenerRef} type="button" variant="secondary" disabled={disabled} onClick={onOpenList}>{manual ? "조명 목록" : "조명 목록 열기"}</Button>
++    <Button ref={listOpenerRef} type="button" variant="secondary" className={compact ? "size-11 min-h-11! shrink-0 p-0" : undefined} aria-label={compact ? "조명 목록" : undefined} disabled={disabled} onClick={onOpenList}>{compact ? <List size={18} aria-hidden="true" /> : manual ? "조명 목록" : "조명 목록 열기"}</Button>
+     {managementAction}
+     {allowedModes.length === 1 && onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
+   </>;
+   // Only the manual workspace changes reading/layout order. Embedded schedule,
+   // sensor preparation and group editors keep their existing disclosure policy.
+   return <div className={`grid min-w-0 shrink-0 ${manual ? "gap-2" : "gap-3"}`} data-target-selection-toolbar="">
+-    {manual ? <><div className="flex min-w-0 items-end gap-2">{floor}{actions}</div>{modes}</> : <>{modes}
++    {manual ? <><div className="flex min-w-0 items-end gap-1">{floor}
++      {compact ? <SelectBox label={<span className="sr-only">선택 범위</span>} className="min-w-0 flex-1 gap-0 [&>label]:sr-only" items={allowedModes.map(mode => ({ id: mode, label: modeLabels?.[mode] ?? defaultModeLabels[mode] }))}
++        selectedKey={selection.mode} isDisabled={disabled} onSelectionChange={mode => mode && onModeChange(mode)} /> : null}
++      {actions}</div>{!compact ? modes : null}</> : <>{modes}
+     <div className={`grid min-w-0 gap-2 ${compactDisclosure ? "max-compact:grid-cols-[minmax(0,1fr)_auto]" : ""} compact:grid-cols-[minmax(0,1fr)_auto_auto_auto]`}>
+       {floor}
+       {compactDisclosure ? <Button type="button" variant="secondary" className="compact:hidden" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}>선택 도구 {toolsOpen ? "접기" : "열기"}</Button> : null}
+diff --git a/apps/web/src/features/floor-map/FloorMapViewport.test.tsx b/apps/web/src/features/floor-map/FloorMapViewport.test.tsx
+index b7649a2d..e7ae900a 100644
+--- a/apps/web/src/features/floor-map/FloorMapViewport.test.tsx
++++ b/apps/web/src/features/floor-map/FloorMapViewport.test.tsx
+@@ -17,6 +17,20 @@ const snapshot: FloorMapSnapshot = {
+ describe("FloorMapViewport", () => {
+   afterEach(() => cleanup());
+ 
++  it("C6-8 optional compact chrome preserves the live viewport and default footer contract", () => {
++    const view = render(<FloorMapViewport snapshot={snapshot} ariaLabel="compact map" controlsPlacement="footer" footerStart={<span>범례</span>} compactChrome><span /></FloorMapViewport>);
++    const viewport = screen.getByRole("region", { name: "compact map" });
++    const surface = viewport.querySelector("[data-floor-map-surface]");
++    expect(surface).not.toBeNull();
++    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
++    expect(viewport).toHaveAttribute("data-zoom", "1.1");
++    view.rerender(<FloorMapViewport snapshot={snapshot} ariaLabel="compact map" controlsPlacement="footer" footerStart={<span>범례</span>}><span /></FloorMapViewport>);
++    expect(screen.getByRole("region", { name: "compact map" })).toBe(viewport);
++    expect(viewport).toHaveAttribute("data-zoom", "1.1");
++    expect(viewport.querySelector("[data-floor-map-surface]")).toBe(surface);
++    expect(screen.getByRole("button", { name: "지도 화면 맞춤" })).toBeInTheDocument();
++  });
++
+   it.each(["touch", "mouse"])("manual-cad pans from a marker with %s navigation without a ghost click", pointerType => {
+     const toggle = vi.fn(), select = vi.fn();
+     render(<FloorMapViewport snapshot={snapshot} ariaLabel="manual" interactionPolicy="direct-selection" toolModePolicy="manual-cad" onAreaSelect={select}><button data-spatial-map-marker onClick={toggle}>pin</button></FloorMapViewport>);
+diff --git a/apps/web/src/features/floor-map/FloorMapViewport.tsx b/apps/web/src/features/floor-map/FloorMapViewport.tsx
+index 0507dce6..fcb655bb 100644
+--- a/apps/web/src/features/floor-map/FloorMapViewport.tsx
++++ b/apps/web/src/features/floor-map/FloorMapViewport.tsx
+@@ -73,6 +73,8 @@ export interface FloorMapViewportProps {
+   showControls?: boolean;
+   controlsPlacement?: "overlay" | "footer";
+   footerStart?: ReactNode;
++  /** Opt-in manual mobile chrome; geometry/gesture defaults are unchanged. */
++  compactChrome?: boolean;
+   wheelZoomWithoutModifier?: boolean;
+   showFitControl?: boolean;
+   resetControlFits?: boolean;
+@@ -114,6 +116,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
+   showControls = true,
+   controlsPlacement = "overlay",
+   footerStart,
++  compactChrome = false,
+   wheelZoomWithoutModifier = false,
+   showFitControl = true,
+   resetControlFits = false,
+@@ -708,21 +711,21 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
+   // retain their placement. The viewport/renderer subtree never changes owner.
+   const combinedFooter = controlsPlacement === "footer" && footerStart != null;
+   const cameraControls = showControls ? (
+-    <div className={cn("flex items-center gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
+-      <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
+-      <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
+-      <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
++    <div className={cn("flex items-center", compactChrome ? "gap-0" : "gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
++      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
++      <Button type="button" variant="ghost" size="sm" className={compactChrome ? "min-h-11! min-w-11 px-1" : "min-w-14 px-2 max-compact:min-h-13"} aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
++      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
+       {controlAfterZoom}
+-      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
++      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
+     </div>
+   ) : null;
+ 
+   return (
+     <FloorMapViewportOverlayContext.Provider value={overlayContext}>
+-    <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && "flex min-h-min flex-col")}>
++    <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && `flex ${compactChrome ? "min-h-0" : "min-h-min"} flex-col`)}>
+       <div
+         ref={viewportRef}
+-        className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && "min-h-[240px] flex-1 [contain:size]")}
++        className={cn("h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing", controlsPlacement === "footer" && `${compactChrome ? "min-h-0" : "min-h-[240px]"} flex-1 [contain:size]`)}
+         data-testid={viewportTestId}
+         onKeyDown={event => {
+           if (event.target === event.currentTarget) {
+@@ -772,7 +775,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
+           </div>
+         </div>
+       </div>
+-      {combinedFooter ? <div data-floor-map-footer="" className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border-default bg-surface-panel px-3.5 py-2.5">
++      {combinedFooter ? <div data-floor-map-footer="" className={cn("flex min-w-0 shrink-0 items-center justify-between border-t border-border-default bg-surface-panel", compactChrome ? "gap-1 px-1 py-1" : "flex-wrap gap-2 px-3.5 py-2.5")}>
+         <div className="min-w-0">{footerStart}</div>{cameraControls}
+       </div> : cameraControls}
+     </div>
+diff --git a/apps/web/src/features/monitoring/FloorMap.test.tsx b/apps/web/src/features/monitoring/FloorMap.test.tsx
+index 894a5544..436cdf61 100644
+--- a/apps/web/src/features/monitoring/FloorMap.test.tsx
++++ b/apps/web/src/features/monitoring/FloorMap.test.tsx
+@@ -65,7 +65,29 @@ const navigationFloor = {
+ };
+ 
+ describe("FloorMap", () => {
+-  afterEach(() => cleanup());
++  afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(document, "elementFromPoint"); });
++
++  it.each(["mouse", "touch"])("navigates from a real marker with %s without selecting until the next tap", async pointerType => {
++    render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
++    const marker = await screen.findByRole("button", { name: "B1-L001 정상 70%" });
++    // jsdom has no layout; provide the real marker hit rectangle so FloorScene's
++    // pointerup hit-test, rather than a keyboard click, owns the next selection.
++    vi.spyOn(marker, "getBoundingClientRect").mockReturnValue({ x: 70, y: 70, left: 70, top: 70, right: 118, bottom: 118, width: 48, height: 48, toJSON: () => ({}) });
++    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => marker });
++    const viewport = screen.getByTestId("monitoring-map-viewport");
++    dispatchPointer(marker, "pointerdown", { pointerId: 1, pointerType, button: pointerType === "mouse" ? 1 : 0, clientX: 100, clientY: 100 });
++    dispatchPointer(marker, "pointermove", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
++    dispatchPointer(marker, "pointerup", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
++    fireEvent.click(marker, { detail: 1 });
++    expect(viewport.scrollLeft).toBe(20);
++    expect(viewport.scrollTop).toBe(10);
++    expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
++    expect(screen.queryByRole("dialog", { name: "B1-L001 조명 정보" })).not.toBeInTheDocument();
++    dispatchPointer(marker, "pointerdown", { pointerId: 2, pointerType, button: 0, clientX: 80, clientY: 90 });
++    dispatchPointer(marker, "pointerup", { pointerId: 2, pointerType, button: 0, clientX: 80, clientY: 90 });
++    fireEvent.click(marker, { detail: 1 });
++    expect(await screen.findByRole("dialog", { name: "B1-L001 조명 정보" })).toBeVisible();
++  });
+ 
+   it("renders all canonical statuses and no count overlay while retaining saved pins", () => {
+     const { rerender } = render(<FloorMap floor={{ ...navigationFloor, fixtures: [
+@@ -496,9 +518,9 @@ describe("FloorMap", () => {
+ 
+     viewport.scrollLeft = 40;
+     viewport.scrollTop = 30;
+-    dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+-    dispatchPointer(viewport, "pointermove", { pointerId: 1, button: 0, clientX: 70, clientY: 75 });
+-    dispatchPointer(viewport, "pointerup", { pointerId: 1, button: 0, clientX: 70, clientY: 75 });
++    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 100, clientY: 100 });
++    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 70, clientY: 75 });
++    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 70, clientY: 75 });
+ 
+     expect(viewport.scrollLeft).toBe(70);
+     expect(viewport.scrollTop).toBe(55);
+@@ -516,13 +538,13 @@ describe("FloorMap", () => {
+     dispatchPointer(viewport, "pointerup", { pointerId: 2, button: 0, clientX: 300, clientY: 100 });
+ 
+     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "2");
+-    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }));
++    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }), { detail: 1 });
+     expect(onSelectFixture).not.toHaveBeenCalled();
+   });
+ });
+ 
+-function dispatchPointer(target: HTMLElement, type: string, init: Record<string, number>) {
+-  const event = new Event(type, { bubbles: true });
++function dispatchPointer(target: HTMLElement, type: string, init: Record<string, string | number>) {
++  const event = new Event(type, { bubbles: true, cancelable: true });
+   Object.defineProperties(event, Object.fromEntries(
+     Object.entries(init).map(([key, value]) => [key, { configurable: true, value }])
+   ));
+diff --git a/apps/web/src/features/monitoring/FloorMap.tsx b/apps/web/src/features/monitoring/FloorMap.tsx
+index d4d5e40d..558a2c94 100644
+--- a/apps/web/src/features/monitoring/FloorMap.tsx
++++ b/apps/web/src/features/monitoring/FloorMap.tsx
+@@ -149,6 +149,8 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture,
+       <div className="min-h-min min-w-0 flex-1">
+       <FloorMapViewport
+         ref={viewportRef}
++        interactionPolicy="pan"
++        toolModePolicy="manual-cad"
+         maintainCameraOnResize
+         controlsPlacement="footer"
+         footerStart={legend.length ? <ul className="pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5" aria-label="조명 상태 범례">
+diff --git a/apps/web/src/features/monitoring/MonitoringView.test.tsx b/apps/web/src/features/monitoring/MonitoringView.test.tsx
+index 23808a5f..eb07cac0 100644
+--- a/apps/web/src/features/monitoring/MonitoringView.test.tsx
++++ b/apps/web/src/features/monitoring/MonitoringView.test.tsx
+@@ -26,7 +26,7 @@ async function selectStatusFilter(name: string) {
+ }
+ 
+ function closeInspector() {
+-  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("dialog", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색/목록 닫기" }));
++  fireEvent.click(screen.getByRole("button", { name: screen.queryByRole("complementary", { name: "조명 상세" }) ? "조명 상세 닫기" : "조명 검색/목록 닫기" }));
+ }
+ 
+ // Detail regressions explicitly choose a pin; finder-opening tests use
+@@ -37,7 +37,7 @@ function openDetails(name?: string) {
+   fireEvent.click(marker);
+   openInspector();
+   fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
+-  return screen.getByRole("dialog", { name: "조명 상세" });
++  return screen.getByRole("complementary", { name: "조명 상세" });
+ }
+ 
+ function openCurrentStatus() {
+@@ -49,6 +49,10 @@ function floorMetric(label: string) {
+   return within(screen.getByRole("region", { name: "선택 층 조명 현황" })).getByText(label).parentElement!;
+ }
+ 
++function updatedAt() {
++  return screen.getByText(/마지막 갱신:/).closest("small")!;
++}
++
+ const queryMocks = vi.hoisted(() => ({
+   useDashboard: vi.fn(),
+   useSites: vi.fn(),
+@@ -102,6 +106,47 @@ describe("MonitoringView refresh", () => {
+   const refetchFixtures = vi.fn();
+   const refetchMap = vi.fn();
+ 
++  it("keeps pure snapshot delay in the alarm center without a toast or recent notification and clears on recovery", () => {
++    const query = queryMocks.useFloorFixtures();
++    query.data.pages[0].generatedAt = new Date(Date.now() - 60_001).toISOString();
++    const view = render(<MonitoringView siteId="site-1" />);
++    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
++    expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++    expect(screen.getByRole("list", { name: "최근 알림 목록" })).toBeEmptyDOMElement();
++    queryMocks.useFloorFixtures.mockReturnValue({ ...query, data: { pages: [{ ...query.data.pages[0], generatedAt: new Date().toISOString() }] } });
++    view.rerender(<MonitoringView siteId="site-1" />);
++    expect(screen.getByRole("region", { name: "현재 화면 상태" })).not.toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++  });
++
++  it("keeps the screen heading nonvisual and all monitoring tools together with accessible actions", () => {
++    render(<MonitoringView siteId="site-1" />);
++    expect(screen.getByRole("heading", { level: 1, name: "모니터링" })).toHaveClass("sr-only");
++    const tools = screen.getByRole("group", { name: "모니터링 도구" });
++    expect(tools).toContainElement(screen.getByRole("button", { name: "새로고침" }));
++    expect(tools).toContainElement(screen.getByRole("button", { name: "조명 검색/목록" }));
++    expect(tools).toHaveTextContent("마지막 갱신:");
++  });
++
++  it("keeps detail nonmodal inside the map with stable viewport and scrolling across reopen", async () => {
++    render(<MonitoringView siteId="site-1" />);
++    const viewport = screen.getByTestId("monitoring-map-viewport");
++    openDetails();
++    const detail = screen.getByRole("complementary", { name: "조명 상세" });
++    expect(document.querySelector("[data-operation-map-panel]")).toContainElement(detail);
++    expect(detail).not.toHaveAttribute("aria-modal", "true");
++    await waitFor(() => expect(detail).toHaveFocus());
++    await act(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
++    const body = detail.querySelector<HTMLElement>("[data-monitoring-detail-scroll]")!;
++    body.scrollTop = 37;
++    fireEvent.scroll(body);
++    fireEvent.keyDown(detail, { key: "Escape" });
++    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
++    expect(screen.getByTestId("monitoring-map-viewport")).toBe(viewport);
++    openDetails();
++    const reopened = screen.getByRole("complementary", { name: "조명 상세" });
++    await waitFor(() => expect(reopened.querySelector("[data-monitoring-detail-scroll]")).toHaveProperty("scrollTop", 37));
++  });
++
+   it("exposes a single unified search/list opener", () => {
+     render(<MonitoringView siteId="site-1" />);
+     expect(screen.getByRole("button", { name: "조명 검색/목록" })).toBeVisible();
+@@ -162,7 +207,7 @@ describe("MonitoringView refresh", () => {
+       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+       expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
+       expect(screen.getByTestId("shell-current-menu")).toHaveTextContent("모니터링");
+-      expect(screen.getByRole("heading", { level: 1, name: "모니터링" }).closest("header")).toContainElement(screen.getByRole("button", { name: "새로고침" }));
++      expect(screen.getByRole("heading", { level: 1, name: "모니터링" })).toHaveClass("sr-only");
+     } finally { read.mockRestore(); }
+   });
+ 
+@@ -204,8 +249,8 @@ describe("MonitoringView refresh", () => {
+     render(<MonitoringView siteId="site-1" />);
+     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+     await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+-    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", timestamp);
+-    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent("2026-10-04 00:59:00");
++    expect(updatedAt().querySelector("time")).toHaveAttribute("datetime", timestamp);
++    expect(updatedAt()).toHaveTextContent("2026-10-04 00:59:00");
+   });
+ 
+   it("keeps selected pin during theme change", () => {
+@@ -288,9 +333,9 @@ describe("MonitoringView refresh", () => {
+       await chooseSelect("상태 필터", condition === "fault" ? "점검 필요" : "미배치");
+     }
+     await chooseFixture("B1-L001");
+-    const opener = (screen.queryByRole("dialog", { name: "조명 상세" }) || screen.queryByRole("complementary", { name: "조명 상세" })) ? screen.getByRole("button", { name: "조명 검색/목록" }) : screen.getByRole("button", { name: "상세 보기" });
++    const opener = screen.queryByRole("complementary", { name: "조명 상세" }) ? screen.getByRole("button", { name: "조명 검색/목록" }) : screen.getByRole("button", { name: "상세 보기" });
+     if (focusOpener) opener.focus();
+-    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(opener);
++    if (!screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(opener);
+     const detail = screen.getByRole("complementary", { name: "조명 상세" });
+     // Let the old finder portal's return lifecycle finish before focusing the
+     // desktop detail; its late return is not automatic-removal evidence.
+@@ -422,10 +467,10 @@ describe("MonitoringView refresh", () => {
+     fireEvent.click(marker);
+     const pin = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
+     fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("조명 정보 확인 전 · 상태를 불러오는 중");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("조명 정보 확인 전 · 상태를 불러오는 중");
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] }, isPending: false, isFetching: false });
+     view.rerender(<MonitoringView siteId="site-1" />);
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).not.toHaveTextContent("B1-L001");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).not.toHaveTextContent("B1-L001");
+     expect(marker).toHaveAttribute("data-selected", "true");
+   });
+ 
+@@ -439,12 +484,12 @@ describe("MonitoringView refresh", () => {
+       fireEvent.click(await screen.findByRole("option", { name: condition === "fault" ? /^점검 필요$/ : /^미배치$/ }));
+     }
+     await chooseFixture( "B1-L001");
+-    if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toBeVisible();
++    if (!screen.queryByRole("complementary", { name: "조명 상세" })) fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toBeVisible();
+     const updated = { ...fixture, status: "online", health: null, name: condition === "search" ? "다른 이름" : fixture.name, placementStatus: "placed" };
+     queryMocks.useFloorFixtures().data.pages[0].items = [updated];
+     view.rerender(<MonitoringView siteId="site-1" userRole="viewer" />);
+-    expect(screen.queryByRole("dialog", { name: "조명 상세" })).not.toBeInTheDocument();
++    expect(screen.queryByRole("complementary", { name: "조명 상세" })).not.toBeInTheDocument();
+     expect(document.querySelector('[data-spatial-map-marker][data-selected="true"]')).not.toBeInTheDocument();
+     expect(document.querySelector("[data-monitoring-pin-popover]")).not.toBeInTheDocument();
+     const reopened = openInspector();
+@@ -461,8 +506,8 @@ describe("MonitoringView refresh", () => {
+     fireEvent.click(marker);
+     const pin = await screen.findByRole("dialog", { name: "저장된 조명 조명 정보" });
+     fireEvent.click(within(pin).getByRole("button", { name: "상세 보기" }));
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("저장된 조명");
+-    expect(screen.getByRole("dialog", { name: "조명 상세" })).toHaveTextContent("정보 확인 전 · 상태를 불러오는 중");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("저장된 조명");
++    expect(screen.getByRole("complementary", { name: "조명 상세" })).toHaveTextContent("정보 확인 전 · 상태를 불러오는 중");
+     expect(marker).toHaveAttribute("data-selected", "true");
+     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+   });
+@@ -539,7 +584,7 @@ describe("MonitoringView refresh", () => {
+       expect(refetchFixtures).toHaveBeenCalledTimes(1);
+       expect(refetchMap).toHaveBeenCalledTimes(1);
+     });
+-    expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
++    expect(updatedAt()).toBeInTheDocument();
+   });
+ 
+   it("keeps one hardware request active and refreshes marker/detail without deriving counts from fixture pages", async () => {
+@@ -1028,7 +1073,7 @@ describe("MonitoringView refresh", () => {
+ 
+     render(<MonitoringView siteId="site-1" />);
+ 
+-    const updated = screen.getByText(/마지막 갱신:/);
++    const updated = updatedAt();
+     expect(updated).toHaveTextContent(localTime);
+     expect(updated).toHaveTextContent("현장 시간");
+     expect(updated).not.toHaveTextContent(snapshotAt);
+@@ -1040,7 +1085,7 @@ describe("MonitoringView refresh", () => {
+   it("keeps pending snapshot metadata explicit without an invented time", () => {
+     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: undefined, isPending: true });
+     render(<MonitoringView siteId="site-1" />);
+-    const updated = screen.getByText(/마지막 갱신:/);
++    const updated = updatedAt();
+     expect(updated).toHaveTextContent("서버 snapshot 시각 확인 중");
+     expect(updated.querySelector("time")).toBeNull();
+   });
+@@ -1062,10 +1107,10 @@ describe("MonitoringView refresh", () => {
+ 
+     render(<MonitoringView siteId="site-1" />);
+ 
+-    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++    expect(within(screen.getByRole("region", { name: "알림" })).queryByRole("status")).not.toBeInTheDocument();
+     expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+-    expect(screen.getByText(/마지막 갱신:/)).not.toHaveTextContent(snapshotAt);
+-    expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toHaveAttribute("datetime", snapshotAt);
++    expect(updatedAt()).not.toHaveTextContent(snapshotAt);
++    expect(updatedAt().querySelector("time")).toHaveAttribute("datetime", snapshotAt);
+   });
+ 
+   it("keeps a future server snapshot explicit instead of presenting it as a normal relative update", () => {
+@@ -1085,7 +1130,7 @@ describe("MonitoringView refresh", () => {
+ 
+     render(<MonitoringView siteId="site-1" />);
+ 
+-    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent("시간 차이 확인 (2099-01-01 09:00:00)");
++    expect(updatedAt()).toHaveTextContent("시간 차이 확인 (2099-01-01 09:00:00)");
+     expect(screen.getByRole("status")).toHaveTextContent("시간 차이 확인: 2099-01-01 09:00:00");
+   });
+ 
+@@ -1118,8 +1163,12 @@ describe("MonitoringView refresh", () => {
+     render(<MonitoringView siteId="site-1" />);
+     act(() => vi.advanceTimersByTime(60_000));
+     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
++    expect(openCurrentStatus()).not.toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+     act(() => vi.advanceTimersByTime(1));
+-    expect(screen.getByRole("status")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
++    // The alarm dialog hides sibling regions from accessibility; include hidden
++    // statuses so a duplicate transient toast would still fail this assertion.
++    expect(screen.queryByRole("status", { hidden: true })).not.toBeInTheDocument();
++    expect(screen.getByRole("region", { name: "현재 화면 상태" })).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+   });
+ 
+   it.each([
+@@ -1529,7 +1578,7 @@ describe("MonitoringView refresh", () => {
+     expect(within(selectedFinder).getByRole("button", { name: new RegExp(nextFixture.name) })).toHaveAttribute("aria-pressed", "true");
+     expect(within(inspector).queryByRole("complementary", { name: "선택 조명 상세" })).not.toBeInTheDocument();
+     fireEvent.click(screen.getByRole("button", { name: "상세 보기" }));
+-    const detail = screen.getByRole("dialog", { name: "조명 상세" });
++    const detail = screen.getByRole("complementary", { name: "조명 상세" });
+     expect(within(detail).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent(nextFixture.name);
+     expect(within(detail).queryByText(fixture.name)).not.toBeInTheDocument();
+     closeInspector();
+@@ -1722,7 +1771,7 @@ function deferred<T>() {
+ async function chooseFixture(option: string) {
+   const list = screen.getByRole("list", { name: "조명 목록" });
+   fireEvent.click(within(list).getByRole("button", { name: new RegExp(option.split(" · ")[0]) }));
+-  if (!screen.queryByRole("dialog", { name: "조명 상세" }) && !screen.queryByRole("complementary", { name: "조명 상세" })) {
++  if (!screen.queryByRole("complementary", { name: "조명 상세" })) {
+     await screen.findByRole("dialog", { name: `${option.split(" · ")[0]} 조명 정보` });
+     openInspector();
+   }
+diff --git a/apps/web/src/features/monitoring/MonitoringView.tsx b/apps/web/src/features/monitoring/MonitoringView.tsx
+index 258c5a37..8aa365b0 100644
+--- a/apps/web/src/features/monitoring/MonitoringView.tsx
++++ b/apps/web/src/features/monitoring/MonitoringView.tsx
+@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
+ import { useCurrentUser } from "../../api/auth";
+ import { principalKey } from "../../api/principal-cache";
+ import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
+-import { Button, DetailSheet, Popover, FeedbackState, Heading, PageHeader, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
++import { Button, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+ import { InstallationPending } from "../setup/SetupWizard";
+ import { FloorMap } from "./FloorMap";
+ import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
+@@ -41,7 +41,7 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
+   const dashboardQuery = useDashboard(siteId);
+   const { data, isLoading } = dashboardQuery;
+ 
+-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="모니터링" />;
++  const pageHeader = <Heading as="h1" className="sr-only">모니터링</Heading>;
+   if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" /></section>;
+   if (!data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></section>;
+ 
+@@ -78,13 +78,10 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+   const [isLogDrawerOpen, setIsLogDrawerOpen] = useState(false);
+   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
+   const [isDetailOpen, setIsDetailOpen] = useState(false);
+-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia?.("(min-width: 1024px)").matches ?? false);
+   const detailReturnRef = useRef<HTMLElement | null>(null);
+   const detailScopeRef = useRef<string | null>(null);
+   const detailRef = useRef<HTMLElement | null>(null);
+   const detailBodyRef = useRef<HTMLDivElement | null>(null);
+-  const sheetDetailRef = useRef<HTMLElement | null>(null);
+-  const sheetDetailBodyRef = useRef<HTMLDivElement | null>(null);
+   const detailScrollRef = useRef(0);
+   const detailScrollRestoringRef = useRef(false);
+   const [isPinOpen, setIsPinOpen] = useState(false);
+@@ -138,43 +135,25 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+     };
+   }, [floor?.id, siteId]);
+   useEffect(() => { setSelectedFixtureId(null); setIsLogDrawerOpen(false); setIsInspectorOpen(false); setIsDetailOpen(false); setFixtureFilter("all"); setFixtureSearch(""); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }, [floor?.id, principal]);
+-  useEffect(() => {
+-    const media = window.matchMedia?.("(min-width: 1024px)");
+-    if (!media) return;
+-    const update = () => {
+-      // Surface remounts at the breakpoint; retain its body scroll, while the
+-      // stable map viewport keeps camera state through its resize observer.
+-      // CSS can clamp the old surface during resize before this event runs.
+-      // Keep the last user offset, not that temporary smaller maximum.
+-      detailScrollRestoringRef.current = true;
+-      detailScrollRef.current = Math.max(detailScrollRef.current, detailBodyRef.current?.scrollTop ?? 0, sheetDetailBodyRef.current?.scrollTop ?? 0);
+-      setIsDesktop(media.matches);
+-    };
+-    media.addEventListener("change", update);
+-    return () => media.removeEventListener("change", update);
+-  }, []);
+   useEffect(() => { detailScrollRef.current = 0; }, [selectedFixtureId]);
+   useEffect(() => {
+     if (!isDetailOpen) return;
+     detailScrollRestoringRef.current = true;
+     let releaseFrame: number | undefined;
+     const frame = requestAnimationFrame(() => {
+-      // Keep refs separate: the outgoing sheet's delayed portal cleanup must
+-      // not clear the incoming aside's ref at the responsive boundary.
+-      const body = isDesktop ? detailBodyRef.current : sheetDetailBodyRef.current;
++      const body = detailBodyRef.current;
+       if (body) body.scrollTop = detailScrollRef.current;
+-      if (isDesktop && !detailRef.current?.contains(document.activeElement)) detailRef.current?.focus({ preventScroll: true });
++      if (!detailRef.current?.contains(document.activeElement)) detailRef.current?.focus({ preventScroll: true });
+       releaseFrame = requestAnimationFrame(() => { detailScrollRestoringRef.current = false; });
+     });
+     return () => { cancelAnimationFrame(frame); if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame); };
+-  }, [isDesktop, isDetailOpen, selectedFixtureId]);
++  }, [isDetailOpen, selectedFixtureId]);
+ 
+   function clearSelection() {
+     // Automatic runtime exclusion/deletion can remove a focused nonmodal aside.
+     // Return only its own current-scope focus, before removal: no deferred job
+     // may steal outside focus after an account/site/floor change or unmount.
+-    // Compact DetailSheet retains its shared portal return lifecycle.
+-    if (isDesktop && isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
++    if (isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
+       const opener = detailReturnRef.current;
+       const target = opener?.isConnected && opener.tabIndex >= 0 && !detailRef.current.contains(opener) && !("disabled" in opener && opener.disabled)
+         ? opener : finderOpenerRef.current ?? inspectorTriggerRef.current;
+@@ -254,7 +233,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+   if (!data.site.id) {
+     return (
+       <section className="grid min-w-0 gap-4" data-monitoring-screen="">
+-        <PageHeader variant="customer" headingLevel={1} title="모니터링" />
++        <Heading as="h1" className="sr-only">모니터링</Heading>
+         <InstallationPending />
+       </section>
+     );
+@@ -352,15 +331,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
+       event.preventDefault(); workspaceFocus.exit();
+     }}>
+-      <PageHeader variant="customer" headingLevel={1} title="모니터링" className="max-compact:order-0" actions={<>
+-        <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
+-          {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
+-        </Text>
+-        <Button ref={refreshButtonRef} variant="secondary" disabled={isManualRefreshing} aria-busy={isManualRefreshing} onClick={() => void handleRefresh()}>
+-          <RefreshCw aria-hidden="true" size={16} className={isManualRefreshing ? "animate-spin" : undefined} />
+-          {isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}
+-        </Button>
+-      </>} />
++      <Heading as="h1" className="sr-only">모니터링</Heading>
+       <MonitoringSessionStatuses
+         timeZone={data.site.timeZone ?? "Asia/Seoul"}
+         siteId={siteId ?? data.site.id}
+@@ -375,16 +346,23 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+         onRefresh={() => void handleRefresh()}
+         onMapRetry={() => void handleMapRetry()}
+       />
+-      <div className="flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1" role="group" aria-label="모니터링 도구">
++      <div className="flex min-w-0 items-center gap-2 max-compact:order-1" role="group" aria-label="모니터링 도구">
+           <SelectBox
+             label="맵 선택"
+             items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
+             selectedKey={floor?.id ?? null}
+             isDisabled={data.floors.length === 0}
+             onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
+-            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"
++            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1 max-compact:[&_label]:sr-only"
+           />
+-          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={event => openInspector(event.currentTarget)}><Filter size={16} aria-hidden="true" />조명 검색/목록</Button>
++          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0 max-tablet:size-13 max-tablet:p-0" aria-label="조명 검색/목록" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={event => openInspector(event.currentTarget)}><Filter size={16} aria-hidden="true" /><span className="max-tablet:hidden">조명 검색/목록</span></Button>
++          <Text as="small" variant="caption" tone="secondary" className="ml-auto min-w-0 shrink-0 text-right">
++            {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
++          </Text>
++          <Button ref={refreshButtonRef} variant="secondary" className="shrink-0 max-tablet:size-13 max-tablet:p-0" aria-label={isManualRefreshing ? "장치 상태 확인 중" : "새로고침"} disabled={isManualRefreshing} aria-busy={isManualRefreshing} onClick={() => void handleRefresh()}>
++            <RefreshCw aria-hidden="true" size={16} className={isManualRefreshing ? "animate-spin" : undefined} />
++            <span className="max-tablet:hidden">{isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}</span>
++          </Button>
+       </div>
+ 
+       <FixtureQueryFeedback
+@@ -395,11 +373,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+         onRetry={() => void fixtureQuery.refetch()}
+       />
+ 
+-      {/* Keep the desktop detail's reading region as tall as the map's natural
+-          minimum; short screens scroll the page instead of shrinking the row. */}
+       {/* Compact maps consume remaining viewport space; the natural minimum
+           keeps the canvas and ticker reachable through document scroll on short screens. */}
+-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
++      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min")} data-monitoring-layout="">
+         <div className="flex h-full min-h-min min-w-0 flex-col gap-5" data-monitoring-map-panel="">
+           <OperationMapPanel className="min-h-min"
+             status={floor ? <MonitoringSummary scope="floor" mapName={floor.name}
+@@ -434,6 +410,12 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+           ) : (
+             <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
+           )}
++          {/* The overlay is out of flow: opening detail never changes the map
++              viewport or camera. Only its reading body scrolls; map remains usable. */}
++          {isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="absolute inset-x-0 bottom-0 z-10 flex h-1/2 min-h-0 min-w-0 flex-col border-t border-border-default bg-surface-panel p-3 shadow-popover compact:p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
++            <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
++            <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
++          </aside> : null}
+           </OperationMapPanel>
+           {floor ? <MonitoringLogTicker
+             scopeKey={detailScope}
+@@ -449,12 +431,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+             triggerRef={logTriggerRef}
+           /> : null}
+         </div>
+-        {/* Zero preferred height excludes the scrollable detail content from
+-            the row's intrinsic size; its minimum then fills the map-led row. */}
+-        {isDesktop && isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="flex h-0 min-h-full min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
+-          <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
+-          <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
+-        </aside> : null}
+       </div>
+       <Popover
+         isOpen={isInspectorOpen}
+@@ -504,11 +480,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
+         {selectedFixtureId ? <Button variant="secondary" onClick={() => openDetail(selectedFixtureId)}>상세 보기</Button> : null}
+         </div>
+       </Popover>
+-      <DetailSheet ref={sheetDetailRef} isOpen={!isDesktop && isDetailOpen && selectedFixtureId !== null} onClose={closeDetail} title="조명 상세" closeLabel="조명 상세 닫기" returnFocusRef={detailReturnRef} fallbackFocusRef={finderOpenerRef.current ? finderOpenerRef : inspectorTriggerRef} bodyClassName="flex min-h-0 flex-col overflow-hidden">
+-        <div ref={sheetDetailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto">
+-        <FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} />
+-        </div>
+-      </DetailSheet>
+       <MonitoringLogDrawer
+         isOpen={isLogDrawerOpen}
+         onClose={() => setIsLogDrawerOpen(false)}
+@@ -600,6 +571,9 @@ function MonitoringSessionStatuses({
+       id: `query:monitoring:${scope}:fixtures`,
+       fingerprint: `fixtures:${fixtureError}:${snapshotFreshness.metadata}:${snapshotFreshness.freshness}:${anomalousGeneratedAt ?? ""}`,
+       source: "query", tone: "warning", title, description,
++      // Pure snapshot delay stays actionable in current-screen alarms, without
++      // inventing a durable device incident or repeating transient notifications.
++      announce: fixtureError || snapshotFreshness.metadata !== "valid",
+       action: { label: fixtureError ? "조명 상태 다시 시도" : "다시 시도", onAction: () => actions.current.onRefresh() }
+     }];
+   }, [anomalousGeneratedAt, fixtureError, floorId, hasFixtureData, scope, snapshotFreshness.freshness, snapshotFreshness.metadata, timeZone]);
+@@ -676,8 +650,17 @@ function parseStrictIsoTimestamp(value: unknown):
+ }
+ 
+ function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>, timeZone: string) {
+-  if (snapshot.metadata === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
+-  if (snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined) return "마지막 갱신: 서버 snapshot 시각 확인 중";
+-  if (snapshot.metadata === "future") return `마지막 갱신: 시간 차이 확인 (${formatMonitoringTimestamp(snapshot.anomalousGeneratedAt!, timeZone)})`;
+-  return <>마지막 갱신: <time dateTime={snapshot.rawGeneratedAt}>{formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone)} (현장 시간)</time></>;
++  const notice = snapshot.metadata === "invalid" ? "마지막 갱신: 서버 snapshot 시각 확인 필요"
++    : snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined ? "마지막 갱신: 서버 snapshot 시각 확인 중"
++      : snapshot.metadata === "future" ? `마지막 갱신: 시간 차이 확인 (${formatMonitoringTimestamp(snapshot.anomalousGeneratedAt!, timeZone)})` : null;
++  if (notice) return <span title={notice}><span className="max-tablet:sr-only">{notice}</span><span aria-hidden="true" className="hidden max-tablet:inline">시각 확인</span></span>;
++  if (!snapshot.rawGeneratedAt) return null;
++  const full = formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone);
++  // The shared formatter owns strict instant/zone validation and canonical
++  // YYYY-MM-DD HH:mm:ss output; compact copy must not reparse with a fallback zone.
++  const short = full === "—" ? full : full.slice(11, 16);
++  return <span title={`마지막 갱신: ${full} (현장 시간)`}>
++    <span className="max-tablet:sr-only">마지막 갱신: </span>
++    <time dateTime={snapshot.rawGeneratedAt} aria-label={`${full} (현장 시간)`}><span className="max-tablet:hidden">{full} (현장 시간)</span><span aria-hidden="true" className="hidden max-tablet:inline">{short}</span></time>
++  </span>;
+ }
+diff --git a/apps/web/src/features/shells/CustomerShell.test.tsx b/apps/web/src/features/shells/CustomerShell.test.tsx
+index f14349f7..cea787af 100644
+--- a/apps/web/src/features/shells/CustomerShell.test.tsx
++++ b/apps/web/src/features/shells/CustomerShell.test.tsx
+@@ -121,6 +121,29 @@ describe("customer shell site context", () => {
+     expect(within(header).getByRole("link", { name: "내 계정 및 보안" })).toHaveAttribute("href", "/settings/security?siteId=site");
+     expect(screen.getByRole("region", { name: "내 계정" })).toContainElement(screen.getByRole("button", { name: "로그아웃" }));
+   });
++  it("C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize", async () => {
++    prepareRealManualConsumer();
++    let onChange: ((event: MediaQueryListEvent) => void) | undefined;
++    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)",
++      addEventListener: (_type: string, listener: typeof onChange) => { if (query === "(width < 760px)") onChange = listener; }, removeEventListener: vi.fn() })));
++    renderShell("/control?siteId=site&mode=manual");
++    const main = screen.getByRole("main");
++    const input = await screen.findByRole("textbox", { name: "밝기 수치" });
++    fireEvent.input(input, { target: { value: "31" } });
++    const page = document.querySelector("[data-control-screen]");
++    act(() => onChange?.({ matches: false } as MediaQueryListEvent));
++    expect(document.querySelector("[data-control-screen]")).toBe(page);
++    act(() => onChange?.({ matches: true } as MediaQueryListEvent));
++    expect(document.querySelector("[data-control-screen]")).toBe(page);
++    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
++    expect(input).toHaveValue("31");
++    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
++    fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
++    await waitFor(() => expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true"));
++    expect(screen.queryByRole("button", { name: "더보기" })).not.toBeInTheDocument();
++    expect(apiPost).not.toHaveBeenCalled();
++  });
++
+   it.each([[759.5, true], [760, false], [760.5, false]] as const)("publishes the strict CSS media contract at controlled width %s", (_width, compact) => {
+     // Chromium rounds CSS iframe viewports to integer pixels. This controlled
+     // media owner covers the requested fractional API boundary separately from
+@@ -205,36 +228,34 @@ describe("customer shell site context", () => {
+       : path.startsWith("/commands/") ? status
+         : path.includes("monitoring-incidents") ? { incidents: [], activeCount: 0, unreadCount: 0, nextCursor: null } : { users: [], count: 0, limit: 100 });
+     renderShell("/control?siteId=site");
++    fireEvent.click(await screen.findByRole("button", { name: "더보기" }));
+     fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
+     fireEvent.click(await screen.findByRole("button", { name: "상세 보기" }));
+     const detail = screen.getByRole("region", { name: "최근 결과 상세" });
+     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
++    const focusedHistoryAction = within(screen.getByRole("region", { name: "제어 이력" })).getByRole("button", { name: "전체 보기" });
++    focusedHistoryAction.focus(); expect(focusedHistoryAction).toHaveFocus();
+     act(() => onChange?.({ matches: false } as MediaQueryListEvent));
++    expect(focusedHistoryAction).toHaveFocus();
+     expect(screen.getByRole("region", { name: "최근 결과 상세" })).toBe(detail);
+     expect(detail).not.toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+     act(() => onChange?.({ matches: true } as MediaQueryListEvent));
++    expect(focusedHistoryAction).toHaveFocus();
+     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+     expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
+     expect(apiPost).not.toHaveBeenCalled();
+   });
+ 
+-  it.each([[759.5, true], [760, false], [760.5, false]] as const)("uses the real authorized manual report for remaining height at controlled width %s", async (_width, compact) => {
++  it.each([[759.5, true], [760, false], [760.5, false]] as const)("uses the real authorized manual report at controlled width %s", async (_width, compact) => {
+     prepareRealManualConsumer();
+     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(width < 760px)" ? compact : false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+     renderShell("/control?siteId=site&mode=manual");
+-    await waitFor(() => expect(document.querySelector("[data-control-screen]")).not.toBeNull());
+-    const main = screen.getByRole("main");
+-    if (compact) {
+-      expect(main.parentElement).toHaveClass("min-h-screen", "pb-shell-navigation-safe");
+-      expect(main.parentElement).not.toHaveClass("h-dvh", "overflow-hidden");
+-      expect(main.querySelector("[data-shell-content]")).not.toHaveClass("min-h-0", "overflow-auto");
+-    } else {
+-      await waitFor(() => expect(main.parentElement).toHaveClass("h-dvh", "min-h-0"));
+-      expect(main.parentElement).not.toHaveClass("overflow-hidden");
+-      expect(main).toHaveClass("min-h-0");
+-      expect(main.querySelector("[data-shell-content]")).toHaveClass("grid", "min-h-0", "grid-rows-[minmax(0,1fr)]", "overflow-auto");
+-      expect(document.querySelector("[data-shell-topbar]")).toHaveClass("shrink-0");
+-    }
++    const input = await screen.findByRole("textbox", { name: "밝기 수치" });
++    expect(input).toBeEnabled();
++    expect(screen.queryByRole("button", { name: "더보기" }) !== null).toBe(compact);
++    expect(screen.queryByRole("navigation", { name: "모바일 주 메뉴" }) !== null).toBe(compact);
++    if (compact) expect(screen.getByText("수동 제어", { selector: "p" })).toBeVisible();
++    else expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+     expect(apiPost).not.toHaveBeenCalled();
+   });
+ 
+@@ -250,7 +271,7 @@ describe("customer shell site context", () => {
+     const route = document.querySelector("[data-control-screen]");
+     fireEvent.click(screen.getByRole("button", { name: "다크 모드로 변경" }));
+     act(() => mediaChange?.({ matches: true } as MediaQueryListEvent));
+-    expect(screen.getByRole("main").parentElement).toHaveClass("min-h-screen");
++    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
+     expect(document.querySelector("[data-control-screen]")).toBe(route);
+     act(() => mediaChange?.({ matches: false } as MediaQueryListEvent));
+     await waitFor(() => expect(screen.getByRole("main").parentElement).toHaveClass("h-dvh"));
+diff --git a/apps/web/src/features/shells/CustomerShell.tsx b/apps/web/src/features/shells/CustomerShell.tsx
+index 76bb85f3..fb6b91d7 100644
+--- a/apps/web/src/features/shells/CustomerShell.tsx
++++ b/apps/web/src/features/shells/CustomerShell.tsx
+@@ -276,7 +276,9 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
+   const isControlWorkspace = location.pathname === "/control" && Boolean(capabilities?.control) && !gate;
+   // The page owns resolved mode/site authorization. This stable setter is only
+   // a layout handoff: execution locks, queries and theme never define its scope.
+-  const isManualDesktopWorkspace = isControlWorkspace && manualWorkspaceActive && !isCompactNavigation;
++  const isManualWorkspace = isControlWorkspace && manualWorkspaceActive;
++  const isManualDesktopWorkspace = isManualWorkspace && !isCompactNavigation;
++  const isManualMobileWorkspace = isManualWorkspace && isCompactNavigation;
+   const summaryScope: CustomerShellScope | null = authorizedSelectedSiteId
+     ? { principalKey: principalKey(user), siteId: authorizedSelectedSiteId, pathname: location.pathname } : null;
+   const summaryValue: CustomerSiteSummary | null = summaryScope ? {
+@@ -294,7 +296,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
+     <WorkspaceFocusProvider scope={JSON.stringify([principalKey(user), selectedSiteId, location.pathname])}>{focus =>
+     <SessionStatusProvider scope={JSON.stringify([principalKey(user), authorizedSelectedSiteId])}>
+       <ShellStatusRegistration items={shellStatusItems} />
+-      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "flex h-dvh min-h-0" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
++      <div className={`bg-surface-canvas ${isMonitoringRoute ? "flex h-dvh min-h-0" : focus.active ? "flex h-dvh min-h-0 overflow-hidden" : isManualWorkspace ? "flex h-dvh min-h-0" : isEditorRoute ? "flex min-h-dvh" : "min-h-screen"} ${isCompactNavigation && !focus.active && !isMonitoringRoute ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell data-workspace-full-view={focus.active}>
+       {capabilities && !gate ? isCompactNavigation ? (
+         <nav hidden={focus.active} className={focus.active ? "hidden" : "fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom"} aria-label="모바일 주 메뉴" data-shell-navigation="compact">
+           <PrimaryNavigation capabilities={capabilities} search={location.search} />
+@@ -310,10 +312,10 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
+           </nav>
+         </aside>
+       ) : null}
+-      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualDesktopWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
++      <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
+         {/* Reserve intrinsic summary/action widths before giving the site label
+             remaining space; otherwise a long label collapses the summary track. */}
+-        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
++        <header hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-10 grid ${isManualMobileWorkspace ? "min-h-13" : "min-h-16"} min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2`} data-shell-topbar>
+           <span className="sr-only" data-testid="shell-current-menu">{titleForPath(location.pathname)}</span>
+           <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1" aria-label="현장 정보" data-shell-context>
+             {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
+@@ -336,7 +338,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
+             {!isCompactNavigation ? <Link to={`/settings/security${location.search}${location.hash}`} aria-label="내 계정 및 보안"
+               className="inline-flex min-h-13 min-w-13 items-center justify-center rounded-control text-content-secondary outline-none focus-visible:shadow-focus hover:bg-surface-inset"><UserRound size={20} aria-hidden="true" /></Link> : null}
+           </div>
+-          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
++          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isManualMobileWorkspace ? "hidden" : isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
+         </header>
+         {focus.active ? <div className="shrink-0 self-start px-2 pt-2"><Button type="button" variant="secondary" onClick={event => statusCenterRef.current?.open(event.currentTarget)}><Bell size={18} aria-hidden="true" />알람센터</Button></div> : null}
+         <ToastRegion placement="flow" suppressVisual={isCompactNavigation} />
+@@ -348,14 +350,11 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
+             scrolls normally when live notice height exceeds the viewport. */}
+         {/* Editor minima may exceed a short viewport. Keep ordinary document
+             scrolling through both grids instead of clipping the workspace. */}
+-        {/* Only an authorized Control workspace needs the available grid row,
+-            not an intrinsic content-start row. Its min-content floor keeps a
+-            short viewport in document flow; account/gate and other routes keep
+-            their existing composition and scrolling policy. */}
+-        {/* Manual desktop consumes remaining space below the dynamic header
+-            and flow notices. Overflow remains reachable inside this workspace,
+-            rather than clipping a short-screen map or command recovery action. */}
+-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
++        {/* Only the page's authorized manual-active report gives mobile a
++            finite remaining row and safe-navigation reserve. Desktop retains
++            its outer scrollport; schedules/events/groups/account/editor keep
++            their existing flow. Mobile lists/More own reachable overflow. */}
++        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualMobileWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] px-2 py-1" : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-min grid-rows-[auto_minmax(min-content,1fr)] gap-2 p-2 compact:p-3 [&>section:last-child]:h-full [&>section:last-child]:min-h-min [&>section:last-child]:grid-rows-[auto_minmax(min-content,1fr)] [&>section:last-child]:gap-2 [&>section:last-child>div]:min-h-min" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
+           {/* The eager account region stays outside the lazy route boundary so
+               failed settings chunks and installation/permission gates retain
+               the same logout controller, confirmation and initiating ref. */}
+diff --git a/docs/menus/control.md b/docs/menus/control.md
+index ace69e1a..57c15f93 100644
+--- a/docs/menus/control.md
++++ b/docs/menus/control.md
+@@ -1,5 +1,90 @@
+ # 제어 메뉴 기능 현황
+ 
++## 2026-10-12 승인 후속 — 지도 하단 단일 보조 패널
++
++### 구현 완료
++
++- 수동 모바일의 목록·더보기는 지도 내부 하단의 하나의 nonmodal 보조 패널에서 상호배타로 표시한다. 고정 제목/닫기44와 공통 body 내부 scroll을 사용하며, 열기·전환·닫기가 지도 grid의 행 높이를 추가하지 않는다. 별도 drawer/selection/query/command owner를 만들지 않았다.
++- 지도 아래 `선택 조명 N개` → 바로 아래 `전체 보기`44, 숫자/slider/적용/더보기44 한 행, 중요한 상태/live와 navigation을 유지한다. 선택 범위와 층 dropdown의 시각적 label 빈 간격을 수동 compact caller에서만 없애고 accessible label은 유지한다.
++- 수동 모바일만 중복 현장 전체·층 집계·범례와 기존 제어 방식 전환을 더보기로 옮긴다. 기본 화면에는 현재 `수동 제어` 식별을 남긴다. 권한이 확인된 manual-active shell만 집계 행을 감추고 기존52px action을 가진 compact topbar 높이를 사용한다. 네 camera 기능은 같은 FloorMapViewport의 overlay chrome에서 접근하며 handler/camera/renderer는 그대로다.
++- 보조 콘텐츠는 고정 portal target을 사용해 화면 폭 변경에도 이력/복구 상세·React owner/ref/subscription을 유지한다. 이동 직전 내부 포커스가 있으면 같은 연결된 표시 요소에 preventScroll로 복원한다. Escape(실제 opener 포함)/닫기/동일 opener 재클릭은 실제 opener에 돌아간다. 현장·주체·층·선택 방식 경계는 보조 패널을 닫는다.
++- raw31·invalid blur/Enter·첫 invalid Apply 차단·별도 명시 적용, 권한/잠금·동일 UUID 복구를 유지한다. 기본 standalone/PC·자동화/editor/embedded 소비자는 기존 표시 정책을 유지한다. 공통 UI/public API 변경은 없다.
++
++### 미구현
++
++- 최종 source의 실제320/390×600 map240 목표·지도 우세·map rect/canvas/camera 불변, 마지막 action 도달·nav 겹침0·continuous44 hit·slider 끝 간섭 검증은 총괄 source freeze 이후 UX 후속 QA다.
++- 실제 OS keyboard/touch/safe-area 및 장비/HIL 검증은 수행하지 않았다.
++
++### 부족하거나 개선이 필요한 기능
++
++- 원69b1 실제 QA에서 기본 지도62/70px,390 긴 목록 펼침 후 height0/canvas 연결 해제를 확인했다. 새 보조 패널의 overlay만으로 이 결함을 덮지 않고 기본 화면의 반복 chrome부터 줄였다. 지도 min240 강제나 새 overflow clip은 추가하지 않았다. 현재 직접 테스트/선언된 layout을 실제 높이 PASS로 해석하지 않는다.
++- 보조 패널은 지도를 부분적으로 가리는 읽기 영역이다. 목록/더보기 전환과 두 펼침 상호배타, 내부 wheel/scroll 끝, 긴 오류·모드 전환 접근성·PC/모바일 portal 내부 포커스는 실제 QA에서도 확인한다. default-false 기존 compact opt-in과 manual-active 보고 경계를 유지한다.
++
++### 관련 파일
++
++- `apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx`와 ControlView/ManualExecutionPanel/target-selection 및 직접 테스트.
++- `apps/web/src/features/shells/CustomerShell.tsx` 및 실제 Control 소비자 직접 테스트. FloorMapViewport/FloorScene/공통 ticker 제품은 변경하지 않았다.
++
++### 갱신 규칙
++
++- 원 actual RED, 직접 동작 RED/GREEN, source/static 및 actual geometry 결과를 구분한다. source commit과 실제 UX/review/MAIN 통합 관문은 별개다.
++- 후속 보조 표현 변경은 renderer·command/query owner와 내부 focus/UUID/raw guard를 함께 확인하고, 메뉴의 이전 세로-flow 기록은 과거 구현으로 읽는다.
++
++## 2026-10-12 실제 QA 후 수동 지도 높이·이력 폭 보완
++
++### 구현 완료
++
++- 수동 모바일 ControlView의 바깥 grid는 제어 방식 auto 행과 남은 높이 minmax(0,1fr) 행으로 나누고, manual tabpanel도 명시적인 남은 높이 행을 사용한다. 기존 implicit auto/content-start에서 size-contained 지도 intrinsic height0만 소비하던 경로를 수정했다. 새 지도 최소높이·overflow clip·renderer 재부모화는 추가하지 않았다.
++- 수동 제어의 좁은 실행 패널에 옮겨진 이력 ticker는 caller의 기존 className으로 내용 행과 action 행을 나눈다. 오류 안내·다시 조회·전체 보기·확인 필요한 명령을 남기고, 공통 ticker/default/다른 메뉴의 배치와 query/handler는 그대로다.
++
++### 미구현
++
++- frozen bea0dacb의 실제 QA에서 320×600·390×600·717×1227 지도 높이0을 확인했다. 이번 소스 수리 이후 같은 실제 QA의 높이·canvas·노출 면적·도달성 재측정은 UX/총괄 후속 관문이다.
++
++### 부족하거나 개선이 필요한 기능
++
++- 직접 소비자 테스트는 명령·draft·scope/default 회귀 근거다. CSS 행 선언 변경을 실제 지도 복구 PASS로 해석하지 않는다. 지도240 목표·두 펼침 동시 도달·44px hit·slider0/100 간섭은 실제 QA에서 판정한다.
++- PC1194 dark의 GET404 안내 세로 감김은 mock 오류 표현의 폭 경합이다. backend 고장으로 분류하지 않는다. 긴 메시지와 모든 action의 실제 줄바꿈/끝 도달은 기존 QA case6 재검증이 필요하다.
++
++### 관련 파일
++
++- `apps/web/src/features/control/ControlView.tsx` 및 Control/Shell/ManualExecution/Spatial/Viewport/CommandHistory/RecentActivityTicker 직접 소비자 테스트.
++
++### 갱신 규칙
++
++- 실제 QA RED 원본과 소스 수리·직접 회귀·실제 기하 GREEN을 구분해 기록한다. 수동 제어 caller의 높이/폭 수정은 명령 owner/UUID·input·camera·기본 embedded 수명을 유지한다.
++
++## 2026-10-12 신규 지도 의견 C6–8 — 수동 제어
++
++### 구현 완료
++
++- 수동 제어 PC의 선택 대상 패널은 empty 상태에도 지도 행 높이를 소비하도록 구성하며, 선택 이름 목록은 해당 패널 내부 스크롤로 제한한다. 기존 resolved selection/UUID/clear/lock을 소비한다.
++- 모바일은 지도 아래 `선택 조명 N개`와 바로 다음 `전체 보기`로 같은 패널의 이름 목록을 인라인으로 펼친다. 목록을 닫거나 Escape로 닫으면 opener로 포커스를 복원하고, 현장·주체·층·선택 방식 경계에서 펼침을 초기화한다. 이 펼침을 위해 새 drawer/query를 만들지 않는다. 기존 전체 조명 목록 버튼의 drawer는 유지한다.
++- 권한이 확인된 manual-active 모바일만 finite h-dvh/min-h-0 shell과 기존 navigation safe reserve를 소비한다. 선택 toolbar는 층/선택 범위 dropdown/목록 icon 한 행, 실행은 숫자/slider/적용/더보기 한 행으로 구성한다. 자동화·그룹 관리·editor·embedded의 높이/renderer 기본 정책은 유지한다.
++- 빠른 값·이력·긴 복구 상세는 `더보기` 내부 스크롤에 유지하며, 접어도 명령 소유자/query/UUID를 제거하지 않는다. 중요한 조회 오류·불확정·확인 필요·잠금 상태는 접힌 상태에도 live summary로 남긴다. raw draft31·invalid blur/Enter·첫 invalid Apply 차단·별도 explicit Apply를 유지한다.
++- 선택적 `FloorMapViewport.compactChrome`은 수동 모바일 caller만 소비한다. 축소·100%·확대·화면 맞춤의 기존 동작, camera/renderer/gesture 수명과 기본 footer 최소240은 유지한다. compact caller는 실제 남은 높이를 사용하며 작은 화면에 강제 최소 높이를 두고 부모에서 잘라내지 않는다.
++
++### 미구현
++
++- 실제 브라우저의 PC panel full-row/empty/long list, 320·390×600 canvas240 목표, map 우세 비율·nav reserve·44px hit·한 행·document scroll0 검증은 총괄의 한정 Task3 QA 관문이다.
++- 물리 WebView/touch/safe-area·Gateway/RF/HIL 검증은 수행하지 않았다.
++
++### 부족하거나 개선이 필요한 기능
++
++- 현재 검증은 직접 React 소비자의 명령·draft·selection·scope·default 수명 계약이다. CSS class 문자열 확인이나 JSDOM 크기를 실제 기하 통과로 해석하지 않는다. compact viewport는 min-h-0이므로 실제 chrome이 남긴 공간이240보다 작을 수 있으며 QA에서 수치와 모든 끝 내용의 도달을 확인해야 한다.
++- desktop 이력은 단일 실행 보조 영역에 유지하고 모바일에 같은 노드를 더보기로 접는다. query/명령 소유자를 복제하지 않았다. 동시에 선택 목록·More를 펼친 짧은 화면, 큰 글꼴·긴 오류·층/구역 목록·본문 마지막 action과 drawer 반환 focus는 실제 QA가 남아 있다.
++
++### 관련 파일
++
++- `apps/web/src/features/control/ControlView.tsx`, `ManualExecutionPanel.tsx` 및 직접 테스트.
++- `apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx`, `SpatialTargetSelector.tsx`, `TargetSelectionToolbar.tsx` 및 직접 테스트.
++- `apps/web/src/features/shells/CustomerShell.tsx`, `features/floor-map/FloorMapViewport.tsx` 및 직접 테스트.
++
++### 갱신 규칙
++
++- 수동 모바일 finite shell/선택 펼침/More 변경은 raw draft·explicit Apply·명령 복구/UUID·권한·scope/camera 수명을 함께 확인한다. 기본 embedded/자동화/다른 route에 compact 정책을 퍼뜨리지 않는다.
++- source/direct test 완료와 실제 browser 기하·최종 QA·독립 review·MAIN 통합 상태를 구분하고, 실제 검증 뒤240 목표·44px·문서/내부 scroll 결과를 기록한다.
++
+ ## 2026-10-11 신규 조작 의견 — 현장명 단순화
+ 
+ ### 구현 완료
+diff --git a/docs/menus/monitoring.md b/docs/menus/monitoring.md
+index f4bb66e9..51437b23 100644
+--- a/docs/menus/monitoring.md
++++ b/docs/menus/monitoring.md
+@@ -1,5 +1,32 @@
+ # 모니터링 메뉴 기능 현황
+ 
++## 2026-10-12 지도 조작·툴바·하단 상세 교정
++
++### 구현 완료
++
++- 지도는 기존 manual-cad opt-in과 pan 정책을 소비한다. PC 중간 버튼/Space 이동과 좌클릭 단일 선택, 모바일 marker 시작 swipe 이동과 tap 선택을 지원하며 영역 선택은 하지 않는다. 공통 viewport 기본값·renderer/camera 수명은 유지한다.
++- 순수 snapshot 60초 초과 지연은 기존 알람센터 ‘현재 화면 상태’에만 표시하고 상단 toast/최근 알림을 생성하지 않는다. 새 snapshot으로 복구하면 사라진다. 조회 실패·invalid/future 시각 경고는 기존 transient 안내를 유지하며 서버 현장 장애 알람·읽음/지우기·미읽음 수는 별도 계약이다.
++- loading/error/main의 h1은 sr-only로 보존한다. 층 선택·통합 검색/목록·마지막 갱신·새로고침을 한 도구 행으로 배치한다. 좁은 화면은 기존52px icon action과 accessible label, 현장 시간 HH:mm/전체 시각 설명을 사용한다. 시각 미확인 안내도 전체 접근 가능한 설명을 유지한다.
++- 조명 상세는 PC·모바일 동일한 지도 내부 하단 약 절반 nonmodal overlay다. 지도 영역은 줄이지 않으며 상세 본문만 스크롤한다. 닫기/Escape·현재 scope의 opener 복귀·선택/필터/삭제 수명과 상세 scroll 기억을 유지한다.
++- 기존 페이지 담당의 인수 검증에서 제품 `ac323a3d`와 동일한 소스의 직접 `MonitoringView`/`FloorMap` 2개 suite 127개가 일괄 통과했다. snapshot 60,000/60,001ms·복구·오류/시각 안내, marker gesture/단일 선택, 상세 열기/닫기·scroll/초점 수명을 확인한 소프트웨어 증거이며 실제 화면 geometry 완료를 뜻하지 않는다.
++
++### 미구현
++
++- 서버 snapshot 지연을 영구 incident로 저장하는 새 DTO/producer는 추가하지 않았다. API/DB/장비/배포/HIL 변경은 없다.
++
++### 부족하거나 개선이 필요한 기능
++
++- 직접 컴포넌트/gesture 회귀는 소프트웨어 증거다. 실제 PC·320/390px 한 행, overlay 전후 map rect/camera 동일성, 내부 scroll과 fixed navigation 위 hit는 총괄의 한정 browser 관문에서 별도로 확인한다.
++- 지연 화면 상태에는 읽음/지우기 동작이 없다. 최근 알림이나 서버 incident의 읽음이 현재 지연의 해결을 뜻하지 않는다.
++
++### 관련 파일
++
++- `apps/web/src/features/monitoring/{MonitoringView,FloorMap}.tsx` 및 직접 테스트. 기존 `components/ui/maps/OperationMapPanel.tsx`와 `features/floor-map/FloorMapViewport.tsx`의 계약을 소비하며 공통 제품 API 변경은 없다.
++
++### 갱신 규칙
++
++- 조회 metadata 지연·서버 장비 장애·transient 알림을 구분하고 직접 unit과 실제 geometry/HIL 범위를 합산하지 않는다. 아래 과거 desktop aside/mobile modal·보이는 h1 기록은 당시 구현 이력이며 현재 계약은 이 절을 따른다.
++
+ ## 2026-10-11 신규 조작 의견 — 현장명 단순화·통합 검색/목록·고정 범례
+ 
+ ### 구현 완료
+diff --git a/docs/project-status.md b/docs/project-status.md
+index f6fa10bb..7a27083e 100644
+--- a/docs/project-status.md
++++ b/docs/project-status.md
+@@ -2,6 +2,22 @@
+ 
+ 기준일: 2026-10-12
+ 
++## 2026-10-12 지도 작업 공간 신규 브라우저 주석 — 승인한 단일 하단 보조 패널 수리 재개
++
++- 사용자 신규 C1–8의 모니터링 제스처·알람센터·한 행 도구·지도 하단 상세, 수동 제어 선택 목록·지도 우선 모바일·간소화 밝기 구성을 승인받았다. 기존 모니터링/제어/UI·UX 담당 audit와 [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)를 기준으로 순차 구현한다.
++- clean MAIN `f31e56fa`에서 `.worktrees/map-workspace-comments-20261012` / `codex/map-workspace-comments-20261012`을 만들었다. 구현·직접 테스트·실제 UI/UX 검증·로컬 병합은 아직이다. 운영 인사이트·다른 메뉴/API/DB/실장비/기존 서비스/원격 변경은 없다. 과거 완료 증거와 이번 관문을 합산하지 않는다.
++- frozen offline install/workspace prepare exit0·계획 자기 점검·독립 Task1 brief 준비를 확인했다. 모니터링 담당이 C1–5 단독 writer로 구현하고 QA 담당은 기존 harness의 한정 case 구성만 감사한다. 제어 구현·실제 browser·UI/UX·최종 review/머지는 아직이다.
++- 사용자가 담당자는 기존 앱의 별도 페이지 세션이라고 정정하여 내부 추가 구현을 중단했다. `모니터링 페이지 담당자`/`제어 페이지 담당자`/`UI/UX 디자이너`에 직접 인계했다. 내부 모니터링 checkpoint `ac323a3d` 소유5파일과 원 실패·126PASS/1FAIL 뒤 경계/시각/gesture 국소 GREEN을 보존(최종127 일괄PASS 아님)했고 원 세션이 이를 인수해 진행한다. 내부 제어 제품diff0/QA실행0이며 실제검수·최종관문·머지는 아직이다. 제어 세션의 별도 장비 작업은 안전한 경계와 기존 승인 관문을 보존한다.
++- 위 제어 인계는 사용자 후속 정정으로 취소 요청을 전송했다. 제어 UI의 지정 담당은 `제어 UI 개선 담당자`이며 현재 활성·보관 목록에 없어 정확 링크/@멘션을 확인 중이다. 기존 `제어 페이지 담당자`의 장비 업무/세션 전체는 중지하지 않는다. 모니터링·UI/UX 인계와 별도 브랜치 원 증거는 유지하고 제어 UI 구현은 지정 세션 확인 전 시작하지 않는다.
++- 지정 링크의 `제어 UI 개선 담당자`(`01a0f776-b930-7eb2-a121-e05bef4d1581`)를 읽어 NEW Task2 단독 writer로 직접 배정했다. 위 미확인 문장은 당시 이력이다. 모니터링 원 세션은 제품ac323a3d 변경0로 인수·자체검토하고 direct2suite127PASS(exit0/18.14s)를 새로 확인, 메뉴문서87f658ef에 한계를 기록했다. 실제geometry·제어 구현/QA/UX/독립review·MAINmerge는 아직이다.
++- 제어 지정 세션의 직접 RED4+viewport1 원 로그를 확인했으며 source 구현 진행 중이다. 순수 CSS class assertion은 실제기하 증거가 아님을 전달했다. 기존 앱 UI/UX 세션은 ignored SDD의 최소 측정 harness 공통부만 준비하고 최종source 인계 후 실제6case를 실행한다. 제품·기존tests·API/DB/장비는 UX 수정범위가 아니며 최종관문/머지는 아직이다.
++- 제어 지정 세션 제품9f3e25d7 소유13파일과 원 RED/중간실패/최종선택41PASS·identity2국소PASS(41과중복)/타입exit0/UI기존0·신규0 보고서를 대조했다. 모드dropdown/인라인 목록·More·finite manual-only·원 UUID/query/draft/renderer 수명을 유지하고 empty 안내가 오류·권한을 가리던 추가RED도수리했다. 중간85/68 결과나 CSS class 확인을 최종전체PASS/실제기하로합산하지않는다. 이제 실제6case·UI/UX/최종policy·build/독립review로진행하며 MAINmerge는아직이다.
++- 위 준비 문장은 당시 이력이다. 기존 앱의 지정제어UI원세션이 실제map0 RED를받아69b1e9a3에서모바일남은높이전달·PC이력폭을최소수리했다(소유2파일/직접7files83PASS·타입/UI0·0). 총괄의같은source정책79PASS·타입포함buildexit0/기존932.47kB경고를확인했다. 실제6재검사는2PASS/4FAIL로미완료이고원첫6실패·하네스configbody0오류·원82/1timeout/분리3은별도보존하며합산하지않는다.
++- 짧은600px화면에서기본지도는320폭62px/390폭70px이며긴목록확장후다시지도0이다. UI/UX높이budget은비지도538/530px과동시목록/More추가244px을확인해지도우세·scroll0·44px/중요상태·동시세로펼침사이의표현선택이필요하다. 사용자에게하나의지도하단보조패널에서목록/More전환(지도크기유지)또는기존세로펼침/보조읽기중지도축소허용을묻고제품/QA/merge를보류한다. 아직선택적용/기능축소/기본브랜치변경0. 지정제어UI·UX원세션은WAIT이며다른제어세션장비업무는중지범위아니다.
++- 모니터링의재열기는pin재클릭을생략한harness오류,짧은상세body는nav가림실측과center-only측정한계를분리한다. native문서이동/노출점wheel미실행이라끝도달불가로확정하지않으며후속failedscope검증이남는다. 독립source검토C/I/M0은수리전소스검토이며actual관문이남아ReadyNo; 이번머지/전체Web/HIL/OSkeyboard/실장비완료주장은없다. [현재체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)에이어갈경계를기록했다.
++
++- 사용자 후속 답변으로 ‘지도 크기 유지 + 목록/More를 한 번에 하나씩 여는 지도 하단 보조 패널’을 승인받았다. 기존 표현 선택 대기는 당시 이력이며 지정 `제어 UI 개선 담당자`만 모바일 기본 지도 확대·상호배타 패널 수리를 재개한다. UX 원 세션은 동일6고유 case 준비만 갱신하고 최종 source 인계 후 실제 재검증한다. PC/다른모드·원 command/query/draft/renderer·44px/중요 상태/nav는 보존한다. 아직 수리 완료·실측 통과·최종 review·MAIN 병합 주장은 없다.
++
+ ## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증·승인된 로컬 통합 완료
+ 
+ - 새 21건 중 C8 운영 인사이트는 사용자 요청으로 그대로 두고 나머지 20건을 반영한다. 세 페이지 담당의 읽기 전용 감사와 대화 설계를 확인했으며 [실행 체크리스트](superpowers/plans/2026-10-11-atlas-interactions-comments.md)에 공통/통계→수동 지도→헤더/모니터링→한정 browser/최종 review 순서를 기록했다.
+diff --git a/docs/superpowers/plans/2026-10-12-map-workspace-comments.md b/docs/superpowers/plans/2026-10-12-map-workspace-comments.md
+new file mode 100644
+index 00000000..029752d7
+--- /dev/null
++++ b/docs/superpowers/plans/2026-10-12-map-workspace-comments.md
+@@ -0,0 +1,107 @@
++# 2026-10-12 모니터링·수동 제어 지도 작업 공간 실행 체크리스트
++
++> 승인: 사용자의 ‘오케이’는 대화에서 확인한 8건의 짧은 설계와 별도 브랜치 구현 → UI/UX 확인 → 로컬 머지 진행을 승인한다. 재설계나 별도 승인 절차를 추가하지 않는다.
++> 실행: 사용자가 ‘담당 에이전트 세션’은 기존 앱 채팅을 뜻한다고 정정했다. 내부 서브에이전트의 추가 구현은 중단하고 아래 기존 세션에 직접 인계했다. 총괄은 소스 수정 대신 결과·원 증거와 이 체크리스트를 취합한다.
++
++## 실제 담당 세션
++
++- 모니터링: `모니터링 페이지 담당자` / `01a088f3-9a15-7802-bd31-cfcfcba2f4d1`.
++- 제어 UI: 사용자 링크로 확인한 `제어 UI 개선 담당자` / `01a0f776-b930-7eb2-a121-e05bef4d1581`. 정확 세션을 읽어 이번 NEW Task2 단독 writer로 메시지 배정했다. 기존 `제어 페이지 담당자` / `01a088db-9c18-7fc1-8ec4-9782efb8ad20`의 이번 UI 요청만 취소 메시지를 전송했고 그 세션의 기존 장비 작업은 취소 범위가 아니다.
++- UI/UX: `UI/UX 디자이너` / `01a0ce87-d272-72d2-8bb6-e021f52628c3`.
++- 사용자 직접 인계 지시로 위 세션 메시지 전송을 승인받았다. 기존 진행 중인 별도 장비 작업을 중단하거나 이 UI 작업에 혼합하지 않는다. 제어 UI는 정확한 지정 세션 확인과 Task1 인수 후 단독 writer로 시작한다. 세션 전체 interrupt/handoff로 기존 작업까지 중지하지 않는다.
++- 내부 모니터링 checkpoint `ac323a3d`(소유5파일)와 원 RED/실패/국소 GREEN은 보존한다. 원 세션이 이를 검토·인수해 이어가며 중복 구현하지 않는다. 내부 제어는 준비만/제품diff0, 내부 QA도 제안만/실행0이다.
++
++## 범위와 공통 제약
++
++- 기준 MAIN `codex/mvp1-cloud-web` / `f31e56fadd27d63f96824bad2ea2c4ef71581b62`; 격리 `.worktrees/map-workspace-comments-20261012`, 브랜치 `codex/map-workspace-comments-20261012`.
++- 이번 신규 C1–8만 수정한다. 과거 29건/20건 완료 증거와 합산하지 않으며 운영 인사이트·통계·설정·API·DB·실장비·다른 worktree·stash·원격·배포는 변경하지 않는다.
++- 중간 버튼 드래그 pan, 왼쪽 클릭 fixture, touch swipe pan/tap, wheel zoom·Space·arrow·pinch·cancel·카메라 기억을 보존한다. 모니터링에 다중/영역 선택을 도입하지 않는다.
++- 순수 snapshot 60초 지연만 기존 알람센터의 현재 화면 상태로 안내한다. toast/최근 알림/서버 incident/새 unread count는 생성하지 않는다. 조회 실패·잘못된/미래 metadata 경고를 일괄 무음화하지 않는다.
++- 보이는 모니터링 제목 제거, 접근성 h1 보존. 층·검색/목록·시각·새로고침 한 행; 좁은 화면 버튼은 44px 아이콘·접근 가능한 이름, 시각 HH:mm 축약과 전체 정보 설명 보존.
++- 상세는 지도 내부 하단 약 절반 nonmodal overlay. 지도 rect·카메라·renderer lifetime 불변, header/닫기 고정, 본문 내부 scroll, Escape/focus 복귀/scroll 기억 유지, overlay wheel이 지도 확대를 유발하지 않는다.
++- PC 선택 패널은 empty도 전체 행 높이. 모바일은 ‘선택 조명 N개’ → 바로 아래 44px ‘전체 보기’를 유지하고, 목록은 지도 내부 하단 보조 패널에서 내부 스크롤한다. 사용자 후속 승인으로 목록/More는 한 번에 하나만 열며 지도 rect·카메라·renderer 크기를 줄이지 않는다. 새 query/command owner 없음.
++- 수동-active 모바일만 유한 높이 shell/workspace. floor·scope·목록 한 44px 행, brightness 숫자·slider·Apply·More 한 44px 행. presets/history/recovery 상세는 내부 More; 오류/복구 존재를 보이는 표시와 live 안내로 유지한다.
++- raw draft·invalid blur/Enter·첫 Apply 차단·명시 Apply·권한/잠금·UUID·명령 복구 수명·scope reset을 보존한다. CSS overflow-hide로 누락을 덮지 않는다. schedules/events/editor/embedded 기본 동작 변경 없음.
++- 기존 Button/Card/SelectBox/IconButton/OperationMapPanel 및 token을 사용한다. 실제 두 소비자의 overlay chrome가 반복되면 Task1이 `components/ui/maps`에 최소 공통 컴포넌트를 만들고 API를 보고한 뒤 Task2가 소비한다. 새 shared/API 계약 없음.
++
++## 경계 사전 점검
++
++| 작업 | 단독 writer | 공유·선행 관계 | 자기 정합 점검 |
++| --- | --- | --- | --- |
++| 1 C1–5 | 기존 모니터링 담당 | 공통 maps chrome 필요 시 이 담당만 먼저 수정; 기존 Viewport 정책 소비 | 모니터링 single selection·alarm/focus 수명 유지, 약 절반 overlay는 canvas 크기 불변 |
++| 2 C6–8 | 기존 제어 담당 | Task1 source/API 확인 후 순차. CustomerShell manual-only 높이 및 common viewport optional compact chrome 필요 시 이 담당 소유 | 단일 command/draft owner·default/embedded 보존, min-height와 내부 scroll/44px 모두 실제 검증 |
++| 3 검증 | 기존 QA + UI/UX 담당 | 제품 writer 완료 후. QA는 test/evidence만, UX는 읽기 전용 | 동일 source cohort·actual map box와 exposed area를 구분, fixture/API fake와 HIL 미실행 기록 |
++| 4 리뷰·통합 | 기존 독립 reviewer + 총괄 | base..최종 제품 SHA의 source-scoped package, owner 수리 후 scoped 재검증 | fresh MAIN 상태·예상 SHA·clean 확인. 변동 시 같은 통합 tree 한정 재검증 |
++
++Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 변경 직접 unit/TDD, 최종 웹 타입·UI 정책·빌드, 이번 동작의 한정 실제 browser와 기존 reviewer 1회 통합 검토를 사용한다. 과거 전체 suite·HIL을 반복하지 않는다. 틀리면 변경 밖 회귀를 놓칠 수 있으므로 미실행 범위를 명시한다.
++
++## 진행
++
++- [x] 짧은 설계 승인·기존 세 담당 read-only audit·별도 브랜치/worktree 준비.
++- [x] frozen offline install/workspace prepare(exit0), 계획 자기 점검·Task1 brief 생성; 준비 commit9d59c7e6.
++- [x] 기존 앱의 모니터링·UI/UX 세션에 직접 인계. 내부 writer 종료 및 checkpoint 원 자료 보존.
++- [x] 사용자 지정 `제어 UI 개선 담당자`의 정확 링크 확인·Task2 단독 writer 인계(기존 제어 페이지 UI 요청만 취소 전달).
++- [x] Task1 모니터링 C1–5 제품ac323a3d 인수·자체검토, 원 페이지 세션 직접2suite127PASS 및 메뉴문서87f658ef. 실제geometry는후속QA.
++- [x] Task2 지정 앱세션 제어 C6–8 제품9f3e25d7/소유13파일, 최종선택41PASS·identity2국소PASS(중복합산0)·타입/UI0. 실제기하는후속QA.
++- [ ] Task3 한정 browser·정적 관문·실제 UI/UX 리뷰, 발견 문제 owner 수리.
++- [ ] Task4 독립 통합 리뷰·fresh MAIN 확인·로컬 머지·회복 가능한 정리.
++
++### 현재 인계 — 사용자 승인한 지도 하단 단일 보조 패널로 재개
++
++- 수리 source `69b1e9a3`는 모바일 남은 높이 전달과 좁은 PC 이력 줄바꿈을 보완했다. 지정 제어 UI 담당 소유2파일/직접7files83PASS(274비선택)·타입/UI0·0, 총괄 동일source정책79PASS·타입포함buildexit0를 확인했다. 원82PASS/1timeout·분리3PASS를 최종83에 합산하지 않는다.
++- 실제 첫6는0PASS6FAIL, 수리source동일failed6 재검사는2PASS(case5 resize/6 PC)4FAIL(case1–4)이다. 원 config-load1FAIL/5미실행은 실제body0으로 구분한다. 원 PNG/geometry/log는 ignored SDD `page-session-ux-report.md` 및 runs에 보존했다. 최종6전체 통과나 merge readiness로 확대하지 않는다.
++- 기본map0은 해소됐지만320×600 map62px/390×600 map70px이며 긴 목록 확장후 다시map0/canvas소실이다. 동일 화면의 비지도 공간은538/530px, 목록90+More150 동시세로펼침은추가244px이다. ‘지도 우세·페이지scroll0·기존44px/중요상태·동시세로펼침’은 현재정보를유지한 채 함께충족할수없어 표현선택을사용자에게묻는다. 최소compactchrome재배치는후속권고이며아직적용하지않았다.
++- 위 선택 대기는 당시 이력이다. 사용자가 ‘지도 크기를 유지하고, 목록·더보기를 한 번에 하나씩 여는 지도 하단 보조 패널’을 승인했다. 지정 제어 UI 원 세션만 제품 수리를 재개하고, UX 원 세션은 같은 최대6고유 case의 준비를 갱신한다. 최종 source SHA 인계 전 실제 browser 실행은 대기한다. 기본브랜치/다른작업/스태시/원격은변경하지않는다.
++- 기본62/70px 지도를 그대로 유지하는 overlay만으로는 C7–8을 충족하지 못한다. 수동-active 모바일만 중복 현장/층 요약·범례와 모드 전환을 기존 More 접근 경로로 압축하고 현재 수동 모드 식별을 유지한다. 층/scope/목록44px 한 행, 지도, 선택 count→바로 아래 전체 보기44px, 실행44px, 중요 상태/live, nav 순서와 안전 동작을 보존한다. 기본 지도240px 이상 목표·map box와 가림 없는 exposed area는 후속 실제 측정이며 source/class만으로 완료 처리하지 않는다.
++- 보조 패널은 nonmodal·고정 header/닫기·본문 내부 scroll, 목록↔More 상호배타, Escape/실제 opener focus 복귀·scope reset을 유지한다. 전환은 원 draft/UUID/query와 renderer를 재마운트하거나 복제하지 않는다. PC/schedule/event/default/editor/embedded 기본값은 변경하지 않는다.
++- 모니터링case1은실제pin재클릭을생략한재열기harness오류다. case2는bodycenter가nav에가리는실측+center-onlyharness한계이며native문서이동/노출점wheel을아직실행하지않아끝도달불가제품결함으로단정하지않는다. 후속승인된failedscope에서수리·검증한다.
++
++### Task 1: 모니터링 C1–5
++
++**실행 경계:** NEW worktree `.worktrees/map-workspace-comments-20261012`, NEW branch `codex/map-workspace-comments-20261012`, baseline f31e56fa. 운영 인사이트/통계/설정/API/DB/장비/다른 worktree/stash/원격/배포/기존 서비스는 변경하지 않는다. 기존 공통 UI/token을 재사용하고 공통 overlay가 두 소비자에 필요할 때만 최소 API를 추가하여 총괄에게 알린다. 실패 테스트 먼저 실행하고 직접 suite만 검증한다. 계획 전체가 아니라 이 task brief와 applicable AGENTS/skills만 읽는다.
++
++**소유:** MonitoringView/FloorMap/직접 tests/docs/menus/monitoring.md. 필요 최소 common maps component/export/test만 이 담당 소유. FloorMapViewport 기본 정책·session provider 전역 변경은 먼저 보고한다.
++
++**필수 문맥:** 위 공통 제약 전부 적용. 기존 `manual-cad` + `interactionPolicy="pan"` 소비. 순수 snapshot stale만 announce false. loading/error/main visible title 제거하되 h1 sr-only. floor/search/time/refresh 한 행, narrow icon-only44·time HH:mm/full accessible 설명. 기존 별도 aside/mobile modal을 지도 하단 비모달 약 절반으로 통일; map rect/camera/remount 불변, close/Escape/return focus/scroll 기억과 지도 interaction 유지.
++
++1. 새 동작을 실제 컴포넌트로 관찰하는 실패 테스트를 먼저 작성·실행한다. snapshot 경계60000/60001·복구와 failure/invalid 안내, real marker gesture 및 single selection/no area, overlay lifecycle 중심. CSS geometry는 Task3 browser 관문이다.
++2. 최소 제품 구현, 직접 suite GREEN. 프레임워크나 mock 존재 assertion 대신 소비자 동작 검증.
++3. 공통 overlay 추가 시 최소 API/경로/기본값·Task2 소비 방법을 보고한다. 기존 공통 Card/Button 재사용으로 충분하면 불필요 API를 만들지 않는다.
++4. 메뉴 문서 다섯 구성 유지·mock/HIL 한계 기록, diffcheck, 자기 리뷰·소유 파일만 source commit.
++5. task-1-report.md에 base/source SHA·변경 파일·원 RED/GREEN 로그·검증된 동작/누락/경계 API를 기록한다. 총괄 plan/status 수정 금지, 다른 writer 호출 금지.
++
++**검증:** 직접 Monitoring/FloorMap 및 필요한 공통 overlay suites만. 원 로그는 이 작업 SDD workspace. 제품 구현 후 Task2에 source checkpoint 전달.
++
++### Task 2: 수동 제어 C6–8
++
++**실행 경계:** NEW worktree `.worktrees/map-workspace-comments-20261012`, NEW branch `codex/map-workspace-comments-20261012`, baseline f31e56fa 이후 Task1 checkpoint. 운영 인사이트/통계/설정/API/DB/장비/다른 worktree/stash/원격/배포/기존 서비스는 변경하지 않는다. 공통 UI/token 재사용; Task1 maps optional API를 먼저 확인하고 default/embedded는 보존한다. 실패 테스트 먼저 실행하고 직접 suite만 검증한다. 계획 전체가 아니라 이 task brief와 applicable AGENTS/skills만 읽는다.
++
++**소유:** ControlView/ManualExecutionPanel/target-selection 및 직접 tests/docs/menus/control.md. CustomerShell manual-active-only height, 선택적 FloorMapViewport compact chrome 및 direct tests는 이 담당만 소유. Task1 maps API 변경 시 승인된 API 소비만.
++
++**필수 문맥:** 위 공통 제약 전부 적용. Task1 결과 source/API 확인 후 구현. PC 선택 panel h-full empty 포함·long list internal scroll. mobile 선택 count → 바로 아래44 ‘전체 보기’ 유지, 승인된 지도 하단 nonmodal 보조 패널에 목록/More를 하나씩 표시·internal scroll; map rect 유지·close/focus/scopereset 보존. manual-active shell h-dvh/min-h0/navigation safe reserve, finite grid remaining map dominant; floor/scope/list44 한 행 및 brightness numeric/slider/Apply/More44 한 행. 긴 presets/history/recovery More internal scroll. raw draft/invalid/first Apply/explicit apply/lock/permissions/UUID/command lifecycle 보존; 중요 상태는 collapsed에도 visible/live. schedules/events/default/editor/embedded behavior 변경0.
++
++1. 선택 panel 확장/empty/focus/scope reset, compact input/More 복구/command safety의 직접 실패 테스트를 먼저 실행한다. shared optional compact props 도입 시 default 소비자 회귀 test도 직접 확인한다.
++2. 최소 제품 구현 후 직접 GREEN, 기존 중복 command owner/query/drawer 만들지 않는다. 카메라 reparent/remount를 피한다.
++3. 320/390×600에서 map240 이상 목표이나 실제geometry로 확정한다. height hidden clipping 금지, nav/button44·long list/recovery reachability는 Task3에 계약으로 전달한다.
++4. 메뉴 문서 다섯 구성 유지·한계 기록, diffcheck, 자기 리뷰·source commit. Task2 report에 source SHA·API 변경·원 RED/GREEN·누락/원인/검증 cohort를 기록한다.
++5. 제품 변경은 이 작업 scope만; plan/status 수정·다른 agent 호출 금지.
++
++**검증:** 변경 직접 selection/ManualExecution/Control/Shell/Viewport suites 필요한 case만. 기존 전체 suite·이전20건·HIL 반복 없음.
++
++### Task 3: 한정 QA와 실제 UI/UX 점검
++
++**소유:** 기존 앱 `UI/UX 디자이너` 세션이 이번 ignored SDD 안에 최소 Playwright 측정 harness를 준비하고 Task2 최종 SHA 인계 후 최대6 actual case·PNG/geometry와 UI/UX 검토를 수행한다. 제품/기존 test는 읽기 전용이고 source selector 미확정 동안 common 수집부만 준비한다. 증거는 총괄이 영구 docs/assets/map-workspace-comments-2026-10-12로 취합한다. 제품 수리는 원 페이지 owner로 되돌린다.
++
++- 실제 renderer·pointer로 PC1194×1227 monitoring middle drag/left click/no area, same-row toolbar, detail 전후 rect/camera 동일·overlay ~half/body scroll/wheel isolation/closefocus.
++- 320×600·390×600·390×844 control light/dark 중 필요한 대표조합, 717×1227 mapdominant/PCemptyfull, mobile marker-origin swipe선택불변/다음tap, 내부selectedlonglist끝, overlay/More닫기/focus·invalid31/Apply 안전·오류/복구접근, document scroll0/nav가림0/44px 모두 실측한다.
++- 최소 unique 6case 목표, 필요한 source-scoped 재실행만. keyboard/visualViewport resize 한정case로 확인하며 실제 OSkeyboard/HIL 주장 금지. additional POST0 scopefake 계수.
++- 타입/UI 정책·ui-check/build 한 번 최종제품SHA. 기존 SettingsShell baselinefailure·bundlewarning는 이번 실패와 구분, unrelatedfix 금지.
++- QA owned 새 port만(start전free확인), 기존5173/4000/63200 중단/변경금지. route fake는 fake로 명시. raw JSON/PNG/원fail을 보존, 같은case재시도와unique counts 구분.
++- UX actualreport는 overlap/gap/hit/clipping/mapbox/exposedarea·기능가용성·sourcecohort·한계를 포함한다. browser를 동시에 조작하지 않는다.
++
++### Task 4: 독립 검토·로컬 통합
++
++- 총괄은 root role로 writing-plans/status를 결과만 취합하여 업데이트한다. 제품 직접 수정하지 않는다.
++- base f31e56fa..최종제품SHA package를 기존 independentreviewer에게 전달한다. 요구사항/spec·quality/safety를 한 번 통합 검토, finding은 원owner수리 후 영향범위만 재검토한다.
++- 검증·UX·review 완료 후 fresh MAIN status/HEAD 확인. unchanged면 승인된 로컬 merge, advanced면 기존 변경 보존 통합tree만 새 한정검증. conflict에 의미결정 필요 시 사용자 문의.
++- remote/push/PR/deploy 없음. 완료 직전 원자료/ledger를 정확한 별도backup경로로 복사해diff로 확인. 합쳐진 이번cleanworktree/branch만 recoverablecleanup. final은실제mergeSHA·검증범위/한계 및 모든 Ruling을명시한다.

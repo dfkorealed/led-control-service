@@ -1,0 +1,12 @@
+{
+  "commit": "f2926e927ab8c976ef1dbb282c932bdddfdf8685",
+  "parent": "f28ea638c3decae89bfd6180c8e81607226794e8",
+  "committedAt": "2026-10-12T04:25:51.473192+00:00",
+  "commitFiles": [
+    "apps/web/src/features/control/ControlView.tsx",
+    "docs/menus/control.md"
+  ],
+  "status": "",
+  "ownedDiff": "",
+  "allSHA256Match": true
+}

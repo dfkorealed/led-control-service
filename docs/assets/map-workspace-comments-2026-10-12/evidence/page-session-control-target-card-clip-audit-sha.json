@@ -1,0 +1,38 @@
+{
+  "source": "f2926e927ab8c976ef1dbb282c932bdddfdf8685",
+  "observedAt": "2026-10-12T04:36:09.167854+00:00",
+  "files": [
+    {
+      "path": "apps/web/src/features/control/ControlView.tsx",
+      "SHA256": "5169dc70369168fe6b8e32a9a01155033180e20cd44313ee4abbb18eb816c84e"
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+      "SHA256": "cd44fd97636471890852347131586c4b39ea34d0ad3e818f4131b0495cfbd526"
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+      "SHA256": "1cac4b3f93f9399952a0feb2659efacac231d03c93e778668a04956c5a6d5f2e"
+    },
+    {
+      "path": "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+      "SHA256": "9d3e3ab9a6320f93bd5b560dc7052bca42f0f885309b21a27aaca40841acaddd"
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx",
+      "SHA256": "5232d51bf47331ced19a80190a0b38856836a403772a0a4dcf3e18555739eed1"
+    },
+    {
+      "path": "apps/web/src/components/ui/maps/OperationMapPanel.tsx",
+      "SHA256": "524b7b9670b6c8bb7a89818c9c2c1fe45e9540117f18bc4bfffcd5678f27c0b2"
+    },
+    {
+      "path": "apps/web/src/components/ui/Card.tsx",
+      "SHA256": "c90dd96f3a65b02c89e4e4126f6594ec5fc47c1d2e3416b2dd436e4142f8cde7"
+    },
+    {
+      "path": "apps/web/src/components/ui/SidePanel.tsx",
+      "SHA256": "de21f569191e1ae5fd5e3857437e5fbc0396721d8be06866efb3d18f45d1bb7b"
+    }
+  ]
+}

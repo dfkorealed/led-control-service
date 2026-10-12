@@ -1,0 +1,25 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/control/ControlView.test.tsx (167 tests | 151 skipped) 3232ms
+   ✓ ControlView 대상 선택 > C6-8 mobile expands selected names inline without replacing the map, draft, or command scope 315ms
+   ✓ ControlView 대상 선택 > preserves an in-flight UUID, frozen target and lock through inline details, filters and resize 409ms
+   ✓ ControlView 대상 선택 > continues real status polling when GET races before a lost status-check POST commits 1134ms
+ ✓ src/features/control/CommandHistoryPanel.test.tsx (30 tests) 4154ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'partial' draft survives filter reopen, then reads a valid correction 592ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'impossible' draft survives filter reopen, then reads a valid correction 1298ms
+   ✓ CommandHistoryPanel > blocks manual retry after a history error while the 'reversed' draft survives filter reopen, then reads a valid correction 675ms
+   ✓ CommandHistoryPanel > debounces search, changes stage filters and resets pagination for a new search 411ms
+ ✓ src/features/floor-map/FloorMapViewport.test.tsx (44 tests | 31 skipped) 138ms
+ ✓ src/features/shells/CustomerShell.test.tsx (63 tests | 55 skipped) 1986ms
+   ✓ customer shell site context > C6-8 mobile finite manual shell releases its height for schedule and retains the same page across resize 1227ms
+   ✓ customer shell site context > forwards the existing navigation breakpoint to the real Control close action without resetting details 450ms
+ ✓ src/features/control/target-selection/SpatialTargetSelector.test.tsx (33 tests | 30 skipped) 322ms
+ ✓ src/components/ui/operations/RecentActivityTicker.test.tsx (11 tests | 7 skipped) 100ms
+ ✓ src/features/control/ManualExecutionPanel.test.tsx (9 tests) 290ms
+
+ Test Files  7 passed (7)
+      Tests  83 passed | 274 skipped (357)
+   Start at  11:12:34
+   Duration  19.32s (transform 1.19s, setup 293ms, collect 5.43s, tests 10.22s, environment 1.86s, prepare 526ms)
+

@@ -1,0 +1,91 @@
+
+[WebServer] (node:98944) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] [WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.overrides". See https://pnpm.io/settings for the new home of each setting.
+
+[WebServer] (node:98945) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:98963) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:98983) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:99052) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 1 worker
+
+
+(node:99063) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/2] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:344:7 › 03 narrow finite manual workspace › 320x600 light: map240, native0/100, first Apply and exclusive auxiliaries
+  1) [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:344:7 › 03 narrow finite manual workspace › 320x600 light: map240, native0/100, first Apply and exclusive auxiliaries 
+
+    Error: Actual target must contain a reachable continuous44 square: {"target":{"tag":"INPUT","role":null,"ariaLabel":"밝기 수치","name":"밝기 수치","bounds":{"x":8,"y":480,"width":48,"height":44,"right":56,"bottom":524}},"width":48,"height":44,"continuous44":false}
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+       at page-session-ux-aux-support.ts:125
+
+      123 |     return { target: diagnosticTarget, width, height, continuous44: false };
+      124 |   });
+    > 125 |   expect(result.continuous44, `Actual target must contain a reachable continuous44 square: ${JSON.stringify(result)}`).toBe(true);
+          |                                                                                                                        ^
+      126 |   return result;
+      127 | }
+      128 |
+        at expectContinuous44Hit (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux-support.ts:125:120)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:358:32
+        at review (/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:287:5)
+        at /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/.superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:345:5
+
+    attachment #1: ready-geometry (application/json) ───────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-geometry-996cfaa949fdd58aa1762d4c31f9eac7433a6b67.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: ready (image/png) ───────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/ready-4403961087215a67b29907537d1440a9156b7b3b.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: basic-map-before-zoom-geometry (application/json) ───────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-geometry-d15156803f5991897606273099cf8d8fd974f52c.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #4: basic-map-before-zoom (image/png) ───────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/basic-map-before-zoom-b96c48003fe172933be73638023aba7cbd62bf67.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #5: original-failure (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/original-failure-10cc7742326da86c3aa0f73634072b2d14e6a8f2.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #6: failure-geometry (application/json) ─────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-geometry-caebc6ad4283cf5fb30e980fc544e65de3471196.json
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #7: failure (image/png) ─────────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/attachments/failure-679bd16b42314c8f2c14e2f3c20024a54ee1320a.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #8: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .superpowers/sdd/2026-10-12-map-workspace-comments/runs/actual-two-endpoints-f28ea638-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/error-context.md
+
+
+
+(node:99087) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[2/2] [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:444:7 › 05 resize without remount/reset › 717x1227 to 390x844 light: exclusive aux, focus and raw31
+  1 failed
+    [chromium-ux-approved-aux-six-cases] › .superpowers/sdd/2026-10-12-map-workspace-comments/page-session-ux-aux.spec.ts:344:7 › 03 narrow finite manual workspace › 320x600 light: map240, native0/100, first Apply and exclusive auxiliaries 
+  1 passed (17.8s)

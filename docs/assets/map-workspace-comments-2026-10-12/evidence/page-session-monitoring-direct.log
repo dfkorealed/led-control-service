@@ -1,0 +1,25 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ✓ src/features/monitoring/FloorMap.test.tsx (17 tests) 1544ms
+   ✓ FloorMap > changes the fitted map zoom with controls and resets it to 100% 405ms
+ ✓ src/features/monitoring/MonitoringView.test.tsx (110 tests) 15099ms
+   ✓ MonitoringView refresh > keeps detail nonmodal inside the map with stable viewport and scrolling across reopen 907ms
+   ✓ MonitoringView refresh > selects a matched row and focuses its map pin without a separate selector 711ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by fault 699ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by search 721ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by placement 596ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by deletion 1514ms
+   ✓ MonitoringView refresh > N1 preserves intentional outside focus during automatic desktop removal 988ms
+   ✓ MonitoringView refresh > N1 rejects a connected noninteractive original focus target 754ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after principal scope exit 760ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after site scope exit 729ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after floor scope exit 721ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after unmount scope exit 713ms
+   ✓ MonitoringView refresh > keeps finder list selection and map marker selection in sync 328ms
+
+ Test Files  2 passed (2)
+      Tests  127 passed (127)
+   Start at  10:11:53
+   Duration  18.14s (transform 1.01s, setup 196ms, collect 3.36s, tests 16.64s, environment 790ms, prepare 694ms)
+

@@ -356,9 +356,9 @@ async function openMonitoringInspector() {
 async function openSelectedMonitoringDetail() {
   const inspector = await openMonitoringInspector();
   fireEvent.click(within(inspector).getByRole("button", { name: "상세 보기" }));
-  // matchMedia above makes the default App harness compact: details use a sheet.
-  const sheet = await screen.findByRole("dialog", { name: "조명 상세" });
-  return within(sheet).getByRole("complementary", { name: "선택 조명 상세" });
+  // Monitoring uses the same nonmodal map-bottom detail on compact and desktop.
+  const detail = await screen.findByRole("complementary", { name: "조명 상세" });
+  return within(detail).getByRole("complementary", { name: "선택 조명 상세" });
 }
 
 async function selectMapFixture(name: string) {
@@ -925,8 +925,8 @@ describe("App", () => {
     expect(within(inspector).queryByRole("button", { name: "상세 보기" })).not.toBeInTheDocument();
     fireEvent.click(within(inspector).getByRole("button", { name: "B2-L01 정상" }));
     await openSelectedMonitoringDetail();
-    const detailSheet = await screen.findByRole("dialog", { name: "조명 상세" });
-    expect(within(detailSheet).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B2-L01");
+    const detailOverlay = await screen.findByRole("complementary", { name: "조명 상세" });
+    expect(within(detailOverlay).getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B2-L01");
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
   });
 
@@ -1116,7 +1116,7 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "B2-L02 정상 65%" }));
     expect(await openSelectedMonitoringDetail()).toHaveTextContent("B2-L02");
     fireEvent.click(screen.getByRole("button", { name: "조명 상세 닫기" }));
-    // Finish the sheet's deferred focus return before keyboard floor selection.
+    // Finish the overlay's deferred focus return before keyboard floor selection.
     await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색/목록" })).toHaveFocus());
     await chooseSelect("맵 선택", "B1");
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
@@ -1180,8 +1180,8 @@ describe("App", () => {
     const inspector = await openMonitoringInspector();
     fireEvent.click(within(inspector).getByRole("button", { name: "B2-L-OFFLINE 오프라인" }));
     await openSelectedMonitoringDetail();
-    const sheet = await screen.findByRole("dialog", { name: "조명 상세" });
-    expect(within(sheet).getByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
+    const detailOverlay = await screen.findByRole("complementary", { name: "조명 상세" });
+    expect(within(detailOverlay).getByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
   });
 
   it("does not expose floor editing from monitoring to viewers", async () => {

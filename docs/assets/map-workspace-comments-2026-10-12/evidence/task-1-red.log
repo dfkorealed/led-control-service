@@ -1,0 +1,762 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/monitoring/FloorMap.test.tsx (17 tests | 2 failed | 15 skipped) 119ms
+   × FloorMap > navigates from a real marker with mouse without selecting until the next tap 103ms
+     → expected +0 to be 20 // Object.is equality
+   × FloorMap > navigates from a real marker with touch without selecting until the next tap 15ms
+     → expected +0 to be 20 // Object.is equality
+ ❯ src/features/monitoring/MonitoringView.test.tsx (110 tests | 3 failed | 107 skipped) 344ms
+   × MonitoringView refresh > keeps pure snapshot delay in the alarm center without a toast or recent notification and clears on recovery 127ms
+     → expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <article
+  class="pointer-events-auto flex w-full items-start gap-2 rounded-panel border bg-surface-panel p-3 shadow-popover border-status-warning-border"
+  data-toast-tone="warning"
+  role="status"
+>
+  <div
+    class="min-w-0 flex-1"
+  >
+    <p
+      class="text-body text-content-primary font-bold m-0"
+    >
+      현황 갱신이 지연되고 있습니다.
+    </p>
+    <p
+      class="text-body-sm font-normal text-content-secondary m-0"
+    >
+      가장 오래된 선택 층 snapshot이 60초를 초과했습니다.
+    </p>
+  </div>
+  <button
+    aria-label="알림 닫기"
+    class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body aspect-square min-w-11 p-2 size-11 shrink-0"
+    data-variant="ghost"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-x"
+      fill="none"
+      height="16"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="16"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M18 6 6 18"
+      />
+      <path
+        d="m6 6 12 12"
+      />
+    </svg>
+  </button>
+</article> instead
+   × MonitoringView refresh > keeps the screen heading nonvisual and all monitoring tools together with accessible actions 56ms
+     → expect(element).toHaveClass("sr-only")
+
+Expected the element to have class:
+  sr-only
+Received:
+  text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0
+   × MonitoringView refresh > keeps detail nonmodal inside the map with stable viewport and scrolling across reopen 159ms
+     → Unable to find an accessible element with the role "complementary" and name "조명 상세"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:r1v:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "조명 상세 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 상세 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body size-13! min-h-13! min-w-13! shrink-0 p-0!"[39m
+    [33mdata-dialog-close[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"조명 상세 닫기"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  dialog:
+
+  Name "조명 상세":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"react-aria-:r21:"[39m
+    [33maria-modal[39m=[32m"true"[39m
+    [33mclass[39m=[32m"flex max-h-dvh min-h-0 w-full flex-col overflow-hidden rounded-panel! border! border-border-default! bg-surface-panel! p-0! text-body text-content-primary shadow-popover! outline-none"[39m
+    [33mdata-dialog-surface[39m=[32m""[39m
+    [33mdata-dialog-variant[39m=[32m"sheet"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"mb-4.5! flex! items-start! justify-between! gap-4!"[39m
+    [33mdata-dialog-header[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 상세":
+  [36m<h2[39m
+    [33mclass[39m=[32m"m-0! text-card-title! font-bold text-content-primary!"[39m
+    [33mid[39m=[32m"react-aria-:r21:"[39m
+    [33mslot[39m=[32m"title"[39m
+  [36m/>[39m
+
+  Name "B1-L001":
+  [36m<h3[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary min-w-0 break-words m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "선택 조명 상세":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"선택 조명 상세"[39m
+    [33mclass[39m=[32m"max-w-full wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full grid min-w-0 gap-4 overflow-visible overscroll-auto"[39m
+    [33mdata-monitoring-detail-panel[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "선택 조명 정보":
+  [36m<section[39m
+    [33maria-label[39m=[32m"선택 조명 정보"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-bold m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-caption font-normal text-content-secondary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  time:
+
+  Name "":
+  [36m<time[39m
+    [33mdatetime[39m=[32m"2026-08-19T01:00:00.000Z"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"text-body-sm text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"text-body-sm text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"text-body-sm text-content-secondary"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 min-w-0 break-words text-body-sm"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 min-w-0 break-words text-body-sm"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 min-w-0 break-words text-body-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+      [33mdata-monitoring-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+          [36m>[39m
+            [0m모니터링[0m
+          [36m</h1>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+        [36m>[39m
+          [36m<small[39m
+            [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+          [36m>[39m
+            [0m마지막 갱신: [0m
+            [36m<time[39m
+              [33mdatetime[39m=[32m"2026-10-12T01:01:15.864Z"[39m
+            [36m>[39m
+              [0m2026-10-12 10:01:15[0m
+              [0m (현장 시간)[0m
+            [36m</time>[39m
+          [36m</small>[39m
+          [36m<button[39m
+            [33maria-busy[39m=[32m"false"[39m
+            [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+            [33mdata-variant[39m=[32m"secondary"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 3v5h-5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M8 16H3v5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0m새로고침[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"모니터링 도구"[39m
+        [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+        [33mrole[39m=[32m"group"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":rs:"[39m
+            [33mid[39m=[32m":rs:-label"[39m
+          [36m>[39m
+            [0m맵 선택[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":rs:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":rs:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:r14:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0mB1[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+                  [36m</option>[39m
+                  [36m<option...
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/monitoring/FloorMap.test.tsx > FloorMap > navigates from a real marker with mouse without selecting until the next tap
+ FAIL  src/features/monitoring/FloorMap.test.tsx > FloorMap > navigates from a real marker with touch without selecting until the next tap
+AssertionError: expected +0 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 0
+
+ ❯ src/features/monitoring/FloorMap.test.tsx:78:33
+     76|     dispatchMapPointer(marker, "pointerup", { pointerId: 1, pointerTyp…
+     77|     fireEvent.click(marker, { detail: 1 });
+     78|     expect(viewport.scrollLeft).toBe(20);
+       |                                 ^
+     79|     expect(viewport.scrollTop).toBe(10);
+     80|     expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDo…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > keeps pure snapshot delay in the alarm center without a toast or recent notification and clears on recovery
+Error: expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <article
+  class="pointer-events-auto flex w-full items-start gap-2 rounded-panel border bg-surface-panel p-3 shadow-popover border-status-warning-border"
+  data-toast-tone="warning"
+  role="status"
+>
+  <div
+    class="min-w-0 flex-1"
+  >
+    <p
+      class="text-body text-content-primary font-bold m-0"
+    >
+      현황 갱신이 지연되고 있습니다.
+    </p>
+    <p
+      class="text-body-sm font-normal text-content-secondary m-0"
+    >
+      가장 오래된 선택 층 snapshot이 60초를 초과했습니다.
+    </p>
+  </div>
+  <button
+    aria-label="알림 닫기"
+    class="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary text-body aspect-square min-w-11 p-2 size-11 shrink-0"
+    data-variant="ghost"
+  >
+    <svg
+      aria-hidden="true"
+      class="lucide lucide-x"
+      fill="none"
+      height="16"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      viewBox="0 0 24 24"
+      width="16"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M18 6 6 18"
+      />
+      <path
+        d="m6 6 12 12"
+      />
+    </svg>
+  </button>
+</article> instead
+ ❯ src/features/monitoring/MonitoringView.test.tsx:109:90
+    107|     query.data.pages[0].generatedAt = new Date(Date.now() - 60_001).to…
+    108|     const view = render(<MonitoringView siteId="site-1" />);
+    109|     expect(within(screen.getByRole("region", { name: "알림" })).queryB…
+       |                                                                                          ^
+    110|     expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되…
+    111|     expect(screen.getByRole("list", { name: "최근 알림 목록" })).toBeE…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > keeps the screen heading nonvisual and all monitoring tools together with accessible actions
+Error: expect(element).toHaveClass("sr-only")
+
+Expected the element to have class:
+  sr-only
+Received:
+  text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0
+ ❯ src/features/monitoring/MonitoringView.test.tsx:119:69
+    117|   it("keeps the screen heading nonvisual and all monitoring tools toge…
+    118|     render(<MonitoringView siteId="site-1" />);
+    119|     expect(screen.getByRole("heading", { level: 1, name: "모니터링" })…
+       |                                                                     ^
+    120|     const tools = screen.getByRole("group", { name: "모니터링 도구" });
+    121|     expect(tools).toContainElement(screen.getByRole("button", { name: …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > keeps detail nonmodal inside the map with stable viewport and scrolling across reopen
+TestingLibraryElementError: Unable to find an accessible element with the role "complementary" and name "조명 상세"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Dismiss":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Dismiss"[39m
+    [33mid[39m=[32m"react-aria-:r1v:"[39m
+    [33mstyle[39m=[32m"width: 1px; height: 1px;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  Name "조명 상세 닫기":
+  [36m<button[39m
+    [33maria-label[39m=[32m"조명 상세 닫기"[39m
+    [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-surface-panel text-action-primary px-4 py-0 text-body size-13! min-h-13! min-w-13! shrink-0 p-0!"[39m
+    [33mdata-dialog-close[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"ghost"[39m
+    [33mtitle[39m=[32m"조명 상세 닫기"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  dialog:
+
+  Name "조명 상세":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"react-aria-:r21:"[39m
+    [33maria-modal[39m=[32m"true"[39m
+    [33mclass[39m=[32m"flex max-h-dvh min-h-0 w-full flex-col overflow-hidden rounded-panel! border! border-border-default! bg-surface-panel! p-0! text-body text-content-primary shadow-popover! outline-none"[39m
+    [33mdata-dialog-surface[39m=[32m""[39m
+    [33mdata-dialog-variant[39m=[32m"sheet"[39m
+    [33mdata-rac[39m=[32m""[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  banner:
+
+  Name "":
+  [36m<header[39m
+    [33mclass[39m=[32m"mb-4.5! flex! items-start! justify-between! gap-4!"[39m
+    [33mdata-dialog-header[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "조명 상세":
+  [36m<h2[39m
+    [33mclass[39m=[32m"m-0! text-card-title! font-bold text-content-primary!"[39m
+    [33mid[39m=[32m"react-aria-:r21:"[39m
+    [33mslot[39m=[32m"title"[39m
+  [36m/>[39m
+
+  Name "B1-L001":
+  [36m<h3[39m
+    [33mclass[39m=[32m"text-body-lg font-bold text-content-primary min-w-0 break-words m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  complementary:
+
+  Name "선택 조명 상세":
+  [36m<aside[39m
+    [33maria-label[39m=[32m"선택 조명 상세"[39m
+    [33mclass[39m=[32m"max-w-full wrap-anywhere [&>*]:min-w-0 [&>*]:max-w-full grid min-w-0 gap-4 overflow-visible overscroll-auto"[39m
+    [33mdata-monitoring-detail-panel[39m=[32m""[39m
+    [33mdata-variant[39m=[32m"default"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "선택 조명 정보":
+  [36m<section[39m
+    [33maria-label[39m=[32m"선택 조명 정보"[39m
+    [33mclass[39m=[32m"grid min-w-0 gap-3"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong[39m
+    [33mclass[39m=[32m"text-body-lg text-content-primary font-bold m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-caption font-normal text-content-secondary m-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  time:
+
+  Name "":
+  [36m<time[39m
+    [33mdatetime[39m=[32m"2026-08-19T01:00:00.000Z"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"text-body-sm text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"text-body-sm text-content-secondary"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dt[39m
+    [33mclass[39m=[32m"text-body-sm text-content-secondary"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 min-w-0 break-words text-body-sm"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 min-w-0 break-words text-body-sm"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"m-0 min-w-0 break-words text-body-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 max-compact:min-h-min max-compact:pb-shell-navigation-safe"[39m
+      [33mdata-monitoring-screen[39m=[32m""[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"flex items-start justify-between max-compact:flex-col max-compact:items-stretch gap-5 max-compact:gap-3 max-compact:order-0"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid min-w-0 gap-2"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"text-customer-page-title font-bold max-compact:text-section-title text-content-primary m-0"[39m
+          [36m>[39m
+            [0m모니터링[0m
+          [36m</h1>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-2 max-compact:w-full"[39m
+        [36m>[39m
+          [36m<small[39m
+            [33mclass[39m=[32m"text-caption font-normal text-content-secondary min-w-0 max-w-full break-words text-right m-0"[39m
+          [36m>[39m
+            [0m마지막 갱신: [0m
+            [36m<time[39m
+              [33mdatetime[39m=[32m"2026-10-12T01:01:15.864Z"[39m
+            [36m>[39m
+              [0m2026-10-12 10:01:15[0m
+              [0m (현장 시간)[0m
+            [36m</time>[39m
+          [36m</small>[39m
+          [36m<button[39m
+            [33maria-busy[39m=[32m"false"[39m
+            [33mclass[39m=[32m"inline-flex min-h-11 items-center justify-center gap-2 rounded-control border font-bold cursor-pointer focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 border-border-default bg-action-secondary text-action-primary px-4 py-0 text-body"[39m
+            [33mdata-variant[39m=[32m"secondary"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-refresh-cw"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 3v5h-5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M8 16H3v5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0m새로고침[0m
+          [36m</button>[39m
+        [36m</div>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33maria-label[39m=[32m"모니터링 도구"[39m
+        [33mclass[39m=[32m"flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1"[39m
+        [33mrole[39m=[32m"group"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex-col grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"[39m
+          [33mdata-field[39m=[32m""[39m
+          [33mdata-size[39m=[32m"md"[39m
+          [33mdata-variant[39m=[32m"outline"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"text-label font-semibold text-content-primary m-0"[39m
+            [33mfor[39m=[32m":rs:"[39m
+            [33mid[39m=[32m":rs:-label"[39m
+          [36m>[39m
+            [0m맵 선택[0m
+          [36m</label>[39m
+          [36m<template />[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"contents"[39m
+            [33mdata-rac[39m=[32m""[39m
+          [36m>[39m
+            [36m<button[39m
+              [33maria-expanded[39m=[32m"false"[39m
+              [33maria-haspopup[39m=[32m"listbox"[39m
+              [33maria-labelledby[39m=[32m":rs:-label"[39m
+              [33mclass[39m=[32m"min-h-11 w-full rounded-control border text-content-primary outline-none pointer-coarse:text-body-lg focus-visible:shadow-focus data-focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60 data-disabled:cursor-not-allowed data-disabled:opacity-60 aria-invalid:border-status-danger-foreground data-invalid:border-status-danger-foreground border-border-strong bg-surface-panel px-3 py-2.5 text-body flex items-center justify-between gap-2 text-left"[39m
+              [33mdata-rac[39m=[32m""[39m
+              [33mdata-react-aria-pressable[39m=[32m"true"[39m
+              [33mid[39m=[32m":rs:"[39m
+              [33mtabindex[39m=[32m"0"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"min-w-0 flex-1 truncate"[39m
+                [33mdata-rac[39m=[32m""[39m
+                [33mid[39m=[32m"react-aria-:r14:"[39m
+              [36m>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"react-aria-Text"[39m
+                  [33mslot[39m=[32m"label"[39m
+                [36m>[39m
+                  [0mB1[0m
+                [36m</span>[39m
+              [36m</span>[39m
+              [36m<span[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"shrink-0"[39m
+              [36m>[39m
+                [0m▾[0m
+              [36m</span>[39m
+            [36m</button>[39m
+            [36m<div[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mdata-a11y-ignore[39m=[32m"aria-hidden-focus"[39m
+              [33mdata-react-aria-prevent-focus[39m=[32m"true"[39m
+              [33mdata-testid[39m=[32m"hidden-select-container"[39m
+              [33mstyle[39m=[32m"border: 0px; clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0px; position: fixed; width: 1px; white-space: nowrap; top: 0px; left: 0px;"[39m
+            [36m>[39m
+              [36m<label>[39m
+                [36m<select[39m
+                  [33mtabindex[39m=[32m"-1"[39m
+                  [33mtitle[39m=[32m""[39m
+                [36m>[39m
+                  [36m<option[39m
+                    [33mlabel[39m=[32m" "[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m>[39m
+                    [0m [0m
+                  [36m</option>[39m
+                  [36m<option...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/monitoring/MonitoringView.test.tsx:130:27
+    128|     const viewport = screen.getByTestId("monitoring-map-viewport");
+    129|     openDetails();
+    130|     const detail = screen.getByRole("complementary", { name: "조명 상…
+       |                           ^
+    131|     expect(document.querySelector("[data-operation-map-panel]")).toCon…
+    132|     expect(detail).not.toHaveAttribute("aria-modal", "true");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 122 skipped (127)
+   Start at  10:01:13
+   Duration  2.68s (transform 737ms, setup 172ms, collect 2.71s, tests 463ms, environment 764ms, prepare 195ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/FloorMap.test.tsx -t navigates from a real marker|pure snapshot delay|screen heading nonvisual|detail nonmodal --reporter=dot

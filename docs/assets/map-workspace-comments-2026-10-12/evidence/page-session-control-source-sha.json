@@ -1,0 +1,22 @@
+{
+  "head": "c4c2961bf380ac8e50cb6304d92029e0655e4c9a",
+  "files": {
+    "apps/web/src/features/control/ControlView.tsx": "0608fbaefc0e64f267aed6d480517d589e4db992e0d8f769f9236a6d0c2252b2",
+    "apps/web/src/features/control/ControlView.test.tsx": "ce0d4d3b78d43072507554ba7a31cb689971faa02b90c06d7a67fab164464685",
+    "apps/web/src/features/control/ManualExecutionPanel.tsx": "ac81b142f18c4f01db2762cb7e62d215afe2641d50df224304bd4817871aea8d",
+    "apps/web/src/features/control/ManualExecutionPanel.test.tsx": "60765ddb7e0f1c1b7fc94478a7ce19da5cebabd388ada54138b98089922c8761",
+    "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx": "d0d314d2cdaeb9e4a6631309f5e65299e894a9c29149afcaf750b257f513061d",
+    "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx": "18cbfedc1c42eb3dee4b5a4553e5f4d2a8f32853603d0b5987875fc435a20925",
+    "apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx": "03857cb6f77982e98cb65e6cef5aee7a1b611fa54d46cc7daf858716b063ad8e",
+    "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx": "28beb3a960492254f28c39a4d69a2e3411b84cf841ce924f484253b884847556",
+    "apps/web/src/features/floor-map/FloorMapViewport.tsx": "97192ead940958313d46273605620760e9155c8d806f3e7ae6f0b0b279556c49",
+    "apps/web/src/features/floor-map/FloorMapViewport.test.tsx": "40fb160118d60323d08ec3beec1f8c4542aeb3b39a311059011030f851be6192",
+    "apps/web/src/features/shells/CustomerShell.tsx": "a7801dabcdf10cc7089f865c1d4c61ac66bebc7ffbfa03bb550fb99f8687b83e",
+    "apps/web/src/features/shells/CustomerShell.test.tsx": "cb2cb83a3cc4ab7cf00357dcd93d63050ce55fb231b97a94bceb195b8a454dae",
+    "docs/menus/control.md": "12cffb67770c05ee31c30b3e6d141f0a6cac6615ec570726c12c42d0df6cdd40"
+  },
+  "coordinator_documents_before_commit": {
+    "docs/project-status.md": "8f34aad3d97a6eb911c99e2aed6d5343844e28a9ba5470dadaec155868566b29",
+    "docs/superpowers/plans/2026-10-12-map-workspace-comments.md": "a4ac2a1e86ddbe1bfdc35df1d821ea353695663b7a6edeb5a27797870ecfbce2"
+  }
+}

@@ -1,0 +1,175 @@
+
+ RUN  v2.1.9 /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+
+ ❯ src/features/monitoring/FloorMap.test.tsx (17 tests | 2 failed) 655ms
+   × FloorMap > zooms with a modified wheel and pans by dragging the viewport 137ms
+     → expected 40 to be 70 // Object.is equality
+   × FloorMap > keeps monitoring markers selectable while allowing a two-touch pinch 15ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "fixture-1",
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/features/monitoring/MonitoringView.test.tsx (110 tests | 4 failed) 12299ms
+   ✓ MonitoringView refresh > keeps detail nonmodal inside the map with stable viewport and scrolling across reopen 305ms
+   × MonitoringView refresh > does not advance server update time after failed refresh 45ms
+     → expect(received).toHaveAttribute()
+
+received value must be an HTMLElement or an SVGElement.
+
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by fault 702ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by search 668ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by placement 602ms
+   ✓ MonitoringView refresh > N1 restores monitoring fallback when focused desktop detail is automatically removed by deletion 651ms
+   ✓ MonitoringView refresh > N1 preserves intentional outside focus during automatic desktop removal 763ms
+   ✓ MonitoringView refresh > N1 rejects a connected noninteractive original focus target 702ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after principal scope exit 730ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after site scope exit 716ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after floor scope exit 714ms
+   ✓ MonitoringView refresh > N1 never schedules stale focus after unmount scope exit 726ms
+   ✓ MonitoringView refresh > keeps finder list selection and map marker selection in sync 372ms
+   × MonitoringView refresh > shows the snapshot in site time across the UTC date boundary: Asia/Seoul 13ms
+     → expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  2026-10-04 00:59:00
+Received:
+  마지막 갱신:
+   × MonitoringView refresh > shows the snapshot in site time across the UTC date boundary: America/Los_Angeles 15ms
+     → expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  2026-10-02 17:30:00
+Received:
+  마지막 갱신:
+   × MonitoringView refresh > shows a persistent stale warning after the oldest fixture page snapshot exceeds 60 seconds 35ms
+     → expect(received).toHaveAttribute()
+
+received value must be an HTMLElement or an SVGElement.
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/monitoring/FloorMap.test.tsx > FloorMap > zooms with a modified wheel and pans by dragging the viewport
+AssertionError: expected 40 to be 70 // Object.is equality
+
+- Expected
++ Received
+
+- 70
++ 40
+
+ ❯ src/features/monitoring/FloorMap.test.tsx:525:33
+    523|     dispatchPointer(viewport, "pointerup", { pointerId: 1, button: 0, …
+    524| 
+    525|     expect(viewport.scrollLeft).toBe(70);
+       |                                 ^
+    526|     expect(viewport.scrollTop).toBe(55);
+    527|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/features/monitoring/FloorMap.test.tsx > FloorMap > keeps monitoring markers selectable while allowing a two-touch pinch
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      "fixture-1",
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/features/monitoring/FloorMap.test.tsx:542:33
+    540|     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttr…
+    541|     fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 7…
+    542|     expect(onSelectFixture).not.toHaveBeenCalled();
+       |                                 ^
+    543|   });
+    544| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > does not advance server update time after failed refresh
+Error: expect(received).toHaveAttribute()
+
+received value must be an HTMLElement or an SVGElement.
+
+ ❯ src/features/monitoring/MonitoringView.test.tsx:248:63
+    246|     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    247|     await waitFor(() => expect(screen.getByRole("button", { name: "새…
+    248|     expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toH…
+       |                                                               ^
+    249|     expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent("2026-1…
+    250|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > shows the snapshot in site time across the UTC date boundary: Asia/Seoul
+Error: expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  2026-10-04 00:59:00
+Received:
+  마지막 갱신:
+ ❯ src/features/monitoring/MonitoringView.test.tsx:1073:21
+    1071| 
+    1072|     const updated = screen.getByText(/마지막 갱신:/);
+    1073|     expect(updated).toHaveTextContent(localTime);
+       |                     ^
+    1074|     expect(updated).toHaveTextContent("현장 시간");
+    1075|     expect(updated).not.toHaveTextContent(snapshotAt);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > shows the snapshot in site time across the UTC date boundary: America/Los_Angeles
+Error: expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  2026-10-02 17:30:00
+Received:
+  마지막 갱신:
+ ❯ src/features/monitoring/MonitoringView.test.tsx:1073:21
+    1071| 
+    1072|     const updated = screen.getByText(/마지막 갱신:/);
+    1073|     expect(updated).toHaveTextContent(localTime);
+       |                     ^
+    1074|     expect(updated).toHaveTextContent("현장 시간");
+    1075|     expect(updated).not.toHaveTextContent(snapshotAt);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/features/monitoring/MonitoringView.test.tsx > MonitoringView refresh > shows a persistent stale warning after the oldest fixture page snapshot exceeds 60 seconds
+Error: expect(received).toHaveAttribute()
+
+received value must be an HTMLElement or an SVGElement.
+
+ ❯ src/features/monitoring/MonitoringView.test.tsx:1109:63
+    1107|     expect(openCurrentStatus()).toHaveTextContent("현황 갱신이 지연되…
+    1108|     expect(screen.getByText(/마지막 갱신:/)).not.toHaveTextContent(sna…
+    1109|     expect(screen.getByText(/마지막 갱신:/).querySelector("time")).toH…
+       |                                                               ^
+    1110|   });
+    1111| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 121 passed (127)
+   Start at  10:04:38
+   Duration  14.93s (transform 838ms, setup 162ms, collect 3.24s, tests 12.95s, environment 720ms, prepare 401ms)
+
+undefined
+/Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/FloorMap.test.tsx --reporter=dot

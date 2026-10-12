@@ -1,0 +1,488 @@
+
+> @led-control/web@0.1.0 test:ui-policy /Users/kim-jh/Documents/led-control-service/.worktrees/map-workspace-comments-20261012/apps/web
+> node --test scripts/ui-policy.test.mjs
+
+TAP version 13
+# Subtest: customer focus utility rejects non-CSS whitespace at selector and value edges
+ok 1 - customer focus utility rejects non-CSS whitespace at selector and value edges
+  ---
+  duration_ms: 80.349292
+  type: 'test'
+  ...
+# Subtest: customer focus utility admits only the exact base structure and rejects shadow escape routes
+ok 2 - customer focus utility admits only the exact base structure and rejects shadow escape routes
+  ---
+  duration_ms: 55.682667
+  type: 'test'
+  ...
+# Subtest: accepts only the complete reviewed customer bindings
+ok 3 - accepts only the complete reviewed customer bindings
+  ---
+  duration_ms: 7.874042
+  type: 'test'
+  ...
+# Subtest: closes customer focus shadow definitions and references outside reviewed roots
+ok 4 - closes customer focus shadow definitions and references outside reviewed roots
+  ---
+  duration_ms: 0.894708
+  type: 'test'
+  ...
+# Subtest: rejects missing duplicate mutated extra and invalid-syntax customer focus shadows
+ok 5 - rejects missing duplicate mutated extra and invalid-syntax customer focus shadows
+  ---
+  duration_ms: 74.391041
+  type: 'test'
+  ...
+# Subtest: customer and map color utilities remain closed to reviewed token names
+ok 6 - customer and map color utilities remain closed to reviewed token names
+  ---
+  duration_ms: 11.992875
+  type: 'test'
+  ...
+# Subtest: rejects whitespace splitting a customer var function without rejecting argument whitespace
+ok 7 - rejects whitespace splitting a customer var function without rejecting argument whitespace
+  ---
+  duration_ms: 9.5495
+  type: 'test'
+  ...
+# Subtest: rejects escaped protected declarations and palette references
+ok 8 - rejects escaped protected declarations and palette references
+  ---
+  duration_ms: 7.885916
+  type: 'test'
+  ...
+# Subtest: customer var arguments accept CSS whitespace but reject NBSP and vertical tab
+ok 9 - customer var arguments accept CSS whitespace but reject NBSP and vertical tab
+  ---
+  duration_ms: 14.210167
+  type: 'test'
+  ...
+# Subtest: rejects missing duplicate mutated or extra customer binding
+ok 10 - rejects missing duplicate mutated or extra customer binding
+  ---
+  duration_ms: 29.034041
+  type: 'test'
+  ...
+# Subtest: workspace requires both customer bindings even if base is empty or absent
+ok 11 - workspace requires both customer bindings even if base is empty or absent
+  ---
+  duration_ms: 220.693375
+  type: 'test'
+  ...
+# Subtest: allows only the exact native safe-area ownership contract, not arbitrary root CSS
+ok 12 - allows only the exact native safe-area ownership contract, not arbitrary root CSS
+  ---
+  duration_ms: 1.44625
+  type: 'test'
+  ...
+# Subtest: landing token proposal preserves exact values
+ok 13 - landing token proposal preserves exact values
+  ---
+  duration_ms: 6.198916
+  type: 'test'
+  ...
+# Subtest: production UI has no legacy policy violations
+ok 14 - production UI has no legacy policy violations
+  ---
+  duration_ms: 3039.545917
+  type: 'test'
+  ...
+# Subtest: workspace inspection rejects non-empty debt allowances
+ok 15 - workspace inspection rejects non-empty debt allowances
+  ---
+  duration_ms: 0.438875
+  type: 'test'
+  ...
+# Subtest: rejects arbitrary spacing, raw colors and production querySelector
+ok 16 - rejects arbitrary spacing, raw colors and production querySelector
+  ---
+  duration_ms: 2.006125
+  type: 'test'
+  ...
+# Subtest: accepts all approved spacing steps, semantic colors and typography
+ok 17 - accepts all approved spacing steps, semantic colors and typography
+  ---
+  duration_ms: 0.284417
+  type: 'test'
+  ...
+# Subtest: rejects arbitrary radius and shadow utilities without a legacy debt allowance
+ok 18 - rejects arbitrary radius and shadow utilities without a legacy debt allowance
+  ---
+  duration_ms: 2.575208
+  type: 'test'
+  ...
+# Subtest: permits runtime exceptions only in their reviewed syntax context
+ok 19 - permits runtime exceptions only in their reviewed syntax context
+  ---
+  duration_ms: 1.562
+  type: 'test'
+  ...
+# Subtest: layer wrappers preserve first-selector and raw-form fingerprints without hiding debt
+ok 20 - layer wrappers preserve first-selector and raw-form fingerprints without hiding debt
+  ---
+  duration_ms: 0.499917
+  type: 'test'
+  ...
+# Subtest: adjacent component layers count each first selector exactly once
+ok 21 - adjacent component layers count each first selector exactly once
+  ---
+  duration_ms: 0.143916
+  type: 'test'
+  ...
+# Subtest: nested layer @media (min-width: 760px) preserves every first form selector
+ok 22 - nested layer @media (min-width: 760px) preserves every first form selector
+  ---
+  duration_ms: 0.072834
+  type: 'test'
+  ...
+# Subtest: nested layer @supports (display: grid) preserves every first form selector
+ok 23 - nested layer @supports (display: grid) preserves every first form selector
+  ---
+  duration_ms: 0.0465
+  type: 'test'
+  ...
+# Subtest: nested layer @supports (display: grid) { @media (min-width: 760px) preserves every first form selector
+ok 24 - nested layer @supports (display: grid) { @media (min-width: 760px) preserves every first form selector
+  ---
+  duration_ms: 0.053083
+  type: 'test'
+  ...
+# Subtest: keyframe steps are not selectors and do not hide adjacent form rules
+ok 25 - keyframe steps are not selectors and do not hide adjacent form rules
+  ---
+  duration_ms: 0.132791
+  type: 'test'
+  ...
+# Subtest: keyframe declarations retain color and spacing debt without selector debt
+ok 26 - keyframe declarations retain color and spacing debt without selector debt
+  ---
+  duration_ms: 0.138041
+  type: 'test'
+  ...
+# Subtest: blocks numeric spacing outside the approved scale, including variants and negatives
+ok 27 - blocks numeric spacing outside the approved scale, including variants and negatives
+  ---
+  duration_ms: 0.2485
+  type: 'test'
+  ...
+# Subtest: I1 rejects px spacing utilities and static calc/clamp without banning runtime positions
+ok 28 - I1 rejects px spacing utilities and static calc/clamp without banning runtime positions
+  ---
+  duration_ms: 1.769458
+  type: 'test'
+  ...
+# Subtest: blocks variable arbitrary spacing, arbitrary colors and stock palette classes
+ok 29 - blocks variable arbitrary spacing, arbitrary colors and stock palette classes
+  ---
+  duration_ms: 0.23275
+  type: 'test'
+  ...
+# Subtest: blocks CSS and React literal spacing and typography without flagging geometry
+ok 30 - blocks CSS and React literal spacing and typography without flagging geometry
+  ---
+  duration_ms: 0.559708
+  type: 'test'
+  ...
+# Subtest: rejects literal colors in CSS, SVG props and style objects
+ok 31 - rejects literal colors in CSS, SVG props and style objects
+  ---
+  duration_ms: 0.227
+  type: 'test'
+  ...
+# Subtest: I3 accepts semantic custom properties and catches literal JSX/style color values
+ok 32 - I3 accepts semantic custom properties and catches literal JSX/style color values
+  ---
+  duration_ms: 0.501667
+  type: 'test'
+  ...
+# Subtest: I7 catches literal template, image and shadow colors without treating runtime values as CSS
+ok 33 - I7 catches literal template, image and shadow colors without treating runtime values as CSS
+  ---
+  duration_ms: 0.886959
+  type: 'test'
+  ...
+# Subtest: I9 scans template static segments, filter and SVG stop colors but not expressions or URL payloads
+ok 34 - I9 scans template static segments, filter and SVG stop colors but not expressions or URL payloads
+  ---
+  duration_ms: 0.638292
+  type: 'test'
+  ...
+# Subtest: I9 ignores URL payload words while scanning adjacent gradient colors
+ok 35 - I9 ignores URL payload words while scanning adjacent gradient colors
+  ---
+  duration_ms: 0.624375
+  type: 'test'
+  ...
+# Subtest: blocks stock and arbitrary typography, fractional padding and subpixel literals
+ok 36 - blocks stock and arbitrary typography, fractional padding and subpixel literals
+  ---
+  duration_ms: 0.331708
+  type: 'test'
+  ...
+# Subtest: I2 rejects semantic text line-height overrides in numeric, arbitrary and variable forms
+ok 37 - I2 rejects semantic text line-height overrides in numeric, arbitrary and variable forms
+  ---
+  duration_ms: 0.438584
+  type: 'test'
+  ...
+# Subtest: rejects static CSS and inline typography hidden in calculations
+ok 38 - rejects static CSS and inline typography hidden in calculations
+  ---
+  duration_ms: 0.257959
+  type: 'test'
+  ...
+# Subtest: theme permits only token declarations, not arbitrary rules or new CSS imports
+ok 39 - theme permits only token declarations, not arbitrary rules or new CSS imports
+  ---
+  duration_ms: 8.768917
+  type: 'test'
+  ...
+# Subtest: anchors the fixture marker radius and every brightness shadow token
+ok 40 - anchors the fixture marker radius and every brightness shadow token
+  ---
+  duration_ms: 30.726625
+  type: 'test'
+  ...
+# Subtest: I6 rejects changed anchored theme values across every token family
+ok 41 - I6 rejects changed anchored theme values across every token family
+  ---
+  duration_ms: 24.044792
+  type: 'test'
+  ...
+# Subtest: I8 requires one complete canonical theme declaration inventory
+ok 42 - I8 requires one complete canonical theme declaration inventory
+  ---
+  duration_ms: 1261.429458
+  type: 'test'
+  ...
+# Subtest: accepts reviewed customer typography utilities while rejecting unknown customer scale names
+ok 43 - accepts reviewed customer typography utilities while rejecting unknown customer scale names
+  ---
+  duration_ms: 3.289416
+  type: 'test'
+  ...
+# Subtest: rejects unknown theme names, semantic typos and arbitrary responsive breakpoints
+ok 44 - rejects unknown theme names, semantic typos and arbitrary responsive breakpoints
+  ---
+  duration_ms: 2.590042
+  type: 'test'
+  ...
+# Subtest: allows exact entry imports and main entry only
+ok 45 - allows exact entry imports and main entry only
+  ---
+  duration_ms: 1.239792
+  type: 'test'
+  ...
+# Subtest: rejects imports of the retired landing motion stylesheet
+ok 46 - rejects imports of the retired landing motion stylesheet
+  ---
+  duration_ms: 0.416416
+  type: 'test'
+  ...
+# Subtest: rejects retired landing motion selectors and stylesheets
+ok 47 - rejects retired landing motion selectors and stylesheets
+  ---
+  duration_ms: 0.354459
+  type: 'test'
+  ...
+# Subtest: retired landing CSS cannot bypass selector, color or spacing policy
+ok 48 - retired landing CSS cannot bypass selector, color or spacing policy
+  ---
+  duration_ms: 0.216041
+  type: 'test'
+  ...
+# Subtest: rejects rogue utilities and extensionless CSS package imports
+ok 49 - rejects rogue utilities and extensionless CSS package imports
+  ---
+  duration_ms: 0.123209
+  type: 'test'
+  ...
+# Subtest: does not mistake JavaScript variant object keys for responsive utility prefixes
+ok 50 - does not mistake JavaScript variant object keys for responsive utility prefixes
+  ---
+  duration_ms: 0.364167
+  type: 'test'
+  ...
+# Subtest: still rejects actual unapproved responsive prefixes inside class strings and templates
+ok 51 - still rejects actual unapproved responsive prefixes inside class strings and templates
+  ---
+  duration_ms: 1.762083
+  type: 'test'
+  ...
+# Subtest: rejects arbitrary breakpoints even when an equivalent named phone-wide token exists
+ok 52 - rejects arbitrary breakpoints even when an equivalent named phone-wide token exists
+  ---
+  duration_ms: 0.300209
+  type: 'test'
+  ...
+# Subtest: accepts only the reviewed 360px phone-wide token and named utilities
+ok 53 - accepts only the reviewed 360px phone-wide token and named utilities
+  ---
+  duration_ms: 19.664875
+  type: 'test'
+  ...
+# Subtest: accepts the exact reviewed top safe-area helper only at its owned base CSS path
+ok 54 - accepts the exact reviewed top safe-area helper only at its owned base CSS path
+  ---
+  duration_ms: 0.8755
+  type: 'test'
+  ...
+# Subtest: accepts only the reviewed final atlas shell layout tokens
+ok 55 - accepts only the reviewed final atlas shell layout tokens
+  ---
+  duration_ms: 18.05125
+  type: 'test'
+  ...
+# Subtest: inventories unapproved CSS files, selectors and raw form styling
+ok 56 - inventories unapproved CSS files, selectors and raw form styling
+  ---
+  duration_ms: 0.19175
+  type: 'test'
+  ...
+# Subtest: blocks newly styled native fields outside the shared UI ownership boundary
+ok 57 - blocks newly styled native fields outside the shared UI ownership boundary
+  ---
+  duration_ms: 0.732
+  type: 'test'
+  ...
+# Subtest: blocks native form styling hidden behind JSX spreads and React.createElement
+ok 58 - blocks native form styling hidden behind JSX spreads and React.createElement
+  ---
+  duration_ms: 3.132875
+  type: 'test'
+  ...
+# Subtest: rejects unquoted CSS URL imports
+ok 59 - rejects unquoted CSS URL imports
+  ---
+  duration_ms: 0.129958
+  type: 'test'
+  ...
+# Subtest: M1 CSS query/hash imports require an exact approved resource ID
+ok 60 - M1 CSS query/hash imports require an exact approved resource ID
+  ---
+  duration_ms: 0.265333
+  type: 'test'
+  ...
+# Subtest: skips test-only paths and comments, not production paths containing test
+ok 61 - skips test-only paths and comments, not production paths containing test
+  ---
+  duration_ms: 1.398292
+  type: 'test'
+  ...
+# Subtest: skips only precise CAD smoke and golden fixture suffixes
+ok 62 - skips only precise CAD smoke and golden fixture suffixes
+  ---
+  duration_ms: 1.800583
+  type: 'test'
+  ...
+# Subtest: production imports cannot enter skipped CAD fixtures
+ok 63 - production imports cannot enter skipped CAD fixtures
+  ---
+  duration_ms: 3.677
+  type: 'test'
+  ...
+# Subtest: workspace skips CAD fixtures without admitting their production HTML entries
+ok 64 - workspace skips CAD fixtures without admitting their production HTML entries
+  ---
+  duration_ms: 20.709167
+  type: 'test'
+  ...
+# Subtest: M3 ignores trailing and JSX comments but preserves strings, templates and URLs
+ok 65 - M3 ignores trailing and JSX comments but preserves strings, templates and URLs
+  ---
+  duration_ms: 1.249333
+  type: 'test'
+  ...
+# Subtest: rejects TypeScript generic and optional-chain production DOM queries
+ok 66 - rejects TypeScript generic and optional-chain production DOM queries
+  ---
+  duration_ms: 0.355833
+  type: 'test'
+  ...
+# Subtest: M2 rejects optional DOM method calls including receiver and generic combinations
+ok 67 - M2 rejects optional DOM method calls including receiver and generic combinations
+  ---
+  duration_ms: 0.225625
+  type: 'test'
+  ...
+# Subtest: rejects computed DOM query method calls
+ok 68 - rejects computed DOM query method calls
+  ---
+  duration_ms: 0.933458
+  type: 'test'
+  ...
+# Subtest: I4 fingerprints the receiver and complete selector call, independently of surrounding lines
+ok 69 - I4 fingerprints the receiver and complete selector call, independently of surrounding lines
+  ---
+  duration_ms: 0.673417
+  type: 'test'
+  ...
+# Subtest: I4 CLI rejects every production DOM query with a zero baseline
+ok 70 - I4 CLI rejects every production DOM query with a zero baseline
+  ---
+  duration_ms: 2059.595666
+  type: 'test'
+  ...
+# Subtest: CLI inventories only production src and rejects any policy debt
+ok 71 - CLI inventories only production src and rejects any policy debt
+  ---
+  duration_ms: 1664.542584
+  type: 'test'
+  ...
+# Subtest: workspace closes skipped-module, entry HTML and public CSS scan gaps
+ok 72 - workspace closes skipped-module, entry HTML and public CSS scan gaps
+  ---
+  duration_ms: 9.574541
+  type: 'test'
+  ...
+# Subtest: workspace requires every canonical CSS import exactly once
+ok 73 - workspace requires every canonical CSS import exactly once
+  ---
+  duration_ms: 56.77225
+  type: 'test'
+  ...
+# Subtest: workspace rejects extensionless bare imports only when package metadata exposes CSS
+ok 74 - workspace rejects extensionless bare imports only when package metadata exposes CSS
+  ---
+  duration_ms: 7.109208
+  type: 'test'
+  ...
+# Subtest: workspace resolves overlapping package export patterns by Node specificity, not declaration order
+ok 75 - workspace resolves overlapping package export patterns by Node specificity, not declaration order
+  ---
+  duration_ms: 5.808167
+  type: 'test'
+  ...
+# Subtest: baseline must preserve the approved Git anchor and an empty violation map
+ok 76 - baseline must preserve the approved Git anchor and an empty violation map
+  ---
+  duration_ms: 693.265041
+  type: 'test'
+  ...
+# Subtest: real Vite build emits semantic and reviewed responsive CSS without fixture pollution
+ok 77 - real Vite build emits semantic and reviewed responsive CSS without fixture pollution
+  ---
+  duration_ms: 16474.683
+  type: 'test'
+  ...
+# Subtest: approved landing policy rejects mutated variant or anchor
+ok 78 - approved landing policy rejects mutated variant or anchor
+  ---
+  duration_ms: 1637.530583
+  type: 'test'
+  ...
+# Subtest: approved landing variants compile at inclusive boundaries
+ok 79 - approved landing variants compile at inclusive boundaries
+  ---
+  duration_ms: 1651.712875
+  type: 'test'
+  ...
+1..79
+# tests 79
+# suites 0
+# pass 79
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 29925.513208

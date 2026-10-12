@@ -1,0 +1,174 @@
+diff --git a/apps/web/src/features/control/ManualExecutionPanel.tsx b/apps/web/src/features/control/ManualExecutionPanel.tsx
+index c44070b7..5d1ef661 100644
+--- a/apps/web/src/features/control/ManualExecutionPanel.tsx
++++ b/apps/web/src/features/control/ManualExecutionPanel.tsx
+@@ -1,5 +1,5 @@
+ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+-import { ManualAuxiliaryContent, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
++import { ManualAuxiliaryContent, manualCompactButtonHitClassName, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
+ import { Button, NumberField, Slider, Text } from "../../components/ui";
+ 
+ export interface ManualExecutionPanelProps {
+@@ -62,7 +62,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
+ 
+   // One editable input stays mounted while auxiliary content is disclosed.
+   // Blur/Enter and the first invalid Apply guard remain owned by this draft.
+-  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? "h-11 min-h-11! min-w-0 px-2 text-caption" : "max-compact:scroll-mb-shell-navigation-safe"}
++  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? `${manualCompactButtonHitClassName} px-2 text-caption` : "max-compact:scroll-mb-shell-navigation-safe"}
+     aria-label={applyLabel} onClick={() => {
+       if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
+       if (!rawValid.current || restoring.current || !canSubmit) return;
+@@ -70,7 +70,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
+     }} disabled={!canSubmit || invalidDraft} data-control-submit="">{compact ? "적용" : applyLabel}</Button>;
+   const moreBody = <>
+       <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
+-        {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className="whitespace-nowrap px-2" aria-pressed={brightness === value && !invalidDraft}
++        {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className={compact ? `${manualCompactButtonHitClassName} whitespace-nowrap px-2` : "whitespace-nowrap px-2"} aria-pressed={brightness === value && !invalidDraft}
+           disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}
+       </div>
+       {moreContent}
+@@ -101,7 +101,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
+       </div>
+       <Slider aria-label="밝기" presentation="bare" className="min-w-0" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
+       {apply}
+-      <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? "h-11 min-h-11! min-w-11 px-2 text-caption" : "hidden"}
++      <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? `${manualCompactButtonHitClassName} px-2 text-caption` : "hidden"}
+         aria-expanded={moreOpen} aria-controls={auxiliary?.panelId ?? moreId} onClick={event => auxiliary ? auxiliary.toggle("more", event.currentTarget) : setMoreOpen(value => !value)}>더보기</Button>
+     </div>
+     {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}
+diff --git a/apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx b/apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx
+index 3d2398f5..64726363 100644
+--- a/apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx
++++ b/apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx
+@@ -2,6 +2,11 @@ import { createContext, useCallback, useContext, useId, useEffect, useLayoutEffe
+ import { createPortal } from "react-dom";
+ import { Button, Heading } from "../../../components/ui";
+ 
++// Basic mobile rows must keep their height budget. A square 44px-high,
++// at-least48px-wide outer hit frame avoids rounded corner gaps and narrow
++// Apply text while preserving the map row; this never changes common defaults.
++export const manualCompactButtonHitClassName = "h-11 min-h-11! min-w-12 rounded-none!";
++
+ type Kind = "selection" | "more";
+ type Auxiliary = {
+   enabled: boolean;
+@@ -56,7 +61,7 @@ export function ManualAuxiliaryPanel() {
+     }}>
+     <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border-default px-2">
+       <Heading as="h3" variant="customer-card-title">{auxiliary.active === "selection" ? "선택 조명 목록" : "제어 더보기"}</Heading>
+-      <Button type="button" variant="ghost" className="min-h-11! min-w-11 shrink-0" aria-label="보조 패널 닫기" onClick={() => auxiliary.close()}>닫기</Button>
++      <Button type="button" variant="ghost" className={`${manualCompactButtonHitClassName} shrink-0`} aria-label="보조 패널 닫기" onClick={() => auxiliary.close()}>닫기</Button>
+     </div>
+     <div ref={auxiliary.registerHost} className="min-h-0 overflow-y-auto overscroll-contain p-2" data-manual-auxiliary-body="" />
+   </section>;
+diff --git a/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx b/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx
+index 4780ae66..d2e60f43 100644
+--- a/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx
++++ b/apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx
+@@ -1,5 +1,5 @@
+ import { useId, useRef, useState } from "react";
+-import { ManualAuxiliaryContent, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
++import { ManualAuxiliaryContent, manualCompactButtonHitClassName, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
+ import type { DashboardFixture } from "../../../api/queries";
+ import { Button, Heading, Text } from "../../../components/ui";
+ 
+@@ -16,7 +16,7 @@ export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
+   const listId = useId();
+   const opener = useRef<HTMLButtonElement>(null);
+   const content = <>
+-      <Button type="button" variant="ghost" disabled={locked || fixtures.length === 0} onClick={onClear}>선택 해제</Button>
++      <Button type="button" variant="ghost" className={compact ? manualCompactButtonHitClassName : undefined} disabled={locked || fixtures.length === 0} onClick={onClear}>선택 해제</Button>
+       {fixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
+         {fixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
+       </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
+@@ -26,7 +26,7 @@ export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
+     <div className="grid min-w-0 gap-1">
+       <Heading as="h3" variant="customer-card-title" className={compact ? "text-caption" : undefined}
+         aria-live={compact ? "polite" : undefined} aria-atomic="true">선택 조명 {fixtures.length}개</Heading>
+-      <Button ref={opener} hidden={!compact} type="button" variant="secondary" className={compact ? "min-h-11! w-full" : "hidden"}
++      <Button ref={opener} hidden={!compact} type="button" variant="secondary" className={compact ? `${manualCompactButtonHitClassName} w-full` : "hidden"}
+         aria-expanded={expanded} aria-controls={auxiliary?.panelId ?? listId} onClick={event => auxiliary ? auxiliary.toggle("selection", event.currentTarget) : setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
+     </div>
+     <div id={listId} hidden={Boolean(auxiliary?.enabled) || (compact && !expanded)}
+diff --git a/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx b/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
+index 3c222896..3d07b5ad 100644
+--- a/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
++++ b/apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx
+@@ -1,5 +1,6 @@
+ import { useState, type ReactNode, type RefObject } from "react";
+ import type { Dashboard } from "../../../api/queries";
++import { manualCompactButtonHitClassName } from "../manual-workspace/ManualAuxiliaryPanel";
+ import { List } from "lucide-react";
+ import { Button, SelectBox } from "../../../components/ui";
+ import type { ControlMode, ControlSelection } from "../control-selection";
+@@ -44,7 +45,7 @@ export function TargetSelectionToolbar({
+     items={floors.map((item) => ({ id: item.id, label: item.name }))}
+     selectedKey={activeFloorId} isDisabled={disabled || floors.length === 0} onSelectionChange={(floorId) => floorId && onFloorChange(floorId)} />;
+   const actions = <>
+-    <Button ref={listOpenerRef} type="button" variant="secondary" className={compact ? "size-11 min-h-11! shrink-0 p-0" : undefined} aria-label={compact ? "조명 목록" : undefined} disabled={disabled} onClick={onOpenList}>{compact ? <List size={18} aria-hidden="true" /> : manual ? "조명 목록" : "조명 목록 열기"}</Button>
++    <Button ref={listOpenerRef} type="button" variant="secondary" className={compact ? `${manualCompactButtonHitClassName} w-12 shrink-0 p-0` : undefined} aria-label={compact ? "조명 목록" : undefined} disabled={disabled} onClick={onOpenList}>{compact ? <List size={18} aria-hidden="true" /> : manual ? "조명 목록" : "조명 목록 열기"}</Button>
+     {managementAction}
+     {allowedModes.length === 1 && onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
+   </>;
+diff --git a/apps/web/src/features/floor-map/FloorMapViewport.tsx b/apps/web/src/features/floor-map/FloorMapViewport.tsx
+index fcb655bb..8a1e9849 100644
+--- a/apps/web/src/features/floor-map/FloorMapViewport.tsx
++++ b/apps/web/src/features/floor-map/FloorMapViewport.tsx
+@@ -710,13 +710,17 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
+   // Only an explicit footer slot opts in; overlay and existing footer callers
+   // retain their placement. The viewport/renderer subtree never changes owner.
+   const combinedFooter = controlsPlacement === "footer" && footerStart != null;
++  // A rounded 44px frame has no continuous 44x44 hit square. The opt-in
++  // camera chrome uses the existing 52px coarse frame without consuming a
++  // map flow row; default/editor callers retain their original classes.
++  const compactCameraIconClassName = "size-13 min-h-13!";
+   const cameraControls = showControls ? (
+     <div className={cn("flex items-center", compactChrome ? "gap-0" : "gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
+-      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
+-      <Button type="button" variant="ghost" size="sm" className={compactChrome ? "min-h-11! min-w-11 px-1" : "min-w-14 px-2 max-compact:min-h-13"} aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
+-      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
++      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? compactCameraIconClassName : "max-compact:size-13"} aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
++      <Button type="button" variant="ghost" size="sm" className={compactChrome ? "min-h-13! min-w-13 px-1" : "min-w-14 px-2 max-compact:min-h-13"} aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
++      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? compactCameraIconClassName : "max-compact:size-13"} aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
+       {controlAfterZoom}
+-      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
++      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? compactCameraIconClassName : "max-compact:size-13"} aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
+     </div>
+   ) : null;
+ 
+diff --git a/docs/menus/control.md b/docs/menus/control.md
+index 57c15f93..ca3305e0 100644
+--- a/docs/menus/control.md
++++ b/docs/menus/control.md
+@@ -1,5 +1,31 @@
+ # 제어 메뉴 기능 현황
+ 
++## 2026-10-12 실제 continuous44 실패 후 수동 compact 버튼 보완
++
++### 구현 완료
++
++- 수동 compact camera 네 버튼은 기존52px coarse 프레임을 사용한다. compact overlay placement·zoom/reset/fit handler는 그대로이며 지도 flow 높이를 늘리지 않는다. 기본/editor/PC의 compactChrome=false 경로는 변경하지 않았다.
++- 수동 compact Apply/More/조명 목록/전체 보기/reader close/빠른 값/선택 해제는 재사용 feature class로 사각 외곽·높이44·최소너비48을 사용한다. basic 행을52로 늘리지 않아 지도 높이 budget을 보존한다. 버튼의 keyboard/disabled/권한/Apply guard 및 handler는 그대로다.
++
++### 미구현
++
++- 최종 source continuous44 및 map240+·overlay control/reader 마지막 action의 actual 재측정은 총괄 source freeze 후 UX 관문이다. 본 담당 browser 자동 재실행0.
++
++### 부족하거나 개선이 필요한 기능
++
++- 이전4093 actual에서320 map251/390 map249·문서overflow0을 확인했으나 camera geometry44(배율47.625×44)의 usable43/연속44영역false가 실측됐다. 소스 보완·직접 동작 GREEN을 실제 hit 합격으로 해석하지 않는다.
++- 넓은 층/범위 select의 기존44 프레임과 numeric/slider·긴 이력 action의 actual hit/가림은 같은 후속 UX 관문에서 확인한다. 기준44/지도240은 완화하지 않았다. 새 public API/공통Button/default 스타일 변경0.
++
++### 관련 파일
++
++- `apps/web/src/features/floor-map/FloorMapViewport.tsx`와 직접 테스트.
++- `features/control/{ManualExecutionPanel,manual-workspace/ManualAuxiliaryPanel,target-selection/ManualSelectionPanel,target-selection/TargetSelectionToolbar}.tsx` 및 실제 Control/Shell/Spatial/ManualExecution 소비자 직접 테스트.
++
++### 갱신 규칙
++
++- geometry 선언과 실제 reachable continuous44를 구분하고 원 actual RED와 후속 source/실측 cohort를 각각 남긴다. compact true 전달 경로와 PC/default false 영향 경로를 명시한다.
++- 이번 버튼 보완은 camera/renderer/UUID/frozen request/query/복구·권한/raw31/첫Apply 계약을 함께 확인하고 실제 UX 후 최종 수치를 기록한다.
++
+ ## 2026-10-12 승인 후속 — 지도 하단 단일 보조 패널
+ 
+ ### 구현 완료
