@@ -12,6 +12,7 @@
 
 ## 2026-10-12 실제 공개 배포 — 무료 플랜 유지·Sydney 리전 진행
 
+- 최신 공개 관문은 미완료다. `b0a9b953` CI는 Web3587·Gateway1830 및 API PostgreSQL/BIO 검사를 통과했지만 API CAD5·제조1 실패(API3178PASS/6FAIL/기존1208SKIP), `53f48c69` CI는 Web focus1 실패로 API/Gateway 최종 총계 미완결이다. 두 run 모두 quality 성공·unit 실패·후속4SKIP다. 독립 승인된 focus2/2·제조10/10 교정은 `8a96d19e`·`a8440716`에 반영했다. native Linux probe에서 공유 real UID의 NPROC32 누적 원인을 확인하고, 정확한 a8440716 별도 후보 checkout에서 CI-only API 전용 UID·단일 Jest와 테스트 보강 6파일을 구현·검증 중이다. 실제 Python lifecycle6 cases의 정리 성공은 전체 API/CI 성공을 대신하지 않는다. 제한·환경 필터·기존 deadline·전체 수집·6개 gate는 유지하며 stack/content/서비스 CNAME은 아직 생성하지 않았다. 이후 배포 문서는 후보 checkout에서 관리하고 MAIN 병행 작업을 보존한다.
 - 사용자가 수동 배포 지시를 변경하고 서울 리전의 직접 배포를 요청했다. `kinda.dfkorealed.com`, 호스팅케이알 DNS 유지, `WEB_DEPLOY_MODE=landing` 범위를 유지하며 [실행 체크리스트 Task5](superpowers/plans/2026-10-11-web-deploy-mode.md)와 동기화한다.
 - AWS CLI 2.37.12의 `kinda` 임시 로그인과 STS 회사 계정 확인은 완료했다. 현재 AWS Settings의 `Try Catch Finally` 프로젝트는 신규 AWS 경험의 무료 플랜이며 `ap-southeast-2`에 지정되어 있다. 해당 리전 `cloudformation:ListStacks`는 빈 목록으로 성공했지만 서울 `ap-northeast-2`의 같은 읽기 호출은 조직 SCP의 explicit deny로 실패했다. 로그인도 프로젝트 리전으로만 연결됐으며 이를 서울 배포 성공으로 해석하지 않는다.
 - 서울 사용에는 유료 플랜 전환·되돌릴 수 없는 고급 기능 활성화 및 조직 리전 정책 검토가 필요하다. 사용자는 지금 무료 플랜을 유지하고 크레딧 소진 뒤 서울 이전을 선택했다. 현재 공개 배포 리전은 기존 `ap-southeast-2`이며 고급 기능 활성화·과금 플랜 변경·SCP 변경은 하지 않는다. 추후 서울 이전은 리전 플래그만 바꾸는 작업이 아니라 새 리소스 provision·검증·DNS 전환이며 자동 예약하지 않는다.
