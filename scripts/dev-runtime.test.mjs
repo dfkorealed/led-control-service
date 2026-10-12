@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import yaml from "js-yaml";
 import {
   parseEnvFile,
   commandSetAclOptions,
@@ -1139,6 +1140,8 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
 });
 
 test("Compose 개발 broker는 override를 무시하고 exact host path 3개를 missing-path fail-closed로 mount한다", () => {
+  const configuredMounts = yaml.load(readFileSync(new URL("../docker-compose.yml", import.meta.url), "utf8"))
+    .services["mqtt-tls"].volumes;
   const mqtt = renderCompose({
     MOSQUITTO_TLS_CONFIG_PATH: "/tmp/attacker.conf",
     MQTT_TLS_CERT_DIR: "./.local/lab-pki/services/current"
@@ -1156,7 +1159,11 @@ test("Compose 개발 broker는 override를 무시하고 exact host path 3개를 
   for (const mount of [configMount, aclMount, certMount]) {
     assert.equal(mount.type, "bind");
     assert.equal(mount.read_only, true);
-    assert.equal(mount.bind.create_host_path, false);
+    // Compose 2.38 serializes false as an omitted field. The authored configuration
+    // must still explicitly disable host-path creation; rendered true is never accepted.
+    const configuredMount = configuredMounts.find((volume) => volume.target === mount.target);
+    assert.equal(configuredMount.bind.create_host_path, false);
+    assert.ok([false, undefined].includes(mount.bind.create_host_path));
   }
   assert.doesNotMatch(aclMount.source, /infra\/mosquitto\.acl\.example$/);
 });
