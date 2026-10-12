@@ -1,5 +1,35 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 승인 후속 — 지도 하단 단일 보조 패널
+
+### 구현 완료
+
+- 수동 모바일의 목록·더보기는 지도 내부 하단의 하나의 nonmodal 보조 패널에서 상호배타로 표시한다. 고정 제목/닫기44와 공통 body 내부 scroll을 사용하며, 열기·전환·닫기가 지도 grid의 행 높이를 추가하지 않는다. 별도 drawer/selection/query/command owner를 만들지 않았다.
+- 지도 아래 `선택 조명 N개` → 바로 아래 `전체 보기`44, 숫자/slider/적용/더보기44 한 행, 중요한 상태/live와 navigation을 유지한다. 선택 범위와 층 dropdown의 시각적 label 빈 간격을 수동 compact caller에서만 없애고 accessible label은 유지한다.
+- 수동 모바일만 중복 현장 전체·층 집계·범례와 기존 제어 방식 전환을 더보기로 옮긴다. 기본 화면에는 현재 `수동 제어` 식별을 남긴다. 권한이 확인된 manual-active shell만 집계 행을 감추고 기존52px action을 가진 compact topbar 높이를 사용한다. 네 camera 기능은 같은 FloorMapViewport의 overlay chrome에서 접근하며 handler/camera/renderer는 그대로다.
+- 보조 콘텐츠는 고정 portal target을 사용해 화면 폭 변경에도 이력/복구 상세·React owner/ref/subscription을 유지한다. 이동 직전 내부 포커스가 있으면 같은 연결된 표시 요소에 preventScroll로 복원한다. Escape(실제 opener 포함)/닫기/동일 opener 재클릭은 실제 opener에 돌아간다. 현장·주체·층·선택 방식 경계는 보조 패널을 닫는다.
+- raw31·invalid blur/Enter·첫 invalid Apply 차단·별도 명시 적용, 권한/잠금·동일 UUID 복구를 유지한다. 기본 standalone/PC·자동화/editor/embedded 소비자는 기존 표시 정책을 유지한다. 공통 UI/public API 변경은 없다.
+
+### 미구현
+
+- 최종 source의 실제320/390×600 map240 목표·지도 우세·map rect/canvas/camera 불변, 마지막 action 도달·nav 겹침0·continuous44 hit·slider 끝 간섭 검증은 총괄 source freeze 이후 UX 후속 QA다.
+- 실제 OS keyboard/touch/safe-area 및 장비/HIL 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원69b1 실제 QA에서 기본 지도62/70px,390 긴 목록 펼침 후 height0/canvas 연결 해제를 확인했다. 새 보조 패널의 overlay만으로 이 결함을 덮지 않고 기본 화면의 반복 chrome부터 줄였다. 지도 min240 강제나 새 overflow clip은 추가하지 않았다. 현재 직접 테스트/선언된 layout을 실제 높이 PASS로 해석하지 않는다.
+- 보조 패널은 지도를 부분적으로 가리는 읽기 영역이다. 목록/더보기 전환과 두 펼침 상호배타, 내부 wheel/scroll 끝, 긴 오류·모드 전환 접근성·PC/모바일 portal 내부 포커스는 실제 QA에서도 확인한다. default-false 기존 compact opt-in과 manual-active 보고 경계를 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx`와 ControlView/ManualExecutionPanel/target-selection 및 직접 테스트.
+- `apps/web/src/features/shells/CustomerShell.tsx` 및 실제 Control 소비자 직접 테스트. FloorMapViewport/FloorScene/공통 ticker 제품은 변경하지 않았다.
+
+### 갱신 규칙
+
+- 원 actual RED, 직접 동작 RED/GREEN, source/static 및 actual geometry 결과를 구분한다. source commit과 실제 UX/review/MAIN 통합 관문은 별개다.
+- 후속 보조 표현 변경은 renderer·command/query owner와 내부 focus/UUID/raw guard를 함께 확인하고, 메뉴의 이전 세로-flow 기록은 과거 구현으로 읽는다.
+
 ## 2026-10-12 실제 QA 후 수동 지도 높이·이력 폭 보완
 
 ### 구현 완료

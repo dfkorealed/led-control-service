@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, ProgressSteps, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { Button, Card, Heading, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -56,6 +56,7 @@ import {
 } from "./active-command-session";
 import { SpatialTargetSelector } from "./target-selection/SpatialTargetSelector";
 import { ManualExecutionPanel } from "./ManualExecutionPanel";
+import { ManualAuxiliaryProvider } from "./manual-workspace/ManualAuxiliaryPanel";
 import { ManualSelectionPanel } from "./target-selection/ManualSelectionPanel";
 
 const ScheduleControlPanel = lazy(async () => {
@@ -655,6 +656,15 @@ export function ControlView({
                   {importantManualStatus}
                 </div>;
   const auxiliaryContent = <>
+          {singleColumnLayout ? <>
+            <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />
+            <InlineStatusSummary label="현장 전체" items={[
+              { id: "total", label: "전체", value: data.summary.totalFixtures ?? null, tone: "neutral" },
+              { id: "online", label: "온라인", value: data.summary.onlineFixtures ?? null, tone: "success" },
+              { id: "fault", label: "장애", value: data.summary.faultFixtures ?? null, tone: "danger" },
+              { id: "offline", label: "오프라인", value: data.summary.offlineFixtures ?? null, tone: "warning" }
+            ]} />
+          </> : null}
           {/* Auxiliary recovery stays mounted; the independent live summary
               above preserves essential warnings while this region is closed. */}
           <div className="flex min-h-0 min-w-0 flex-col gap-3 compact:overflow-y-auto compact:overscroll-contain" data-control-safety-scroll="">
@@ -684,8 +694,9 @@ export function ControlView({
   // height. The size-contained canvas contributes zero intrinsic height, so
   // pass the finite remainder through explicit rows in manual mobile only.
   return (
+    <ManualAuxiliaryProvider enabled={singleColumnLayout} scope={`${userId}:${data.site.id}:${selection.mode}`}>
     <section className={cn(controlScreenClassName, singleColumnLayout && "h-full grid-rows-[auto_minmax(0,1fr)] gap-1")} data-control-screen="">
-      {modeTabs}
+      {singleColumnLayout ? <><Heading as="h1" className="sr-only">조명 제어</Heading><Text variant="caption">수동 제어</Text></> : modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)] gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
       <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
         {/* Subgrid shares the toolbar row without reparenting the live map or
@@ -739,6 +750,7 @@ export function ControlView({
         returnFocusRef={verificationCasesOpenerRef} onClose={() => setVerificationCasesOpen(false)} />
       </div>
     </section>
+    </ManualAuxiliaryProvider>
   );
 }
 

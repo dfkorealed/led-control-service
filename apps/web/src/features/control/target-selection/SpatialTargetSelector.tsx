@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { useFloorMapSnapshot } from "../../../api/queries";
 import { Button, ConfirmDialog, InlineStatusSummary, OperationMapPanel, Text } from "../../../components/ui";
@@ -8,6 +8,7 @@ import { resolveControlSelection, toggleFixtureSelection, type ControlMode, type
 import { humanizeDeviceResponseMessage } from "../control-copy";
 import { FixtureSelectionDrawer } from "./FixtureSelectionDrawer";
 import { SelectionSummaryPanel } from "./SelectionSummaryPanel";
+import { ManualAuxiliaryContent, ManualAuxiliaryPanel, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
 import { TargetSelectionToolbar } from "./TargetSelectionToolbar";
 
 export interface SpatialTargetSelectorProps {
@@ -54,6 +55,8 @@ export function SpatialTargetSelector({
   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
   const manualWorkspace = presentation === "manual-workspace";
   const compactManual = manualWorkspace && compactWorkspace;
+  const auxiliary = useManualAuxiliary();
+  const compactAuxiliary = compactManual && Boolean(auxiliary);
   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
   const mapQuery = useFloorMapSnapshot(activeFloor?.id, siteId);
   const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, resolvedSelection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, resolvedSelection]);
@@ -119,8 +122,19 @@ export function SpatialTargetSelector({
     onChange({ mode: "fixtures", fixtureIds: [...next].sort() });
   }
 
+  const closeAuxiliary = auxiliary?.close;
+  useLayoutEffect(() => { closeAuxiliary?.(false); }, [siteId, activeFloor?.id, closeAuxiliary]);
+
   const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
+  const floorStatus = <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
+          { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
+          { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
+          { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
+          { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
+        ]} />;
+  const selectionChoices = <>{selection.mode === "floor" ? <SelectionChoices compact={compactManual && !auxiliary} kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+    {selection.mode === "group" ? <SelectionChoices compact={compactManual && !auxiliary} kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}</>;
   const legend = <div className={manualWorkspace ? (compactManual ? "pointer-events-none grid grid-cols-2 gap-x-1 text-caption" : "pointer-events-none flex flex-wrap gap-2 text-label") : "pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-border-default bg-surface-panel px-2 py-1 text-label"} aria-label="지도 조명 상태 범례">
     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-connected" />정상</span>
     <span className="inline-flex items-center gap-1"><span aria-hidden="true" className="size-2 rounded-fixture-marker bg-fixture-fault" />장애</span>
@@ -142,20 +156,24 @@ export function SpatialTargetSelector({
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes
           lose their corners and cannot provide the required 48×48 target. */}
-      {/* Manual legend and camera share one wrapping flow footer, preserving
-          the 240px canvas minimum; embedded consumers keep their old strip. */}
+      {/* Mobile moves repeated summaries/legend into the common reader and
+          places camera controls over the map, preserving its finite row.
+          Desktop/default consumers retain their existing footer and minimum. */}
       <OperationMapPanel className={`[&_[data-spatial-map-marker]]:rounded-none! ${compactManual ? "min-h-0 [&_[data-operation-map-chrome]]:px-1 [&_[data-operation-map-chrome]]:py-1 [&_[data-operation-map-chrome]_span]:text-caption [&_[data-operation-map-chrome]_strong]:text-caption [&_[data-operation-map-chrome]_[role=group]]:gap-x-2" : "min-h-min"}`}
-        status={manualWorkspace ? <InlineStatusSummary label={`${activeFloor?.name ?? "현재"} 도면 조명 상태`} items={[
-          { id: "total", label: "전체", value: activeFloor?.summary?.totalFixtures ?? null, tone: "neutral" },
-          { id: "online", label: "정상", value: activeFloor?.summary?.onlineFixtures ?? null, tone: "success" },
-          { id: "fault", label: "장애", value: activeFloor?.summary?.faultFixtures ?? null, tone: "danger" },
-          { id: "offline", label: "오프라인", value: activeFloor?.summary?.offlineFixtures ?? null, tone: "warning" }
-        ]} /> : undefined}>
-        {mapQuery.data && activeFloor ? <div className={compactManual ? "min-h-0 min-w-0 flex-1" : "min-h-min min-w-0 flex-1"}><FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
+        status={manualWorkspace && !compactAuxiliary ? floorStatus : undefined}>
+        <div className={compactManual ? "relative flex min-h-0 min-w-0 flex-1 flex-col" : mapQuery.data && activeFloor ? "min-h-min min-w-0 flex-1" : "contents"}>
+        {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} interactionPolicy={selection.mode === "fixtures" && !disabled ? "direct-selection" : "pan"}
           mode="pan" toolModePolicy={manualWorkspace ? "manual-cad" : "interaction-default"}
-          compactChrome={compactManual} onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement="footer" footerStart={manualWorkspace ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
+          compactChrome={compactManual} onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement={compactAuxiliary ? "overlay" : "footer"} footerStart={manualWorkspace && !compactAuxiliary ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
-        </FloorMapViewport></div> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
+        </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
+        <>
+          <ManualAuxiliaryPanel />
+          {auxiliary ? <ManualAuxiliaryContent kind="more" mobileOnly>
+            {floorStatus}{legend}
+          </ManualAuxiliaryContent> : null}
+        </>
+        </div>
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
         {mapQuery.data && !manualWorkspace ? legend : null}
@@ -165,8 +183,7 @@ export function SpatialTargetSelector({
           its natural-height inspection pane and existing scroll policy. */}
       <div className={manualWorkspace ? (compactManual ? "min-h-0 min-w-0" : "h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain tablet:[contain:size]") : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
         {manualWorkspace ? <div key={`${siteId}:${activeFloor?.id}:${selection.mode}`} className="h-full min-h-0">{inspectionPanel}</div> : inspectionPanel}
-        {selection.mode === "floor" ? <SelectionChoices compact={compactManual} kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
-        {selection.mode === "group" ? <SelectionChoices compact={compactManual} kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+        {auxiliary ? <ManualAuxiliaryContent kind="selection">{selectionChoices}</ManualAuxiliaryContent> : selectionChoices}
       </div>
     </div>
     <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled} returnFocusRef={listOpenerRef}

@@ -137,6 +137,7 @@ describe("customer shell site context", () => {
     expect(document.querySelector("[data-control-screen]")).toBe(page);
     expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input);
     expect(input).toHaveValue("31");
+    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
     fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true"));
     expect(screen.queryByRole("button", { name: "더보기" })).not.toBeInTheDocument();
@@ -232,10 +233,14 @@ describe("customer shell site context", () => {
     fireEvent.click(await screen.findByRole("button", { name: "상세 보기" }));
     const detail = screen.getByRole("region", { name: "최근 결과 상세" });
     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
+    const focusedHistoryAction = within(screen.getByRole("region", { name: "제어 이력" })).getByRole("button", { name: "전체 보기" });
+    focusedHistoryAction.focus(); expect(focusedHistoryAction).toHaveFocus();
     act(() => onChange?.({ matches: false } as MediaQueryListEvent));
+    expect(focusedHistoryAction).toHaveFocus();
     expect(screen.getByRole("region", { name: "최근 결과 상세" })).toBe(detail);
     expect(detail).not.toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
     act(() => onChange?.({ matches: true } as MediaQueryListEvent));
+    expect(focusedHistoryAction).toHaveFocus();
     expect(detail).toContainElement(screen.getByRole("button", { name: "명령 상세 닫기" }));
     expect(screen.getAllByRole("button", { name: "명령 상세 닫기" })).toHaveLength(1);
     expect(apiPost).not.toHaveBeenCalled();
@@ -249,7 +254,8 @@ describe("customer shell site context", () => {
     expect(input).toBeEnabled();
     expect(screen.queryByRole("button", { name: "더보기" }) !== null).toBe(compact);
     expect(screen.queryByRole("navigation", { name: "모바일 주 메뉴" }) !== null).toBe(compact);
-    expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+    if (compact) expect(screen.getByText("수동 제어", { selector: "p" })).toBeVisible();
+    else expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
     expect(apiPost).not.toHaveBeenCalled();
   });
 

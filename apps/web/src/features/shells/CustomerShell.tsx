@@ -315,7 +315,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
       <main className={`flex min-w-0 flex-1 flex-col ${isMonitoringRoute ? "min-h-0" : focus.active ? "min-h-0 overflow-hidden" : isManualWorkspace ? "min-h-0" : isEditorRoute ? "min-h-min" : ""}`}>
         {/* Reserve intrinsic summary/action widths before giving the site label
             remaining space; otherwise a long label collapses the summary track. */}
-        <header hidden={focus.active} className={focus.active ? "hidden" : "sticky top-0 z-10 grid min-h-16 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2"} data-shell-topbar>
+        <header hidden={focus.active} className={focus.active ? "hidden" : `sticky top-0 z-10 grid ${isManualMobileWorkspace ? "min-h-13" : "min-h-16"} min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1 gap-y-1 border-b border-border-default bg-surface-panel px-2 py-1 compact:grid-cols-[minmax(0,1fr)_auto_auto] compact:gap-x-4 compact:px-7 compact:py-2`} data-shell-topbar>
           <span className="sr-only" data-testid="shell-current-menu">{titleForPath(location.pathname)}</span>
           <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1" aria-label="현장 정보" data-shell-context>
             {isCompactNavigation ? <KindaLogo presentation="header" /> : null}
@@ -338,7 +338,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
             {!isCompactNavigation ? <Link to={`/settings/security${location.search}${location.hash}`} aria-label="내 계정 및 보안"
               className="inline-flex min-h-13 min-w-13 items-center justify-center rounded-control text-content-secondary outline-none focus-visible:shadow-focus hover:bg-surface-inset"><UserRound size={20} aria-hidden="true" /></Link> : null}
           </div>
-          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
+          {summaryScope ? <CustomerHeaderSummarySlot currentScope={summaryScope} value={summaryValue} compact={isCompactNavigation} className={isManualMobileWorkspace ? "hidden" : isCompactNavigation ? "col-span-full" : "col-start-2 row-start-1"} /> : null}
         </header>
         {focus.active ? <div className="shrink-0 self-start px-2 pt-2"><Button type="button" variant="secondary" onClick={event => statusCenterRef.current?.open(event.currentTarget)}><Bell size={18} aria-hidden="true" />알람센터</Button></div> : null}
         <ToastRegion placement="flow" suppressVisual={isCompactNavigation} />

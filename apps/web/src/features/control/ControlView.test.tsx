@@ -370,10 +370,11 @@ describe("ControlView 대상 선택", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(within(panel).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
     fireEvent.click(toggle);
-    expect(within(panel).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L001");
-    expect(within(panel).getAllByRole("listitem")).toHaveLength(2);
+    const auxiliary = screen.getByRole("region", { name: "지도 하단 보조 패널" });
+    expect(within(auxiliary).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L001");
+    expect(within(auxiliary).getAllByRole("listitem")).toHaveLength(2);
     expect(screen.queryByRole("dialog", { name: "선택 조명" })).not.toBeInTheDocument();
-    fireEvent.keyDown(within(panel).getByRole("list", { name: "선택 조명" }), { key: "Escape" });
+    fireEvent.keyDown(within(auxiliary).getByRole("list", { name: "선택 조명" }), { key: "Escape" });
     expect(toggle).toHaveFocus(); expect(toggle).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(toggle);
     expect(screen.getByTestId("target-selection-map-viewport")).toBe(map);
@@ -382,6 +383,81 @@ describe("ControlView 대상 선택", () => {
     expect(input).toHaveValue("31"); expect(mocks.apiPost).not.toHaveBeenCalled();
     view.rerender(controlElement(dashboard.site.id, "admin", USER_B, `/control?siteId=${dashboard.site.id}`, true));
     expect(within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" })).toHaveAttribute("aria-expanded", "false");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("C6-8 shared bottom auxiliary switches list and More exclusively, closes to its actual opener and preserves the live map and raw draft", () => {
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001"); selectFixture("B2-L002");
+    const map = screen.getByTestId("target-selection-map-viewport");
+    const scene = map.querySelector("[data-floor-scene]"); expect(scene).not.toBeNull();
+    const input = screen.getByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(input, { target: { value: "31" } });
+    const listOpener = within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" });
+    const more = screen.getByRole("button", { name: "더보기" });
+    fireEvent.click(listOpener);
+    const auxiliary = screen.getByRole("region", { name: "지도 하단 보조 패널" });
+    expect(within(auxiliary).getByRole("list", { name: "선택 조명" })).toHaveTextContent("B2-L002");
+    fireEvent.click(more);
+    expect(screen.getByRole("region", { name: "지도 하단 보조 패널" })).toBe(auxiliary);
+    expect(within(auxiliary).queryByRole("list", { name: "선택 조명" })).not.toBeInTheDocument();
+    expect(within(auxiliary).getByRole("group", { name: "빠른 밝기 값" })).toBeVisible();
+    expect(listOpener).toHaveAttribute("aria-expanded", "false"); expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("status", { name: "제어 중요 상태" })).toBeVisible();
+    fireEvent.keyDown(more, { key: "Escape" }); expect(more).toHaveFocus(); expect(more).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(listOpener);
+    fireEvent.click(within(auxiliary).getByRole("button", { name: "보조 패널 닫기" })); expect(listOpener).toHaveFocus();
+    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map); expect(map.querySelector("[data-floor-scene]")).toBe(scene);
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toBe(input); expect(input).toHaveValue("31");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it.each(["selection", "more"] as const)("C6-8 focused %s auxiliary action survives mobile-desktop-mobile without replacing its DOM or the map", kind => {
+    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001");
+    const map = screen.getByTestId("target-selection-map-viewport");
+    if (kind === "selection") fireEvent.click(within(screen.getByRole("region", { name: "선택 대상 목록" })).getByRole("button", { name: "전체 보기" }));
+    else fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+    const focusedAction = kind === "selection" ? screen.getByRole("button", { name: "선택 해제" })
+      : within(screen.getByRole("region", { name: "제어 이력" })).getByRole("button", { name: "전체 보기" });
+    focusedAction.focus(); expect(focusedAction).toHaveFocus();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, `/control?siteId=${dashboard.site.id}`, false));
+    expect(focusedAction).toHaveFocus(); expect(focusedAction).toBeInTheDocument();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, `/control?siteId=${dashboard.site.id}`, true));
+    expect(focusedAction).toHaveFocus(); expect(focusedAction).toBeVisible();
+    expect(screen.getByTestId("target-selection-map-viewport")).toBe(map); expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("C6-8 bottom reader leaves invalid blur, first Apply and Enter guards intact before an explicit raw31 request", async () => {
+    mocks.apiPost.mockResolvedValue({ id: commandIds.expected, dispatchCount: 1 });
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    selectFixture("B2-L001");
+    const input = screen.getByRole("textbox", { name: "밝기 수치" });
+    fireEvent.input(input, { target: { value: "31" } });
+    fireEvent.input(input, { target: { value: "999" } });
+    const apply = applyButton(); expect(apply).toBeDisabled();
+    fireEvent.pointerDown(apply); fireEvent.blur(input, { relatedTarget: apply }); fireEvent.click(apply);
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    await act(async () => {});
+    const restored = screen.getByRole("textbox", { name: "밝기 수치" }); expect(restored).toHaveValue("31");
+    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+    fireEvent.input(restored, { target: { value: "42.5" } }); fireEvent.keyDown(restored, { key: "Enter" });
+    expect(mocks.apiPost).not.toHaveBeenCalled(); expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveValue("31");
+    await act(async () => {}); fireEvent.click(applyButton());
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    expect(mocks.apiPost.mock.calls[0][1]).toMatchObject({ brightness: 31, target: { type: "fixture", fixtureId: fixtureIds.b2First } });
+  });
+
+  it("C6-8 shared bottom auxiliary resets on floor and principal changes and exposes mode switching only through More", () => {
+    const view = renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}`, true);
+    expect(screen.queryByRole("tablist", { name: "제어 방식" })).not.toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "더보기" }); fireEvent.click(more);
+    expect(within(screen.getByRole("region", { name: "지도 하단 보조 패널" })).getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+    selectOption("표시 층", "B1"); expect(more).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(more);
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_B, `/control?siteId=${dashboard.site.id}`, true));
+    expect(screen.queryByRole("region", { name: "지도 하단 보조 패널" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
