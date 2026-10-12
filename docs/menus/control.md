@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 실제 toolbar 조명 목록 hit 실패 후 compact 대상 외곽 보완
+
+### 구현 완료
+
+- 수동 `singleColumnLayout`에서만 외곽 제어 대상 Card에 `rounded-none!`을 적용한다. padding0/border0/overflow-hidden 상태에서 우상끝 조명 목록48×44가 부모14px 모서리에 잘리는 원인을 제거한다. 내부 지도 OperationMapPanel의 둥근 프레임·공통 Card/default/PC·scroll/높이/handler는 유지한다.
+- toolbar/선택/More 좁은44px 대상의 실제 DOM ancestor를 함께 감사했다. 실행 More는 앞선 square SidePanel, 보조 콘텐츠는 기존 portal host와 padding8px body를 소비한다. 추가로 확정된 별도 miss는 없어 범위를 확대하지 않았다.
+
+### 미구현
+
+- 새 source의 실제 toolbar 목록 continuous44와 이후 aux/invalid 첫 Apply stage 재판정은 총괄 source freeze 뒤 UX case3 한정 관문이다. 본 담당 browser 실행0.
+
+### 부족하거나 개선이 필요한 기능
+
+- f2926e92 actual에서는0/100 각각 input/thumb/Apply/More 네 target continuous44=true까지 완료했다. 이후 toolbar 전체 검사에서 조명 목록48×44 hasMinimumArea=false로 새 중단됐다. 입력 실패로 기록하지 않으며 원fail·미도달aux/invalid 단계를 보존한다.
+- 원PNG·toolbar x8/y87/304×44 및 list48×44·source flush 배치가 같은 부모 clipping을 가리킨다. 개별 list 좌표는 source/toolbar로 유도한 것이며 새 browser 측정이 아니다. 소스 감사·직접81개 회귀를 실제 후속 hit GREEN으로 해석하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx` 외곽 target Card caller와 Control/Shell/Spatial/ManualExecution/Viewport 소비자 회귀.
+- 감사한 무변경 `target-selection/{TargetSelectionToolbar,ManualSelectionPanel,SpatialTargetSelector}.tsx`, `manual-workspace/ManualAuxiliaryPanel.tsx`, 공통 `components/ui/{Card,SidePanel,maps/OperationMapPanel}.tsx`.
+
+### 갱신 규칙
+
+-48×44 가장자리 대상은 자신의 rect/radius와 실제 DOM parent의 round/overflow를 함께 확인한다. portal 콘텐츠는 React 논리 owner가 아니라 실제 host 계층으로 판단한다.
+-0/100 통과·toolbar 새실패·미도달aux/invalid·새source/hash/cohort·후속actual 결과를 구분한다. UUID/gesture/ref/lifetime과 지도 높이 budget을 유지한다.
+
 ## 2026-10-12 실제 INPUT continuous44 실패 후 compact 부모 모서리 보완
 
 ### 구현 완료
