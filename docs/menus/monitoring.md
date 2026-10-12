@@ -9,7 +9,7 @@
 
 ### 미구현
 
-- 소프트웨어 구현·최종 검증은 완료했고 로컬 작업 브랜치 반영을 진행한다. 실제 대형 DWG/iOS·Android WebView/HIL 검증과 50만 요소 실험은 기존 보류 범위를 유지한다.
+- 소프트웨어 구현·최종 검증·로컬 작업 브랜치 반영은 완료했다. 실제 대형 DWG/iOS·Android WebView/HIL 검증과 50만 요소 실험은 기존 보류 범위를 유지한다.
 
 ### 부족하거나 개선이 필요한 기능
 
@@ -17,6 +17,7 @@
 - 합성 10,002개 공통 요소 계측의 개선과 실제 고객 도면·1000개 등록 조명 합성·모바일 WebView 성능 보장은 구분한다.
 - F3 집중 227 PASS/기존 opt-in 2 SKIP와 Chromium/WebGL 17/17을 확인했다. 1만 선 포함 10,002개 요소에서 60회 이동은 draw 120→59·resize 60→0이며 density/새 영역의 캐시 자산 재읽기는 16/12→0/0이다. frame p95는 기준 9.9ms·최종 9.4ms, peak는 25,719,627→26,350,981bytes/128MiB budget, dispose 뒤 0bytes다. 작업 횟수 감소와 실제 기기 FPS 보장을 구분한다.
 - 위 수치는 기본 CAD pending display 재시도 추가 전 cohort다. 마지막 source freeze 뒤 집중 228 PASS/2 SKIP·fresh 전체 Web 3,663 PASS/동일 기존 제어 5 FAIL/3 SKIP·타입 포함 build exit0·UI 정책 0/0·최종 브라우저 17/17을 확인했다. 총괄 마지막 dense p95는 10.1ms로 기준 9.9ms와 비슷하며 실제 FPS 향상률로 표현하지 않는다. 독립 최종 리뷰는 C0/P2 0이다.
+- `92f73077`까지 로컬 작업 브랜치에 반영했고 MAIN 관련 320 PASS/2 SKIP·타입 포함 build exit0, 검증한 Web/API 소스 diff0을 확인했다. 실제 모니터링 재저장·조명 제어·장비/DB/API 변경은 추가하지 않았다.
 
 ### 관련 파일
 

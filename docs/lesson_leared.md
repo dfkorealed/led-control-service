@@ -12,6 +12,7 @@
 - **예방**: 실패한 최신 요청에 한해 중복 제거 상태를 무효화하고 stale 요청은 현재 camera를 덮지 않는다. 캐시 예약·해제·lease에는 epoch와 entry identity를 검사한다. 집계 budget은 fetch/검증 전에 예약하고 dispose·문서 교체에서 회수한다.
 - **공유 작업**: pending coverage 재사용 시 이전 request의 callback까지 그대로 재사용하면 최신 camera generation이 실패를 stale로 버린다. 같은 coverage의 최신 소비자 callback에 실패를 전달하고 새 문서로 바뀐 오래된 실패는 차단한다. 실제 wrapper/backend를 조합한 A→B 이동→지연 실패→동일 B 재시도를 별도 회귀로 검증한다.
 - **검증**: 동일 camera 반복·실패 뒤 재시도, clear→same-key acquire→old 완료/release, pan 완료 뒤 첫 선택과 실제 현재 픽셀을 회귀로 남긴다. 렌더링 work 감소와 FPS 향상을 구분하며 캐시 메모리 증가도 함께 기록한다.
+- **검증 환경**: 분리 worktree의 API 테스트도 sibling gateway 소스를 import한다. 앱 하나의 node_modules만 연결하면 시작 단계의 TypeScript 오류가 발생할 수 있다. 모든 cross-app 의존성을 준비하고 프로젝트 고정 Node/pnpm을 사용하며 환경 실패 로그는 제품 실패·재실행 결과와 분리한다. smoke host는 실제 컴포넌트의 provider와 canvas 좌표/해상도를 맞춰야 한다.
 
 ## 2026-10-12 / 작은 화면의 실제 입력 영역과 테스트 진입을 함께 검증한다
 
