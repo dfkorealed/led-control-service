@@ -1,5 +1,29 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 실제 QA 후 수동 지도 높이·이력 폭 보완
+
+### 구현 완료
+
+- 수동 모바일 ControlView의 바깥 grid는 제어 방식 auto 행과 남은 높이 minmax(0,1fr) 행으로 나누고, manual tabpanel도 명시적인 남은 높이 행을 사용한다. 기존 implicit auto/content-start에서 size-contained 지도 intrinsic height0만 소비하던 경로를 수정했다. 새 지도 최소높이·overflow clip·renderer 재부모화는 추가하지 않았다.
+- 수동 제어의 좁은 실행 패널에 옮겨진 이력 ticker는 caller의 기존 className으로 내용 행과 action 행을 나눈다. 오류 안내·다시 조회·전체 보기·확인 필요한 명령을 남기고, 공통 ticker/default/다른 메뉴의 배치와 query/handler는 그대로다.
+
+### 미구현
+
+- frozen bea0dacb의 실제 QA에서 320×600·390×600·717×1227 지도 높이0을 확인했다. 이번 소스 수리 이후 같은 실제 QA의 높이·canvas·노출 면적·도달성 재측정은 UX/총괄 후속 관문이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 직접 소비자 테스트는 명령·draft·scope/default 회귀 근거다. CSS 행 선언 변경을 실제 지도 복구 PASS로 해석하지 않는다. 지도240 목표·두 펼침 동시 도달·44px hit·slider0/100 간섭은 실제 QA에서 판정한다.
+- PC1194 dark의 GET404 안내 세로 감김은 mock 오류 표현의 폭 경합이다. backend 고장으로 분류하지 않는다. 긴 메시지와 모든 action의 실제 줄바꿈/끝 도달은 기존 QA case6 재검증이 필요하다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx` 및 Control/Shell/ManualExecution/Spatial/Viewport/CommandHistory/RecentActivityTicker 직접 소비자 테스트.
+
+### 갱신 규칙
+
+- 실제 QA RED 원본과 소스 수리·직접 회귀·실제 기하 GREEN을 구분해 기록한다. 수동 제어 caller의 높이/폭 수정은 명령 owner/UUID·input·camera·기본 embedded 수명을 유지한다.
+
 ## 2026-10-12 신규 지도 의견 C6–8 — 수동 제어
 
 ### 구현 완료

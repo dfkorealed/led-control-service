@@ -73,6 +73,10 @@ const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 // the existing flex chain, while min-content children keep short screens in
 // document flow instead of clipping the map to a fixed bottom edge.
 const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col";
+// History now lives in the manual side pane even on desktop. Reserve its
+// content line before actions; viewport-wide ticker defaults cannot infer
+// the pane's available width. Other ticker consumers retain their defaults.
+const manualHistoryPaneClassName = "flex-wrap [&>div]:basis-full [&_[role=region]]:flex-wrap [&_[role=region]>div]:basis-full [&_[role=region]>button]:shrink-0 [&_[role=region]>button]:whitespace-nowrap";
 
 export function ControlView({
   siteId,
@@ -673,13 +677,16 @@ export function ControlView({
           disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
           onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
           verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
-          compactDisclosure />
+          compactDisclosure className={manualHistoryPaneClassName} />
                 </>;
 
+  // h-full alone leaves content-start's implicit auto rows at intrinsic
+  // height. The size-contained canvas contributes zero intrinsic height, so
+  // pass the finite remainder through explicit rows in manual mobile only.
   return (
-    <section className={cn(controlScreenClassName, singleColumnLayout && "h-full gap-1")} data-control-screen="">
+    <section className={cn(controlScreenClassName, singleColumnLayout && "h-full grid-rows-[auto_minmax(0,1fr)] gap-1")} data-control-screen="">
       {modeTabs}
-      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
+      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)] gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
       <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
         {/* Subgrid shares the toolbar row without reparenting the live map or
             command owner across breakpoints; map chrome and aside start together. */}
