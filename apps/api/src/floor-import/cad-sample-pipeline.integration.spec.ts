@@ -1,22 +1,29 @@
 import {
-  CreateBucketCommand, DeleteBucketCommand, DeleteObjectsCommand, ListObjectsV2Command,
+  CreateBucketCommand, DeleteBucketCommand, DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command,
   PutObjectCommand, S3Client
 } from "@aws-sdk/client-s3";
-import { cadSceneManifestSchema, floorEditorSnapshotV2Schema } from "@led-control/shared";
+import { mapDisplayManifestSchema, type MapElement } from "@led-control/shared";
 import { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { AuditService } from "../audit/audit.service";
+import { SiteAccessService } from "../access/site-access.service";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { FloorEditorService } from "../floor-editor/floor-editor.service";
+import { hashFloorEditorSnapshot, parseMapDocumentSnapshot } from "../floor-editor/floor-editor-snapshot";
+import { MapDocumentReader } from "../floor-editor/map-document-reader";
+import { MapDocumentRevisionData } from "../floor-editor/map-document-revision-data";
+import { MapDocumentStore } from "../floor-editor/map-document-store";
 import { FloorMapService } from "../floor-map/floor-map.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { ArgvCadConverter, type CadConverter } from "./cad-converter";
 import { ChildProcessCadCoreExecutor, type CadCoreExecutor, type CadCoreResult } from "./cad-core-executor";
-import { decodeCadSceneTile } from "./cad-scene-codec";
+import { readCanonicalElements, readCanonicalMetadata } from "./cad-canonical-spool";
+import { CadMapPreparationService } from "./cad-map-preparation.service";
+import { decodeMapDisplayTile } from "./cad-scene-codec";
 import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
 import { FloorImportWorkerService } from "./floor-import-worker.service";
 import { FloorImportService } from "./floor-import.service";
@@ -40,7 +47,7 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
   jest.setTimeout(360_000);
 
   // Register a skipped test without contacting external services when opt-in inputs are absent.
-  it.each((samples.length ? samples : [""]) as string[])("imports a native scene from %s", async sample => {
+  it.each((samples.length ? samples : [""]) as string[])("imports a common map from %s", async sample => {
     const cluster = await disposablePostgres();
     let prisma: PrismaClient | undefined;
     let worker: FloorImportWorkerService | undefined;
@@ -93,11 +100,19 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
         id: userId, organizationId, organizationType: "customer" as const, loginId: "sample", name: "CAD Sample",
         role: "admin" as const, status: "active" as const, mustChangePassword: false
       };
-      const access = {
-        assert: jest.fn().mockResolvedValue({ id: siteId, organizationId }),
-        assertManageInTransaction: jest.fn().mockResolvedValue({ id: siteId, organizationId })
+      const access = new SiteAccessService(prisma as never);
+      const store = new MapDocumentStore(prisma as never, storage);
+      const preparation = new CadMapPreparationService(prisma as never, storage, store);
+      // Current imports publish common-map assets, not the retired CAD-only ledger.
+      const options = { tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false, legacyDisplayCompatibility: false };
+      const imports = new FloorImportService(prisma as never, access, new AuditService(prisma as never),
+        // Imports require an available worker; the worker below is advanced by runOnce,
+        // without starting its polling timer or changing the production admission gate.
+        storage, undefined, { ...options, enabled: true }, preparation, store);
+      const reader = new MapDocumentReader(prisma as never, access, storage, store);
+      const hardwareBefore = {
+        fixtures: await prisma.fixture.count(), meshNodes: await prisma.meshNode.count()
       };
-      const imports = new FloorImportService(prisma as never, access as never, new AuditService(prisma as never), storage);
       const created = await imports.create(user, floorId, { sourceAssetId, sourceFormat: "dwg" });
       expect(created.detectorProfileId).toBe(profileId);
       const converterArgv: unknown = JSON.parse(converterArgvJson!);
@@ -120,20 +135,32 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
         entryPath: resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js"), timeoutMs: 60_000
       });
       let coreResult: CadCoreResult | undefined;
+      let expectedElements: MapElement[] = [];
+      let expectedMetadata: Awaited<ReturnType<typeof readCanonicalMetadata>> | undefined;
       const core: CadCoreExecutor = { execute: async request => {
         const start = performance.now();
         try {
           coreResult = await childCore.execute(request);
           coreRuns.push({ elapsedMs: performance.now() - start, observedMaxRssBytes: coreResult.observedMaxRssBytes });
+          if (coreResult.canonical) {
+            // Capture actual child output before the worker removes its attempt spool.
+            // These reads validate its hashes; they do not replace preparation/storage.
+            expectedElements = [];
+            expectedMetadata = await readCanonicalMetadata(request.artifactDirectory!, coreResult.canonical);
+            for await (const element of readCanonicalElements(request.artifactDirectory!, coreResult.canonical)) {
+              expectedElements.push(element);
+            }
+            expect(expectedElements).toHaveLength(coreResult.canonical.elementCount);
+          }
           return coreResult;
         } catch (error) {
           coreRuns.push({ elapsedMs: performance.now() - start, error: (error as Error).message });
           throw error;
         }
       } };
-      cleanup = new FloorImportAttemptCleanupService(prisma as never, storage, { tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false });
+      cleanup = new FloorImportAttemptCleanupService(prisma as never, storage, options);
       worker = new FloorImportWorkerService(prisma as never, storage, converter, registry, core,
-        { tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false }, cleanup);
+        options, cleanup, preparation);
       const runWorker = async () => {
         expect(await worker!.runOnce()).toBe(true);
         const job = await imports.get(user, floorId, created.jobId);
@@ -141,9 +168,12 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
         metrics.jobStage = job.stage;
         process.stdout.write(`CAD_NATIVE_PROGRESS ${JSON.stringify({ sample: metrics.sample,
           stage: job.stage, elapsedMs: performance.now() - started })}\n`);
-        // Retryable core failures requeue the job; surface the original error without waiting for retries.
+        // Any retryable failure requeues the job. Stop here so region API errors
+        // cannot obscure a failed storage/core attempt in the sample report.
         const coreError = coreRuns.at(-1)?.error;
-        if (coreError || job.status === "failed") throw new Error(`CAD sample worker failed: ${coreError ?? job.stage}`);
+        if (coreError || !["region_selection_required", "review_required"].includes(job.status)) {
+          throw new Error(`CAD sample worker failed: ${coreError ?? `${job.status}/${job.stage}`}`);
+        }
         return job;
       };
       let job = await runWorker();
@@ -166,6 +196,29 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       expect(regions.excludedRegionPrimitiveCount).toBe(detected.excludedRegionPrimitiveCount);
       const regionsById = new Map(regions.regions.map(region => [region.regionId, region]));
       for (const region of detected.regions) expect(regionsById.get(region.regionId)).toMatchObject(region);
+      previewHead.mockRestore();
+      const previews = [];
+      for (const preview of detected.regionPreviews ?? []) {
+        expect(regionsById.get(preview.regionId)?.preview).toEqual({ assetId: preview.assetId,
+          width: preview.viewport.width, height: preview.viewport.height, byteSize: preview.sizeBytes, sha256: preview.sha256 });
+        const asset = await prisma.floorAsset.findUniqueOrThrow({ where: { id: preview.assetId } });
+        expect(asset).toMatchObject({ floorId, kind: "cad_region_preview", status: "ready",
+          contentEncoding: "gzip", sizeBytes: BigInt(preview.sizeBytes), sha256: preview.sha256 });
+        const region = regionsById.get(preview.regionId)!;
+        expect(await storage.readCadRegionPreviewMetadata(asset.objectKey, { sizeBytes: preview.sizeBytes,
+          sha256: preview.sha256, regionId: preview.regionId, bounds: region.bounds })).toEqual({
+          ...preview.viewport, textCount: region.textCount, lightCandidateCount: region.lightCandidateCount, area: region.area
+        });
+        // fetch() decodes Content-Encoding gzip; hash the stored object bytes instead.
+        const object = await client.send(new GetObjectCommand({ Bucket: bucket, Key: asset.objectKey }));
+        expect(object.Body).toBeDefined();
+        const bytes = await object.Body!.transformToByteArray();
+        expect(bytes.length).toBe(preview.sizeBytes);
+        expect(sha256(bytes)).toBe(preview.sha256);
+        previews.push({ regionId: preview.regionId, byteSize: bytes.length, sha256: sha256(bytes), viewport: preview.viewport });
+      }
+      expect(previews).toHaveLength(detected.regions.length);
+      metrics.previews = previews;
       if (regions.selectionStatus === "selection_required") {
         expect(job.status).toBe("region_selection_required");
         // Prefer the most populated lighting region with deterministic, filename-independent ties.
@@ -176,53 +229,71 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
         job = await runWorker();
       }
       expect(job.status).toBe("review_required");
-      expect(coreResult!.scene).not.toBeNull();
       const finalCore = coreResult!;
+      expect(finalCore.canonical).toBeDefined();
+      expect(expectedMetadata).toBeDefined();
       const candidates = await imports.listCandidates(user, floorId, created.jobId);
       expect(candidates.candidates).toHaveLength(finalCore.selectedCandidates!.length);
       const acceptedCandidateIds = candidates.candidates.map(candidate => candidate.id);
       const candidatesById = new Map(candidates.candidates.map(candidate => [candidate.id, candidate]));
       expect(finalCore.candidateTransformMatch.matchedCount).toBe(finalCore.candidates.length);
       expect(finalCore.candidateTransformMatch.maxDeltaPx).toBeLessThanOrEqual(0.01);
-      const scene = finalCore.scene!;
-      const manifestResponse = await imports.getSceneManifestContent(user, floorId, created.jobId);
-      const manifest = cadSceneManifestSchema.parse(manifestResponse);
-      const manifestAsset = await prisma.floorAsset.findUniqueOrThrow({ where: { id: scene.manifestAssetId } });
+      const prepared = await preparation.readPrepared(floorId, created.jobId);
+      expect(await reader.getDocument(user, floorId, created.jobId)).toEqual(prepared);
+      expect(prepared.elementCount).toBe(expectedElements.length);
+      const canonicalManifest = await store.readManifest(floorId, prepared);
+      expect(canonicalManifest).toMatchObject({ elementCount: expectedElements.length,
+        groups: expectedMetadata!.groups, layers: expectedMetadata!.layers,
+        width: expectedMetadata!.width, height: expectedMetadata!.height, gridSize: expectedMetadata!.gridSize });
+      const persistedElements: MapElement[] = [];
+      for await (const element of store.iterateGeneration(floorId, prepared)) persistedElements.push(element);
+      expect(persistedElements).toEqual(expectedElements);
+      expect(new Set(persistedElements.map(element => element.id)).size).toBe(prepared.elementCount);
+      const primitiveTypes: Record<string, number> = {};
+      for (const element of persistedElements) primitiveTypes[element.type] = (primitiveTypes[element.type] ?? 0) + 1;
+      const texts = persistedElements.filter(element => element.type === "text");
+      expect(texts).toEqual(expectedElements.filter(element => element.type === "text"));
+      const queryManifest = await reader.getManifest(user, floorId, prepared, created.jobId);
+      const manifest = mapDisplayManifestSchema.parse(queryManifest.display);
+      expect(queryManifest.canonical).toEqual(prepared.manifest);
+      expect(queryManifest.displayLayerBindings).toEqual(expectedMetadata!.displayLayerBindings);
+      expect(queryManifest.layers).toEqual(canonicalManifest.layers);
+      expect(queryManifest.groups).toEqual(canonicalManifest.groups);
+      const displayEnvelope = await preparation.readDisplayManifest(floorId, prepared);
+      expect(displayEnvelope.scene).toEqual(manifest);
+      expect(displayEnvelope.unsupportedEntityCounts).toEqual(expectedMetadata!.unsupportedEntityCounts);
+      expect(displayEnvelope.unconvertedEntityCounts).toEqual(expectedMetadata!.unconvertedEntityCounts);
+      const manifestAsset = await prisma.floorAsset.findUniqueOrThrow({ where: { id: manifest.manifestAssetId } });
+      expect(manifestAsset).toMatchObject({ floorId, kind: "map_display_manifest", status: "ready" });
       const rawManifest = await download(await storage.createFloorAssetDownloadUrl(manifestAsset.objectKey));
-      expect(rawManifest.length).toBe(scene.manifestByteSize);
-      expect(sha256(rawManifest)).toBe(scene.manifestSha256);
       expect(manifest.byteSize).toBe(rawManifest.length);
       expect(manifest.sha256).toBe(sha256(rawManifest));
-      const primitiveTypes: Record<string, number> = {};
       const uniqueElements = new Set<string>();
+      const canonicalIds = new Set(persistedElements.map(element => element.id));
       let tileBytes = 0;
       let tileFragments = 0;
       for (const tile of manifest.tiles) {
-        const response = await imports.getSceneTileContent(user, floorId, created.jobId, {
-          tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part
-        });
-        const payload = await download(response.url);
-        const primitives = decodeCadSceneTile(payload, { byteSize: tile.byteSize, sha256: tile.sha256, bounds: tile.bounds });
+        const payload = await reader.getTile(user, floorId, prepared, tile.assetId, created.jobId);
+        const primitives = decodeMapDisplayTile(payload, tile);
         expect(primitives).toHaveLength(tile.primitiveCount);
         tileBytes += payload.length;
         tileFragments += primitives.length;
         for (const primitive of primitives) {
-          if (!uniqueElements.has(primitive.elementId)) {
-            uniqueElements.add(primitive.elementId);
-            primitiveTypes[primitive.type] = (primitiveTypes[primitive.type] ?? 0) + 1;
-          }
+          expect(canonicalIds.has(primitive.elementId)).toBe(true);
+          uniqueElements.add(primitive.elementId);
         }
       }
       expect(manifest.tileCount).toBe(manifest.tiles.length);
+      expect(uniqueElements).toEqual(canonicalIds);
       Object.assign(metrics, {
+        commonElementCount: persistedElements.length, textCount: texts.length,
+        texts: texts.map(element => ({ id: element.id, text: element.geometry.text })),
+        unconvertedEntityCounts: expectedMetadata!.unconvertedEntityCounts,
         nativePrimitiveCount: manifest.primitiveCount, uniqueTileElementCount: uniqueElements.size,
         primitiveTypes, tileFragments, tileBytes, tileCount: manifest.tileCount,
         manifestBytes: rawManifest.length, mapSize: { width: manifest.width, height: manifest.height }
       });
       const leaseToken = randomUUID();
-      const hardwareBefore = {
-        fixtures: await prisma.fixture.count(), meshNodes: await prisma.meshNode.count()
-      };
       await prisma.floor.update({ where: { id: floorId }, data: {
         editorLeaseFence: 1, editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
         editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
@@ -232,17 +303,32 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
         expectedRevision: 0, leaseToken, leaseFence: 1, candidateIds: acceptedCandidateIds, confirmMapReset: true
       });
       expect(applied).toMatchObject({ status: "completed", revision: 1 });
-      expect(await prisma.floorCadScene.findUniqueOrThrow({ where: { floorId } })).toMatchObject({
-        id: scene.sceneId, primitiveCount: manifest.primitiveCount, tileCount: manifest.tileCount
+      expect(await prisma.floorMapDocument.findUniqueOrThrow({ where: { floorId } })).toMatchObject({
+        activeGenerationId: prepared.generationId, revision: prepared.revision
       });
+      expect(await prisma.floorMapGeneration.findUniqueOrThrow({ where: { id: prepared.generationId } })).toMatchObject({
+        status: "active", elementCount: persistedElements.length, manifestAssetId: prepared.manifest.assetId
+      });
+      expect(await prisma.floorCadScene.count({ where: { floorId } })).toBe(0);
       expect(await prisma.floorPlan.findUniqueOrThrow({ where: { floorId } })).toMatchObject({
-        sourceType: "cad", imageUrl: "", renderedImageUrl: null, width: manifest.width, height: manifest.height
+        sourceType: "none", imageUrl: "", renderedImageUrl: null, width: prepared.width, height: prepared.height,
+        gridSize: prepared.gridSize
       });
-      const editor = new FloorEditorService(prisma as never, access as never, new AuditService(prisma as never));
-      const maps = new FloorMapService(prisma as never, access as never);
+      // New instances force post-apply reads through the DB and object storage,
+      // not the prepared reader's immutable cache or the child's temporary files.
+      const reloadedStore = new MapDocumentStore(prisma as never, storage);
+      const mapData = new MapDocumentRevisionData(prisma as never, storage, reloadedStore);
+      const reloadedReader = new MapDocumentReader(prisma as never, access, storage, reloadedStore, mapData);
+      const editor = new FloorEditorService(prisma as never, access, new AuditService(prisma as never),
+        undefined, undefined, undefined, mapData);
+      const maps = new FloorMapService(prisma as never, access, undefined, undefined, mapData);
       const editorState = await editor.getEditorState(floorId, user);
       const snapshot = await maps.getSnapshot(user, siteId, floorId);
-      const sceneState = await maps.getCadSceneState(user, siteId, floorId);
+      expect(editorState.floor.mapDocument).toEqual(prepared);
+      expect(snapshot.mapDocument).toEqual(prepared);
+      expect(editorState.floor.cadScene).toBeNull();
+      expect(snapshot.cadScene).toBeNull();
+      expect(snapshot.revision).toBe(1);
       const slots = await prisma.floorLightSlot.findMany({ where: { floorId }, orderBy: { id: "asc" } });
       expect(slots).toHaveLength(acceptedCandidateIds.length);
       expect(slots.map(slot => slot.sourceCandidateId).sort()).toEqual([...acceptedCandidateIds].sort());
@@ -257,7 +343,9 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       const revision = await prisma.floorMapRevision.findUniqueOrThrow({
         where: { floorId_revision: { floorId, revision: 1 } }
       });
-      const revisionSnapshot = floorEditorSnapshotV2Schema.parse(revision.snapshot);
+      const revisionSnapshot = parseMapDocumentSnapshot(revision.snapshot);
+      expect(revisionSnapshot.document).toEqual(prepared);
+      expect(revision.snapshotSha256).toBe(hashFloorEditorSnapshot(revisionSnapshot));
       expect(revisionSnapshot.lightSlots).toEqual(slots.map(slot => ({
         id: slot.id, x: slot.x, y: slot.y, rotation: slot.rotation, assignedFixtureId: null,
         sourceImportJobId: created.jobId, sourceCandidateId: slot.sourceCandidateId
@@ -274,15 +362,21 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       Object.assign(metrics, { acceptedCandidateCount: acceptedCandidateIds.length, lightSlotCount: slots.length,
         editorSlotPositionsVerified: true, revisionSlotPositionsVerified: true,
         hardwareBefore, hardwareAfter, readonlyMapFixtureCount: snapshot.fixtures!.length });
-      expect(editorState.floor.cadScene).toEqual(snapshot.cadScene);
-      expect(sceneState.scene).toEqual(snapshot.cadScene);
-      expect(snapshot.cadScene).toMatchObject({ id: scene.sceneId, sourceImportJobId: created.jobId,
-        manifestContentPath: `/floors/${floorId}/import-jobs/${created.jobId}/scene/manifest/content` });
-      const appliedManifestResponse = await imports.getSceneManifestContent(user, floorId, created.jobId);
-      const appliedManifest = cadSceneManifestSchema.parse(appliedManifestResponse);
-      expect(appliedManifest.sourceBounds).toEqual(manifest.sourceBounds);
-      expect(appliedManifest.transform).toEqual(manifest.transform);
+      expect(await reloadedReader.getDocument(user, floorId)).toEqual(prepared);
+      const appliedManifest = await reloadedReader.getManifest(user, floorId, prepared);
+      expect(appliedManifest).toEqual(queryManifest);
+      const reloadedElements: MapElement[] = [];
+      for await (const element of reloadedStore.iterateGeneration(floorId, prepared)) reloadedElements.push(element);
+      expect(reloadedElements).toEqual(persistedElements);
+      // Public selection reads use the production 128-ID bound and return full
+      // canonical geometry/text, never decoded display-tile approximations.
+      for (let offset = 0; offset < persistedElements.length; offset += 128) {
+        const batch = persistedElements.slice(offset, offset + 128);
+        expect(await reloadedReader.getElements(user, floorId, prepared, { ids: batch.map(element => element.id) })).toEqual(batch);
+      }
+      expect(await imports.get(user, floorId, created.jobId)).toMatchObject({ status: "completed", stage: "completed" });
       metrics.postApplyEditorMapManifestVerified = true;
+      metrics.postApplyCanonicalElementsVerified = true;
       const unsupportedEntityCounts = detected.rendered.unsupportedEntityCounts ?? {};
       const unsupportedTotal = Object.values(unsupportedEntityCounts).reduce((sum, count) => sum + count, 0);
       Object.assign(metrics, {

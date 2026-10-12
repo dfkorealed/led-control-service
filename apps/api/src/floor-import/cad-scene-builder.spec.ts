@@ -72,6 +72,48 @@ function unionBounds(primitives: readonly CadScenePrimitive[]) {
 }
 
 describe("CAD scene builder", () => {
+  it.each([
+    ["{\\fGulim|b0|i0|c129|p50;디에프코리아}", "디에프코리아"],
+    ["{\\C1;A{\\H2x;B}\\L C\\l}", "AB C"],
+    ["\\{literal\\} \\\\P", "{literal} \\P"],
+    ["A\\PB\\~C", "A B\u00a0C"],
+    ["\\U+B514\\U+C5D0\\U+D504", "디에프"],
+    ["\\S1#2; \\S+0.8^+0.1;", "1/2 +0.8/+0.1"]
+  ])("decodes MTEXT once before measuring and encoding (%#)", (raw, visible) => {
+    const text = { type: "mtext" as const, sourceEntityId: "CE6", layer: "NOTE", position: point(180, 20),
+      rotation: 15, height: 8, text: raw };
+    const scene = buildCadScene(document([text]), region(), { sceneId });
+    const primitive = uniquePrimitives(scene).find(value => value.type === "text")!;
+    expect(primitive).toMatchObject({ type: "text", sourceType: "MTEXT", geometry: { text: visible } });
+    // TEXT provides the same plain glyphs without a second MTEXT decoding pass.
+    const plain = buildCadScene(document([{ ...text, type: "text", text: visible }]), region(), { sceneId });
+    const plainPrimitive = uniquePrimitives(plain).find(value => value.type === "text")!;
+    expect(primitive.bounds).toEqual(plainPrimitive.bounds);
+    expect(primitive.geometry).toEqual(plainPrimitive.geometry);
+  });
+
+  it("keeps ordinary TEXT braces and backslash sequences literal", () => {
+    const scene = buildCadScene(document([{ type: "text", sourceEntityId: "T", layer: "NOTE", position: point(180, 20),
+      rotation: 0, height: 8, text: "{literal} \\P \\fGulim;" }]), region(), { sceneId });
+    expect(uniquePrimitives(scene).find(value => value.type === "text")).toMatchObject({
+      geometry: { text: "{literal} \\P \\fGulim;" }
+    });
+  });
+
+  it("keeps DIMENSION picture lines inside their original region instead of moving them by the definition point", () => {
+    const line: NormalizedCadEntity = { type: "line", sourceEntityId: "1026", layer: "0",
+      start: point(2176.046952437386, 635.0007176507261), end: point(2229.246952437386, 635.0007176507261) };
+    const input = document([{ type: "dimension", sourceEntityId: "A8F", layer: "0", blockName: "*D3",
+      definitionPoint: point(2231.746952437386, 635.0007176507261), blockPosition: point(0, 0),
+      textPosition: point(2202.646952437386, 650.1371432987479), extensionStart: point(2173.546952437386, 593.6405588876041),
+      extensionEnd: point(2231.746952437386, 593.6405588876041), rotation: 0, text: "58" }],
+    [{ name: "*D3", basePoint: point(0, 0), entities: [line] }]);
+    const scene = buildCadScene(input, region({ minX: 2100, minY: 590, maxX: 2250, maxY: 680 }), { sceneId });
+    const primitives = uniquePrimitives(scene);
+    expect(primitives).toHaveLength(1);
+    expect(primitives[0]).toMatchObject({ type: "line", sourceType: "DIMENSION", groupId: expect.any(String) });
+  });
+
   it("gives distinct clipped fragments distinct identities while retaining replicated closed identity", () => {
     const points = [{ x: 100, y: 100 }, { x: 1400, y: 100 }, { x: 1400, y: 1400 }, { x: 100, y: 1400 }];
     const p = { type: "polyline" as const, elementId: "ring", groupId: null, layerName: "wall", sourceType: "HATCH",

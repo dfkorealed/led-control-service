@@ -24,6 +24,54 @@ const document: NormalizedCadDocument = {
 };
 
 describe("CAD SVG renderer", () => {
+  it.each(["mtext", "text"] as const)("decodes only MTEXT across glyph, hierarchical file and region SVG (%s)", async type => {
+    const raw = "{\\fGulim|b0|i0|c129|p50;디에프코리아<&>}";
+    const input: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 300, maxY: 100 }, blocks: [],
+      entities: [{ type, sourceEntityId: "CE6", layer: "0", position: { x: 10, y: 50, z: 0 }, rotation: 0, height: 30, text: raw }]
+    };
+    const visible = type === "mtext" ? "디에프코리아&lt;&amp;&gt;" : "{\\fGulim|b0|i0|c129|p50;디에프코리아&lt;&amp;&gt;}";
+    const buffered = renderCadDocumentSvg(input);
+    expect(buffered).toContain(`aria-label="${visible}"`);
+    if (type === "mtext") {
+      const plain: NormalizedCadDocument = { ...input, entities: [{ type: "text", sourceEntityId: "CE6", layer: "0",
+        position: { x: 10, y: 50, z: 0 }, rotation: 0, height: 30, text: "디에프코리아<&>" }] };
+      expect(buffered.match(/<path\b/g)).toHaveLength(renderCadDocumentSvg(plain).match(/<path\b/g)!.length);
+    }
+    const root = await mkdtemp(join(tmpdir(), "cad-mtext-svg-"));
+    try {
+      const outputPath = join(root, "document.svg.gz");
+      await renderCadDocumentSvgFile(input, outputPath);
+      expect(gunzipSync(await readFile(outputPath)).toString("utf8")).toContain(`>${visible}</text>`);
+      const previewPath = join(root, "preview.svg.gz");
+      await renderCadRegionPreviewFiles(input, [{ regionId: "text", bounds: input.bounds, outputPath: previewPath }]);
+      expect(gunzipSync(await readFile(previewPath)).toString("utf8")).toContain(`>${visible}</text>`);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("keeps resolved DIMENSION coordinates in buffered and region SVG", async () => {
+    const pair = (code: number, value: string | number) => `${code}\n${value}\n`;
+    const input = parseAsciiDxf([
+      pair(0, "SECTION"), pair(2, "BLOCKS"), pair(0, "BLOCK"), pair(2, "*D1"), pair(10, 0), pair(20, 0),
+      pair(0, "LINE"), pair(5, "DL"), pair(10, 100), pair(20, 200), pair(11, 110), pair(21, 200),
+      pair(0, "ENDBLK"), pair(0, "ENDSEC"), pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "DIMENSION"), pair(5, "D1"), pair(2, "*D1"), pair(10, 110), pair(20, 200),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join(""));
+    input.bounds = { minX: 90, minY: 190, maxX: 120, maxY: 210 };
+    const plain = { ...input, blocks: [], entities: input.blocks[0].entities };
+    const buffered = renderCadDocumentSvg(input, { trustDocumentBounds: true });
+    expect(buffered.match(/<line\b[^>]+/g)?.map(line => line.slice(line.indexOf("x1="))))
+      .toEqual(renderCadDocumentSvg(plain, { trustDocumentBounds: true }).match(/<line\b[^>]+/g)?.map(line => line.slice(line.indexOf("x1="))));
+    const root = await mkdtemp(join(tmpdir(), "cad-dimension-region-"));
+    try {
+      const outputPath = join(root, "preview.svg.gz");
+      const result = await renderCadRegionPreviewFiles(input, [{ regionId: "dimension", bounds: input.bounds, outputPath }]);
+      expect(result.routedOccurrences).toBe(1);
+      expect(gunzipSync(await readFile(outputPath)).toString("utf8")).toContain('d="M100 200L110 200"');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("renders parsed ELLIPSE in buffered and file/region serializers", async () => {
     const input = parseAsciiDxf("0\nSECTION\n2\nENTITIES\n0\nELLIPSE\n5\nE\n10\n10\n20\n20\n11\n4\n21\n0\n40\n0.5\n41\n0\n42\n6.283185307179586\n0\nENDSEC\n0\nEOF\n");
     expect(renderCadDocumentSvg(input)).toContain("<circle");
@@ -286,7 +334,7 @@ describe("CAD SVG renderer", () => {
     expect(() => renderCadDocumentSvg(splineOnly, { maxSplineSamples: 2 })).toThrow(/spline sample.*limit/i);
   });
 
-  it("renders a DIMENSION anonymous block at definition plus group 12 minus block base", async () => {
+  it("renders a DIMENSION anonymous block at group 12 minus block base without adding the definition point", async () => {
     const dxfPair = (code: number, value: string | number) => `${code}\n${value}\n`;
     const parsed = parseAsciiDxf([
       dxfPair(0, "SECTION"), dxfPair(2, "BLOCKS"), dxfPair(0, "BLOCK"), dxfPair(2, "*D1"), dxfPair(10, 2), dxfPair(20, 3),
@@ -301,7 +349,7 @@ describe("CAD SVG renderer", () => {
       const path = join(root, "dimension.svg.gz");
       await renderCadDocumentSvgFile(parsed, path);
       const svg = gunzipSync(await readFile(path)).toString("utf8");
-      expect(svg).toContain('data-cad-entity="dimension" href="#cad-block-0" transform="matrix(1 0 0 1 103 187)"');
+      expect(svg).toContain('data-cad-entity="dimension" href="#cad-block-0" transform="matrix(1 0 0 1 3 -13)"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

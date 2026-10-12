@@ -1,4 +1,5 @@
 import { cadSceneManifestSchema } from "@led-control/shared";
+import { fork, type ForkOptions } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +11,51 @@ import { readCanonicalElements, readCanonicalMetadata } from "./cad-canonical-sp
 import { decodeCadSceneTile } from "./cad-scene-codec";
 
 const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
+
+describe("CAD core child source encoding boundary", () => {
+  it.each([
+    ["CP949", Buffer.concat([Buffer.from("LIGHT_"), Buffer.from([0xb0, 0xa1, 0x81, 0x41])])],
+    ["UTF-8", Buffer.from("LIGHT_\uac00\uac02")]
+  ])("preserves %s names and candidates through the production child entry", async (_encoding, nameBytes) => {
+    const directory = await mkdtemp(join(tmpdir(), "cad-core-source-encoding-"));
+    try {
+      const groups = [
+        0, "SECTION", 2, "HEADER", 9, "$ACADVER", 1, "AC1015", 9, "$DWGCODEPAGE", 3, "ANSI_949", 0, "ENDSEC",
+        0, "SECTION", 2, "BLOCKS", 0, "BLOCK", 2, "@NAME@", 10, 0, 20, 0,
+        0, "CIRCLE", 5, "B1", 8, "SYMBOL", 10, 0, 20, 0, 40, 1,
+        0, "ENDBLK", 0, "ENDSEC", 0, "SECTION", 2, "ENTITIES",
+        0, "INSERT", 5, "I1", 8, "@NAME@", 2, "@NAME@", 10, 0, 20, 0,
+        0, "INSERT", 5, "I2", 8, "@NAME@", 2, "@NAME@", 10, 10, 20, 0,
+        0, "ENDSEC", 0, "EOF"
+      ];
+      const dxfPath = join(directory, "input.dxf");
+      await writeFile(dxfPath, Buffer.concat(groups.flatMap(value => [
+        value === "@NAME@" ? nameBytes : Buffer.from(String(value)), Buffer.from("\n")
+      ])));
+      // Exercise the real IPC executor and child source without generating or
+      // relying on dist. Preserve its production heap, env and wall limits.
+      const executor = new ChildProcessCadCoreExecutor({
+        entryPath: resolve(process.cwd(), "src/floor-import/cad-core-child.ts"),
+        forkProcess: (modulePath: string | URL, argsOrOptions?: readonly string[] | ForkOptions, options?: ForkOptions) => {
+          const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
+          const config = Array.isArray(argsOrOptions) ? options : argsOrOptions as ForkOptions | undefined;
+          return fork(modulePath, args, {
+            ...config, execArgv: [...(config?.execArgv ?? []), "--import", require.resolve("tsx")]
+          });
+        }
+      });
+      const result = await executor.execute({ dxfPath, renderedPath: join(directory, "whole.svg"), profileId: "generic-lighting-v1" });
+      expect(result.modelEntityCount).toBe(2);
+      expect(result.blockCount).toBe(1);
+      expect(result.candidates).toEqual([
+        expect.objectContaining({ sourceEntityId: "I1", layerName: "LIGHT_\uac00\uac02", blockName: "LIGHT_\uac00\uac02" }),
+        expect.objectContaining({ sourceEntityId: "I2", layerName: "LIGHT_\uac00\uac02", blockName: "LIGHT_\uac00\uac02" })
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 15_000);
+});
 
 (enabled ? describe : describe.skip)("CAD core child native artifacts", () => {
   jest.setTimeout(60_000);

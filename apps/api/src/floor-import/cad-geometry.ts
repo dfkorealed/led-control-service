@@ -98,13 +98,16 @@ export function cadEllipseAngles(entity: Extract<NormalizedCadEntity, { type: "e
 export function dimensionMatrix(
   entity: Extract<NormalizedCadEntity, { type: "dimension" }>, basePoint: CadPoint
 ): CadMatrix {
+  // DXF group 10 is a WCS definition point, not a block insertion point.
+  // The dimension picture already carries drawing coordinates; only group 12
+  // (clone insertion in the supported XY plane) and the block base translate it.
   return {
     a: 1,
     b: 0,
     c: 0,
     d: 1,
-    e: entity.definitionPoint.x + entity.blockPosition.x - basePoint.x,
-    f: entity.definitionPoint.y + entity.blockPosition.y - basePoint.y
+    e: entity.blockPosition.x - basePoint.x,
+    f: entity.blockPosition.y - basePoint.y
   };
 }
 
@@ -544,7 +547,7 @@ export function computeCadBounds(
       includeArcBounds(entity.center, entity.radius, entity.startAngle, sweep, matrix, include);
     } else if (entity.type === "text" || entity.type === "mtext") {
       const radians = entity.rotation * Math.PI / 180;
-      const textBounds = measureCadText(entity.text, entity.height, { consumeGlyph: consumeTextGlyph }).bounds;
+      const textBounds = measureCadText(entity.text, entity.height, { consumeGlyph: consumeTextGlyph, textFormat: entity.type }).bounds;
       const corners = [
         { x: textBounds.minX, y: textBounds.minY }, { x: textBounds.maxX, y: textBounds.minY },
         { x: textBounds.minX, y: textBounds.maxY }, { x: textBounds.maxX, y: textBounds.maxY }

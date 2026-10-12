@@ -1,5 +1,31 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-12 CAD 가져오기·치수·문자 교정
+
+### 구현 완료
+
+- 제품 child의 DXF 파일 입력에 실제 UTF-8 우선 검증과 선언된 legacy 코드페이지 fallback을 적용했다. CP949 확장 한글·chunk 경계·파일/Buffer 결과 일치·잘못된 선언 거부와 기존 크기/시간 제한을 검증한다. 파일 이름별 예외 처리는 없다.
+- DIMENSION 익명 블록의 도면 좌표에 정의점(group 10)을 중복으로 더하던 이동 오류를 수정했다. clone 삽입 offset·블록 기준점·상위 INSERT의 회전/반전/배율은 유지한다.
+- MTEXT 글꼴·색상·크기·중첩 서식 코드를 표시 문자와 분리하여 미리보기·bounds·공통 맵 텍스트에 같은 값을 사용한다. 일반 TEXT의 괄호/역슬래시는 그대로 보존한다.
+- 제공한 두 DWG의 실제 변환→제품 child→공통 맵 준비→적용→fresh editor/readonly reader 재조회가 격리 PostgreSQL·MinIO에서 2/2 통과했다. 첫 파일은 공통 요소 219개, 두 번째는 397개이며 두 번째의 텍스트 28개 중 `디에프코리아` 2개가 서식 문자열 없이 보존됐다. 원본 SHA256과 장비 개수는 변경되지 않았다.
+
+### 미구현
+
+- 실제 로그인 브라우저의 재업로드/적용은 위 서비스·저장소 통합 검증과 구분한다. 전체 API 최종 검사 결과는 실행 계획에 기록한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원래 글꼴/서식, MTEXT attachment·다중행 배치의 완전한 재현은 지원하지 않는다. 두 번째 제공 파일의 기존 미지원 SOLID 화살표 52개와 비평면 OCS는 이번 치수 위치 오류 수정과 구분한다. 이 검증을 AutoCAD와의 전체 시각적 동일성으로 표현하지 않는다.
+- 기존 저장 맵은 자동으로 덮어쓰지 않는다. 수정된 변환 결과를 반영하려면 원본을 다시 가져와 검토 후 적용한다.
+
+### 관련 파일
+
+- `apps/api/src/floor-import/{dxf-file-encoding,dxf-document-parser,cad-core-child,cad-geometry,cad-text-layout,cad-text-decoder,cad-scene-builder,cad-svg-renderer}.ts` 및 직접 회귀·`cad-sample-pipeline.integration.spec.ts`.
+
+### 갱신 규칙
+
+- 실제 파일 성공·자동 회귀·원본 CAD 시각적 동일성을 구분한다. 일반 TEXT를 MTEXT로 다시 해석하지 않으며 원본 및 기존 정본 보존 정책을 유지한다.
+
 ## 2026-10-11 신규 조작 의견 — 현장명 단순화
 
 ### 구현 완료

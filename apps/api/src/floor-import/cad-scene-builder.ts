@@ -778,7 +778,7 @@ function convertEntity(item: ExpandedCadEntity, context: ProjectionContext): Cad
     }];
   }
   if (entity.type === "text" || entity.type === "mtext") {
-    const layout = measureCadText(entity.text, entity.height);
+    const layout = measureCadText(entity.text, entity.height, { textFormat: entity.type });
     const radians = entity.rotation * Math.PI / 180;
     const localPoint = (x: number, y: number): CadPoint => ({
       x: entity.position.x + x * Math.cos(radians) - y * Math.sin(radians),

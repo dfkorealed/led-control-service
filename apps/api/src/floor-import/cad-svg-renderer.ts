@@ -8,7 +8,7 @@ import { createGzip } from "node:zlib";
 import { cadBulgeArc, cadEllipseAngles, cadEllipseMatrix, createCadSplineSampler, dimensionMatrix, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { CAD_RENDERED_SVG_MAX_BYTES, CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 import { CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT } from "./cad-runtime-contract";
-import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
+import { forEachCadTextGlyph, prepareCadText, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument, NormalizedCadHatchLoop } from "./cad-types";
 import { cadViewportScale, cadViewportSvgTransform, createCadViewport, selectPrimaryCadBounds } from "./cad-viewport";
 
@@ -303,12 +303,12 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
         e: entity.position.x, f: entity.position.y
       };
       const matrix = multiplyCadMatrices(projection, multiplyCadMatrices(item.matrix, textTransform));
-      const text = sanitizeCadText(entity.text);
+      const text = prepareCadText(entity.text, entity.type);
       const openingPrefix = `<g ${attrs} data-cad-text="true" aria-label="`;
       const openingSuffix = `" fill="#111827" stroke="none" transform="${matrixAttribute(matrix)}">`;
       ensureOutputCapacity(Buffer.byteLength(openingPrefix, "utf8") + xmlByteLength(text) + Buffer.byteLength(openingSuffix, "utf8"));
       append(`${openingPrefix}${xmlSanitized(text)}${openingSuffix}`);
-      forEachCadTextGlyph(entity.text, entity.height, { maxGlyphs: maxTextGlyphs }, glyph => {
+      forEachCadTextGlyph(text, entity.height, { maxGlyphs: maxTextGlyphs }, glyph => {
         checkBudget();
         if (!Number.isFinite(glyph.bounds.minX) || !Number.isFinite(glyph.bounds.minY) ||
             !Number.isFinite(glyph.bounds.maxX) || !Number.isFinite(glyph.bounds.maxY)) return;
@@ -442,7 +442,7 @@ export function createCadSvgEntitySerializer(
       } else if (entity.type === "point") {
         return (`<path data-cad-entity="point" d="M${number(entity.position.x - pointMarkerRadius)} ${number(entity.position.y)}h${number(pointMarkerRadius * 2)}M${number(entity.position.x)} ${number(entity.position.y - pointMarkerRadius)}v${number(pointMarkerRadius * 2)}"/>`);
       } else if (entity.type === "text" || entity.type === "mtext") {
-        const text = xml(entity.text);
+        const text = xml(prepareCadText(entity.text, entity.type));
         return (`<text x="0" y="0" font-size="${number(entity.height)}" font-family="Arial, Noto Sans KR, sans-serif" fill="#111827" stroke="none" transform="translate(${number(entity.position.x)} ${number(entity.position.y)}) rotate(${number(entity.rotation)}) scale(1 -1)">${text}</text>`);
       } else {
         throw new Error(`Unsupported normalized CAD SVG entity: ${entity.type}`);

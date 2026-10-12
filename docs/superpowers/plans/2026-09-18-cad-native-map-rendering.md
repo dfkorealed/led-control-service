@@ -10,6 +10,21 @@
 
 **설계:** [공통 맵 요소 설계](../specs/2026-09-18-cad-native-map-rendering-design.md)
 
+## 2026-10-12 제공 DWG 인코딩·치수·문자 오류 보완
+
+- [x] `11.DF11-1000X33-12X8.dwg`의 변환 성공과 제품 streaming parser의 UTF-8 decode 실패 재현. 원본은 읽기만 한다.
+- [x] 인코딩 담당: `dxf-document-parser` 및 파일 입력 경계에서 bounded UTF-8 검증 우선·선언 코드페이지 fallback 구현. ANSI_949/실제 UTF-8, CP949 분할 bytes, 현대 UTF-8, 잘못된 bytes와 상한 회귀를 실패부터 검증한다.
+- [x] 치수·문자 담당: 두 번째 제공 도면의 DIMENSION 좌표와 MTEXT 서식을 조사하고 `cad-geometry`, 텍스트 해석 및 scene 변환에 일반화된 회귀를 추가한다. parser 수정이 필요하면 인코딩 담당과 쓰기 경계를 조정한다.
+- [ ] 통합: 두 원본의 convert→제품 child→공통 요소 생성 검증, API 전체 테스트·타입·빌드, 독립 코드 리뷰와 메뉴/교훈/상태 문서 갱신.
+
+검증 기록: 실제 두 파일의 격리 PostgreSQL·MinIO pipeline은 2/2 통과했다. 첫 파일 219개·두 번째 397개 공통 요소, preview hash·정본/타일 ID 일치·적용 후 fresh reader·editor manifest·읽기 전용 조회를 확인했다. 두 번째의 `디에프코리아` 2개는 표시 문자열만 저장됐다. 후보는 두 파일 모두 0개이며 실제 등록 장비가 증가하지 않는다. 기존 sample harness를 현재 공통 정본 저장 계약으로 갱신하고, imports admission에는 실제 worker 가용 상태를 넣되 worker polling은 시작하지 않고 `runOnce`로 진행한다. 최종 전체 검사는 소스 고정된 별도 브랜치에서 실행한다.
+
+작업 격리: `codex/cad-import-corrections-20261012`, `.worktrees/cad-import-corrections-20261012`. MAIN의 정확한 소유 변경은 `.local/cad-isolation-20261012-FNZGWc/`에 patch·파일·SHA256으로 보존하고 복사 확인 뒤 해제했다. 다른 담당자의 AGENTS/배포 문서·UI worktree·서버·DB는 유지한다.
+
+소스 고정 후 집중 회귀 8 suites 224 PASS/기존 opt-in 4 SKIP, API typecheck/build exit0, 최종 독립 리뷰 C/I/M0. 초기 whole-run은 수정 중 소스의 Jest cache 또는 분리 worktree의 누락된 sibling 의존성을 읽었으므로 완료 근거에서 제외했다. 전체 의존성 연결 뒤 마지막 API 전체 검사는 `.local/cad-api-final.log`에 저장한다. opt-in 없는 기본 suite의 실제 파일 검증은 위 2/2 실행으로 별도 입증한다.
+
+기존 CAD 상한·권한·자원 격리를 유지하며 파일명별 예외, 원본 변경, DB migration·현장 데이터 초기화·장비/운영 변경은 하지 않는다. 이미 저장된 맵 정본은 자동 덮어쓰지 않는다. 원본 AutoCAD 화면과의 육안 충실도 및 미지원 도형은 자동 검증 결과와 구분한다.
+
 ## 2026-09-20 카메라 입력/raster 최적화 실행 기록
 
 - [x] `FloorEditorCanvas` 팬·휠 줌의 imperative transform과 지연 상태 커밋 구현

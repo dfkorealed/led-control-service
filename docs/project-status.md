@@ -2,6 +2,13 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 CAD 가져오기·치수·문자 보완 — 최종 전체 검사 중
+
+- 첫 파일은 실제 CP949 bytes를 UTF-8로 강제 해석하던 제품 child 오류였다. bounded 파일 입력·엄격한 CP949 확장 문자·UTF-8 우선 정책으로 교정했고 잘못된/중복된 선언은 거부한다. 두 번째 파일은 DIMENSION 정의점의 중복 이동과 MTEXT 서식 literal 표시를 교정했다. 파일 이름별 예외 처리는 없다.
+- CAD 집중 8 suites 224 PASS/기존 opt-in 4 SKIP, API typecheck/build 및 독립 리뷰 C/I/M0을 확인했다. 격리 PostgreSQL·MinIO를 사용한 두 첨부 DWG의 변환→공통 맵 적용→fresh editor/readonly reader 재조회는 2/2 PASS(219/397 요소, `디에프코리아` plain text 2개)다. 원본 SHA256·실제 장비 개수는 보존한다.
+- 사람의 총괄 지시에 따라 `codex/cad-import-corrections-20261012`로 소유 변경을 분리하고 MAIN 외부 문서·서버를 보존했다. 최초 Prisma 생성 불일치·수정 중 모듈 cache·분리 worktree 의존성 누락 실행은 최종 완료 근거에서 제외한다. 소스를 고정하고 전체 의존성을 연결한 마지막 API 전체 검사를 실행 중이다. [기존 실행 계획](superpowers/plans/2026-09-18-cad-native-map-rendering.md)에 최종 결과를 기록한다.
+- 기존 저장 맵은 자동 backfill하지 않으며 재가져오기/적용이 필요하다. 원래 글꼴·MTEXT attachment/다중행 배치·SOLID 화살표·비평면 OCS의 완전한 시각적 재현과 실제 로그인 브라우저 재적용은 이번 자동 검증으로 완료 처리하지 않는다. DB migration·현장 초기화·장비/운영 변경은 없다.
+
 ## 2026-10-12 AWS Agent Toolkit — 로컬 설정·실제 연결 검증 완료
 
 - [x] `uv 0.13.0`·AWS CLI `2.37.12` 설치를 확인했다. `kinda` 프로필의 선택 리전은 `ap-southeast-2`이며, CLI STS 접근과 자격 증명 출처 `login`을 확인했다. 이전 대기 요청의 만료로 닫힌 loopback 콜백 페이지와 현재 사용 가능한 인증 상태를 구분한다.

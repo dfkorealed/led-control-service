@@ -418,6 +418,6 @@ describe("canonical CAD map conversion", () => {
     expect(elements.map(e => e.type)).toEqual(["line", "text"]);
     expect(elements[0].groupId).toBe(elements[1].groupId);
     expect(metadata.groups).toHaveLength(1);
-    expect(elements[0]).toMatchObject({ geometry: { start: { x: 674.016, y: 15694.256 }, end: { x: 736.928, y: 15694.256 } } });
+    expect(elements[0]).toMatchObject({ geometry: { start: { x: 359.456, y: 16008.816 }, end: { x: 422.368, y: 16008.816 } } });
   });
 });
