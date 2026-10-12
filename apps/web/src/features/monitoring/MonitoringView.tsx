@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, DetailSheet, Popover, FeedbackState, Heading, PageHeader, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { Button, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
@@ -41,7 +41,7 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading } = dashboardQuery;
 
-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="모니터링" />;
+  const pageHeader = <Heading as="h1" className="sr-only">모니터링</Heading>;
   if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" /></section>;
   if (!data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></section>;
 
@@ -78,13 +78,10 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   const [isLogDrawerOpen, setIsLogDrawerOpen] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia?.("(min-width: 1024px)").matches ?? false);
   const detailReturnRef = useRef<HTMLElement | null>(null);
   const detailScopeRef = useRef<string | null>(null);
   const detailRef = useRef<HTMLElement | null>(null);
   const detailBodyRef = useRef<HTMLDivElement | null>(null);
-  const sheetDetailRef = useRef<HTMLElement | null>(null);
-  const sheetDetailBodyRef = useRef<HTMLDivElement | null>(null);
   const detailScrollRef = useRef(0);
   const detailScrollRestoringRef = useRef(false);
   const [isPinOpen, setIsPinOpen] = useState(false);
@@ -138,43 +135,25 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
     };
   }, [floor?.id, siteId]);
   useEffect(() => { setSelectedFixtureId(null); setIsLogDrawerOpen(false); setIsInspectorOpen(false); setIsDetailOpen(false); setFixtureFilter("all"); setFixtureSearch(""); setFocusRequest(undefined); pinDetailsFixtureRef.current = null; }, [floor?.id, principal]);
-  useEffect(() => {
-    const media = window.matchMedia?.("(min-width: 1024px)");
-    if (!media) return;
-    const update = () => {
-      // Surface remounts at the breakpoint; retain its body scroll, while the
-      // stable map viewport keeps camera state through its resize observer.
-      // CSS can clamp the old surface during resize before this event runs.
-      // Keep the last user offset, not that temporary smaller maximum.
-      detailScrollRestoringRef.current = true;
-      detailScrollRef.current = Math.max(detailScrollRef.current, detailBodyRef.current?.scrollTop ?? 0, sheetDetailBodyRef.current?.scrollTop ?? 0);
-      setIsDesktop(media.matches);
-    };
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
   useEffect(() => { detailScrollRef.current = 0; }, [selectedFixtureId]);
   useEffect(() => {
     if (!isDetailOpen) return;
     detailScrollRestoringRef.current = true;
     let releaseFrame: number | undefined;
     const frame = requestAnimationFrame(() => {
-      // Keep refs separate: the outgoing sheet's delayed portal cleanup must
-      // not clear the incoming aside's ref at the responsive boundary.
-      const body = isDesktop ? detailBodyRef.current : sheetDetailBodyRef.current;
+      const body = detailBodyRef.current;
       if (body) body.scrollTop = detailScrollRef.current;
-      if (isDesktop && !detailRef.current?.contains(document.activeElement)) detailRef.current?.focus({ preventScroll: true });
+      if (!detailRef.current?.contains(document.activeElement)) detailRef.current?.focus({ preventScroll: true });
       releaseFrame = requestAnimationFrame(() => { detailScrollRestoringRef.current = false; });
     });
     return () => { cancelAnimationFrame(frame); if (releaseFrame !== undefined) cancelAnimationFrame(releaseFrame); };
-  }, [isDesktop, isDetailOpen, selectedFixtureId]);
+  }, [isDetailOpen, selectedFixtureId]);
 
   function clearSelection() {
     // Automatic runtime exclusion/deletion can remove a focused nonmodal aside.
     // Return only its own current-scope focus, before removal: no deferred job
     // may steal outside focus after an account/site/floor change or unmount.
-    // Compact DetailSheet retains its shared portal return lifecycle.
-    if (isDesktop && isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
+    if (isDetailOpen && detailScopeRef.current === detailScope && detailRef.current?.contains(document.activeElement)) {
       const opener = detailReturnRef.current;
       const target = opener?.isConnected && opener.tabIndex >= 0 && !detailRef.current.contains(opener) && !("disabled" in opener && opener.disabled)
         ? opener : finderOpenerRef.current ?? inspectorTriggerRef.current;
@@ -254,7 +233,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   if (!data.site.id) {
     return (
       <section className="grid min-w-0 gap-4" data-monitoring-screen="">
-        <PageHeader variant="customer" headingLevel={1} title="모니터링" />
+        <Heading as="h1" className="sr-only">모니터링</Heading>
         <InstallationPending />
       </section>
     );
@@ -352,15 +331,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
       event.preventDefault(); workspaceFocus.exit();
     }}>
-      <PageHeader variant="customer" headingLevel={1} title="모니터링" className="max-compact:order-0" actions={<>
-        <Text as="small" variant="caption" tone="secondary" className="min-w-0 max-w-full break-words text-right">
-          {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
-        </Text>
-        <Button ref={refreshButtonRef} variant="secondary" disabled={isManualRefreshing} aria-busy={isManualRefreshing} onClick={() => void handleRefresh()}>
-          <RefreshCw aria-hidden="true" size={16} className={isManualRefreshing ? "animate-spin" : undefined} />
-          {isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}
-        </Button>
-      </>} />
+      <Heading as="h1" className="sr-only">모니터링</Heading>
       <MonitoringSessionStatuses
         timeZone={data.site.timeZone ?? "Asia/Seoul"}
         siteId={siteId ?? data.site.id}
@@ -375,16 +346,23 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRefresh={() => void handleRefresh()}
         onMapRetry={() => void handleMapRetry()}
       />
-      <div className="flex min-w-0 flex-wrap items-center gap-2 max-compact:order-1" role="group" aria-label="모니터링 도구">
+      <div className="flex min-w-0 items-center gap-2 max-compact:order-1" role="group" aria-label="모니터링 도구">
           <SelectBox
             label="맵 선택"
             items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
             selectedKey={floor?.id ?? null}
             isDisabled={data.floors.length === 0}
             onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
-            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1"
+            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 compact:w-64 max-compact:flex-1 max-compact:[&_label]:sr-only"
           />
-          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={event => openInspector(event.currentTarget)}><Filter size={16} aria-hidden="true" />조명 검색/목록</Button>
+          <Button ref={inspectorTriggerRef} variant="secondary" className="shrink-0 max-tablet:size-13 max-tablet:p-0" aria-label="조명 검색/목록" aria-haspopup="dialog" aria-expanded={isInspectorOpen} onClick={event => openInspector(event.currentTarget)}><Filter size={16} aria-hidden="true" /><span className="max-tablet:hidden">조명 검색/목록</span></Button>
+          <Text as="small" variant="caption" tone="secondary" className="ml-auto min-w-0 shrink-0 text-right">
+            {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
+          </Text>
+          <Button ref={refreshButtonRef} variant="secondary" className="shrink-0 max-tablet:size-13 max-tablet:p-0" aria-label={isManualRefreshing ? "장치 상태 확인 중" : "새로고침"} disabled={isManualRefreshing} aria-busy={isManualRefreshing} onClick={() => void handleRefresh()}>
+            <RefreshCw aria-hidden="true" size={16} className={isManualRefreshing ? "animate-spin" : undefined} />
+            <span className="max-tablet:hidden">{isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}</span>
+          </Button>
       </div>
 
       <FixtureQueryFeedback
@@ -395,11 +373,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         onRetry={() => void fixtureQuery.refetch()}
       />
 
-      {/* Keep the desktop detail's reading region as tall as the map's natural
-          minimum; short screens scroll the page instead of shrinking the row. */}
       {/* Compact maps consume remaining viewport space; the natural minimum
           keeps the canvas and ticker reachable through document scroll on short screens. */}
-      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min", isDesktop && isDetailOpen && selectedFixtureId && "tablet:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")} data-monitoring-layout="">
+      <div className={cn("grid min-h-0 min-w-0 flex-1 gap-4 tablet:min-h-min max-compact:order-3", !workspaceFocus.active && "max-compact:min-h-min")} data-monitoring-layout="">
         <div className="flex h-full min-h-min min-w-0 flex-col gap-5" data-monitoring-map-panel="">
           <OperationMapPanel className="min-h-min"
             status={floor ? <MonitoringSummary scope="floor" mapName={floor.name}
@@ -434,6 +410,12 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
           ) : (
             <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
           )}
+          {/* The overlay is out of flow: opening detail never changes the map
+              viewport or camera. Only its reading body scrolls; map remains usable. */}
+          {isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="absolute inset-x-0 bottom-0 z-10 flex h-1/2 min-h-0 min-w-0 flex-col border-t border-border-default bg-surface-panel p-3 shadow-popover compact:p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
+            <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
+            <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
+          </aside> : null}
           </OperationMapPanel>
           {floor ? <MonitoringLogTicker
             scopeKey={detailScope}
@@ -449,12 +431,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             triggerRef={logTriggerRef}
           /> : null}
         </div>
-        {/* Zero preferred height excludes the scrollable detail content from
-            the row's intrinsic size; its minimum then fills the map-led row. */}
-        {isDesktop && isDetailOpen && selectedFixtureId ? <aside ref={detailRef} tabIndex={-1} aria-label="조명 상세" className="flex h-0 min-h-full min-w-0 flex-col rounded-panel border border-border-default bg-surface-panel p-4" onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeDetail(); } }}>
-          <div className="flex shrink-0 items-start justify-between gap-3"><Heading as="h2" variant="card-title">조명 상세</Heading><Button variant="ghost" className="min-h-13" onClick={closeDetail} aria-label="조명 상세 닫기">닫기</Button></div>
-          <div ref={detailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto"><FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} /></div>
-        </aside> : null}
       </div>
       <Popover
         isOpen={isInspectorOpen}
@@ -504,11 +480,6 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         {selectedFixtureId ? <Button variant="secondary" onClick={() => openDetail(selectedFixtureId)}>상세 보기</Button> : null}
         </div>
       </Popover>
-      <DetailSheet ref={sheetDetailRef} isOpen={!isDesktop && isDetailOpen && selectedFixtureId !== null} onClose={closeDetail} title="조명 상세" closeLabel="조명 상세 닫기" returnFocusRef={detailReturnRef} fallbackFocusRef={finderOpenerRef.current ? finderOpenerRef : inspectorTriggerRef} bodyClassName="flex min-h-0 flex-col overflow-hidden">
-        <div ref={sheetDetailBodyRef} onScroll={event => rememberDetailScroll(event.currentTarget.scrollTop)} data-monitoring-detail-scroll="" className="min-h-0 flex-1 overflow-y-auto">
-        <FixtureDetailPanel fixture={selectedFixture ?? null} selectedName={selectedPin?.name} position={selectedPin ? { kind: "placed", point: { x: selectedPin.x, y: selectedPin.y } } : resolveFixtureMapPosition(mapSnapshot, selectedFixture)} timeZone={data.site.timeZone} />
-        </div>
-      </DetailSheet>
       <MonitoringLogDrawer
         isOpen={isLogDrawerOpen}
         onClose={() => setIsLogDrawerOpen(false)}
@@ -600,6 +571,9 @@ function MonitoringSessionStatuses({
       id: `query:monitoring:${scope}:fixtures`,
       fingerprint: `fixtures:${fixtureError}:${snapshotFreshness.metadata}:${snapshotFreshness.freshness}:${anomalousGeneratedAt ?? ""}`,
       source: "query", tone: "warning", title, description,
+      // Pure snapshot delay stays actionable in current-screen alarms, without
+      // inventing a durable device incident or repeating transient notifications.
+      announce: fixtureError || snapshotFreshness.metadata !== "valid",
       action: { label: fixtureError ? "조명 상태 다시 시도" : "다시 시도", onAction: () => actions.current.onRefresh() }
     }];
   }, [anomalousGeneratedAt, fixtureError, floorId, hasFixtureData, scope, snapshotFreshness.freshness, snapshotFreshness.metadata, timeZone]);
@@ -676,8 +650,17 @@ function parseStrictIsoTimestamp(value: unknown):
 }
 
 function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>, timeZone: string) {
-  if (snapshot.metadata === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
-  if (snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined) return "마지막 갱신: 서버 snapshot 시각 확인 중";
-  if (snapshot.metadata === "future") return `마지막 갱신: 시간 차이 확인 (${formatMonitoringTimestamp(snapshot.anomalousGeneratedAt!, timeZone)})`;
-  return <>마지막 갱신: <time dateTime={snapshot.rawGeneratedAt}>{formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone)} (현장 시간)</time></>;
+  const notice = snapshot.metadata === "invalid" ? "마지막 갱신: 서버 snapshot 시각 확인 필요"
+    : snapshot.freshness === "pending" || snapshot.rawGeneratedAt === undefined ? "마지막 갱신: 서버 snapshot 시각 확인 중"
+      : snapshot.metadata === "future" ? `마지막 갱신: 시간 차이 확인 (${formatMonitoringTimestamp(snapshot.anomalousGeneratedAt!, timeZone)})` : null;
+  if (notice) return <span title={notice}><span className="max-tablet:sr-only">{notice}</span><span aria-hidden="true" className="hidden max-tablet:inline">시각 확인</span></span>;
+  if (!snapshot.rawGeneratedAt) return null;
+  const full = formatMonitoringTimestamp(snapshot.rawGeneratedAt, timeZone);
+  // The shared formatter owns strict instant/zone validation and canonical
+  // YYYY-MM-DD HH:mm:ss output; compact copy must not reparse with a fallback zone.
+  const short = full === "—" ? full : full.slice(11, 16);
+  return <span title={`마지막 갱신: ${full} (현장 시간)`}>
+    <span className="max-tablet:sr-only">마지막 갱신: </span>
+    <time dateTime={snapshot.rawGeneratedAt} aria-label={`${full} (현장 시간)`}><span className="max-tablet:hidden">{full} (현장 시간)</span><span aria-hidden="true" className="hidden max-tablet:inline">{short}</span></time>
+  </span>;
 }

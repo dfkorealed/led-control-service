@@ -149,6 +149,8 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture, 
       <div className="min-h-min min-w-0 flex-1">
       <FloorMapViewport
         ref={viewportRef}
+        interactionPolicy="pan"
+        toolModePolicy="manual-cad"
         maintainCameraOnResize
         controlsPlacement="footer"
         footerStart={legend.length ? <ul className="pointer-events-none m-0 flex list-none flex-wrap gap-x-3 gap-y-1.5" aria-label="조명 상태 범례">

@@ -65,7 +65,29 @@ const navigationFloor = {
 };
 
 describe("FloorMap", () => {
-  afterEach(() => cleanup());
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(document, "elementFromPoint"); });
+
+  it.each(["mouse", "touch"])("navigates from a real marker with %s without selecting until the next tap", async pointerType => {
+    render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={vi.fn()} />);
+    const marker = await screen.findByRole("button", { name: "B1-L001 정상 70%" });
+    // jsdom has no layout; provide the real marker hit rectangle so FloorScene's
+    // pointerup hit-test, rather than a keyboard click, owns the next selection.
+    vi.spyOn(marker, "getBoundingClientRect").mockReturnValue({ x: 70, y: 70, left: 70, top: 70, right: 118, bottom: 118, width: 48, height: 48, toJSON: () => ({}) });
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => marker });
+    const viewport = screen.getByTestId("monitoring-map-viewport");
+    dispatchPointer(marker, "pointerdown", { pointerId: 1, pointerType, button: pointerType === "mouse" ? 1 : 0, clientX: 100, clientY: 100 });
+    dispatchPointer(marker, "pointermove", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
+    dispatchPointer(marker, "pointerup", { pointerId: 1, pointerType, clientX: 80, clientY: 90 });
+    fireEvent.click(marker, { detail: 1 });
+    expect(viewport.scrollLeft).toBe(20);
+    expect(viewport.scrollTop).toBe(10);
+    expect(screen.queryByTestId("map-area-selection")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "B1-L001 조명 정보" })).not.toBeInTheDocument();
+    dispatchPointer(marker, "pointerdown", { pointerId: 2, pointerType, button: 0, clientX: 80, clientY: 90 });
+    dispatchPointer(marker, "pointerup", { pointerId: 2, pointerType, button: 0, clientX: 80, clientY: 90 });
+    fireEvent.click(marker, { detail: 1 });
+    expect(await screen.findByRole("dialog", { name: "B1-L001 조명 정보" })).toBeVisible();
+  });
 
   it("renders all canonical statuses and no count overlay while retaining saved pins", () => {
     const { rerender } = render(<FloorMap floor={{ ...navigationFloor, fixtures: [
@@ -496,9 +518,9 @@ describe("FloorMap", () => {
 
     viewport.scrollLeft = 40;
     viewport.scrollTop = 30;
-    dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
-    dispatchPointer(viewport, "pointermove", { pointerId: 1, button: 0, clientX: 70, clientY: 75 });
-    dispatchPointer(viewport, "pointerup", { pointerId: 1, button: 0, clientX: 70, clientY: 75 });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 70, clientY: 75 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, pointerType: "mouse", button: 1, clientX: 70, clientY: 75 });
 
     expect(viewport.scrollLeft).toBe(70);
     expect(viewport.scrollTop).toBe(55);
@@ -516,13 +538,13 @@ describe("FloorMap", () => {
     dispatchPointer(viewport, "pointerup", { pointerId: 2, button: 0, clientX: 300, clientY: 100 });
 
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "2");
-    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }));
+    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }), { detail: 1 });
     expect(onSelectFixture).not.toHaveBeenCalled();
   });
 });
 
-function dispatchPointer(target: HTMLElement, type: string, init: Record<string, number>) {
-  const event = new Event(type, { bubbles: true });
+function dispatchPointer(target: HTMLElement, type: string, init: Record<string, string | number>) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, Object.fromEntries(
     Object.entries(init).map(([key, value]) => [key, { configurable: true, value }])
   ));
