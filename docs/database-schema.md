@@ -2003,7 +2003,7 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 
 ### 운영 데이터 보존과 복구 범위
 
-`DataRetentionService`는 60초마다 다음 대상을 정리한다. 각 삭제는 안정된 정렬과 `FOR UPDATE SKIP LOCKED`를 사용하는 단일 SQL statement다. 후보의 시각이 cutoff와 같으면 보존하고 더 오래된 행만 제거한다. 수동 호출과 timer는 진행 중 promise를 공유하며 `unref()`·종료 drain을 적용하고, Prisma 연결은 모든 worker의 module destroy 이후 최종 shutdown 단계에서 닫는다.
+`DataRetentionService`는 60초마다 다음 대상을 정리한다. 일반 삭제는 안정된 정렬과 `FOR UPDATE SKIP LOCKED`를 사용하는 단일 SQL statement다. 맵 이력은 Floor 잠금 transaction 안에서 공통 prune helper를 사용한다. 날짜 기반 후보의 시각이 cutoff와 같으면 보존하고 더 오래된 행만 제거한다. 수동 호출과 timer는 진행 중 promise를 공유하며 `unref()`·종료 drain을 적용하고, Prisma 연결은 모든 worker의 module destroy 이후 최종 shutdown 단계에서 닫는다.
 
 | 대상 | 보존 기준 | 삭제 전 안전 조건 / 한 sweep 상한 |
 | --- | --- | --- |
@@ -2012,7 +2012,9 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 | `provisioning_scan_found/completed/failed` | 생성 후 90일 | 전체 등록 session과 scan이 terminal이고 완전한 terminal ACK identity·watermark 유지; terminal 원장은 저장 identity와 정확히 일치 |
 | `vehicle_sensor_capability` | 생성 후 365일 | 현재 node revision과 watermark가 모두 원장보다 엄격히 큼; 최신 보고는 보존 |
 | `Session` | 만료 또는 폐기 후 30일 | 활성 session 보존; 최대 10,000행 |
-| `FloorMapRevision` | floor별 최신 100개 또는 최근 365일 중 넓은 범위 | revision 번호 내림차순으로 최신 100개 보호; 나머지 최대 1,000행 |
+| `FloorMapRevision` | floor별 현재 포함 최신 30개, 날짜 예외 없음 | 새 head/pin 발행 후 같은 Floor 잠금 transaction에서 초과 이력 제거. worker는 잠긴 층을 건너뛰며 한 sweep 최대 1,000행 삭제. 현재 Floor/Document head는 항상 보호 |
+
+2026-10-12 정책 변경은 Prisma 테이블/컬럼/migration 변경이 아니다. 이력 행과 cascading revision pin만 제거하며 generation·delta·import·stage가 참조하는 정본 자산은 보존한다. 현재 head가 오래된 잘못된 revision을 가리키면 head 보호 때문에 30개를 넘길 수 있다. 해당 제한은 새 API 코드 반영 후 적용되며 이번 소프트웨어 검증에서 실제 현장 DB의 기존 이력은 정리하지 않았다.
 | `MonitoringRefresh` | terminal 완료 후 7일 초과 | `completed/partial/failed/expired`와 `completedAt < cutoff`를 후보 선택·삭제에서 재검사; pending 제외. 앞 세 단계 삭제 수를 뺀 기존 총 21,000 부모 행 budget의 잔여와 1,000 중 작은 값 |
 | `MonitoringActivity` | DB-host UTC rolling 3 calendar months | 조회와 같은 DB 시각 역산 cutoff보다 엄격히 오래된 `recordedAt`만 삭제; `(recordedAt,id)` 순 독립 최대 1,000행 budget. 정확한 경계 보존 |
 | `ResolvedCommandRecovery` | 해결 시각 기준 UTC rolling 3 calendar months | 고객 case detail은 DB 시각 cutoff 이상만 반환; 별도 기본-OFF sweep은 cutoff 미만을 `(resolvedAt,id)` 순 최대 1,000행 삭제. 원본 UUID·Set 상세 없음 |

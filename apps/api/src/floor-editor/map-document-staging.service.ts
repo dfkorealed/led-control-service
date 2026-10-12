@@ -14,6 +14,7 @@ import { ObjectStorageService } from "../storage/object-storage.service";
 import { MapDocumentStore } from "./map-document-store";
 import { MapDocumentRevisionData } from "./map-document-revision-data";
 import { MapDocumentCheckpointService } from "./map-document-checkpoint.service";
+import { pruneLockedFloorMapRevisions } from "./floor-map-revision-retention";
 import { FloorEditorService } from "./floor-editor.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
@@ -209,6 +210,7 @@ export class MapDocumentStagingService implements OnModuleInit, OnModuleDestroy 
           for (const part of parts) await this.lockAsset(tx, candidate.floorId, part.assetId);
           if (parts.length) await tx.floorMapRevisionAsset.createMany({ data: parts.map(part => ({ revisionId: revision.id,
             floorId: candidate.floorId, generationId: candidate.generationId, assetId: part.assetId })) });
+          await pruneLockedFloorMapRevisions(tx, candidate.floorId);
           const result = JSON.parse(JSON.stringify({ ...applied.result,
             history: { undo: { revision: candidate.baseRevision }, redo: { revision: prepared!.revision } } }));
           await tx.floorMapStage.update({ where: { id: candidate.id }, data: { status: "committed", result,

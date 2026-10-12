@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { backfillLegacyCommandActivitySources } from "../monitoring-activity/command-activity-source-backfill";
+import { FLOOR_MAP_REVISION_LIMIT, pruneLockedFloorMapRevisions } from "../floor-editor/floor-map-revision-retention";
 
 const DAY_MS = 86_400_000;
 const SWEEP_DELETE_BUDGET = 21_000;
@@ -137,19 +138,7 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
       `);
 
       stage = "floorMapRevisions";
-      // revision is monotonic per floor, including restores. Using its existing
-      // unique index protects the latest 100 even when createdAt values tie.
-      deleted.floorMapRevisions = await this.prisma.$executeRaw(Prisma.sql`
-        WITH candidates AS (
-          SELECT revision."id" FROM "FloorMapRevision" revision
-          WHERE revision."createdAt" < ${cutoff(365)} AND revision."revision" < (
-            SELECT latest."revision" FROM "FloorMapRevision" latest WHERE latest."floorId" = revision."floorId"
-            ORDER BY latest."revision" DESC OFFSET 99 LIMIT 1
-          )
-          ORDER BY revision."createdAt", revision."id" LIMIT 1000 FOR UPDATE OF revision SKIP LOCKED
-        )
-        DELETE FROM "FloorMapRevision" revision USING candidates WHERE revision."id" = candidates."id"
-      `);
+      deleted.floorMapRevisions = await this.pruneFloorMapRevisions();
 
       stage = "monitoringRefreshes";
       // Preserve the existing 10,000 + 10,000 + 1,000 parent-row sweep budget.
@@ -223,6 +212,25 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
         resolvedSummaryBacklog });
       throw error;
     }
+  }
+
+  private pruneFloorMapRevisions(): Promise<number> {
+    return this.prisma.$transaction(async tx => {
+      // Match publication's Floor -> history lock order. A fresh statement after
+      // acquiring Floor locks sees committed heads/pins, not a pre-lock snapshot.
+      const floors = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT floor."id" FROM "Floor" floor WHERE EXISTS (
+          SELECT 1 FROM "FloorMapRevision" history WHERE history."floorId" = floor."id"
+          OFFSET ${FLOOR_MAP_REVISION_LIMIT} LIMIT 1
+        ) ORDER BY floor."id" LIMIT 1000 FOR UPDATE OF floor SKIP LOCKED
+      `);
+      let deleted = 0;
+      for (const floor of floors) {
+        deleted += await pruneLockedFloorMapRevisions(tx, floor.id, { limit: 1000 - deleted, skipLocked: true });
+        if (deleted >= 1000) break;
+      }
+      return deleted;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 30000 });
   }
 
   private assertResolvedSummarySweepAvailable() {

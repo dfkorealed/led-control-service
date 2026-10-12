@@ -41,6 +41,7 @@ import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-re
 import { CAD_IMPORT_WORKER_OPTIONS, type FloorImportWorkerOptions } from "./floor-import.tokens";
 import { CadMapPreparationService } from "./cad-map-preparation.service";
 import { MapDocumentStore } from "../floor-editor/map-document-store";
+import { pruneLockedFloorMapRevisions } from "../floor-editor/floor-map-revision-retention";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 import { cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { readExactRegionBounds } from "./floor-import-region-bounds";
@@ -718,6 +719,7 @@ export class FloorImportService {
             changedBy: user.id
           }
         });
+        await pruneLockedFloorMapRevisions(tx, floorId);
         await this.audit.record({
           organizationId: authorizedSite.organizationId, siteId: authorizedSite.id, actorId: user.id,
           action: "floor_import.applied", targetType: "floor_import_job", targetId: jobId,
@@ -950,6 +952,7 @@ export class FloorImportService {
         if (updated.count !== 1) throw new ConflictException("common map revision conflict");
       } else await tx.floorMapDocument.create({ data: { floorId, activeGenerationId: ref.generationId, revision: ref.revision } });
       await tx.floor.update({ where: { id: floorId }, data: { mapRevision: ref.revision } });
+      await pruneLockedFloorMapRevisions(tx, floorId);
       await this.audit.record({ organizationId: site.organizationId, siteId, actorId: user.id, action: "floor_import.applied",
         targetType: "floor_import_job", targetId: jobId, outcome: "success", metadata: { ...changeSummary, generationId: ref.generationId }, transaction: tx });
       await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "completed", stage: "completed", appliedAt: now,

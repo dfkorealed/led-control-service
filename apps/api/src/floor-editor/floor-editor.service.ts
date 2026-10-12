@@ -20,6 +20,7 @@ import { hashEditorLeaseToken } from "./editor-lease-token";
 import { buildFloorEditorSnapshot, buildMapDocumentSnapshot, hashFloorEditorSnapshot, MapDocumentSnapshot } from "./floor-editor-snapshot";
 import { MapDocumentMutationService } from "./map-document-mutation.service";
 import { MapDocumentRevisionData } from "./map-document-revision-data";
+import { pruneLockedFloorMapRevisions } from "./floor-map-revision-retention";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { EditorPatch, persistEditorPatches } from "./editor-batch-persistence";
@@ -905,7 +906,7 @@ export class FloorEditorService {
     }
   ) {
     const snapshotSha256 = hashFloorEditorSnapshot(input.snapshot);
-    return tx.floorMapRevision.create({
+    const revision = await tx.floorMapRevision.create({
       data: {
         floorId: input.floorId,
         revision: input.revision,
@@ -916,6 +917,8 @@ export class FloorEditorService {
         restoredFromRevision: input.restoredFromRevision
       }
     });
+    await pruneLockedFloorMapRevisions(tx, input.floorId);
+    return revision;
   }
 
   private async assertSnapshotAssetsReady(

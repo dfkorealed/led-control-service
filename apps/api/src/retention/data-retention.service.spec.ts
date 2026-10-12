@@ -2,6 +2,10 @@ import { Logger } from "@nestjs/common";
 import { DataRetentionService } from "./data-retention.service";
 
 describe("operational retention lifecycle", () => {
+  function database(execute: jest.Mock) {
+    const tx = { $executeRaw: execute, $queryRaw: jest.fn().mockResolvedValue([{ id: "floor" }]) };
+    return { ...tx, $transaction: async (work: (client: typeof tx) => Promise<number>) => work(tx) };
+  }
   const environment = process.env.NODE_ENV;
   afterEach(() => { process.env.NODE_ENV = environment; jest.restoreAllMocks(); jest.useRealTimers(); });
 
@@ -14,7 +18,7 @@ describe("operational retention lifecycle", () => {
     for (const count of counts) execute.mockResolvedValueOnce(count);
     execute.mockResolvedValue(remaining);
     jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
-    const result = await new DataRetentionService({ $executeRaw: execute } as never)
+    const result = await new DataRetentionService(database(execute) as never)
       .prune(new Date("2026-09-15T08:00:00.000Z"));
     expect(result).toMatchObject({ monitoringRefreshes: remaining });
     expect(execute).toHaveBeenCalledTimes(remaining === 0 ? 4 : 5);
@@ -34,7 +38,7 @@ describe("operational retention lifecycle", () => {
     const interval = jest.spyOn(global, "setInterval");
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
-    const db = { $executeRaw: jest.fn().mockImplementationOnce(() => pending.then(() => 2)).mockResolvedValue(0) };
+    const db = database(jest.fn().mockImplementationOnce(() => pending.then(() => 2)).mockResolvedValue(0));
     const service = new DataRetentionService(db as never);
     const log = jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
     service.onModuleInit();
@@ -59,7 +63,7 @@ describe("operational retention lifecycle", () => {
   it("logs partial counts without raw errors and retries after a failed tick", async () => {
     jest.useFakeTimers();
     process.env.NODE_ENV = "production";
-    const db = { $executeRaw: jest.fn().mockResolvedValueOnce(3).mockRejectedValueOnce(new Error("sensitive database error")).mockResolvedValue(0) };
+    const db = database(jest.fn().mockResolvedValueOnce(3).mockRejectedValueOnce(new Error("sensitive database error")).mockResolvedValue(0));
     const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
     jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
     const service = new DataRetentionService(db as never);
@@ -77,7 +81,7 @@ describe("operational retention lifecycle", () => {
 
   it("drains an in-flight sweep before module destruction completes", async () => {
     let release!: () => void;
-    const db = { $executeRaw: jest.fn().mockImplementationOnce(() => new Promise<number>(resolve => { release = () => resolve(0); })).mockResolvedValue(0) };
+    const db = database(jest.fn().mockImplementationOnce(() => new Promise<number>(resolve => { release = () => resolve(0); })).mockResolvedValue(0));
     jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
     const service = new DataRetentionService(db as never);
     const sweep = service.prune();

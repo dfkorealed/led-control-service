@@ -1,5 +1,31 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-12 추가 주석: 저장 상태·공통 탭·이력 30개
+
+### 구현 완료
+
+- CAD 확인/적용은 기존처럼 서버 저장까지 완료한다. 변경 없는 상단 명령은 `저장됨`, 실제 편집 후에는 `저장`으로 표시한다. lease·읽기 전용·저장 중 보호와 수정한 초안의 이탈 확인은 유지한다.
+- `자료` 탭을 `기록`으로 변경하고 `맵으로 돌아가기` 명령은 제거한다. 배치 상태와 편집 패널은 공통 `UnderlineTabs`/`UnderlineTabPanel`을 사용하며 각 탭 그룹의 키보드 이동·포커스·ARIA 연결은 독립적이다. 변경 기록의 내부 스크롤은 유지한다.
+- 새 리비전 발행 transaction에서 현재 포함 층별 최신 30개 이력만 남긴다. 저장·복구·초기화·staged 저장·CAD 적용이 같은 제한을 사용하며 번호는 단조 증가한다. 정본 generation/delta/import/stage 자산을 이력 행과 함께 임의 삭제하지 않는다.
+
+### 미구현
+
+- 최종 통합 검증과 renderer 보완은 진행 중이다. 실행 중 API·현재 현장 DB는 변경하지 않으며 이력 정책의 실제 서버 반영과 기존 초과 이력 정리는 새 API 배포 뒤에 진행한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- F1 집중 Vitest 191/191과 Chromium 핵심 17/17·새 UI 반복 15/15를 확인했다. 별도 회귀의 텍스트 생성 실패는 고정 드래그 종점이 캔버스 밖인 테스트 좌표 경로였다. 실제 canvas bbox 비율 좌표로 QA 입력만 보완하고 네 요소 생성·저장·모니터링 검증을 유지해 해당 시나리오 3회 반복 3/3 PASS를 확인했다. 기준선 성공으로 소급 분류하지 않는다.
+- 정상 head에서는 최신 30개를 보존한다. 기존 head가 잘못된 구버전을 가리키는 경우 현재 정본을 보호하기 위해 30개를 넘겨 보존할 수 있으며 임의로 live head를 삭제하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/UnderlineTabs.tsx`, `features/floor-editor/{FloorEditorView,FixturePlacementList}.tsx`, 직접 unit 및 `e2e/editor-followup-ui.spec.ts`.
+- `apps/api/src/floor-editor/floor-map-revision-retention.ts`, 각 리비전 발행 서비스, `floor-import/floor-import.service.ts`, `retention/data-retention.service.ts` 및 실제 임시 PostgreSQL 회귀.
+
+### 갱신 규칙
+
+- 서버 저장 ACK와 로컬 dirty 상태를 구분하고, 저장된 CAD에 저장 버튼 활성화를 위해 가짜 변경을 만들지 않는다. 이력 행·정본 자산·현재 실행 서버 반영을 구분해 기록한다.
+
 ## 2026-10-12 맵 편집 패널·CAD 중앙 팝업·카메라 최적화
 
 ### 구현 완료
@@ -947,7 +973,7 @@
 - 설정 개요, 현장 관리, 유저 관리, 계정 보안과 현장 선택기를 공통 React Aria/Tailwind 디자인 시스템으로 전환했다. 원시 `input/select`와 기능별 정적 CSS를 제거하고 `TextField`, `PasswordField`, `SelectBox`, `RadioGroup`, `Switch`, `ModalDialog`, `ConfirmDialog`를 사용한다. kWh 단가와 조명 정격전력은 입력 중 소수 문자열을 보존하는 `TextField inputMode="decimal"` 계약을 유지하며, 제출 시 빈 값·소수 둘째 자리 형식·유한 숫자·기존 허용 범위(단가 0~99,999,999.99원, 정격전력 0.01~999,999.99W)를 검증한 뒤 API에 숫자로 전달한다.
 - 맵 편집 중 현장 전환은 브라우저 `window.confirm` 대신 앱 내부 확인 대화상자를 사용한다. 취소하면 URL과 편집 초안을 유지하고, 확인한 경우에만 초안을 폐기한 뒤 새 현장으로 이동한다. 현재 로그인 세션 종료도 같은 앱 내부 확인 흐름을 사용한다. 설정 상단 활성 탭 스크롤은 DOM `querySelector` 없이 경로별 ref registry로 처리한다.
 
-- 도면 이력은 층별 **최근 100개 또는 최근 365일 중 넓은 범위**를 보존하고, 범위 밖 이력은 분당 최대 1,000개씩 정리한다. 보존된 이력만 목록 조회·복구할 수 있다. 로그인 `Session`은 만료 또는 폐기 후 30일이 지난 행만 분당 최대 10,000개씩 정리하며 활성 세션은 보존한다.
+- 맵 이력은 층별 **현재 포함 최신 30개**를 보존한다. 새 head 발행 transaction에서 초과 이력을 정리하며 기존 초과분은 worker가 분당 최대 1,000행씩 정리한다. 현재 head와 정본 자산은 보호하고 보존된 이력만 조회·복구한다. 로그인 `Session`은 만료 또는 폐기 후 30일이 지난 행만 분당 최대 10,000개씩 정리하며 활성 세션은 보존한다.
 - 게이트웨이 이벤트 원장은 heartbeat 7일, 조명 상태 30일, 종료된 검색 세션 이벤트 90일, 대체된 차량 센서 capability 365일 이후에 안전 조건을 확인해 분당 최대 10,000개씩 정리한다. watermark·현재 상태·검색 terminal ACK identity가 부족하면 보존한다. 각 정리는 안정된 순서와 `SKIP LOCKED`를 사용하고, 중복 timer 실행을 막으며 삭제 건수·실패 단계를 구조화 로그로 남긴다. 기간 경계와 두 연결의 잠금 건너뛰기·재실행 수렴은 일회성 PostgreSQL에서 검증했다.
 - API 종료 시 정리 timer를 중지하고 진행 중인 정리 작업을 마친 뒤 Prisma 연결을 닫는다. 실제 Nest 모듈 종료에서 삭제 완료·최종 disconnect 순서와 남는 DB 연결이 없음을 일회성 PostgreSQL로 검증했다.
 

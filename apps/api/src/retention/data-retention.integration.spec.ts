@@ -720,17 +720,18 @@ const policies = [
     expect(await db.resolvedCommandRecovery.findUnique({ where: { id: row.id } })).toBeNull();
   });
 
-  it("keeps the latest 100 revisions per floor or the last 365 days, whichever is wider", async () => {
+  it("keeps only the latest 30 revisions per floor regardless of their age or tied timestamps", async () => {
     await revisions(ids.floor, 105);
     await db.floorMapRevision.updateMany({ where: { floorId: ids.floor, revision: 2 }, data: { createdAt: new Date(now.getTime() - 365 * day) } });
     await db.floorMapRevision.updateMany({ where: { floorId: ids.floor, revision: 3 }, data: { createdAt: now } });
     const second = await db.floor.create({ data: { siteId: ids.site, name: "B2", level: -2 } });
     await revisions(second.id, 100);
-    expect(await service.prune(now)).toMatchObject({ floorMapRevisions: 3 });
+    expect(await service.prune(now)).toMatchObject({ floorMapRevisions: 145 });
     const kept = await db.floorMapRevision.findMany({ where: { floorId: ids.floor }, orderBy: { revision: "asc" } });
-    expect(kept).toHaveLength(102);
-    expect(kept.slice(0, 3).map(row => row.revision)).toEqual([2, 3, 6]);
-    expect(await db.floorMapRevision.count({ where: { floorId: second.id } })).toBe(100);
+    expect(kept).toHaveLength(30);
+    expect(kept.slice(0, 3).map(row => row.revision)).toEqual([76, 77, 78]);
+    expect(kept.at(-1)!.revision).toBe(105);
+    expect(await db.floorMapRevision.count({ where: { floorId: second.id } })).toBe(30);
   });
 
   it("caps each sweep at 10,000 gateway events, 10,000 sessions and 1,000 revisions", async () => {
@@ -752,7 +753,7 @@ const policies = [
     expect((await db.processedGatewayEvent.findMany()).map(row => row.eventId)).toEqual(["bounded-event-10001"]);
     expect((await db.session.findMany()).map(row => row.id)).toEqual(["bounded-session-10001"]);
     expect((await db.floorMapRevision.findMany({ orderBy: { revision: "asc" }, take: 1 }))[0].revision).toBe(1001);
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 71,
       monitoringRefreshes: 1, monitoringActivities: 0, resolvedCommandRecoveries: 0 });
     expect(await service.prune(now)).toEqual({ gatewayEvents: 0, sessions: 0, floorMapRevisions: 0,
       monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 });
@@ -785,17 +786,17 @@ const policies = [
     }, { timeout: 10_000 });
     try {
       await Promise.race([ready, lock.then(() => { throw new Error("lock transaction ended before acquiring rows"); })]);
-      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 71,
         monitoringRefreshes: 1, monitoringActivities: 1, resolvedCommandRecoveries: 0 });
       expect(await db.monitoringRefresh.findUnique({ where: { id: lockedRefresh.id } })).not.toBeNull();
       expect(await db.processedGatewayEvent.findUnique({ where: { eventId: locked.eventId } })).not.toBeNull();
       expect(await db.session.findUnique({ where: { id: "locked" } })).not.toBeNull();
-      expect(await db.floorMapRevision.count()).toBe(101);
+      expect(await db.floorMapRevision.count()).toBe(31);
       expect(await db.monitoringActivity.findUnique({ where: { id: lockedActivity.id } })).not.toBeNull();
     } finally { release(); await lock; }
     expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
       monitoringRefreshes: 1, monitoringActivities: 1, resolvedCommandRecoveries: 0 });
-    expect(await db.floorMapRevision.count()).toBe(100);
+    expect(await db.floorMapRevision.count()).toBe(30);
     expect(await db.monitoringActivity.count()).toBe(0);
   }, 15_000);
 
@@ -823,16 +824,18 @@ const policies = [
     const paused = new Promise<void>(resolve => { release = resolve; });
     const first = new Promise<void>(resolve => { firstCompleted = resolve; });
     const draining = new Promise<void>(resolve => { drainEntered = resolve; });
-    const execute = prisma.$executeRaw.bind(prisma);
+    const execute = prisma.$executeRaw;
     let queries = 0;
     // Keep every SQL statement real. Pausing its result after query 1 commits
     // leaves Prisma free to disconnect early, reproducing the production race.
-    const executeSpy = jest.spyOn(prisma, "$executeRaw").mockImplementation((query, ...values) => (async () => {
-      const count = await execute(query, ...values);
+    // Keep the transaction proxy as receiver: binding the root client here would
+    // request a second connection while the Floor-locked transaction owns the only one.
+    const executeSpy = jest.spyOn(prisma, "$executeRaw").mockImplementation(function (this: PrismaService, query, ...values) { return (async () => {
+      const count = await execute.call(this, query, ...values);
       order.push(`query-${++queries}`);
       if (queries === 1) { firstCompleted(); await paused; }
       return count;
-    })() as never);
+    })() as never; });
     const disconnect = prisma.$disconnect.bind(prisma);
     const disconnectSpy = jest.spyOn(prisma, "$disconnect").mockImplementation(async () => {
       await disconnect();
@@ -856,7 +859,7 @@ const policies = [
       await draining;
       const atDrain = [...order];
       release();
-      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1,
+      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 71,
         monitoringRefreshes: 0, monitoringActivities: 0, resolvedCommandRecoveries: 0 });
       await closing;
       expect({ atDrain, completed: order, connections: await connectionCount() }).toEqual({
@@ -864,7 +867,7 @@ const policies = [
         connections: baselineConnections
       });
       expect(await db.session.count()).toBe(0);
-      expect(await db.floorMapRevision.count()).toBe(100);
+      expect(await db.floorMapRevision.count()).toBe(30);
     } finally {
       process.env.NODE_ENV = previousEnvironment;
       release();

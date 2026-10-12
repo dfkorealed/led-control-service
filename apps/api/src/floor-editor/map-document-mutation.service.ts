@@ -12,6 +12,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { MapDocumentStore, needsMapCheckpoint } from "./map-document-store";
 import { MapDocumentRevisionData, MAP_NORMAL_DELTA_BYTES, checkpointRequired } from "./map-document-revision-data";
+import { pruneLockedFloorMapRevisions } from "./floor-map-revision-retention";
 import { MapDocumentSnapshot, hashFloorEditorSnapshot, parseMapDocumentSnapshot } from "./floor-editor-snapshot";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
 import { hashEditorLeaseToken } from "./editor-lease-token";
@@ -111,6 +112,7 @@ export class MapDocumentMutationService {
         changeSummary: { documentOperations: operations.length, fixtureUpdates: input.fixtureUpdates.length,
           slotAssignments: input.slotAssignments.length, floorPlanChanged: input.floorPlan !== undefined } } });
       await this.store.pinRevision(tx, floorId, revision.id, document);
+      await pruneLockedFloorMapRevisions(tx, floorId);
       // Persist the exact HTTP result, not a later re-read. A lost response may be
       // retried after subsequent saves or a lease expiry without a new revision.
       const serializableResult = JSON.parse(JSON.stringify(result));
@@ -169,6 +171,7 @@ export class MapDocumentMutationService {
           restoredFromRevision: source?.document.revision,
           changeSummary: { checkpoint: true, documentOperations: input.documentChanges!.operations.length } } });
         await this.store.pinRevision(tx, floorId, revision.id, prepared);
+        await pruneLockedFloorMapRevisions(tx, floorId);
         const serializableResult = JSON.parse(JSON.stringify(result));
         await this.audit.record({ organizationId: authority.organizationId, siteId, actorId: user.id, action: ACTION,
           targetType: "floor", targetId: floorId, outcome: "success", transaction: tx,

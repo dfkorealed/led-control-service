@@ -8,6 +8,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MapDocumentStore } from "./map-document-store";
+import { pruneLockedFloorMapRevisions } from "./floor-map-revision-retention";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
 import { buildMapDocumentSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
@@ -114,6 +115,7 @@ export class MapDocumentResetService {
         // fail its generation fence, and no old asset pin depends on a reaper.
         await tx.floorMapGeneration.deleteMany({ where: { floorId, id: { not: prepared.generationId } } });
         await tx.floor.update({ where: { id: floorId }, data: { mapRevision: prepared.revision } });
+        await pruneLockedFloorMapRevisions(tx, floorId);
         await this.audit.record({ organizationId: authority.organizationId, siteId: floor.siteId, actorId: user.id,
           action: ACTION, targetType: "floor", targetId: floorId, outcome: "success", transaction: tx,
           metadata: { requestId: input.requestId, payloadHash, result: prepared, snapshotSha256, changeSummary } });

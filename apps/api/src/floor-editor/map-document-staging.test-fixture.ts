@@ -41,6 +41,7 @@ export function createStageActivationFixture() {
       try { return await work(prisma); } catch (error) { db = before; throw error; }
     },
     $queryRaw: async (parts: TemplateStringsArray) => parts.join("").includes("clock_timestamp") ? [{ now: new Date() }] : [{ id: "floor" }],
+    $executeRaw: async () => 0,
     floor: { findUnique: async () => ({ siteId: "site" }), findUniqueOrThrow: async () => structuredClone(db.floor) },
     user: { findUnique: async () => user },
     floorMapDocument: { findUnique: async () => structuredClone(db.head) },

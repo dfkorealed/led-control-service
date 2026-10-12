@@ -515,6 +515,7 @@ describe("FloorImportService", () => {
       lightSlots: [{ id: randomUUID(), x: 12, y: 34, rotation: 15, assignedFixtureId: null }]
     };
     const tx: any = {
+      $executeRaw: jest.fn().mockResolvedValue(0),
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{
           status: floor.status, mapRevision: floor.mapRevision, editorLeaseFence: floor.editorLeaseFence,

@@ -1142,7 +1142,7 @@ describe("FloorEditorService atomic revisions", () => {
 
     expect(result.skippedFixtureIds).toEqual([missingFixtureId]);
     expect(tx.fixture.update).not.toHaveBeenCalled();
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
     expect(tx.$executeRaw.mock.calls[0][0].values).toContain(JSON.stringify([{
       id: fixtureId, data: { name: "Old L01", ratedWatt: "30.00", x: 10, y: 20, size: 18,
         placementStatus: "placed", positionVerifiedAt: null }
