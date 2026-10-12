@@ -15,13 +15,21 @@
 - [x] `11.DF11-1000X33-12X8.dwg`의 변환 성공과 제품 streaming parser의 UTF-8 decode 실패 재현. 원본은 읽기만 한다.
 - [x] 인코딩 담당: `dxf-document-parser` 및 파일 입력 경계에서 bounded UTF-8 검증 우선·선언 코드페이지 fallback 구현. ANSI_949/실제 UTF-8, CP949 분할 bytes, 현대 UTF-8, 잘못된 bytes와 상한 회귀를 실패부터 검증한다.
 - [x] 치수·문자 담당: 두 번째 제공 도면의 DIMENSION 좌표와 MTEXT 서식을 조사하고 `cad-geometry`, 텍스트 해석 및 scene 변환에 일반화된 회귀를 추가한다. parser 수정이 필요하면 인코딩 담당과 쓰기 경계를 조정한다.
-- [ ] 통합: 두 원본의 convert→제품 child→공통 요소 생성 검증, API 전체 테스트·타입·빌드, 독립 코드 리뷰와 메뉴/교훈/상태 문서 갱신.
+- [x] 통합: 두 원본의 convert→제품 child→공통 요소 생성 검증, API 전체 테스트·타입·빌드, 독립 코드 리뷰와 메뉴/교훈/상태 문서 갱신.
 
 검증 기록: 실제 두 파일의 격리 PostgreSQL·MinIO pipeline은 2/2 통과했다. 첫 파일 219개·두 번째 397개 공통 요소, preview hash·정본/타일 ID 일치·적용 후 fresh reader·editor manifest·읽기 전용 조회를 확인했다. 두 번째의 `디에프코리아` 2개는 표시 문자열만 저장됐다. 후보는 두 파일 모두 0개이며 실제 등록 장비가 증가하지 않는다. 기존 sample harness를 현재 공통 정본 저장 계약으로 갱신하고, imports admission에는 실제 worker 가용 상태를 넣되 worker polling은 시작하지 않고 `runOnce`로 진행한다. 최종 전체 검사는 소스 고정된 별도 브랜치에서 실행한다.
 
 작업 격리: `codex/cad-import-corrections-20261012`, `.worktrees/cad-import-corrections-20261012`. MAIN의 정확한 소유 변경은 `.local/cad-isolation-20261012-FNZGWc/`에 patch·파일·SHA256으로 보존하고 복사 확인 뒤 해제했다. 다른 담당자의 AGENTS/배포 문서·UI worktree·서버·DB는 유지한다.
 
 소스 고정 후 집중 회귀 8 suites 224 PASS/기존 opt-in 4 SKIP, API typecheck/build exit0, 최종 독립 리뷰 C/I/M0. 초기 whole-run은 수정 중 소스의 Jest cache 또는 분리 worktree의 누락된 sibling 의존성을 읽었으므로 완료 근거에서 제외했다. 전체 의존성 연결 뒤 마지막 API 전체 검사는 `.local/cad-api-final.log`에 저장한다. opt-in 없는 기본 suite의 실제 파일 검증은 위 2/2 실행으로 별도 입증한다.
+
+### 최종 증거와 인수 경계
+
+- 고정 후보 `be35ba10`의 API 전체 재실행은 **264 suites PASS/기존 환경 84 suites SKIP, 3,266 tests PASS/1,209 SKIP, FAIL0, exit0**다. 결과는 분리 worktree의 `.local/cad-api-green.log`에 있다. 앞선 `.local/cad-api-final.log`는 263 suites/3,265 tests PASS와 스키마 검사 1 FAIL이며 성공으로 덮어쓰지 않는다.
+- 앞선 스키마 실패 원인은 하위 `spawnSync("pnpm")`가 시스템 pnpm11.12를 실행하여 프로젝트 지정 pnpm9.15와 충돌한 것이다. `.local/cad-schema-diagnostics.log`에 실제 stderr를 보존했다. 저장소의 고정 Node22 bin에 공식 `corepack enable --install-directory`를 적용하여 하위 명령까지 9.15가 되게 한 뒤, 같은 스키마 검사 1 PASS/기존 환경 8 SKIP와 전체 GREEN을 확인했다. 제품 코드·스키마·제한·skip/timeout은 변경하지 않았다.
+- 실행 명령: 고정 Node22.23.3 bin을 PATH 앞에 둔 `corepack pnpm --filter @led-control/api test -- --maxWorkers=2`, `corepack pnpm --filter @led-control/api typecheck`, `corepack pnpm --filter @led-control/api build`는 모두 exit0이다. 집중 검사 8개 파일은 `.local/cad-focused.log`, 실제 두 DWG의 `node scripts/run-cad-sample-pipeline.mjs` opt-in 입력/결과는 `.local/cad-pipeline.log`에 보존했다. 실제 파일 실행은 DWG 경로 배열·dwgread argv·기존 로컬 저장소 자격증명만 주입하고 재사용 dist를 사용했다. 운영/현장 DB는 변경하지 않는다.
+- 독립 리뷰 `Confucius` (`01a12e65-fd26-7bd0-91fd-0c31bedfa3d8`)의 최종 판정은 C/I/M0이다. 초기 Important였던 잘못된 modern version 선언의 legacy fallback을 거부하는 수정과 16개 선언 회귀가 반영됐다. 최종 read-only 확인은 helper/text 42 PASS, imports admission `enabled:true`/수동 worker `false`의 분리, 실제 pipeline 2/2 및 diff whitespace 검사를 승인했다. 이 집중/리뷰 수치를 전체 검사와 합산하지 않는다.
+- 소유 파일은 `git diff a8440716..be35ba10 --name-only`의 CAD API 코드/직접 테스트·API 의존성/lock·설정/모니터링 메뉴·기존 계획/상태/교훈 문서 24개다. `AGENTS.md`, 배포 문서, Web UI 코드는 포함하지 않는다. 최종 증거 문서 추가 커밋 뒤 총괄이 UI 병합 결과 위에 정상 로컬 병합하며, 이 담당자는 MAIN 재적용·서버 stop/restart·remote push를 하지 않는다. API 메모리는 기존 실행 코드이므로 병합 후 API build/reload와 실제 로그인 브라우저의 재가져오기/적용은 총괄 후속 확인이다.
 
 기존 CAD 상한·권한·자원 격리를 유지하며 파일명별 예외, 원본 변경, DB migration·현장 데이터 초기화·장비/운영 변경은 하지 않는다. 이미 저장된 맵 정본은 자동 덮어쓰지 않는다. 원본 AutoCAD 화면과의 육안 충실도 및 미지원 도형은 자동 검증 결과와 구분한다.
 
