@@ -12,6 +12,11 @@
 
 ## 2026-10-12 추가 주석·반복 렌더링 후속 F1–F4
 
+### 2026-10-13 실행 반영 재개
+
+- [x] 로컬 구현/문서 커밋 `313f046f` 및 실제 서버 종료 상태를 확인했다. 4000/5173/8883 listener 없음, PostgreSQL/Redis 실행 중이다. 공통 탭·편집 화면·저장 ACK fresh 3파일/90개 PASS다.
+- [ ] 최신 코드로 로컬 API/Web 실행 및 초과 맵 이력 정리: 현재 포함 최신 30개 보존 정책의 실제 DB 적용 승인을 요청했다. 승인 전 기동하지 않는다. TLS/의존성 preflight 이후 기존 맵·현장·조명 보존 및 readiness를 확인하며, 인증서 발급·장비 배포·remote push는 이 단계에 포함하지 않는다.
+
 사용자 승인: CAD 적용의 즉시 서버 저장 계약을 유지하는 권장안. 기존 PixiJS/Konva와 공통 맵 요소를 유지하며 초기화·실장비·현재 DB 변경·서비스 재시작 없이 기반 `c438bd71`의 격리 소스에서 구현한다. 상태판과 이 체크리스트를 함께 갱신한다.
 
 - [x] F1 UI: `FloorEditorView.tsx`, `FixturePlacementList.tsx`, 공통 UI 탭 및 해당 Vitest/E2E. 미변경 버튼은 `저장됨`, 변경 후 `저장` 활성화, CAD 적용 완료 안내와 새 편집 저장의 회귀를 RED→GREEN으로 검증했다. `자료`→`기록`, `맵으로 돌아가기` 제거, 기존 `UnderlineNavigation`과 tab keyboard/ARIA 계약을 재사용한다. 두 개 탭 그룹의 ID·포커스·선택을 분리하고 좁은 패널에서 잘리지 않는다. 저장 API·lease·revision과 `onSaved` 계약은 유지한다. 집중 191/191·핵심 Chromium 17/17·새 UI 3회 반복 15/15, 테스트 드래그 종점 bbox 보완 뒤 3/3 PASS다.
