@@ -2,7 +2,7 @@
 
 기준일: 2026-10-12
 
-## 2026-10-12 지도 작업 공간 신규 브라우저 주석 — 설계 승인·격리 구현 준비
+## 2026-10-12 지도 작업 공간 신규 브라우저 주석 — 구현·실측 보완, 모바일 표현 선택 대기
 
 - 사용자 신규 C1–8의 모니터링 제스처·알람센터·한 행 도구·지도 하단 상세, 수동 제어 선택 목록·지도 우선 모바일·간소화 밝기 구성을 승인받았다. 기존 모니터링/제어/UI·UX 담당 audit와 [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)를 기준으로 순차 구현한다.
 - clean MAIN `f31e56fa`에서 `.worktrees/map-workspace-comments-20261012` / `codex/map-workspace-comments-20261012`을 만들었다. 구현·직접 테스트·실제 UI/UX 검증·로컬 병합은 아직이다. 운영 인사이트·다른 메뉴/API/DB/실장비/기존 서비스/원격 변경은 없다. 과거 완료 증거와 이번 관문을 합산하지 않는다.
@@ -12,6 +12,9 @@
 - 지정 링크의 `제어 UI 개선 담당자`(`01a0f776-b930-7eb2-a121-e05bef4d1581`)를 읽어 NEW Task2 단독 writer로 직접 배정했다. 위 미확인 문장은 당시 이력이다. 모니터링 원 세션은 제품ac323a3d 변경0로 인수·자체검토하고 direct2suite127PASS(exit0/18.14s)를 새로 확인, 메뉴문서87f658ef에 한계를 기록했다. 실제geometry·제어 구현/QA/UX/독립review·MAINmerge는 아직이다.
 - 제어 지정 세션의 직접 RED4+viewport1 원 로그를 확인했으며 source 구현 진행 중이다. 순수 CSS class assertion은 실제기하 증거가 아님을 전달했다. 기존 앱 UI/UX 세션은 ignored SDD의 최소 측정 harness 공통부만 준비하고 최종source 인계 후 실제6case를 실행한다. 제품·기존tests·API/DB/장비는 UX 수정범위가 아니며 최종관문/머지는 아직이다.
 - 제어 지정 세션 제품9f3e25d7 소유13파일과 원 RED/중간실패/최종선택41PASS·identity2국소PASS(41과중복)/타입exit0/UI기존0·신규0 보고서를 대조했다. 모드dropdown/인라인 목록·More·finite manual-only·원 UUID/query/draft/renderer 수명을 유지하고 empty 안내가 오류·권한을 가리던 추가RED도수리했다. 중간85/68 결과나 CSS class 확인을 최종전체PASS/실제기하로합산하지않는다. 이제 실제6case·UI/UX/최종policy·build/독립review로진행하며 MAINmerge는아직이다.
+- 위 준비 문장은 당시 이력이다. 기존 앱의 지정제어UI원세션이 실제map0 RED를받아69b1e9a3에서모바일남은높이전달·PC이력폭을최소수리했다(소유2파일/직접7files83PASS·타입/UI0·0). 총괄의같은source정책79PASS·타입포함buildexit0/기존932.47kB경고를확인했다. 실제6재검사는2PASS/4FAIL로미완료이고원첫6실패·하네스configbody0오류·원82/1timeout/분리3은별도보존하며합산하지않는다.
+- 짧은600px화면에서기본지도는320폭62px/390폭70px이며긴목록확장후다시지도0이다. UI/UX높이budget은비지도538/530px과동시목록/More추가244px을확인해지도우세·scroll0·44px/중요상태·동시세로펼침사이의표현선택이필요하다. 사용자에게하나의지도하단보조패널에서목록/More전환(지도크기유지)또는기존세로펼침/보조읽기중지도축소허용을묻고제품/QA/merge를보류한다. 아직선택적용/기능축소/기본브랜치변경0. 지정제어UI·UX원세션은WAIT이며다른제어세션장비업무는중지범위아니다.
+- 모니터링의재열기는pin재클릭을생략한harness오류,짧은상세body는nav가림실측과center-only측정한계를분리한다. native문서이동/노출점wheel미실행이라끝도달불가로확정하지않으며후속failedscope검증이남는다. 독립source검토C/I/M0은수리전소스검토이며actual관문이남아ReadyNo; 이번머지/전체Web/HIL/OSkeyboard/실장비완료주장은없다. [현재체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)에이어갈경계를기록했다.
 
 ## 2026-10-11 신규 브라우저 조작·필터 주석 — 20건 구현·한정 검증·승인된 로컬 통합 완료
 

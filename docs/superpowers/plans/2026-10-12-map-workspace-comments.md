@@ -46,6 +46,14 @@ Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 �
 - [ ] Task3 한정 browser·정적 관문·실제 UI/UX 리뷰, 발견 문제 owner 수리.
 - [ ] Task4 독립 통합 리뷰·fresh MAIN 확인·로컬 머지·회복 가능한 정리.
 
+### 현재 인계 — 실제 QA 보완 후 모바일 표현 선택 대기
+
+- 수리 source `69b1e9a3`는 모바일 남은 높이 전달과 좁은 PC 이력 줄바꿈을 보완했다. 지정 제어 UI 담당 소유2파일/직접7files83PASS(274비선택)·타입/UI0·0, 총괄 동일source정책79PASS·타입포함buildexit0를 확인했다. 원82PASS/1timeout·분리3PASS를 최종83에 합산하지 않는다.
+- 실제 첫6는0PASS6FAIL, 수리source동일failed6 재검사는2PASS(case5 resize/6 PC)4FAIL(case1–4)이다. 원 config-load1FAIL/5미실행은 실제body0으로 구분한다. 원 PNG/geometry/log는 ignored SDD `page-session-ux-report.md` 및 runs에 보존했다. 최종6전체 통과나 merge readiness로 확대하지 않는다.
+- 기본map0은 해소됐지만320×600 map62px/390×600 map70px이며 긴 목록 확장후 다시map0/canvas소실이다. 동일 화면의 비지도 공간은538/530px, 목록90+More150 동시세로펼침은추가244px이다. ‘지도 우세·페이지scroll0·기존44px/중요상태·동시세로펼침’은 현재정보를유지한 채 함께충족할수없어 표현선택을사용자에게묻는다. 최소compactchrome재배치는후속권고이며아직적용하지않았다.
+- 선택 제안은 지도 크기를 유지하는 하나의 하단 보조 패널에서 목록/More를 전환하거나, 기존세로펼침을유지하되보조읽기동안지도축소를허용하는것이다. 어느쪽도아직승인되지않았다. 사용자선택전제품/실행/merge STOP, 지정제어UI·UX원세션WAIT. 기본브랜치/다른작업/스태시/원격은변경하지않는다.
+- 모니터링case1은실제pin재클릭을생략한재열기harness오류다. case2는bodycenter가nav에가리는실측+center-onlyharness한계이며native문서이동/노출점wheel을아직실행하지않아끝도달불가제품결함으로단정하지않는다. 후속승인된failedscope에서수리·검증한다.
+
 ### Task 1: 모니터링 C1–5
 
 **실행 경계:** NEW worktree `.worktrees/map-workspace-comments-20261012`, NEW branch `codex/map-workspace-comments-20261012`, baseline f31e56fa. 운영 인사이트/통계/설정/API/DB/장비/다른 worktree/stash/원격/배포/기존 서비스는 변경하지 않는다. 기존 공통 UI/token을 재사용하고 공통 overlay가 두 소비자에 필요할 때만 최소 API를 추가하여 총괄에게 알린다. 실패 테스트 먼저 실행하고 직접 suite만 검증한다. 계획 전체가 아니라 이 task brief와 applicable AGENTS/skills만 읽는다.
