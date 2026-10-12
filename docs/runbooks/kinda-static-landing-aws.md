@@ -1,6 +1,6 @@
 # 킨다 공개 Web AWS 배포
 
-기준일: 2026-10-11. 실제 AWS 배포는 수행하지 않았다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다.
+기준일: 2026-10-12. 실제 AWS 배포와 DNS 변경은 수행하지 않았다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
 
 ## 한 번 설정할 항목
 
@@ -8,11 +8,19 @@
 
 - AWS CLI v2와 기존 SSO/profile 또는 승인된 OIDC 인증, 12자리 `accountId`, `region`.
 - 새 전용 `stackName` (`kinda-landing-...`), 계정 ID를 포함하는 새 전용 `bucket`. 생성 후 출력에서 정확한 `distributionId`를 복사한다.
-- 사용자 도메인을 쓸 경우 `domainName`, 같은 계정의 기존 ISSUED `us-east-1` ACM `certificateArn`, 기존 public Route 53 `hostedZoneId`. 모두 함께 설정하며 해당 이름의 기존 A/AAAA/CNAME을 덮어쓰지 않는다. 비어 있으면 CloudFront 기본 도메인을 사용한다.
+- 사용자 도메인을 쓸 경우 `domainName`과 같은 AWS 계정의 **ISSUED** `us-east-1` ACM `certificateArn`을 함께 설정한다. DNS가 호스팅케이알이면 `hostedZoneId`를 명시적으로 빈 문자열 `""`로 둔다. 기존 public Route 53에서 관리한다면 정확한 `Z...` hosted zone ID를 넣어 자동 A/AAAA alias 레코드를 사용한다. 잘못된 ID는 거절한다. `domainName`이 비어 있으면 인증서와 zone도 비워 CloudFront 기본 도메인을 사용한다.
 - 서비스 전환 전에 `apiOriginDomain`에 기존 HTTPS API의 **호스트 이름만** 입력한다. scheme, 경로, 포트, IP, 로컬 호스트는 허용하지 않는다. 예시 파일은 빈 값이며 임의 주소로 채우지 않는다.
 - API origin은 공개적으로 신뢰되는 TLS 인증서와 해당 hostname을 지원하고 `/api/*`를 그대로 처리해야 한다. DB/migration·인증·역할·tenant·쿠키는 기존 백엔드 책임이다. 쿠키의 Domain은 공개 Web과 호환되거나 host-only여야 하며, Secure/HttpOnly/SameSite·원래 요청 origin/CSRF 허용 정책도 운영 환경에 맞게 사전 검증한다. CloudFront는 origin Host를 사용하므로 API가 viewer Host를 필요로 한다면 해당 운영 설계를 먼저 조정한다. backend provisioning은 이 명령에 포함되지 않는다.
 
 서비스 모드는 이 입력이 없으면 빌드 및 원격 호출 전에 실패한다. 이후 공개 범위 선택에는 별도 로그인 URL·라우팅 변수·수동 CloudFront 편집이 필요 없다. `VITE_LANDING_SERVICE_URL`은 이전 랜딩 전용 외부 로그인 링크를 위한 선택 설정으로만 남으며 service에서는 무시하고 `/login`을 사용한다. 이 값은 비밀이 아니며 번들에 들어간다.
+
+### 호스팅케이알 `kinda.dfkorealed.com` 준비
+
+1. AWS Console에서 **CloudFront에 사용할 계정**을 확인하고 리전을 **미국 동부(버지니아 북부) `us-east-1`**로 바꾼 뒤 ACM 공개 인증서를 `kinda.dfkorealed.com`용으로 요청한다. 검증 방법은 DNS다. ACM의 *Domains*에 표시되는 **CNAME 이름과 값은 계정·인증서별 실제 값**을 복사한다. 이 저장소의 예시 번호나 다른 인증서의 토큰을 사용하지 않는다. CloudFront 대체 도메인은 유효한 인증서 SAN에 포함되어야 한다. [AWS ACM과 CloudFront 리전](https://docs.aws.amazon.com/acm/latest/userguide/), [ACM DNS 검증](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html), [CloudFront 대체 도메인 요구사항](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/CNAMEs.html).
+2. `dfkorealed.com`의 실제 권한 네임서버가 호스팅케이알인지 확인한다. 호스팅케이알 DNS를 사용한다면 **나의서비스 → 도메인 → `dfkorealed.com` → 네임서버 / DNS → DNS 레코드 관리 → 새 DNS 레코드 추가**로 이동한다. ACM 검증용 **CNAME**을 추가한다. 이름 칸은 `dfkorealed.com`을 다시 붙이지 않은 상대 이름이다. 예를 들어 ACM 이름이 `_token.kinda.dfkorealed.com.`이면 `_token.kinda`를 입력하고, 값은 ACM이 준 `_...acm-validations.aws` 호스트를 입력한다. `https://`나 경로를 넣지 않는다. 화면이 전체 이름을 표시하면 중복된 `.dfkorealed.com`이 없는지 확인한다. 호스팅케이알이 권한 네임서버가 아니라면 실제 DNS 제공자에서 같은 레코드를 설정한다. [호스팅케이알 CNAME 등록](https://help.hosting.kr/hc/ko/articles/5694434421529), [DNS 레코드 설정](https://help.hosting.kr/hc/ko/articles/5259561590809).
+3. ACM 인증서 상태가 **ISSUED**로 바뀌고 SAN에 `kinda.dfkorealed.com`이 있는지 확인한다. 검증 CNAME은 ACM 자동 갱신에 필요하므로 유지한다. 인증서 ARN만 `certificateArn`에 복사하고 인증서 개인 키나 AWS 자격 증명은 설정 파일·로그에 적지 않는다.
+
+`kinda.dfkorealed.com`은 서브도메인이므로 이후 CloudFront 연결에 일반 CNAME을 사용한다. `dfkorealed.com` 네임서버를 Route 53으로 변경하거나 NS 위임 레코드를 만들 필요가 없다. 기존 `kinda` A/AAAA/CNAME 레코드가 있으면 목적지를 먼저 확인한다. 도구는 호스팅케이알 DNS를 조회하거나 수정하지 않는다.
 
 ## 동일 명령으로 모드 선택
 
@@ -53,18 +61,58 @@ WEB_DEPLOY_MODE=service node scripts/landing/deploy.mjs deploy --config .local/l
 ```sh
 mkdir -p .local
 cp infra/landing/config.example.json .local/landing-aws.json
-# 승인된 정확한 대상 값 입력 후
+# 승인된 정확한 계정·전용 이름·인증서 값 입력 후
 node scripts/landing/deploy.mjs provision --config .local/landing-aws.json
 node scripts/landing/deploy.mjs provision --config .local/landing-aws.json --execute
 ```
 
-provision은 새 전용 stack만 생성하고 기존 stack을 채택하지 않는다. 계정·도메인·인증서·DNS 충돌 확인, CloudFormation validate-template, termination protection을 사용한다. Stack 생성 완료를 기다리고 출력의 정확한 대상 ID를 config에 옮긴다. 빈 배포에는 아직 게시된 페이지가 없으므로 바로 첫 deploy를 완료한다. 실제 생성은 별도 승인된 provisioning 권한이 필요하다.
+호스팅케이알 모드 설정 예시는 다음과 같다. `accountId`, `stackName`, `bucket`, `certificateArn`은 **본인 계정에서 확인한 실제 값**을 사용하고 `distributionId`는 최초 생성 전에는 빈 값으로 둔다. `apiOriginDomain`은 landing만 공개할 때 빈 값이어도 된다.
+
+```json
+{
+  "accountId": "실제 12자리 계정 ID",
+  "region": "ap-northeast-2",
+  "stackName": "kinda-landing-고유한이름",
+  "bucket": "kinda-landing-계정ID-고유한이름",
+  "distributionId": "",
+  "domainName": "kinda.dfkorealed.com",
+  "certificateArn": "실제 us-east-1 ACM 인증서 ARN",
+  "hostedZoneId": "",
+  "apiOriginDomain": ""
+}
+```
+
+위 블록은 **입력 위치 설명**이다. 한글 자리표시는 검증을 통과하지 않으므로 그대로 실행하지 않는다. `provision`은 새 전용 stack만 생성하고 기존 stack을 채택하지 않는다. 계정·도메인·인증서, Route 53 모드에서만 zone/기존 레코드 충돌을 확인하고 CloudFormation validate-template과 termination protection을 사용한다. 외부 DNS 모드는 Route 53 API 호출과 활성 Route 53 레코드 생성이 없다. `provision --execute` 응답의 `StackId`는 생성 요청 ID이며 **DNS 목적지가 아니다**. `dns.target: null`은 생성이 완료되지 않아 목적지를 알 수 없다는 뜻이다.
+
+다음 읽기 명령으로 생성 완료를 기다린다. `--profile`을 사용하는 계정이라면 모든 AWS CLI 명령에 동일 profile을 지정한다. 완료 후 출력의 정확한 `DistributionId`를 config의 `distributionId`에 복사한다. `DistributionDomain`은 실제 `d...cloudfront.net` 호스트다. 값을 추측하거나 예시 문자열을 DNS에 넣지 않는다.
+
+```sh
+aws sts get-caller-identity
+aws cloudformation wait stack-create-complete --stack-name 실제-stackName --region ap-northeast-2
+aws cloudformation describe-stacks --stack-name 실제-stackName --region ap-northeast-2 --query 'Stacks[0].Outputs'
+node scripts/landing/deploy.mjs check --config .local/landing-aws.json --execute
+```
+
+`check` 응답의 `dns`에는 `mode: external`, `recordType: CNAME`, `name: kinda.dfkorealed.com`, 실제 `target: d...cloudfront.net`이 표시된다. 이 시점에는 아직 빈 배포이므로 먼저 첫 `deploy`를 실행한다. 같은 검토 커밋의 canonical CI가 **quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit** 전체를 통과했는지 확인한다. 도구는 CI를 조회하거나 대신 실행하지 않는다. 로컬 Node 22 / pnpm 9.15.0과 frozen lockfile로 준비한다. 실제 생성에는 별도의 승인된 provisioning 권한이 필요하며 예시 OIDC 배포 정책은 신규 stack/인증서/DNS 생성 권한을 포함하지 않는다.
+
+```sh
+WEB_DEPLOY_MODE=landing node scripts/landing/deploy.mjs deploy --config .local/landing-aws.json --release 20261012-landing-r1 --execute
+```
+
+배포가 끝나면 호스팅케이알의 같은 **DNS 레코드 관리 → 새 DNS 레코드 추가**에서 `kinda.dfkorealed.com` 연결용 **별도 CNAME**을 입력한다. 이름은 `kinda`, 값은 **성공한 `check` 또는 `deploy` 응답의 정확한 `dns.target`** (`d...cloudfront.net`)이다. ACM 검증용 `_token.kinda` CNAME과 역할이 다르므로 둘 다 유지한다. 값에는 `https://`, `/`, 임의 IP 또는 `kinda.dfkorealed.com` 자체를 넣지 않는다. 기존 같은 이름의 레코드가 있으면 소유·용도를 확인한 뒤 운영자가 충돌을 해결한다. [호스팅케이알 CNAME 등록](https://help.hosting.kr/hc/ko/articles/5694434421529), [CloudFront CNAME 요구사항](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/CNAMEs.html).
+
+```sh
+dig +short CNAME kinda.dfkorealed.com
+WEB_DEPLOY_MODE=landing node scripts/landing/smoke.mjs https://kinda.dfkorealed.com
+```
+
+DNS 반영 전에는 `https://실제-DistributionDomain`으로 smoke를 읽기 전용 실행할 수 있다. DNS가 실제 목적지로 해석되는지, HTTPS 인증서가 맞는지, 공개 세 경로와 `/login`·`/api` 차단이 맞는지 확인한다. DNS 전파와 CloudFront edge 전파에는 시간이 걸릴 수 있다. landing을 갱신하거나 같은 모드/다른 모드로 rollback할 때도 응답의 `dns.target`을 확인하며, 같은 distribution을 유지하는 한 CNAME 목적지는 그대로다.
 
 ```sh
 node scripts/landing/deploy.mjs check --config .local/landing-aws.json --execute
 ```
 
-check/deploy/rollback은 계정, stack ARN/tag/안정 상태/출력, expected bucket owner, Public Access Block, BucketOwnerEnforced, CloudFront ARN·S3 origin·OAC 서명과 선택적 API origin을 검사한다. 기존 배포 스택은 같은 소유권 검증을 통과한 경우에만 새 템플릿으로 갱신한다. 이전 v1 archive는 모드·바이트 계약이 없으므로 새 도구가 롤백하지 않는다. 검토된 소스로 새 v2 릴리스를 먼저 만든다.
+check/deploy/rollback은 계정, stack ARN/tag/안정 상태/출력과 현재 DNS 소유권 parameter, 인증서 ISSUED/SAN, expected bucket owner, Public Access Block, BucketOwnerEnforced, CloudFront ARN·실제 `DistributionDomain`·alias/인증서·S3 origin·OAC 서명과 선택적 API origin을 검사한다. 기존 Route 53 관리 stack에서 `hostedZoneId`를 빈 값으로 바꾸거나 기본 주소 stack에 새 도메인을 붙이는 변경은 기존 레코드 삭제/전환을 막기 위해 원격 쓰기 전에 실패한다. 별도 검토된 이전 절차가 필요하다. 이전 v1 archive는 모드·바이트 계약이 없으므로 새 도구가 롤백하지 않는다. 검토된 소스로 새 v2 릴리스를 먼저 만든다.
 
 ## 원격 적용 순서와 캐시
 

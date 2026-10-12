@@ -39,8 +39,8 @@ export function validateConfig(c,provision=false,deployMode='landing') {
   if(c.domainName) {
     if(!/^(?!.*(?:example|localhost))([a-z0-9-]+\.)+[a-z]{2,}$/.test(c.domainName))fail('Use exact owned domainName, not an example');
     if(!new RegExp(`^arn:aws:acm:us-east-1:${c.accountId}:certificate/[a-f0-9-]+$`).test(c.certificateArn??''))fail('Existing ACM certificate in us-east-1 in target account required');
-    if(!/^Z[A-Z0-9]+$/.test(c.hostedZoneId??''))fail('Explicit existing hostedZoneId required');
-  } else if(c.certificateArn||c.hostedZoneId)fail('Domain, certificate and hosted zone must be set together');
+    if(typeof c.hostedZoneId!=='string'||(c.hostedZoneId!==''&&!/^Z[A-Z0-9]{2,31}$/.test(c.hostedZoneId)))fail('hostedZoneId must be empty for external DNS or a valid existing Route 53 hosted zone ID');
+  } else if(c.certificateArn||c.hostedZoneId)fail('Domain required with certificate or hostedZoneId');
   return c;
 }
 export function cacheControl(key) {return key.startsWith('assets/')?'public,max-age=31536000,immutable':'public,max-age=60,must-revalidate';}
@@ -93,11 +93,27 @@ export function awsRunner(config) {
   };
 }
 async function identity(c,aws) {if((await aws(['sts','get-caller-identity'])).Account!==c.accountId)fail('AWS account mismatch; no writes performed');}
+async function verifyCertificate(c,aws) {
+  if(!c.domainName)return;
+  const cert=(await aws(['acm','describe-certificate','--certificate-arn',c.certificateArn,'--region','us-east-1'])).Certificate;
+  const covers=name=>name===c.domainName||(name?.startsWith('*.')&&c.domainName.split('.').length===name.split('.').length&&c.domainName.endsWith(name.slice(1)));
+  if(cert?.Status!=='ISSUED'||!cert.SubjectAlternativeNames?.some(covers))fail('Existing certificate must be ISSUED and cover exact domain');
+}
+function dnsGuidance(c,distributionDomain=null) {
+  if(!c.domainName)return {mode:'default',target:distributionDomain};
+  if(c.hostedZoneId)return {mode:'managed',recordType:'A/AAAA alias',name:c.domainName,target:distributionDomain};
+  return {mode:'external',recordType:'CNAME',name:c.domainName,target:distributionDomain};
+}
 export async function verifyTarget(c,aws) {
   validateConfig(c);await identity(c,aws);
   const s=(await aws(['cloudformation','describe-stacks','--stack-name',c.stackName])).Stacks?.[0];
   const outputs=Object.fromEntries((s?.Outputs??[]).map(o=>[o.OutputKey,o.OutputValue]));
   if(!s?.StackId?.startsWith(`arn:aws:cloudformation:${c.region}:${c.accountId}:stack/${c.stackName}/`)||!['CREATE_COMPLETE','UPDATE_COMPLETE','UPDATE_ROLLBACK_COMPLETE'].includes(s.StackStatus)||!s.Tags?.some(t=>t.Key==='Purpose'&&t.Value==='kinda-static-landing')||outputs.BucketName!==c.bucket||outputs.DistributionId!==c.distributionId)fail('Dedicated CloudFormation stack/outputs mismatch');
+  const stackParameters=Object.fromEntries((s.Parameters??[]).map(p=>[p.ParameterKey,p.ParameterValue]));
+  // Changing DNS ownership through a routine deploy would delete the old
+  // CloudFormation Route 53 records. Require a separately reviewed migration.
+  if(stackParameters.DomainName!== (c.domainName??'')||stackParameters.HostedZoneId!== (c.hostedZoneId??'')||stackParameters.CertificateArn!== (c.certificateArn??''))fail('Existing stack DNS ownership/domain/certificate differs from config; stop and review migration before deploy');
+  await verifyCertificate(c,aws);
   const bucketArgs=['--bucket',c.bucket,'--expected-bucket-owner',c.accountId];
   await aws(['s3api','head-bucket',...bucketArgs]);
   const block=(await aws(['s3api','get-public-access-block',...bucketArgs])).PublicAccessBlockConfiguration;
@@ -107,6 +123,10 @@ export async function verifyTarget(c,aws) {
   const d=(await aws(['cloudfront','get-distribution','--id',c.distributionId])).Distribution;
   const origins=d?.DistributionConfig?.Origins?.Items;
   if(d?.ARN!==`arn:aws:cloudfront::${c.accountId}:distribution/${c.distributionId}`||d.Status!=='Deployed'||!d.DistributionConfig.Enabled||![1,2].includes(origins?.length)||origins[0].DomainName!==`${c.bucket}.s3.${c.region}.amazonaws.com`||origins[0].OriginAccessControlId!==outputs.OacId||origins[0].S3OriginConfig?.OriginAccessIdentity!=='')fail('CloudFront dedicated origin/OAC/account mismatch');
+  if(!/^d[a-z0-9]+\.cloudfront\.net$/.test(d.DomainName??'')||outputs.DistributionDomain!==d.DomainName)fail('CloudFront distribution domain/output mismatch');
+  if(c.domainName) {
+    if(JSON.stringify(d.DistributionConfig.Aliases?.Items??[])!==JSON.stringify([c.domainName])||d.DistributionConfig.ViewerCertificate?.ACMCertificateArn!==c.certificateArn)fail('CloudFront alias/certificate mismatch');
+  } else if((d.DistributionConfig.Aliases?.Items??[]).length||d.DistributionConfig.ViewerCertificate?.CloudFrontDefaultCertificate!==true)fail('CloudFront default domain/certificate mismatch');
   if(origins.length===2 && (origins[1].Id!=='service-api'||origins[1].DomainName!==c.apiOriginDomain||origins[1].CustomOriginConfig?.OriginProtocolPolicy!=='https-only'))fail('CloudFront API origin mismatch');
   const oac=(await aws(['cloudfront','get-origin-access-control','--id',outputs.OacId])).OriginAccessControl?.OriginAccessControlConfig;
   if(oac?.OriginAccessControlOriginType!=='s3'||oac.SigningBehavior!=='always'||oac.SigningProtocol!=='sigv4')fail('OAC signing configuration mismatch');
@@ -129,20 +149,20 @@ async function provision(c,aws,dir,deployMode) {
   try {await aws(['cloudformation','describe-stacks','--stack-name',c.stackName]);fail('Stack already exists; provision never updates resources');}
   catch(error){if(!/Stack .* does not exist/.test(error.message))throw error;}
   if(c.domainName) {
-    const cert=(await aws(['acm','describe-certificate','--certificate-arn',c.certificateArn,'--region','us-east-1'])).Certificate;
-    const covers=(name)=>name===c.domainName||(name.startsWith('*.')&&c.domainName.split('.').length===name.split('.').length&&c.domainName.endsWith(name.slice(1)));
-    if(cert?.Status!=='ISSUED'||!cert.SubjectAlternativeNames?.some(covers))fail('Existing certificate must be ISSUED and cover exact domain');
-    const zone=(await aws(['route53','get-hosted-zone','--id',c.hostedZoneId])).HostedZone;
-    const zoneName=zone?.Name?.replace(/\.$/,'');
-    if(!zoneName||zone.Config?.PrivateZone||!(c.domainName===zoneName||c.domainName.endsWith(`.${zoneName}`)))fail('Hosted zone is not the explicit public parent domain');
-    const records=(await aws(['route53','list-resource-record-sets','--hosted-zone-id',c.hostedZoneId,'--start-record-name',c.domainName,'--max-items','10'])).ResourceRecordSets??[];
-    if(records.some(r=>r.Name.replace(/\.$/,'')===c.domainName&&['A','AAAA','CNAME'].includes(r.Type)))fail('Domain already has a routing record; will not replace it');
+    await verifyCertificate(c,aws);
+    if(c.hostedZoneId) {
+      const zone=(await aws(['route53','get-hosted-zone','--id',c.hostedZoneId])).HostedZone;
+      const zoneName=zone?.Name?.replace(/\.$/,'');
+      if(!zoneName||zone.Config?.PrivateZone||!(c.domainName===zoneName||c.domainName.endsWith(`.${zoneName}`)))fail('Hosted zone is not the explicit public parent domain');
+      const records=(await aws(['route53','list-resource-record-sets','--hosted-zone-id',c.hostedZoneId,'--start-record-name',c.domainName,'--max-items','10'])).ResourceRecordSets??[];
+      if(records.some(r=>r.Name.replace(/\.$/,'')===c.domainName&&['A','AAAA','CNAME'].includes(r.Type)))fail('Domain already has a routing record; will not replace it');
+    }
   }
   const path=join(dir,'template.json');await writeFile(path,JSON.stringify(createTemplate(deployMode)));
   await aws(['cloudformation','validate-template','--template-body',`file://${path}`]);
   const parameters=Object.entries({BucketName:c.bucket,DomainName:c.domainName??'',CertificateArn:c.certificateArn??'',HostedZoneId:c.hostedZoneId??'',ApiOriginDomain:c.apiOriginDomain??''}).map(([ParameterKey,ParameterValue])=>({ParameterKey,ParameterValue}));
   const result=await aws(['cloudformation','create-stack','--stack-name',c.stackName,'--template-body',`file://${path}`,'--parameters',JSON.stringify(parameters),'--tags','Key=Purpose,Value=kinda-static-landing','--enable-termination-protection']);
-  return {...result,next:'Wait for stack-create-complete; copy exact outputs to config before deploying.'};
+  return {...result,dns:dnsGuidance(c),next:'Wait for stack-create-complete; copy exact DistributionId and DistributionDomain outputs to config/check before setting DNS and deploying. DNS target is unresolved until stack creation completes.'};
 }
 const parameters = c => Object.entries({BucketName:c.bucket,DomainName:c.domainName??'',CertificateArn:c.certificateArn??'',HostedZoneId:c.hostedZoneId??'',ApiOriginDomain:c.apiOriginDomain??''}).map(([ParameterKey,ParameterValue])=>({ParameterKey,ParameterValue}));
 async function activate(c,manifest,aws,dir) {
@@ -162,16 +182,16 @@ async function activate(c,manifest,aws,dir) {
   const invalidation=await aws(['cloudfront','create-invalidation','--distribution-id',c.distributionId,'--paths','/*']);
   if(!invalidation.Invalidation?.Id)fail('Missing invalidation ID');
   await aws(['cloudfront','wait','invalidation-completed','--distribution-id',c.distributionId,'--id',invalidation.Invalidation.Id]);
-  return invalidation.Invalidation.Id;
+  return {invalidationId:invalidation.Invalidation.Id,outputs};
 }
 export async function runRelease(options,c,aws=awsRunner(c)) {
   const deployMode=parseDeployMode(options.deployMode ?? process.env.WEB_DEPLOY_MODE);
   validateConfig(c,options.mode==='provision',deployMode);
-  if(!options.execute)return {mode:options.mode,deployMode,execute:false,target:{accountId:c.accountId,region:c.region,stackName:c.stackName,bucket:c.bucket,distributionId:c.distributionId},release:options.release,operations:options.mode==='provision'?['verify account/certificate/zone','create dedicated stack']:['rebuild public Web for selected mode (deploy)','verify target and acquire S3 release lock','verify mode and SHA256 archive','publish immutable assets and release HTML','update owned stack routes and API together, wait for propagation','invalidate /* and wait'],note:'Offline plan only; no AWS call and no live target verification.'};
+  if(!options.execute)return {mode:options.mode,deployMode,execute:false,target:{accountId:c.accountId,region:c.region,stackName:c.stackName,bucket:c.bucket,distributionId:c.distributionId},release:options.release,dns:dnsGuidance(c),operations:options.mode==='provision'?['verify account/certificate and optional managed Route 53 zone','create dedicated stack']:['rebuild public Web for selected mode (deploy)','verify target and acquire S3 release lock','verify mode and SHA256 archive','publish immutable assets and release HTML','update owned stack routes and API together, wait for propagation','invalidate /* and wait'],note:'Offline plan only; DNS target unresolved until the actual stack output is read. No AWS call or live target verification.'};
   // Fail wrong-mode/stale local artifacts before any AWS call or lock write.
   let candidate=options.mode==='deploy'?await collect(options.dist,options.release,deployMode):undefined;
-  if(options.mode!=='provision')await verifyTarget(c,aws);
-  if(options.mode==='check')return {verified:true,deployMode};
+  const checked=options.mode!=='provision'?await verifyTarget(c,aws):undefined;
+  if(options.mode==='check')return {verified:true,deployMode,dns:dnsGuidance(c,checked.DistributionDomain)};
   const dir=await mkdtemp(join(tmpdir(),'kinda-public-'));
   let locked=false,activationStarted=false,completed=false;
   try {
@@ -219,9 +239,9 @@ export async function runRelease(options,c,aws=awsRunner(c)) {
       await put(c,key,join(dist,file.key),aws,{immutable:true,digest:file.sha256,cache:file.key.startsWith('assets/')?cacheControl(file.key):'no-store'});
     }
     activationStarted=true;
-    const invalidationId=await activate(c,manifest,aws,dir);
+    const activated=await activate(c,manifest,aws,dir);
     completed=true;
-    return {mode:options.mode,deployMode,release:options.release,files:manifest.files.length,invalidationId};
+    return {mode:options.mode,deployMode,release:options.release,files:manifest.files.length,invalidationId:activated.invalidationId,dns:dnsGuidance(c,activated.outputs.DistributionDomain)};
   } catch(error) {
     if(activationStarted)error.message+=`; deployment lock retained. After the process has stopped and the stack/distribution are stable, retry or rollback with --recover-lock ${options.release}.`;
     throw error;
