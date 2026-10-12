@@ -2,6 +2,22 @@
 
 작성일: 2026-10-04
 
+## 2026-10-12 실제 로컬 DB의 기존 미적용 BIO migration 12개 반영
+
+사용자의 백업 후 적용 승인에 따라 기존 로컬 API가 실제 사용하는 PostgreSQL 16.14에 MAIN `416785d08795488fdc05eb03fd7e317f43639107`의 기존 미적용 migration 12개를 적용했다. 제품 코드·Prisma schema·migration SQL은 수정하거나 새로 생성하지 않았다. 완료 migration은 126→138개이고 source 138개와 일치하며, 미적용·실패는 모두 0개다. 과거 rolled-back 1행을 포함한 기존 원장 127행은 모든 값과 checksum을 그대로 보존했다. 신규 완료 12행의 checksum은 기존 SQL SHA-256과 일치한다. 기존 `20260918090000_floor_light_slots_map_reset` DB/source checksum 차이는 역사적 상태로 유지하며 resolve·재실행·reset하지 않았다.
+
+12개 SQL 901행을 전수 검토하고 활성 source capability 및 BIO node 귀속 preflight의 잘못된 데이터 0건을 확인했다. 기존 API만 정상 종료한 뒤 권한 700 디렉터리/600 custom archive로 백업했고 PostgreSQL 16의 `pg_restore --list` 및 별도 자기 소유 임시 DB 복원을 통과했다. 복원 직후 기존 public 108개 테이블의 원본 컬럼 행 수·값 digest가 일치했다. 복원 DB에서 같은 `prisma migrate deploy`를 먼저 적용해 exit 0과 138/0/0을 확인한 후 실제 DB에 적용했으며, 실제 deploy도 exit 0이다. 실제 적용 직후에도 기존 108개 테이블의 원본 컬럼 digest와 행 수는 모두 같았다. 현장 2·층 3·조명 6·게이트웨이 1·MeshNode 4·맵 정본 3·chunk 4·index shard 447·맵 revision 14·맵 자산 원장 5442를 보존했다.
+
+복원 시험과 실제 적용 후 각각 FK 196개 및 CHECK 206개를 직접 검사했다. 고아 행·CHECK 위반·미검증 제약·무효/미준비 인덱스는 모두 0개다. 기존 맵·현장·장비 삭제, 재가져오기, 맵 backfill, 권한 변경, DB 초기화 및 원격 작업은 하지 않았다.
+
+의도된 신규 데이터는 기존 SQL의 empty/OFF BIO 카탈로그와 두 단계 무효화뿐이다. 카탈로그 revision은 1로 생성된 뒤 2→3으로 갱신되고, assignment가 있는 기존 게이트웨이 1개에 revision 2·3 수렴 원장 각 1행을 등록했다. 승인 profile·활성 site policy·센서 준비 명령은 0개다. API 재기동 뒤 정상 worker가 이전 revision 원장을 retire하고 현재 revision을 완료할 수 있으며, 이 운용 갱신은 기존 데이터 삭제나 장비 검증 성공을 의미하지 않는다.
+
+Node 22.23.2 및 기존 초기 환경·동일 argv·local-app-only/PKI unavailable 모드를 보존하여 API를 재기동했다. Web 5173·PostgreSQL·Redis·MQTT는 기존 프로세스를 유지한다. 웹 경유 index/live/ready 200, 5개 의존성 up, 미인증 auth 401을 확인했다. 이는 실제 로그인 세션·실장비·전체 제품 기능 검증이 아니다. 활성 telemetry/보고서 worker로 재기동 뒤 상태·시각·수신 원장은 변할 수 있으므로, migration 직후의 108개 테이블 digest 보존과 재기동 후 등록 identity/맵 보존을 구분한다. 수동 조명 명령·claim·flash·배포는 실행하지 않았다.
+
+재기동 후 2026-10-12 06:17:31.706–06:20:17.605 UTC의 165초 관찰에서 오류 로그는 0건이었다. 등록 조명·게이트웨이·MeshNode의 ID/현장/층/귀속·장비 식별 해시는 복원 DB와 같고, 기존 맵 및 Command 데이터도 그대로였다. 보고서 청소 시각·조명 presence·게이트웨이 heartbeat·수신 sequence, 자동화/스케줄 revision의 정상 worker 갱신과 수신 원장 증가를 따로 기록했다. 수렴 원장은 이전 revision 1행 retire·현재 revision 1행 완료, catalog delivery 1행 생성, 승인 profile/활성 policy/준비 명령 0행이다. 자동 worker 동작과 수동 장비 명령 0회를 구분하며 장기 무오류나 실제 RF 정상 여부를 인증하지 않는다.
+
+비공개 원본 종료 코드·백업 identity·digest·검사 결과는 `.local/db-migrations-20261012-hDROA0PJ/report.json`에 남긴다. 백업의 삭제 여부는 담당자가 결정하지 않으며, 사용자 요청에 따라 총괄의 독립 검증 후 이번 백업만 삭제하는 별도 관문으로 인계한다. 이 기록은 실제 로컬 반영 사실이고 아래 과거 ‘미적용’ 문장은 당시 검증 이력이다.
+
 ## 2026-10-05 개인 알람 숨김과 영속 요청 원장 (추가 운영 UI Task 3)
 
 `20261004100000_monitoring_incident_dismissals`는 기존 읽음·장애 모델을 바꾸지 않고 아래 두 테이블을 추가한다. Task 3 검증은 소유권과 빈 public schema를 확인한 자기 소유 임시 PostgreSQL에서 수행했다. 이후 사용자 승인으로 2026-10-06 08:43 KST(2026-10-05 23:43 UTC), Task 10에서 로컬 `localhost:5432/led_control`의 두 테이블과 신규 migration 완료 기록만 한 additive transaction으로 반영했다. 실제 필드·복합 PK·4개 cascade FK·두 사용자 인덱스·완료 CHECK·UTC 기본값과 신규 테이블 0행을 확인했다. SQL SHA256은 `a1db886f2977a7005e30caf55748c052278ed509c40251bf599a174410130fae`, 적용 단계는 1이다. 기존 migration 기록 126행(과거 rolled-back 기록 포함)과 기존 `20260918090000_floor_light_slots_map_reset`의 DB/source checksum 불일치는 그대로 보존했고, 전체 migrate deploy/resolve/reset·기존 데이터 변경·원격 배포는 하지 않았다. 이 사실은 로컬 schema 반영이며 실장비 검증을 의미하지 않는다.
