@@ -7,12 +7,15 @@ export function mapRasterInfluenceMargin(zoom: number, resolution: number): numb
   return 2.5 / zoom + 2 / (zoom * resolution);
 }
 
-export function mapRasterGrid(manifest: { width: number; height: number; tileSize: number }, camera: CadSceneCamera, resolution: number) {
-  const scale = camera.zoom * resolution;
-  const offsetX = (camera.viewportWidth / 2 - camera.centerX * camera.zoom) * resolution;
-  const offsetY = (camera.viewportHeight / 2 - camera.centerY * camera.zoom) * resolution;
+export function mapRasterGrid(manifest: { width: number; height: number; tileSize: number }, camera: CadSceneCamera, resolution: number,
+  rasterCamera: CadSceneCamera = camera) {
+  // Visibility follows the live camera; pixel ownership stays in the baked
+  // lattice. Fractional pans transform textures, not their canonical inputs.
+  const scale = rasterCamera.zoom * resolution;
+  const offsetX = (rasterCamera.viewportWidth / 2 - rasterCamera.centerX * rasterCamera.zoom) * resolution;
+  const offsetY = (rasterCamera.viewportHeight / 2 - rasterCamera.centerY * rasterCamera.zoom) * resolution;
   // Coalesce tiny source cells instead of assigning each a forced single pixel.
-  const margin = mapRasterInfluenceMargin(camera.zoom, resolution);
+  const margin = mapRasterInfluenceMargin(rasterCamera.zoom, resolution);
   const size = Math.min(2 ** Math.floor(Math.log2(512 / scale)),
     Math.max(manifest.tileSize, 2 ** Math.ceil(Math.log2(64 / scale))));
   const envelope = { minX: -margin, minY: -margin, maxX: manifest.width + margin, maxY: manifest.height + margin };

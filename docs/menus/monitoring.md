@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-12 공통 맵 raster 카메라 재사용
+
+### 구현 완료
+
+- 설정 맵 편집과 공유하는 공통 renderer는 이동 중 기존 raster 타일을 재사용하고 화면 밖 타일도 메모리 예산 내 캐시에 유지한다. 이동은 카메라 transform으로 즉시 반영하며 새 가시 영역과 줌 종료 뒤 정밀도는 필요할 때 갱신한다.
+- 읽기 전용 맵·선택·등록 조명과 공통 문서 계약은 그대로다. 숨김·삭제·문서 세대 변경과 renderer 종료의 무효화·메모리 회수 경로를 유지한다.
+
+### 미구현
+
+- 최종 공통 Web 검증과 WebGL 브라우저 회귀 결과는 진행 중이다. 새로운 모니터링 기능·API·장비/HIL 작업은 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 캐시 재사용은 전체 GPU 프레임 그리기가 사라짐을 뜻하지 않는다. 작은 합성 fixture의 계측을 실제 대형 CAD·iOS/Android WebView 성능 보장으로 확장하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/map-scene/{map-raster-backend,map-raster-grid,MapSceneRenderer}`, `features/cad-scene/CadSceneRenderer`와 직접 unit·WebGL 회귀.
+
+### 갱신 규칙
+
+- 공통 renderer 변경은 설정과 모니터링 문서를 함께 갱신하고 실제 장비 검증과 브라우저 성능 계측을 분리한다.
+
 ## 2026-10-12 지도 조작·툴바·하단 상세 교정
 
 ### 구현 완료

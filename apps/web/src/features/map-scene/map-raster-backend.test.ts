@@ -7,11 +7,13 @@ import type { CadRasterDisplayRequest } from "../cad-scene/CadSceneRenderer";
 import { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
 import { buildMapGeometryBatches } from "./map-scene-geometry";
 
-const calls = vi.hoisted(() => ({ bake: vi.fn(), remove: vi.fn(), paint: vi.fn(), render: vi.fn() }));
+const calls = vi.hoisted(() => ({ bake: vi.fn(), remove: vi.fn(), paint: vi.fn(), render: vi.fn(), visible: vi.fn() }));
 vi.mock("../cad-scene/CadSceneRenderer", () => ({ PixiCadSceneRenderBackend: class {
   replaceRaster(...args: unknown[]) { calls.bake(...args); }
   removeTile(...args: unknown[]) { calls.remove(...args); }
   render() { calls.render(); }
+  setCamera() {}
+  setRasterVisible(...args: unknown[]) { calls.visible(...args); }
   suspend() {}
   destroy() { this.suspend(); }
 } }));
@@ -24,8 +26,8 @@ const line: MapElement = { id: "edge", layerId: "layer", groupId: null, type: "l
   transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 }, visible: true, locked: false, provenance: null };
 const descriptor: MapDisplayTile = { version: 2, sceneId: "scene", assetId: "tile", tileX: 0, tileY: 0, lod: 0, part: 0,
   primitiveCount: 1, byteSize: 100, sha256: "a".repeat(64), bounds: { minX: 0, minY: 0, maxX: 512, maxY: 512 } };
-function setup(maximum = 32 * 1024 * 1024) {
-  const budget = new CadSceneMemoryBudget(maximum), backend = new MapRasterBackend(budget);
+function setup(maximum = 32 * 1024 * 1024, onPaintReady?: (ready: boolean) => void) {
+  const budget = new CadSceneMemoryBudget(maximum), backend = new MapRasterBackend(budget, undefined, onPaintReady);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform() {}, beginPath() {} } as unknown as GPUCanvasContext);
   const request: CadRasterDisplayRequest<MapDisplayTile> = {
     camera: { centerX: 512, centerY: 100, viewportWidth: 200, viewportHeight: 200, zoom: 1 }, resolution: 1,
@@ -40,6 +42,84 @@ function setup(maximum = 32 * 1024 * 1024) {
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("bounded ordered raster lifecycle", () => {
+  it("pins pending successor coverage across a same-signature pan under memory pressure", async () => {
+    const { backend, request, budget } = setup();
+    request.manifest.tiles = [descriptor, { ...descriptor, assetId: "right", tileX: 1 }];
+    backend.replaceTile("transient", { descriptor, byteSize: 100, ...buildMapGeometryBatches([line], 1, true) });
+    let release!: (bytes: Uint8Array) => void;
+    try {
+      await backend.renderDisplay(request);
+      calls.bake.mockClear(); calls.remove.mockClear();
+      request.loadTile = vi.fn(async tile => tile.tileX === 1
+        ? new Promise<Uint8Array>(resolve => { release = resolve; }) : new Uint8Array());
+      const detail = { ...request, camera: { ...request.camera, zoom: 2 } };
+      await backend.renderDisplay(detail);
+      await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+      expect(calls.bake).toHaveBeenCalledOnce();
+      const successor = calls.bake.mock.calls[0][0];
+      calls.remove.mockClear();
+      const pan = { ...detail, camera: { ...detail.camera, centerX: 512.25 } };
+      backend.setCamera(pan.camera);
+      const pending = backend.renderDisplay(pan);
+      expect(budget.reserve("pressure", "probe", budget.maximumBytes - budget.totalBytes + 1)).toBe(false);
+      expect(calls.remove).not.toHaveBeenCalledWith(successor);
+      release(new Uint8Array()); await pending;
+      expect(calls.visible).toHaveBeenCalledWith(successor, true);
+      expect(request.onError).not.toHaveBeenCalled();
+    } finally { release?.(new Uint8Array()); budget.releaseOwner("pressure"); backend.destroy(); }
+  });
+
+  it("announces coverage only after its frame, resets on input and fences disposal", async () => {
+    const ready = vi.fn();
+    const { backend, request } = setup(undefined, ready);
+    let publish!: FrameRequestCallback;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { publish = callback; return 99; });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    await backend.renderDisplay(request);
+    expect(ready).not.toHaveBeenCalledWith(true, expect.anything());
+    publish(0);
+    expect(ready).toHaveBeenLastCalledWith(true, request.manifest);
+    backend.setCamera(request.camera);
+    expect(ready).toHaveBeenLastCalledWith(false, request.manifest);
+    backend.render();
+    expect(ready).toHaveBeenLastCalledWith(false, request.manifest);
+    await backend.renderDisplay(request); publish(0);
+    expect(ready).toHaveBeenLastCalledWith(true, request.manifest);
+    backend.invalidateDisplay();
+    expect(ready).toHaveBeenLastCalledWith(false, request.manifest);
+    await backend.renderDisplay(request);
+    backend.destroy(); ready.mockClear(); publish(0);
+    expect(ready).not.toHaveBeenCalled();
+  });
+  it("invalidates influence neighbours at every retained raster density", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const { backend, request, budget } = setup();
+    const primitive = { type: "polyline" as const, elementId: "tip", groupId: null, layerName: "layer",
+      sourceType: "polyline", zIndex: 0, fragmentOrder: 0, bounds: { minX: 499, minY: 10, maxX: 511, maxY: 12 },
+      clipBounds: descriptor.bounds, geometry: { closed: true,
+        points: [{ x: 500, y: 10 }, { x: 510.5, y: 11 }, { x: 500, y: 12 }] },
+      style: { ...line.style, strokeWidth: 0.1 } };
+    const bytes = encodeMapDisplayTile([primitive]);
+    const key = { elementId: "tip", zIndex: 0, fragmentOrder: 0 };
+    const tile = { ...descriptor, byteSize: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"),
+      pages: [{ layerId: "layer", sequence: 0, primitiveStart: 0, primitiveCount: 1, firstKey: key, lastKey: key }] };
+    request.manifest = { ...request.manifest, orderedPages: { version: 1 }, tiles: [tile] } as typeof request.manifest;
+    request.loadTile = vi.fn(async () => bytes);
+    const overview = { ...request, camera: { ...request.camera, zoom: 0.1 } };
+    try {
+      await backend.renderDisplay(overview);
+      const neighbour = calls.bake.mock.calls.find(([id]) => id.startsWith("raster:1024:0:-1:"))![0];
+      await backend.renderDisplay(request);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      request.excludedIds = new Set(["tip"]); overview.excludedIds = request.excludedIds;
+      backend.invalidateDisplay([primitive.bounds]);
+      await backend.renderDisplay(request);
+      calls.bake.mockClear();
+      await backend.renderDisplay(overview);
+      expect(calls.bake).toHaveBeenCalledWith(neighbour, expect.any(HTMLCanvasElement), expect.any(Object));
+      expect(request.onError).not.toHaveBeenCalled();
+    } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); vi.unstubAllGlobals(); }
+  });
   it("drops and rebakes an influence-only neighbor when a persisted hairline is masked", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const { backend, request, budget } = setup();
@@ -57,13 +137,13 @@ describe("bounded ordered raster lifecycle", () => {
     try {
       await backend.renderDisplay(request);
       expect(request.onError).not.toHaveBeenCalled();
-      expect(calls.bake.mock.calls.some(([id]) => id === "raster:512:1:0")).toBe(true);
+      expect(calls.bake.mock.calls.some(([id]) => id.startsWith("raster:512:1:0"))).toBe(true);
       calls.remove.mockClear(); calls.bake.mockClear(); calls.paint.mockClear();
       request.excludedIds = new Set(["tip"]);
       backend.invalidateDisplay([{ minX: 500, minY: 98.9, maxX: 510.5, maxY: 101.1 }]);
       await backend.renderDisplay(request);
-      expect(calls.remove).toHaveBeenCalledWith("raster:512:1:0");
-      expect(calls.bake.mock.calls.some(([id]) => id === "raster:512:1:0")).toBe(true);
+      expect(calls.remove).toHaveBeenCalledWith(expect.stringMatching(/^raster:512:1:0/));
+      expect(calls.bake.mock.calls.some(([id]) => id.startsWith("raster:512:1:0"))).toBe(true);
       expect(calls.paint).not.toHaveBeenCalled();
     } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); vi.unstubAllGlobals(); }
   });
@@ -106,7 +186,7 @@ describe("bounded ordered raster lifecycle", () => {
     backend.destroy(); expect(cancel).toHaveBeenCalledWith(99);
   });
 
-  it("keeps the baked cells during camera motion and only rebakes after the camera settles", async () => {
+  it("reuses completed cells across fractional pan and repeated camera settles", async () => {
     const { backend, request, budget } = setup();
     const primitive = { type: "line" as const, elementId: "base", zIndex: 0, fragmentOrder: 0,
       layerName: "layer", groupId: null, sourceType: "line", clipBounds: null,
@@ -126,12 +206,49 @@ describe("bounded ordered raster lifecycle", () => {
       expect(calls.bake).not.toHaveBeenCalled();
       await new Promise(resolve => setTimeout(resolve, 150));
       for (let i = 0; i < 10; i++) await Promise.resolve();
-      expect(calls.bake).toHaveBeenCalled();
+      expect(calls.bake).not.toHaveBeenCalled();
     } finally {
       backend.destroy();
       for (let i = 0; i < 10; i++) await Promise.resolve();
       expect(budget.totalBytes).toBe(0); vi.unstubAllGlobals();
     }
+  });
+
+  it("adds newly visible cells during pan and reuses hidden cells on return", async () => {
+    const { backend, request, budget } = setup();
+    request.manifest = { ...request.manifest, width: 2048 };
+    request.camera = { ...request.camera, centerX: 256, centerY: 256, viewportWidth: 100, viewportHeight: 100 };
+    try {
+      await backend.renderDisplay(request);
+      calls.bake.mockClear(); calls.remove.mockClear();
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, centerX: 768.25 } });
+      // Coverage must not wait for a settle timer at a newly entered cell.
+      expect(budget.totalBytes).toBeGreaterThan(0);
+      expect(calls.visible).toHaveBeenCalledWith(expect.stringMatching(/^raster:512:0:0/), false);
+      calls.remove.mockClear();
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, centerX: 256.25 } });
+      expect(calls.remove).not.toHaveBeenCalled();
+      expect(request.worker.decode).not.toHaveBeenCalled();
+      expect(calls.visible).toHaveBeenCalledWith(expect.stringMatching(/^raster:512:0:0/), true);
+    } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); }
+  });
+
+  it("transforms cached zoom coverage until one exact detail refresh after settle", async () => {
+    const { backend, request, budget } = setup();
+    backend.replaceTile("transient", { descriptor, byteSize: 100, ...buildMapGeometryBatches([line], 1, true) });
+    try {
+      await backend.renderDisplay(request);
+      calls.bake.mockClear();
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, zoom: 1.05 } });
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, zoom: 1.1 } });
+      expect(calls.bake).not.toHaveBeenCalled();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(calls.bake).toHaveBeenCalledTimes(2);
+      calls.bake.mockClear();
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, zoom: 1.1, centerX: 512.25 } });
+      await new Promise(resolve => setTimeout(resolve, 150));
+      expect(calls.bake).not.toHaveBeenCalled();
+    } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); }
   });
 
   it("paints a boundary stroke in both cells and invalidates its old extents", async () => {
@@ -143,9 +260,27 @@ describe("bounded ordered raster lifecycle", () => {
     const moved = { ...line, transform: { ...line.transform, x: 100 } };
     backend.replaceTile("transient", { descriptor, byteSize: 100, ...buildMapGeometryBatches([moved], 1, true) });
     await backend.renderDisplay(request);
-    expect(calls.remove).toHaveBeenCalledWith("raster:512:0:0");
+    expect(calls.remove).toHaveBeenCalledWith(expect.stringMatching(/^raster:512:0:0/));
     expect(calls.paint).toHaveBeenCalledTimes(3);
     backend.destroy(); expect(budget.totalBytes).toBe(0);
+  });
+
+  it("retains old coverage while a different zoom grid is being painted", async () => {
+    const { backend, request, budget } = setup();
+    request.manifest.tiles = [descriptor];
+    try {
+      await backend.renderDisplay(request);
+      const originalKeys = new Set(calls.visible.mock.calls.filter(([, visible]) => visible).map(([key]) => key));
+      calls.visible.mockClear();
+      let resolveDetail!: (bytes: Uint8Array) => void;
+      request.loadTile = vi.fn(() => new Promise<Uint8Array>(resolve => { resolveDetail = resolve; }));
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, zoom: 2 } });
+      await vi.waitFor(() => expect(request.loadTile).toHaveBeenCalledOnce());
+      expect(calls.visible.mock.calls.filter(([key, visible]) => originalKeys.has(key) && !visible)).toEqual([]);
+      resolveDetail(new Uint8Array());
+      await vi.waitFor(() => expect(calls.visible.mock.calls.some(([key, visible]) => originalKeys.has(key) && !visible)).toBe(true));
+      expect(request.onError).not.toHaveBeenCalled();
+    } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); }
   });
 
   it("rejects an over-budget cell before fetching instead of truncating", async () => {
@@ -199,8 +334,8 @@ describe("bounded ordered raster lifecycle", () => {
 
       resolveReplacement(new Uint8Array());
       await replacement;
-      expect(calls.remove).toHaveBeenCalledWith("raster:512:0:0");
-      expect(calls.bake).toHaveBeenCalledWith("raster:512:0:0", expect.any(HTMLCanvasElement), expect.any(Object));
+      expect(calls.remove).toHaveBeenCalledWith(expect.stringMatching(/^raster:512:0:0/));
+      expect(calls.bake).toHaveBeenCalledWith(expect.stringMatching(/^raster:512:0:0/), expect.any(HTMLCanvasElement), expect.any(Object));
     } finally {
       backend.destroy();
       expect(budget.totalBytes).toBe(0);

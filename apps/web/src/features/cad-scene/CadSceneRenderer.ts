@@ -336,6 +336,11 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
     this.tileContainers.set(key, container); this.tileGeometries.set(key, [geometry]); this.tileTextures.set(key, [texture]);
     this.requireWorld().addChild(container);
   }
+
+  protected setRasterVisible(key: string, visible: boolean): void {
+    const container = this.tileContainers.get(key);
+    if (container) container.visible = visible;
+  }
 }
 
 export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest> {

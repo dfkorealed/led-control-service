@@ -45,9 +45,21 @@ for (const { holes, dpr, strokeWidth, zoom } of probes) {
       const rendererPath = "/src/features/map-scene/MapSceneRenderer.ts", backendPath = "/src/features/map-scene/map-raster-backend.ts";
       const { MapSceneRenderer } = await import(/* @vite-ignore */ rendererPath);
       const { MapRasterBackend } = await import(/* @vite-ignore */ backendPath);
-      const originalDisplay = MapRasterBackend.prototype.renderDisplay;
+      const originalDisplay = MapRasterBackend.prototype.renderDisplayNow;
       let completion = Promise.resolve();
-      MapRasterBackend.prototype.renderDisplay = function(...args: unknown[]) { return completion = originalDisplay.apply(this, args); };
+      let completedZoom = Number.NaN;
+      // Admission promises cover the current reusable lattice, not the later
+      // settled detail job. Observe actual job completion without changing any
+      // renderer timing or the canonical pixel oracle.
+      MapRasterBackend.prototype.renderDisplayNow = function(...args: unknown[]) {
+        const zoom = this.rasterCamera?.zoom;
+        const pending = originalDisplay.apply(this, args);
+        const generation = this.request;
+        completion = pending.then(() => {
+          if (this.request === generation && !generation?.controller.signal.aborted) completedZoom = zoom;
+        });
+        return pending;
+      };
       const canvas = document.createElement("canvas"); canvas.style.width = "320px"; canvas.style.height = "320px";
       document.body.replaceChildren(canvas);
       const getContext = canvas.getContext.bind(canvas);
@@ -66,8 +78,17 @@ for (const { holes, dpr, strokeWidth, zoom } of probes) {
       const camera = { centerX: manifest.width / 2, centerY: manifest.height / 2, zoom: zoom ?? 320 / manifest.width,
         viewportWidth: 320, viewportHeight: 320 };
       const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      const settledDetail = async () => {
+        // Keep the original Playwright test deadline. A frame-count cap would
+        // shorten it under load while 400 validated source assets still paint.
+        for (;;) {
+          await frame();
+          if (completedZoom === camera.zoom) { await completion; await frame(); return; }
+          if (errors.length) throw new Error(`HATCH detail failed at zoom ${camera.zoom}: ${errors.join(",")}`);
+        }
+      };
       await renderer.mount(canvas); await renderer.setDocument(ref); renderer.setCamera(camera);
-      await frame(); await frame(); await frame(); await completion; await frame();
+      await settledDetail();
       const reference = document.createElement("canvas"); reference.width = canvas.width; reference.height = canvas.height;
       const context = reference.getContext("2d")!;
       const paintReference = () => {
@@ -108,10 +129,10 @@ for (const { holes, dpr, strokeWidth, zoom } of probes) {
       };
       const overview = paintReference();
       camera.centerX += 0.25 / camera.zoom; camera.zoom *= 1.3; renderer.setCamera(camera);
-      await frame(); await frame(); await completion; await frame();
+      await settledDetail();
       const zoomed = paintReference();
-      renderer.dispose(); MapRasterBackend.prototype.renderDisplay = originalDisplay;
-      return { overview, zoomed, errors, loads, tiles: manifest.tileCount, disposed: renderer.memoryBytes };
+      renderer.dispose(); MapRasterBackend.prototype.renderDisplayNow = originalDisplay;
+      return { overview, zoomed, completedZoom, errors, loads, tiles: manifest.tileCount, disposed: renderer.memoryBytes };
     }, { manifest: scene.manifest, canonical, layerNames, dpr, zoom });
     await testInfo.attach("hatch-coverage", { body: JSON.stringify({ holes, dpr, strokeWidth, zoom, ...evidence }), contentType: "application/json" });
     expect(evidence.errors).toEqual([]); expect(evidence.loads).toBeGreaterThanOrEqual(evidence.tiles);
