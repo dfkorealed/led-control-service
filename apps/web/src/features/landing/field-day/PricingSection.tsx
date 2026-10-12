@@ -24,7 +24,7 @@ export function PricingSection({ onInquiry }: { onInquiry: (event: MouseEvent<HT
         <ul className="grid gap-4.5 m-landing-pricing-features-margin p-0 list-none">{plan.items.map(item => <li key={item} className="flex gap-3 items-start text-landing-plan-feature"><span className="grid place-items-center flex-none size-[21px] rounded-landing-ellipse bg-action-primary-soft text-brand-blue text-landing-plan-feature-marker font-black" aria-hidden="true">✓</span>{item}</li>)}</ul>
         <Button type="button" variant={plan.featured ? "landingPlanPrimary" : "landingPlanSecondary"} className="pricing-card__button w-full mt-auto" onClick={event => onInquiry(event, plan.name)} aria-label={`${plan.name} 도입 상담`}>{plan.name} 도입 상담 <span aria-hidden="true">↗</span></Button>
       </Card>)}</div>
-      <p className="pricing-section__note max-w-[920px] m-landing-pricing-note-margin text-status-neutral-foreground text-landing-pricing-note">표시 가격은 월 기준 안내입니다. 상품별 적용 범위와 제공 일정은 상담에서 확인해 주세요. 부가세와 계약 조건도 상담 시 안내합니다.</p>
+      <p className="pricing-section__note max-w-[920px] m-landing-pricing-note-margin text-status-neutral-foreground text-landing-pricing-note">표시 가격은 월 기준 안내입니다. 상품별 적용 범위와 제공 일정은 상담에서 확인해 주세요. 부가세와 계약 조건도 상담 시 안내합니다. 출시 전까지 요금제별 제공 기능은 변경될 수 있습니다.</p>
     </div>
   </section>;
 }

@@ -12,7 +12,7 @@ test("production public pages use the selected login mode, preserve contact, and
     else await expect(page.getByRole("button", { name: "준비 중", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: /도입 상담/ }).first().click();
     const dialog = page.getByRole("dialog", { name: "도입 상담" });
-    await expect(dialog.getByRole("link", { name: "032-528-2953" })).toHaveAttribute("href", "tel:0325282953");
+    await expect(dialog.locator('a[href^="tel:"]')).toHaveCount(0);
     await expect(dialog.getByRole("link", { name: "kymkjh2002@dfkorealed.com" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
     await page.keyboard.press("Escape");
   }

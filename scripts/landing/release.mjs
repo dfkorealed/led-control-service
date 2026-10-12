@@ -31,7 +31,7 @@ function execute(project,step) {
   if(result.error || result.signal || result.status !== 0) fail(`Landing gate failed: ${step.join(' ')} (${result.error?.message ?? result.signal ?? result.status})`);
 }
 export function validateBrowserReport(report) {
-  if(report?.stats?.expected !== 6 || report.stats.unexpected !== 0 || report.stats.skipped !== 0 || report.stats.flaky !== 0 || !report.config?.projects?.some(p=>p.name === 'chromium')) fail('Incomplete or failed Chromium landing coverage');
+  if(report?.stats?.expected !== 12 || report.stats.unexpected !== 0 || report.stats.skipped !== 0 || report.stats.flaky !== 0 || !report.config?.projects?.some(p=>p.name === 'chromium')) fail('Incomplete or failed Chromium landing coverage');
 }
 export function validateUnitReport(report) {
   if(report?.success !== true || report.numTotalTests < 1 || report.numPassedTests !== report.numTotalTests || report.numFailedTests !== 0 || report.numPendingTests !== 0 || report.numTodoTests !== 0 || report.testResults?.length !== publicTests.length || publicTests.some(name=>!report.testResults.some(file=>file.name.endsWith('/'+name) && file.status === 'passed'))) fail('Incomplete or failed public unit coverage');

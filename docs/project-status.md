@@ -10,6 +10,13 @@
 - [x] MCP initialize·도구 목록 9개 조회 및 `ap-southeast-2` STS `GetCallerIdentity` 실제 호출이 성공했다(`isError=false`, `api_calls` success). CLI와 동일한 `AccountFullAccessRole`이다. 검증용 proxy는 수동 SIGINT 뒤 exit130으로 종료하고 남은 proxy 프로세스가 없음을 확인했다. 종료 시 `CancelledError`/`KeyboardInterrupt` traceback은 의도적인 중단 로그이며 앞선 연결/API 성공과 구분한다. 기존 앱 서버·DB·장비·DNS·진행 중 배포 작업은 변경하지 않았다.
 - 다음 새 세션에서 설치한 스킬과 MCP 설정을 로드한다. 현재 세션 도구 목록의 자동 갱신이나 실제 리소스 배포·전체 서비스 검증 완료로 확대하지 않는다.
 
+## 2026-10-12 공개 사이트 모바일 보완 — 진행 중
+
+- 소스19개SHA를 root가 독립 대조했다. 최종 local production Chromium12/12(expected12,unexpected/skipped/flaky0), 공개unit37/37,release계약9/9,전체Webtypecheck0/UIpolicy기존·신규0이다. 중간reduced-motion/depthfixture 오류와 실제offscreen ripple RED를 보존하고후속최종source결과와구분했다. 현재최종독립review/정확SHA CI 대기이며 운영release는r1이다.
+
+- 사용자 주석5개 적용·배포 승인. 기존 public 후보591ff9e1에서 web_frontend 단일 writer가 hero 모바일 간격/실제상태반응·email popup 개선·footer nav 제거·pricing 출시 전 변경 가능 안내와 영향 메뉴문서를 수정한다. Root는 결과·active writing-plan·Git/정확SHA CI·AWS MCP 배포를 담당한다. 기존 MAIN c438bd71/외부AGENTS는 보존한다.
+- 모바일 겹침의 원인은 grid gap15px와 negative art margin(-15px/-5px)의 상쇄이며 실제 animation bounding-box 검사로 확인한다. 코드·CI·배포·실제HTTPS 모바일 검증이 끝날 때까지 현재 공개 release20261012-landing-r1을 유지한다.
+
 ## 2026-10-12 실제 공개 배포 완료 — 무료 플랜 유지·Sydney
 
 - **https://kinda.dfkorealed.com/** 공개 완료. 공개 source `f5eb68154156d1f98d4626654a69f32d70a3a16b`, release `20261012-landing-r1`, manifest SHA `ee1534a9ad1be5b61b8bd2ee9d1834fe98914996e112492386ca65a6a2b3a55a`. Sydney stack `kinda-landing-prod-20261012` UPDATE_COMPLETE·CloudFront `E2XZYU4N91AW5N`·invalidation Completed·HostingKR CNAME TTL180 및 실제 custom HTTPS 검사를 확인했다. 공개3경로200, login/internal/API/unknown/concepts/archive404, redirect·보안 헤더와 실제 브라우저 메뉴/상담 fallback 동작이 정상이다. 사용자 승인에 따라 landing-only 관문을 사용했고 같은 SHA 전체 Software CI는 qualitySUCCESS/unitFAIL/나머지4SKIP다. 전체 서비스·온라인 상담 접수·장비 성공으로 확대하지 않는다. 아래는 단계별 역사 기록이다.

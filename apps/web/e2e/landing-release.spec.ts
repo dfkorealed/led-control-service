@@ -12,7 +12,7 @@ for(const path of ['/','/features','/pricing']) {
     await trigger.click();
     const dialog=page.getByRole('dialog',{name:'도입 상담'});
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('link',{name:'032-528-2953'})).toHaveAttribute('href','tel:0325282953');
+    await expect(dialog.locator('a[href^="tel:"]')).toHaveCount(0);
     await expect(dialog.getByRole('link',{name:'kymkjh2002@dfkorealed.com'})).toHaveAttribute('href','mailto:kymkjh2002@dfkorealed.com');
     await expect(dialog.getByRole('textbox')).toHaveCount(0);
     await expect(dialog.locator('form')).toHaveCount(0);

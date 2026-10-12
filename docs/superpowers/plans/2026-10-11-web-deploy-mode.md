@@ -144,3 +144,19 @@
 - [x] AWS actual account456721863474/certISSUED, template validation 성공 뒤 전용 Sydney stack create 요청 성공. 현재 CloudFront 전파를 기다리며 콘텐츠·서비스 DNS 변경은 아직 실행하지 않았다.
 
 - [x] 실제 provision/check/deploy/stack wait/CloudFront invalidation을 성공했다. 공개source `f5eb68154156d1f98d4626654a69f32d70a3a16b`/release20261012-landing-r1/10files, 전용 stackUPDATE_COMPLETE·distributionE2XZYU4N91AW5N이다. 기본AWS와 회사domain smoke exit0(3public200/blocked404/HTTPS/API계약), HostingKR 실제kindaCNAME/TTL180과 권한DNS응답, in-app 실제3페이지·상담fallback·요금문구 확인 및 최종 JPEG 스크린샷을 보존했다. 무료플랜·Sydney 유지, 전체 SoftwareCI는unitFAIL이며 service/장비는 미배포다.
+
+## 2026-10-12 공개 사이트 모바일 보완·두 번째 배포
+
+사용자 승인: 배포된 사이트 주석5개를 적용하고 배포. 기존 공개 후보 checkout(591ff9e1)을 재사용하고 MAIN c438bd71/외부 AGENTS 변경은 보존한다. 기존 landing 전용 CI와 source/artifact-bound 증명·무료 플랜/Sydney·private S3/OAC·exact 공개/차단 경로를 유지한다.
+
+- [x] 주석 요구사항과 코드/공개 상태를 확인하고 bounded 보완 방향을 확정했다. 모바일 hero의 grid gap15px+negative art margin(-15px/-5px)이 간격을 상쇄하는 원인을 writer가 확인했다.
+- [x] 단일 web_frontend writer: 모바일320/390/504에서 buttons↔실제 art 경계32px 이상, pointer/touch/keyboard 반응 그림, popup 전화 제거+email 카드/CTA, footer 회사 페이지 nav 제거, pricing 출시 전 변경 가능 안내를 구현하고 영향 메뉴3문서를 갱신한다.
+- [x] 실제 모바일 overlap RED→GREEN·touch/keyboard/reduced-motion 검증 및 기존 공개 unit/typecheck 결과를 회수한다. 사소한 카피 mirror 신규 unit은 추가하지 않는다.
+- [ ] 독립 final review·source freeze를 확인하고 정확한 commit의 Public Landing Release 성공 및 CI proof/fresh local build 동일성을 확인한다.
+- [ ] 기존 전용 stack 리소스를 재사용해 새 immutable landing release를 게시한다. 이번 세션의 AWS 작업은 공식 MCP를 사용하고 CLI는 호출하지 않는다. 기존 deployment engine의 target/lock/archive/hash/edge activation 계약을 보존한다.
+- [ ] 실제 custom HTTPS public/blocked/headers와 모바일popup/hero 상태반응·pricing/footer를 확인하고 screenshot/메뉴/상태판/배포 문서를 갱신한다.
+
+Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 범위를 확정하므로 설계/배포의 중복 승인 질문은 추가하지 않는다. 이메일 문의 방식은 유지하며 백엔드/API·온라인접수/가짜 제출 완료는 추가하지 않는다. Footer 회사 연락처와 회사 홈페이지 단일 CTA는 요청된 nav 목록 제거와 별개로 유지한다.
+
+- [x] Root가 writer19/19 frozenSHA와 최종12/12 Chromium·37publicunit·9release계약·typecheck/UIpolicy 증거를 확인했다. 기존6+신규6을publicreleaseCI에연결하고staleexpected6report거부를보완했다. 아직새exactCI/prod배포완료는아니다.
+- [x] 공식MCP read로AWS project456721863474/FREE ACTIVE/기존ownedstackUPDATE_COMPLETE r1을확인했다. Ignored JSON-RPC bridge는기존freshbuild/proof/target/immutablelock/archive/SHA/activation/wait/cleanupengine을재사용하며7fake검증통과·actual쓰기0이다. CloudFrontglobalus-east1,regionalSydney를유지한다. Metadata가없는서명이나CLI우회는허용하지않는다.

@@ -14,7 +14,8 @@ describe("public contact without backend", () => {
     for (const trigger of triggers) {
       fireEvent.click(trigger);
       const dialog = within(await screen.findByRole("dialog", { name: "도입 상담" }));
-      expect(dialog.getByRole("link", { name: /032-528-2953/ })).toHaveAttribute("href", "tel:0325282953");
+      expect(dialog.queryByRole("link", { name: /032-528-2953/ })).not.toBeInTheDocument();
+      expect(dialog.getByRole("link", { name: "이메일로 상담하기" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
       expect(dialog.getByRole("link", { name: /kymkjh2002@dfkorealed.com/ })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
       expect(dialog.queryByRole("textbox")).not.toBeInTheDocument();
       expect(dialog.queryByRole("checkbox")).not.toBeInTheDocument();

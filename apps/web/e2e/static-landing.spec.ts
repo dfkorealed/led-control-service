@@ -17,7 +17,7 @@ for (const [route, heading] of [["/", /현장의 하루.*한눈에 이어지다/
     for (const trigger of await page.getByRole("button", { name: /도입 상담/ }).all()) {
       await trigger.focus(); await trigger.press("Enter");
       const dialog = page.getByRole("dialog", { name: "도입 상담" });
-      await expect(dialog.getByRole("link", { name: "032-528-2953" })).toHaveAttribute("href", "tel:0325282953");
+      await expect(dialog.locator('a[href^="tel:"]')).toHaveCount(0);
       await expect(dialog.getByRole("link", { name: "kymkjh2002@dfkorealed.com" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
       await expect(dialog.locator("form,input,textarea,select")).toHaveCount(0);
       await page.keyboard.press("Tab");

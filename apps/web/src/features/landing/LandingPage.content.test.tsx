@@ -113,8 +113,8 @@ describe("public field-day landing narrative", () => {
     expect(footer.getByText("032-551-2954")).toBeVisible();
     expect(footer.getByRole("link", { name: "kymkjh2002@dfkorealed.com" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
     expect(footer.getByText("인천광역시 부평구 평천로 199번길 53 A동 2층")).toBeVisible();
-    expect(footer.getByRole("link", { name: "회사 소개" })).toHaveAttribute("href", "https://dfkorealed.com/about");
-    expect(footer.getByRole("link", { name: "제품 소개" })).toHaveAttribute("href", "https://dfkorealed.com/products");
+    expect(footer.queryByRole("navigation", { name: "회사 페이지" })).not.toBeInTheDocument();
+    expect(footer.getByRole("link", { name: /회사 홈페이지/ })).toHaveAttribute("href", "https://dfkorealed.com");
     expect(footer.getByText(/조명과 수치는 기능 설명을 위한 예시/)).toBeVisible();
   });
 });

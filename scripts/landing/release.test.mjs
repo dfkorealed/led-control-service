@@ -95,9 +95,9 @@ test('release commands require explicit landing and frozen fresh public build be
 });
 test('browser gate rejects skipped, flaky, failed or missing Chromium coverage', () => {
   assert.equal(typeof release.validateBrowserReport,'function');
-  const base={config:{projects:[{name:'chromium'}]},stats:{expected:6,unexpected:0,skipped:0,flaky:0}};
+  const base={config:{projects:[{name:'chromium'}]},stats:{expected:12,unexpected:0,skipped:0,flaky:0}};
   release.validateBrowserReport(base);
-  for(const stats of [{...base.stats,expected:0},{...base.stats,unexpected:1},{...base.stats,skipped:1},{...base.stats,flaky:1}]) assert.throws(()=>release.validateBrowserReport({...base,stats}));
+  for(const stats of [{...base.stats,expected:0},{...base.stats,expected:6},{...base.stats,unexpected:1},{...base.stats,skipped:1},{...base.stats,flaky:1}]) assert.throws(()=>release.validateBrowserReport({...base,stats}));
   assert.throws(()=>release.validateBrowserReport({...base,config:{projects:[{name:'firefox'}]}}));
 });
 test('actual landing publication CLI rejects a missing proof before invoking AWS', async () => {

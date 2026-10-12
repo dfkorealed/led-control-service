@@ -4,11 +4,13 @@
 
 ## 구현 완료
 
-- 2026-10-12 `https://kinda.dfkorealed.com/`의 landing-only 공개 완료. 정확한 커밋 Public Landing Release와 CI proof/로컬 fresh build 해시 검증, 실제 HTTPS·메뉴 이동 검사를 통과했다. `/`, `/features`, `/pricing`만 공개하며 로그인/관제/API는 차단된다. 상담 팝업은 전화·이메일 문의 방식이다.
+- 2026-10-12 공통 회사 푸터에서 회사 소개·제품 소개·인증 현황·회사 소식 목록을 제거했다. 회사 홈페이지 CTA, 회사 정보·전화·팩스·이메일·주소·저작권은 유지한다. 공통 이메일 상담 팝업의 브랜드 카드, 이메일 주소와 CTA, 기존 ModalDialog 포커스 순환·Escape·포커스 복귀를 유지한다. 이번 소스 보완은 실제 이메일 발송이나 API 접수를 뜻하지 않으며 재배포 상태는 운영 검증과 구분한다.
+
+- 2026-10-12 `https://kinda.dfkorealed.com/`의 landing-only 공개 완료. 정확한 커밋 Public Landing Release와 CI proof/로컬 fresh build 해시 검증, 실제 HTTPS·메뉴 이동 검사를 통과했다. `/`, `/features`, `/pricing`만 공개하며 로그인/관제/API는 차단된다. 초기 공개의 상담 팝업은 전화·이메일 방식이었다. 이후 이메일 전용·모바일 UI 보완의 운영 반영 여부는 별도 검증 기록을 따른다.
 
 - 2026-10-11 공개 배포는 단일 `WEB_DEPLOY_MODE=landing|service`와 동일 deploy 명령을 사용한다. 미설정은 landing, 잘못된 값은 오류다. `build:public` → `apps/web/dist-public`에 실제 graph/산출물 검사와 모드·SHA-256 메타데이터를 적용하며 플래그 변경 후 재빌드·재배포해야 한다. 기존 `build:landing`은 독립 로컬 검증용으로 유지한다.
 - landing은 `/`, `/features`, `/pricing`만 공개하며 내부 모듈과 API를 제외한다. service는 시안·테스트를 제외한 현재 관제 앱과 기존 인증을 포함한다. 실제 앱의 허용된 중첩 경로는 직접 접속·새로고침을 지원하고 알 수 없는 주소는 두 모드 모두 HTTP 404다.
-- 모든 공개 도입 상담 CTA는 전화 `032-528-2953`과 이메일 `kymkjh2002@dfkorealed.com`을 제공하는 공통 연락 안내 팝업을 연다. `tel:0325282953`·`mailto:kymkjh2002@dfkorealed.com` 링크이며 양식·개인정보 제출·API 접수·접수 완료 표시는 제공하지 않는다. 팝업 닫기와 Escape 후 원래 버튼으로 포커스가 돌아간다.
+- 모든 공개 도입 상담 CTA는 브랜드 색상과 공통 Card·LinkButton으로 구성한 이메일 전용 팝업을 연다. 이메일 주소와 `이메일로 상담하기` CTA는 `mailto:kymkjh2002@dfkorealed.com`으로 연결한다. 팝업의 전화 상담은 제거했으며 회사 푸터의 전화 정보는 유지한다. 양식·개인정보 제출·API 접수·접수 완료 표시는 제공하지 않는다. 팝업 닫기와 Escape 후 원래 버튼으로 포커스가 돌아간다.
 - landing 헤더는 기본 native disabled `준비 중`이며 기존 선택적인 HTTPS 외부 로그인 URL 설정도 유지한다. service 헤더는 추가 URL 설정 없이 같은 origin `/login`으로 이동한다. 일반 dev/build 헤더와 관제 진입점의 `/login`, AppRoot 세션·역할·tenant·모바일 bootstrap은 기존 동작을 유지한다.
 - 기존 브랜드·장면·반응형·애니메이션·공통 CSS entry/테마/375 역할 정책 앵커는 유지한다. 상담 팝업의 본문은 연락 안내로 변경했다. 아래 2026-09-28 검증 수치는 당시 이력이며 이번 정적 배포 검증을 대신하지 않는다.
 
@@ -30,6 +32,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-12 모바일·상담 보완 검증: 실제 정적 public 빌드에서 320/390/504px 간격 RED 3개를 재현한 뒤 시각 경계 32px 이상·푸터 비겹침을 통과했다. 공개 unit 37개, Web 전체 typecheck, UI 정책 기존/신규 0건, release 보고서 계약 9개를 확인했다. 공개 release Chromium은 기존 경로/차단 검사 6개를 유지하고 모바일·터치·키보드·축소 모션·pointer depth·섹션 재진입 6개를 추가해 최종 12/12(실패/제외/재시도 0)로 통과했다. 중간 5/6·11/12 실패와 ripple 이탈 RED는 원시 로그에 보존하며 최종 통과와 구분한다. 실제 재배포/HTTPS·메일 도착/장비 검증을 대신하지 않는다.
+
 - 2026-10-12 사용자가 static landing 공개의 별도 보안·기능·접근 차단 관문을 승인했다. Web 빌드/검증 도구까지 fresh 감사하며 Vite6.4.3/Vitest4.1.11 최소 업데이트와 source/산출물 SHA 검증을 완료했다. 공개37unit·실제 Chromium6·계약29 및 scoped finding0을 보존하며 exact final commit Public Landing Release도 실제 성공했다. 기존 전체 서비스 CI·production audit 기준은 유지한다. ACM 인증서·콘텐츠·`kinda` CNAME·최종 HTTPS 공개 검증까지 완료했다. 실제 접수 API와 로그인/관제 앱은 이번 landing 배포 대상이 아니다.
 
 - 2026-10-11 한정 검증: 공개 모드/배포 Node 계약 17/17, 공개·일반 entry·mobile bootstrap 단위 45/45, Web typecheck, UI 정책 0/0·정책 테스트 79/79, 양 모드 실제 production build가 통과했다. production Chromium은 landing 2/2(서비스 전용 2개 제외), service 4/4로 직접 경로·새로고침·401/403·390px 운영자 로그인/쿠키 mock을 확인했다. 전체 canonical CI·실제 AWS/API·native 앱·HIL 검증 결과는 아니다.
@@ -48,6 +52,8 @@
 - 현재 공통 정적 `index.html`의 설명/공유 메타를 사용하므로 `/features` 링크의 검색·공유 미리보기가 홈과 동일할 수 있다. 경로별 서버 HTML 메타 제공은 후속 작업이다.
 
 ## 관련 파일
+
+- 2026-10-12 공통 보완: [이메일 상담 카드](../../apps/web/src/components/ui/public-site/ContactEmailCard.tsx), [인터랙티브 히어로](../../apps/web/src/components/ui/public-site/HeroIllustration.tsx), [모바일·조작 회귀](../../apps/web/e2e/public-mobile-polish.spec.ts), [공개 release 브라우저 관문](../../apps/web/playwright.landing-release.config.ts)
 
 - 모드 배포: [공개 빌드](../../apps/web/vite.public.config.ts), [서비스 entry](../../apps/web/src/service-main.tsx), [모드/경로/산출물 계약](../../apps/web/scripts/public-deploy-contract.mjs), [배포/복구](../../scripts/landing/deploy.mjs), [CloudFront 템플릿](../../scripts/landing/template.mjs), [생산 브라우저 검증](../../apps/web/e2e/public-deploy.spec.ts)
 
