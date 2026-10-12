@@ -51,6 +51,19 @@
 검토 초점: empty hostedZoneId와 malformed ID 구분, custom domain 인증서 안전 검증, CFN의 CustomDomain과 DNS 생성 조건 분리, 기존 관리 DNS에서 외부 DNS로 의도치 않게 전환하여 레코드가 삭제되는 경우, 실제 DistributionDomain과 CNAME 안내 일치. 기존 managed DNS stack의 설정 전환은 자동 허용하지 않고 명확한 실패로 보호한다.
 
 
+## Task 5 — 2026-10-12 직접 서울 리전 배포
+
+사용자가 직접 배포를 요청하여 Task4의 수동 운영 경계를 변경했다. 공개 범위는 landing, 회사 DNS는 호스팅케이알, 리소스 리전은 서울이다. CloudFront viewer 인증서는 서비스 요구에 따라 us-east-1을 사용한다. 계정 전체 과금/보안 관리 변경은 별도 사용자 선택을 받는다.
+
+- [x] AWS CLI 임시 세션과 STS 회사 계정 확인. 서울 로그인 오류를 공식 문서와 실제 프로젝트 설정으로 조사하고 프로젝트의 기존 Sydney 리전에서 CLI 연결을 완료했다.
+- [x] 읽기 전용 리전/인증서/DNS 사전 확인. 서울 ListStacks는 조직 SCP explicit deny, Sydney ListStacks는 성공/빈 목록. AWS Settings는 신규 경험 Free Plan 및 Sydney 지정, us-east-1 ACM 목록 없음, 권한 NS 호스팅케이알, kinda CNAME 조회 없음.
+- [ ] 사용자 계정 변경 선택: 서울을 사용하려면 유료 플랜 전환·되돌릴 수 없는 고급 기능 활성화와 조직 리전 정책 조정이 필요하다. 비용/권한 영향 때문에 자동 전환하지 않으며 사용자 답변 대기.
+- [ ] 정확한 reviewed source의 canonical CI 전체 성공 확인 및 Node22/pnpm9.15 frozen toolchain 준비. 최초 source ad851653, 원격보다 377 commits ahead, push/CI 성공 미확인.
+- [ ] 실제 같은 계정 ACM DNS 인증서 발급·호스팅케이알 검증 CNAME·ISSUED 확인, Seoul 전용 stack provision 및 실제 DistributionId 구성.
+- [ ] mode-bound release build/deploy 완료 뒤 호스팅케이알 kinda CNAME 연결, HTTPS 공개 경로/차단 경로 smoke, 실제 결과 기록.
+
+현재 원격 리소스 생성/인증서 발급/DNS 쓰기/서비스 공개는 수행하지 않았다. 로그인 성공과 읽기 결과를 배포 성공으로 표시하지 않는다.
+
 ## Ownership
 
 긴밀한 공유 계약이므로 한 implementer에게 `apps/web/**`, `infra/landing/**`, `scripts/landing/**`, 필요 root package script, 공개 메뉴3문서와 기존 AWS runbook을 승인한다. 서버/공유 MQTT/DB/인증서/기존 production Compose/CI 변경은 제외한다. 총괄만 이 계획·spec·project-status를 갱신한다.

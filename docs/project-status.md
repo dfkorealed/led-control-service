@@ -2,6 +2,13 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 서울 리전 실제 공개 배포 — 계정 연결 완료·리전 제한 확인
+
+- 사용자가 수동 배포 지시를 변경하고 서울 리전의 직접 배포를 요청했다. `kinda.dfkorealed.com`, 호스팅케이알 DNS 유지, `WEB_DEPLOY_MODE=landing` 범위를 유지하며 [실행 체크리스트 Task5](superpowers/plans/2026-10-11-web-deploy-mode.md)와 동기화한다.
+- AWS CLI 2.37.12의 `kinda` 임시 로그인과 STS 회사 계정 확인은 완료했다. 현재 AWS Settings의 `Try Catch Finally` 프로젝트는 신규 AWS 경험의 무료 플랜이며 `ap-southeast-2`에 지정되어 있다. 해당 리전 `cloudformation:ListStacks`는 빈 목록으로 성공했지만 서울 `ap-northeast-2`의 같은 읽기 호출은 조직 SCP의 explicit deny로 실패했다. 로그인도 프로젝트 리전으로만 연결됐으며 이를 서울 배포 성공으로 해석하지 않는다.
+- 서울 사용에는 유료 플랜 전환·되돌릴 수 없는 고급 기능 활성화 및 조직 리전 정책 검토가 필요하다. 계정 전체 비용·보안 관리 변경은 일반 배포 승인 범위를 벗어나므로 사용자 선택을 기다린다. 임의로 정책을 삭제하거나 다른 리전에 배포하지 않았다. `us-east-1` ACM 목록은 비어 있고, 도메인 NS는 호스팅케이알이며 `kinda` CNAME은 조회되지 않았다. 인증서/stack/S3/CloudFront 생성과 DNS 쓰기는 아직 수행하지 않았다.
+- 배포 source는 `ad851653`이고 기본 브랜치는 clean·원격보다 377 commits ahead였다. 정확한 커밋의 canonical CI 성공은 아직 미확인이다. 원격 push/새 release build/공개 접속 smoke도 미완료다. 이전 한정 Node 계약 통과를 전체 CI나 실제 배포 증거로 확대하지 않는다.
+
 ## 2026-10-12 호스팅케이알 사용자 도메인 — 로컬 구현·검토·반영 완료
 
 - 사용자 선택은 `kinda.dfkorealed.com` / 호스팅케이알 / 회사 AWS 계정에서 수동 배포다. 공식 NS 추가 지원이 확인되지 않아 회사 DNS를 유지한 CNAME 연결이 필요하다. 기존 Route 53 필수 계약을 외부 DNS로 확장하고 [체크리스트 Task4](superpowers/plans/2026-10-11-web-deploy-mode.md)와 동기화한다.
