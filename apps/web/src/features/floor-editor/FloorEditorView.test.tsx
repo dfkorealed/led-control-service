@@ -195,6 +195,30 @@ function installPreparedImport(jobId: string) {
 }
 
 describe("FloorEditorView", () => {
+  it("shares compact underline tabs with independent keyboard selection and linked panels", () => {
+    renderEditor({ ...structuredClone(editorState), floor: { ...editorState.floor, floorPlan: null } });
+    const placements = within(screen.getByRole("tablist", { name: "배치 상태" }));
+    const information = within(screen.getByRole("tablist", { name: "편집 패널" }));
+    const unplaced = placements.getByRole("tab", { name: "미배치" });
+    expect(unplaced).toHaveAttribute("tabindex", "0");
+    fireEvent.keyDown(unplaced, { key: "ArrowRight" });
+    expect(placements.getByRole("tab", { name: "전체" })).toHaveFocus();
+    expect(placements.getByRole("tab", { name: "전체" })).toHaveAttribute("aria-selected", "true");
+    const properties = information.getByRole("tab", { name: "속성" });
+    fireEvent.keyDown(properties, { key: "End" });
+    const history = information.getByRole("tab", { name: "기록" });
+    expect(history).toHaveFocus();
+    expect(history).toHaveClass("border-action-primary");
+    expect(placements.getByRole("tab", { name: "전체" })).toHaveAttribute("aria-selected", "true");
+    const tabs = [...placements.getAllByRole("tab"), ...information.getAllByRole("tab")];
+    expect(new Set(tabs.map(tab => tab.id)).size).toBe(7);
+    for (const tab of tabs) {
+      const panel = document.getElementById(tab.getAttribute("aria-controls")!);
+      expect(panel).toHaveAttribute("role", "tabpanel");
+      expect(panel).toHaveAttribute("aria-labelledby", tab.id);
+    }
+  });
+
   it("shows a retryable CAD background error without recreating the image on selection changes", async () => {
     const images: Array<{ onload: null | (() => void); onerror: null | (() => void); src: string; decode: ReturnType<typeof vi.fn> }> = [];
     class FailingImage {
@@ -220,7 +244,7 @@ describe("FloorEditorView", () => {
 
   it("opens history once without resetting later panel intent or the editor draft", () => {
     const { rerenderWithProps } = renderEditor(editorState, { initialPanelTab: "details" });
-    expect(screen.getByRole("tab", { name: "자료" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "기록" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "맵 버전" })).toHaveFocus();
     fireEvent.click(screen.getByRole("tab", { name: "속성" }));
     act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
@@ -229,8 +253,8 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("tab", { name: "속성" })).toHaveAttribute("aria-selected", "true");
     expect(useFloorEditorStore.getState().state).toBe(before);
     expect(screen.getByRole("heading", { level: 1, name: "B2 맵 편집" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "맵으로 돌아가기" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "저장" })).toHaveTextContent("저장");
+    expect(screen.queryByRole("button", { name: "맵으로 돌아가기" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled();
   });
 
   it("culls offscreen canvas nodes, keeps selected fixtures mounted, and reduces low-zoom detail", () => {
@@ -525,11 +549,11 @@ describe("FloorEditorView", () => {
     expect(workspace.parentElement).toHaveClass("min-h-0", "overflow-hidden");
     expect(screen.getByTestId("editor-toolbar")).toHaveClass("shrink-0");
     expect(screen.getByRole("button", { name: "CAD 가져오기" }).parentElement).toHaveClass("flex-wrap");
-    expect(screen.getByRole("button", { name: /^저장$/ })).toHaveClass("min-h-13", "min-w-13");
-    expect(screen.getByRole("button", { name: /^맵으로 돌아가기$/ })).toHaveClass("max-compact:min-w-13", "max-compact:min-h-13");
+    expect(screen.getByRole("button", { name: "저장됨" })).toHaveClass("min-h-13", "min-w-13");
+    expect(screen.getByRole("button", { name: "편집 정보 패널" })).toHaveClass("min-h-11", "min-w-11");
   });
 
-  it("renders toolbar canvas properties save and cancel controls", () => {
+  it("renders toolbar canvas properties and saved status without a duplicate exit command", () => {
     renderEditor(editorState, {
       floors: [{ id: "floor-b2", name: "B2" }, { id: "floor-b1", name: "B1" }],
       onFloorChange: vi.fn()
@@ -539,8 +563,8 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("button", { name: "확대" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "축소" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "100%" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "저장" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "맵으로 돌아가기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "맵으로 돌아가기" })).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "맵 편집 도구" })).toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
@@ -549,7 +573,7 @@ describe("FloorEditorView", () => {
     expect(sidePanel.parentElement).toHaveAttribute("data-testid", "floor-editor-layout");
     expect(screen.getByLabelText("도구 및 조명")).toHaveClass("w-[220px]");
     expect(sidePanel).toHaveClass("w-[280px]");
-    expect(within(screen.getByRole("tablist", { name: "편집 패널" })).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["속성", "배치", "레이어", "자료"]);
+    expect(within(screen.getByRole("tablist", { name: "편집 패널" })).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["속성", "배치", "레이어", "기록"]);
     expect(screen.getByRole("heading", { name: "맵 설정" })).toBeInTheDocument();
     expect(screen.getByLabelText("맵 너비")).toHaveValue("1,200");
     expect(screen.getByLabelText("맵 높이")).toHaveValue("800");
@@ -862,13 +886,13 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
     expect(screen.getByRole("dialog", { name: "CAD 가져오기" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "닫기" }));
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     expect(screen.getByRole("region", { name: "맵 버전" })).toBeInTheDocument();
   });
 
-  it("자료 탭에서 다른 조명을 고르더라도 식별 도구는 계속 열린다", () => {
+  it("기록 탭에서 다른 조명을 고르더라도 식별 도구는 계속 열린다", () => {
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
     expect(screen.getByRole("region", { name: "조명 위치 확인" })).toBeInTheDocument();
   });
@@ -939,7 +963,7 @@ describe("FloorEditorView", () => {
     const restore = deferred<FloorEditorState & { skippedFixtureIds: string[] }>();
     floorEditorApi.restoreFloorEditorRevision.mockReturnValueOnce(restore.promise);
     const view = renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
     const other = { ...editorState, floor: { ...editorState.floor, id: "other" } };
     view.rerenderEditor(other);
@@ -955,7 +979,7 @@ describe("FloorEditorView", () => {
 
     const toolbar = screen.getByRole("group", { name: "맵 편집 도구" });
     const toolButton = within(toolbar).getByRole("button", { name: "선택" });
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
 
     expect(toolButton).toHaveClass("size-13");
@@ -971,13 +995,12 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("calls cancel when the cancel button is clicked", () => {
+  it("keeps route-owned cancellation without exposing a duplicate cancel button", () => {
     const onCancel = vi.fn();
     renderEditor(editorState, { onCancel });
 
-    fireEvent.click(screen.getByRole("button", { name: "맵으로 돌아가기" }));
-
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "맵으로 돌아가기" })).not.toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("edits selected fixture properties and saves changed state", async () => {
@@ -1170,8 +1193,8 @@ describe("FloorEditorView", () => {
   it("does not submit an unchanged state", async () => {
     renderEditor();
 
-    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "저장됨" }));
 
     expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
   });
@@ -1199,7 +1222,7 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().state?.objects).toHaveLength(1);
 
     save.resolve({ ...structuredClone(editorState), floor: { ...structuredClone(editorState.floor), mapRevision: 8 } });
-    await waitFor(() => expect(screen.getByRole("button", { name: "저장" })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled());
   });
 
   it("keeps save and restore mutually exclusive with rapid restore clicks", async () => {
@@ -1207,7 +1230,7 @@ describe("FloorEditorView", () => {
     const restore = deferred<FloorEditorState & { skippedFixtureIds: string[] }>();
     floorEditorApi.restoreFloorEditorRevision.mockReturnValueOnce(restore.promise);
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
 
     fireEvent.click(restoreButton);
@@ -1232,7 +1255,7 @@ describe("FloorEditorView", () => {
     const save = deferred<FloorEditorState>();
     floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
     act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 333 }));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
@@ -1379,7 +1402,7 @@ describe("FloorEditorView", () => {
     installPreparedImport(jobId);
     renderEditor(editorState, { onReload, onSaved }, "preview-user");
     expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
     const cameraBeforeReview = { zoom: useFloorEditorStore.getState().zoom, pan: useFloorEditorStore.getState().pan };
@@ -1445,6 +1468,8 @@ describe("FloorEditorView", () => {
     });
     expect(onSaved).toHaveBeenCalledWith(authoritative);
     expect(onReload).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled();
+    expect(screen.getByText("CAD 도면을 적용하고 저장했습니다.")).toBeInTheDocument();
     expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
     expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
@@ -1505,7 +1530,7 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("button", { name: "선택" })).toBeEnabled();
 
     act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     expect(screen.getByRole("button", { name: "확인 시작" })).toBeEnabled();
     expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
   });
@@ -1827,7 +1852,7 @@ describe("FloorEditorView", () => {
       items: [{ ...revision(7), createdAt: timestamp }], nextCursor: null
     });
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     const time = await screen.findByText(expected);
     expect(time).toHaveAttribute("datetime", timestamp);
@@ -1860,7 +1885,7 @@ describe("FloorEditorView", () => {
         nextCursor: null
       });
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     expect(await screen.findByText("김관리")).toBeInTheDocument();
     expect(screen.getByText("변경 3건")).toBeInTheDocument();
@@ -1878,7 +1903,7 @@ describe("FloorEditorView", () => {
     });
 
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     expect(await screen.findByText("변경 2건")).toBeInTheDocument();
   });
@@ -1887,7 +1912,7 @@ describe("FloorEditorView", () => {
     const firstRequest = deferred<{ items: never[]; nextCursor: null }>();
     floorEditorApi.listFloorEditorRevisions.mockReturnValueOnce(firstRequest.promise).mockResolvedValueOnce({ items: [], nextCursor: null });
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     expect(screen.getByText("버전 기록을 불러오는 중")).toBeInTheDocument();
     firstRequest.reject(new Error("revision unavailable"));
@@ -1919,7 +1944,7 @@ describe("FloorEditorView", () => {
     };
     floorEditorApi.restoreFloorEditorRevision.mockResolvedValueOnce(restored);
     const { queryClient } = renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     queryClient.setQueryData(["floor-map", "site-2", "floor-b2"], {
       floorId: "floor-b2",
       revision: 7,
@@ -1962,7 +1987,7 @@ describe("FloorEditorView", () => {
       skippedFixtureIds: ["fixture-removed"]
     });
     renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
 
@@ -1977,7 +2002,7 @@ describe("FloorEditorView", () => {
       skippedFixtureIds: ["fixture-removed"]
     });
     const { rerenderEditor } = renderEditor();
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
     expect(await screen.findByText(/현재 존재하지 않는 조명 1개/)).toBeInTheDocument();
 
@@ -2003,7 +2028,7 @@ describe("FloorEditorView", () => {
     });
 
     renderEditor(editorState, { userRole: "viewer" });
-    fireEvent.click(screen.getByRole("tab", { name: "자료" }));
+    fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     expect(await screen.findByText("김관리")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /리비전.*복구/ })).not.toBeInTheDocument();

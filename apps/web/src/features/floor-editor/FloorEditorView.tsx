@@ -1,11 +1,11 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ArrowLeft, Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, TriangleAlert, Undo2, Redo2 } from "lucide-react";
-import { type DragEvent, type Ref, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, TriangleAlert, Undo2, Redo2 } from "lucide-react";
+import { type DragEvent, type Ref, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, UnderlineTabs, UnderlineTabPanel, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
 import { MapCameraControls } from "../../components/ui/maps/MapCameraControls";
 import {
   listFloorEditorRevisions,
@@ -61,7 +61,6 @@ export function FloorEditorView({
   readOnly = false,
   leaseToken,
   leaseFence,
-  onCancel,
   onSaved,
   onReload,
   onDirtyChange,
@@ -74,6 +73,7 @@ export function FloorEditorView({
   const queryClient = useQueryClient();
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, cadSelection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, cadSelection: s.cadSelection, selectedFixtureIds: s.selectedFixtureIds })));
   const [panelTab, setPanelTab] = useState<string>(initialPanelTab);
+  const panelTabsId = useId();
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => window.matchMedia?.("(max-width: 1279px)").matches ?? false);
   const [openPanel, setOpenPanel] = useState<"tools" | "information" | null>(() => initialPanelTab === "details" ? "information" : null);
   const [placementDraft, setPlacementDraft] = useState<{ floorId: string; siteId: string; fixtureId: string; point: Point | null } | null>(null);
@@ -408,7 +408,12 @@ export function FloorEditorView({
     adoptBaseline(authoritative);
     await invalidateEditorQueries(queryClient, authoritative);
     await onSaved(authoritative);
-  }, [adoptBaseline, baseline, draftScope, floorId, onSaved, queryClient, siteId, userId]);
+    if (activeInstance.current && activeScope.current.floorId === floorId && activeScope.current.siteId === siteId
+      && activeScope.current.authScope === draftScope) {
+      setSaveStatus("idle");
+      toast.publish({ id: `${noticeScope}:saved`, tone: "success", title: "CAD 도면을 적용하고 저장했습니다." });
+    }
+  }, [adoptBaseline, baseline, draftScope, floorId, noticeScope, onSaved, queryClient, siteId, toast, userId]);
 
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const appliedOverlay = appliedOverlayQuery.data?.overlay;
@@ -486,11 +491,7 @@ export function FloorEditorView({
               onReviewChange={setCadImportReview} onBusyChange={handleCadBusyChange}
               onApplied={handleCadApplied} onConflict={() => setSaveStatus("conflict")} />
             {floors && onFloorChange && <SelectBox label="층 선택" className="w-32 min-w-0 [&>label]:sr-only" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
-            <Button size="sm" aria-label="맵으로 돌아가기" title="맵으로 돌아가기"
-              className="max-compact:min-h-13 max-compact:min-w-13 max-compact:px-0" onClick={onCancel}>
-              <ArrowLeft size={18} className="compact:hidden" aria-hidden="true" /><span className="max-compact:sr-only">맵으로 돌아가기</span>
-            </Button>
-            <Button size="sm" variant="primary" className="min-h-13 min-w-13 text-action-primary-foreground" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave}>저장</Button>
+            <Button size="sm" variant="primary" className="min-h-13 min-w-13 text-action-primary-foreground" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave}>{isDirty ? "저장" : "저장됨"}</Button>
           </div>
         </div>
         <div className="flex flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
@@ -594,18 +595,23 @@ export function FloorEditorView({
             onConfirm={confirmPlacement} /> : null}
         </main>
         <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-[280px] shrink-0"} min-h-0 min-w-0 flex-col gap-3 overflow-hidden rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
-          <div className="grid shrink-0 grid-cols-4 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"], ["details", "자료"]].map(([value, label]) => <Button size="sm" className="h-13 min-h-13" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
-          <div className={panelTab !== "details" ? "min-h-0 flex-1 overflow-y-auto overscroll-contain" : "hidden"}>
+          <UnderlineTabs id={panelTabsId} label="편집 패널" value={panelTab} onChange={setPanelTab}
+            items={[{ value: "properties", label: "속성" }, { value: "placement", label: "배치" }, { value: "layers", label: "레이어" }, { value: "details", label: "기록" }]} />
+          <UnderlineTabPanel tabsId={panelTabsId} value="properties" activeValue={panelTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {panelTab === "properties" && (map.shapeCount && (map.selectionCount > 1 || !map.selection.length)
             ? <MapSelectionProperties key={JSON.stringify([map.selectionKey, map.bounds])} editor={map} readOnly={readOnly || isMutationPending} />
             : map.selection.length
             ? <MapElementPropertiesPanel selection={map.selection} gridSize={snap ? map.mapBounds?.gridSize : undefined} mapBounds={map.mapBounds ?? undefined} readOnly={readOnly || isMutationPending} locked={map.locked} onChange={map.commit} onDelete={map.requestRemove} onError={map.reportError} />
             : map.loadingSelection ? <Text role="status">선택을 불러오는 중</Text> : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} mapEditor={map} />)}
-          {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
-          {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
-          </div>
-          <div className={panelTab === "details" ? "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" : "hidden"} aria-hidden={panelTab !== "details"}>
+          </UnderlineTabPanel>
+          <UnderlineTabPanel tabsId={panelTabsId} value="placement" activeValue={panelTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
+          </UnderlineTabPanel>
+          <UnderlineTabPanel tabsId={panelTabsId} value="layers" activeValue={panelTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
+          </UnderlineTabPanel>
+          <UnderlineTabPanel tabsId={panelTabsId} value="details" activeValue={panelTab} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
           <FixtureIdentifyPanel floorId={floorId} readOnly={readOnly || isMutationPending} leaseToken={leaseToken} leaseFence={leaseFence} />
           <RevisionPanel
             historyEntryRef={historyEntry}
@@ -622,7 +628,7 @@ export function FloorEditorView({
             onRetry={() => void revisionsQuery.refetch()}
             onRestore={(revision) => void handleRestore(revision)}
           />
-          </div>
+          </UnderlineTabPanel>
         </SidePanel>
       </div>
       {map.removeRequested && <ConfirmDialog open title="선택 전체 삭제" destructive confirmLabel="전체 삭제"

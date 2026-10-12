@@ -216,6 +216,7 @@ for (const native of [false, true]) {
 
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
     await expect(page.getByRole("heading", { name: "B1 맵 편집" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
     if (native) {
     expect(api.state().objects).toHaveLength(1);
     expect(api.state().fixtures.filter(fixture => fixture.placementStatus === "placed")).toHaveLength(2);
@@ -278,9 +279,12 @@ for (const native of [false, true]) {
     await expect.poll(() => api.state().objects).toHaveLength(0);
     await expect.poll(() => api.state().lightSlots).toHaveLength(2);
     await expect.poll(() => api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
+    await expect(page.getByText("CAD 도면을 적용하고 저장했습니다.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
     }
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
     await expect(page.getByTestId("placement-fixture-fixture-1")).toBeVisible();
     await expect(page.getByTestId("placement-fixture-fixture-2")).toBeVisible();
     await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-width", String(size.width));
@@ -304,7 +308,7 @@ for (const native of [false, true]) {
     });
     await expect.poll(async () => (await currentState(page)).fixtures.filter(fixture => fixture.placementStatus === "placed").length).toBe(2);
     await page.getByRole("button", { name: "저장", exact: true }).click();
-    await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
     await expect.poll(() => api.savePayloads()).toHaveLength(1);
     expect(api.savePayloads()[0]).toMatchObject({
       expectedRevision: 2,
@@ -346,7 +350,7 @@ for (const native of [false, true]) {
         documentChanges: { generationId: "prepared-first", operations: [{ kind: "update",
           element: expect.objectContaining({ id: "prepared-2", style: expect.objectContaining({ fillColor: "#06b6d4" }) }) }] }
       });
-      await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(canvas).toBeVisible();
       await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();

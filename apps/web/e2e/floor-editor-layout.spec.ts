@@ -90,7 +90,7 @@ for (const viewport of [
     }
     await expect(page.getByRole("complementary", { name: "맵 편집 정보" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "속성 패널" })).toBeVisible();
-    await page.getByRole("tab", { name: "자료" }).click();
+    await page.getByRole("tab", { name: "기록" }).click();
     await expect(page.getByRole("region", { name: "맵 버전" })).toBeVisible();
 
     const layout = await page.evaluate(() => {

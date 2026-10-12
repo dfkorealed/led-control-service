@@ -55,7 +55,7 @@ async function showCadPanel(page: Page) {
     const output = process.env.TASK8_OUTPUT;
     if (!output) throw new Error("TASK8_OUTPUT is required for CAD geometry evidence");
     mkdirSync(join(output, "originals"), { recursive: true });
-    const geometry = await information.getByRole("tab", { name: "자료" }).evaluate(tab => {
+    const geometry = await information.getByRole("tab", { name: "기록" }).evaluate(tab => {
       const describe = (element: Element | null) => {
         if (!element) return null;
         const rect = element.getBoundingClientRect();
@@ -108,9 +108,9 @@ async function showCadPanel(page: Page) {
     writeFileSync(join(output, "geometry.json"), JSON.stringify(geometry, null, 2));
     await page.screenshot({ path: join(output, "originals", "cad-preclick-original.png"), type: "png", fullPage: false });
   }
-  await information.getByRole("tab", { name: "자료" }).evaluate(element => element.scrollIntoView({ block: "center" }));
+  await information.getByRole("tab", { name: "기록" }).evaluate(element => element.scrollIntoView({ block: "center" }));
   await expectMinimumTouchTargets(page, '[aria-label="편집 패널"]');
-  await information.getByRole("tab", { name: "자료" }).click();
+  await information.getByRole("tab", { name: "기록" }).click();
   return page.getByRole("region", { name: "CAD 가져오기", exact: true });
 }
 
@@ -342,7 +342,7 @@ test("operator customer routes are blocked and admin floor changes are reflected
   await adminPage.getByRole("button", { name: "저장", exact: true }).click();
 
   await expect(adminPage).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1$/);
-  await expect(adminPage.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+  await expect(adminPage.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
   await expect.poll(() => adminApi.editorRequests.filter(({ type }) => type === "atomic-save")).toHaveLength(1);
 
   const save = adminApi.editorRequests.find(({ type }) => type === "atomic-save");
@@ -412,7 +412,9 @@ test("common map elements saved in settings render immediately in monitoring", a
   for (const shape of [
     { tool: "삼각형", start: [520, 220], end: [640, 320] },
     { tool: "선", start: [320, 380], end: [480, 380] },
-    { tool: "텍스트", start: [520, 380], end: [680, 440] }
+    // Panels reduce the canvas below the viewport width. Keep both text drag
+    // points inside its observed bounds at compact and desktop widths.
+    { tool: "텍스트", start: [box.width * 0.72, box.height * 0.6], end: [box.width * 0.9, box.height * 0.72] }
   ] as const) {
     await page.getByRole("button", { name: shape.tool, exact: true }).click();
     await page.mouse.move(box.x + shape.start[0], box.y + shape.start[1]);
@@ -422,7 +424,7 @@ test("common map elements saved in settings render immediately in monitoring", a
   }
 
   await page.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
   await expect.poll(() => api.atomicSavePayloads).toHaveLength(1);
   const payload = api.atomicSavePayloads[0];
   expect(payload.objectCreates).toEqual([]);
@@ -786,7 +788,7 @@ for (const viewport of responsiveViewports) {
     await expect(canvas).toHaveAttribute("data-map-ready", "true");
     const information = page.getByRole("complementary", { name: "맵 편집 정보" });
     if (!await information.isVisible()) await page.getByRole("button", { name: "편집 정보 패널" }).click();
-    await information.getByRole("tab", { name: "자료" }).click();
+    await information.getByRole("tab", { name: "기록" }).click();
     await expect(page.getByRole("button", { name: "리비전 7 복구" })).toBeVisible();
     await information.getByRole("tab", { name: "속성" }).click();
     if (viewport.width < 1280) await page.getByRole("button", { name: "편집 정보 패널" }).click();

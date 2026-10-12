@@ -45,6 +45,25 @@ beforeEach(() => { store().reset(); localStorage.clear(); vi.clearAllMocks(); })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.restoreAllMocks(); });
 
 describe("normal common save response adoption", () => {
+  it("shows saved on initial load, enables only changed saves and keeps the ACK label on shared props", async () => {
+    const view = mount(undefined, false);
+    expect(store().isDirty).toBe(false);
+    expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled();
+    act(() => {
+      store().loadMapStructures(store().mapScope!, { layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], groups: [] });
+      store().applyMapTransaction({ operations: [{ kind: "add", element: createMapElementFromDrag("rectangle", { x: 10, y: 10 }, { x: 50, y: 50 }, "new")! }] });
+    });
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
+    const saved = { ...base, floor: { ...base.floor, mapRevision: 2, mapDocument: { ...base.floor.mapDocument!, revision: 2, elementCount: 1 } } };
+    vi.mocked(saveFloorEditorState).mockResolvedValue(saved);
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(view.onSaved).toHaveBeenCalledWith(saved));
+    await waitFor(() => expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled());
+    view.rerender(structuredClone(saved));
+    expect(screen.getByRole("button", { name: "저장됨" })).toBeDisabled();
+    expect(store().isDirty).toBe(false);
+  });
+
   it("acknowledges a committed cancel receipt in the host and persists subsequent drafts without resetting history or camera", async () => {
     const initial: FloorEditorState = { ...base, fixtures: [{ id: "fixture", name: "Light", x: 403, y: 407, ratedWatt: 40, brightness: 100, status: "online" }] };
     const view = mount("draft-user", false, initial);

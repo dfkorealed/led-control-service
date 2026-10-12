@@ -141,7 +141,7 @@ for (const width of [1039, 1434]) {
     await applySettings.scrollIntoViewIfNeeded();
     await expectReachable(applySettings);
     await page.screenshot({ path: testInfo.outputPath(`comments-information-${width}.png`) });
-    await information.getByRole("tab", { name: "자료" }).click();
+    await information.getByRole("tab", { name: "기록" }).click();
     const history = information.getByRole("region", { name: "맵 버전", exact: true });
     const list = history.getByTestId("editor-revision-list");
     await expect(list.locator("li")).toHaveCount(30);
@@ -204,7 +204,7 @@ for (const viewport of viewports) {
     await information.getByLabel("맵 너비").focus();
     await expectBoundedPage(page);
     await page.screenshot({ path: testInfo.outputPath(`information-${viewport.width}.png`), fullPage: true });
-    await information.getByRole("tab", { name: "자료" }).click();
+    await information.getByRole("tab", { name: "기록" }).click();
     await information.getByTestId("editor-revision-list").evaluate((node) => { node.scrollTop = node.scrollHeight; });
     await expect(page.getByRole("button", { name: "리비전 1 복구", exact: true })).toBeInViewport();
     if (narrow) {
@@ -257,7 +257,10 @@ test("compact text focus and panel toggles preserve unsaved edits and the leave 
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "편집 정보 패널" }).click();
   await expect(text).toHaveValue("Viewport draft");
-  await page.getByRole("button", { name: "맵으로 돌아가기", exact: true }).click();
+  // Compact input/layout assertions stay above; settings subnavigation is
+  // visible only after leaving its compact breakpoint for route navigation.
+  await page.setViewportSize({ width: 1024, height: viewports[3].height });
+  await page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "맵 관리", exact: true }).click();
   await expect(page.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeVisible();
 });
 
@@ -291,14 +294,14 @@ for (const viewport of viewports.slice(2)) {
     await expect(retry).toBeVisible();
     await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"] [role="alert"]');
     await page.getByRole("button", { name: "편집 정보 패널" }).click();
-    const cancelGeometry = await page.getByRole("button", { name: "맵으로 돌아가기", exact: true }).evaluate((button) => {
+    const panelToggleGeometry = await page.getByRole("button", { name: "편집 정보 패널", exact: true }).evaluate((button) => {
       const rect = button.getBoundingClientRect();
       const hits = (x: number, y: number) => button.contains(document.elementFromPoint(x, y));
       return { width: rect.width, height: rect.height, radius: getComputedStyle(button).borderRadius,
         centerReachable: hits(rect.x + rect.width / 2, rect.y + rect.height / 2),
         cornerReachable: hits(rect.x + 0.5, rect.y + 0.5) };
     });
-    await testInfo.attach("cancel-hit-geometry.json", { body: JSON.stringify(cancelGeometry), contentType: "application/json" });
+    await testInfo.attach("panel-toggle-hit-geometry.json", { body: JSON.stringify(panelToggleGeometry), contentType: "application/json" });
     await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-toolbar"]');
     await expectMinimumTouchTargets(page, '[aria-label="편집 패널"]');
     await expect(page.getByRole("button", { name: "미니맵" })).toBeHidden();
@@ -356,7 +359,7 @@ for (const viewport of viewports.slice(2)) {
         // Starting another tool drag clears selection, not the first saved-in-draft shape.
         await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
         await page.getByRole("button", { name: "실행 취소" }).click();
-        await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
       }
       await expectBoundedPage(page);
       await panel.focus();
@@ -377,7 +380,7 @@ test("resizing the editor and leaving it restores normal settings scrolling", as
     await expectBoundedPage(page);
   }
   await page.setViewportSize({ width: 390, height: 500 });
-  await page.getByRole("button", { name: "맵으로 돌아가기", exact: true }).click();
+  await page.getByRole("link", { name: "설정으로 돌아가기", exact: true }).click();
   await page.getByRole("navigation", { name: "모바일 주 메뉴" }).getByRole("link", { name: "설정", exact: true }).click();
   await expect(page).toHaveURL(/\/settings\?siteId=site-2$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);

@@ -1,6 +1,6 @@
 import { Search, GripVertical } from "lucide-react";
-import { useCallback, useMemo, useRef, useState, useEffect } from "react";
-import { Button, SearchField, Text } from "../../components/ui";
+import { useCallback, useId, useMemo, useRef, useState, useEffect } from "react";
+import { Button, SearchField, Text, UnderlineTabs, UnderlineTabPanel } from "../../components/ui";
 import { useFloorEditorStore } from "./editor-store";
 import type { EditorFixture } from "./editor-types";
 
@@ -41,6 +41,7 @@ export function FixturePlacementList({ readOnly, rowRegistry, onPlacementRequest
   const locked = useFloorEditorStore((s) => s.layers.fixtures.locked);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "placed" | "unplaced">("unplaced");
+  const tabsId = useId();
   const [scrollTop, setScrollTop] = useState(0);
   const [activeFixtureId, setActiveFixtureId] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -74,9 +75,13 @@ export function FixturePlacementList({ readOnly, rowRegistry, onPlacementRequest
   return <aside className="flex min-h-0 flex-1 flex-col gap-2 p-2.5" aria-label="조명 목록">
     <div className="flex items-center justify-between gap-2"><Text as="strong" variant="body-sm" weight="semibold">조명</Text><Text as="span" variant="caption" tone="secondary">{fixtures?.length ?? 0}개</Text></div>
     <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 text-content-muted" size={16} aria-hidden="true" /><SearchField aria-label="조명 검색" className="[&_input]:pl-10" value={query} onChange={setQuery} placeholder="이름 / 시리얼 / Mesh" /></div>
-    <div className="grid grid-cols-3 gap-1 rounded-control bg-surface-inset p-1" role="tablist" aria-label="배치 상태">
-      {([["all", "전체"], ["placed", "배치"], ["unplaced", "미배치"]] as const).map(([value, label]) => <Button key={value} size="sm" variant={filter === value ? "primary" : "ghost"} role="tab" aria-selected={filter === value} onClick={() => setFilter(value)}>{label}</Button>)}
-    </div>
+    <UnderlineTabs id={tabsId} label="배치 상태" value={filter} onChange={setFilter}
+      items={[{ value: "all", label: "전체" }, { value: "placed", label: "배치" }, { value: "unplaced", label: "미배치" }]} />
+    {/* Each filter keeps an ARIA target, but the virtual list has one mounted
+        instance so changing filters cannot duplicate its row/focus registry. */}
+    {(["all", "placed", "unplaced"] as const).filter(value => value !== filter).map(value =>
+      <UnderlineTabPanel key={value} tabsId={tabsId} value={value} activeValue={filter} />)}
+    <UnderlineTabPanel tabsId={tabsId} value={filter} activeValue={filter} className="flex min-h-0 flex-1 flex-col gap-2">
     <div className="flex items-center justify-between gap-2"><Text as="span" variant="caption" tone="secondary">{filtered.length}개 · 선택 {selectedIds.length}개</Text><Button size="sm" variant="ghost" onClick={() => useFloorEditorStore.getState().selectFixtures(filtered.map((f) => f.id))} disabled={!filtered.length}>전체 선택</Button></div>
     <div className="h-48 min-h-40 flex-none overflow-y-auto overscroll-contain compact:h-100 compact:flex-1" ref={list} onScroll={(event) => {
       const nextScrollTop = event.currentTarget.scrollTop;
@@ -132,6 +137,7 @@ export function FixturePlacementList({ readOnly, rowRegistry, onPlacementRequest
       </div>
       {!filtered.length && <Text variant="body-sm" tone="secondary">해당 조명 없음</Text>}
     </div>
+    </UnderlineTabPanel>
     <div className="flex items-center justify-between gap-2" data-floor-id={floorId}><Text as="span" variant="caption" tone="secondary">배치 {(fixtures ?? []).filter((f) => f.placementStatus !== "unplaced").length}</Text><Text as="span" variant="caption" tone="secondary">미배치 {(fixtures ?? []).filter((f) => f.placementStatus === "unplaced").length}</Text></div>
   </aside>;
 }

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { FloorEditorRoute } from "./FloorEditorRoute";
 import { SessionStatusProvider, ToastRegion } from "../../../components/ui";
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
@@ -33,7 +33,11 @@ afterEach(() => { cleanup(); client?.clear(); vi.restoreAllMocks(); window.histo
 it.each(["save", "cancel receipt"])("keeps leave/unload guards after stage %s while the post-preview draft remains", async mode => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["auth", "me"], { user: { id: "user", role: "admin" } });
-  render(<QueryClientProvider client={client}><SessionStatusProvider><ToastRegion /><MemoryRouter initialEntries={["/settings/floor-plans/floor/edit?siteId=site"]}><Routes>
+  render(<QueryClientProvider client={client}><SessionStatusProvider><ToastRegion /><MemoryRouter initialEntries={["/settings/floor-plans/floor/edit?siteId=site"]}>
+    {/* This isolated route host omits SettingsShell; use its map-list route
+        destination to exercise the actual link guard, not a removed command. */}
+    <Link to="/settings/floor-plans?siteId=site">맵 관리</Link>
+    <Routes>
     <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute capabilities={{ read: true, control: true, manage: true, commission: true }} />} />
     <Route path="/settings/floor-plans" element={<h1>Left editor</h1>} />
   </Routes></MemoryRouter></SessionStatusProvider></QueryClientProvider>);
@@ -68,10 +72,14 @@ it.each(["save", "cancel receipt"])("keeps leave/unload guards after stage %s wh
   const unload = new Event("beforeunload", { cancelable: true });
   act(() => window.dispatchEvent(unload));
   expect(unload.defaultPrevented).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "맵으로 돌아가기" }));
+  fireEvent.click(screen.getByRole("link", { name: "맵 관리" }));
   const dialog = await screen.findByRole("alertdialog", { name: "맵 편집 종료" });
   expect(screen.queryByText("Left editor")).not.toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+  expect(screen.queryByRole("alertdialog", { name: "맵 편집 종료" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Left editor")).not.toBeInTheDocument();
+  expect(store().isDirty).toBe(true);
+  expect(store().state!.fixtures[0].name).toBe("unsaved-after-preview");
   vi.mocked(saveFloorEditorState).mockImplementation(async () => {
     serverState = { ...store().state!, floor: { ...store().state!.floor, mapRevision: 3, mapDocument: { ...preview, revision: 3 } } };
     return serverState;
@@ -80,6 +88,6 @@ it.each(["save", "cancel receipt"])("keeps leave/unload guards after stage %s wh
   await waitFor(() => expect(store().isDirty).toBe(false));
   const cleanUnload = new Event("beforeunload", { cancelable: true });
   act(() => window.dispatchEvent(cleanUnload)); expect(cleanUnload.defaultPrevented).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "맵으로 돌아가기" }));
+  fireEvent.click(screen.getByRole("link", { name: "맵 관리" }));
   await screen.findByText("Left editor");
 });
