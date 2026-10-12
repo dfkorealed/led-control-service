@@ -365,6 +365,9 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
   private backend: CadSceneRenderBackend<TManifest["tiles"][number]>;
   private canvas: HTMLCanvasElement | null = null;
   private currentCamera: CadSceneCamera | null = null;
+  private appliedCamera: CadSceneCamera | null = null;
+  private cameraRequest: Promise<void> | null = null;
+  private viewportSize: { width: number; height: number } | null = null;
   private activeTileKeys = new Set<string>();
   private excludedIds = new Set<string>();
   private excludedGroupIds: Set<string> | undefined;
@@ -460,6 +463,7 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
   /** Replace derived descriptors without replacing the canvas or WebGL context. */
   setManifest(manifest: TManifest): void {
     this.assertAlive();
+    this.appliedCamera = null;
     this.requestGeneration++;
     this.loadAbortController.abort();
     this.loadAbortController = new AbortController();
@@ -514,11 +518,36 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
   async setCamera(camera: CadSceneCamera): Promise<void> {
     this.assertAlive();
     if (!this.mounted) throw new Error("CAD scene renderer must be mounted before setting its camera");
+    validateCadSceneCamera(camera);
+    const previous = this.appliedCamera;
+    if (previous && previous.centerX === camera.centerX && previous.centerY === camera.centerY && previous.zoom === camera.zoom &&
+        previous.viewportWidth === camera.viewportWidth && previous.viewportHeight === camera.viewportHeight) {
+      return this.cameraRequest ?? Promise.resolve();
+    }
+    const request = this.updateCamera(camera);
+    this.cameraRequest = request;
+    void request.catch(() => {
+      // A failed frame must be retryable without invalidating a newer camera.
+      if (this.cameraRequest === request) {
+        this.cameraRequest = null;
+        this.appliedCamera = null;
+      }
+    });
+    return request;
+  }
+
+  private async updateCamera(camera: CadSceneCamera): Promise<void> {
+    this.assertAlive();
+    if (!this.mounted) throw new Error("CAD scene renderer must be mounted before setting its camera");
     const nextCamera = { ...validateCadSceneCamera(camera) };
     this.currentCamera = nextCamera;
     if (this.contextLost || !this.backendMounted) return;
 
-    this.backend.resize(nextCamera.viewportWidth, nextCamera.viewportHeight, this.resolution);
+    if (this.viewportSize?.width !== nextCamera.viewportWidth || this.viewportSize.height !== nextCamera.viewportHeight) {
+      this.backend.resize(nextCamera.viewportWidth, nextCamera.viewportHeight, this.resolution);
+      this.viewportSize = { width: nextCamera.viewportWidth, height: nextCamera.viewportHeight };
+    }
+    this.appliedCamera = nextCamera;
     this.backend.setCamera(nextCamera);
     this.backend.render();
 
@@ -622,6 +651,7 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
         degraded = true;
       } else {
         if (generation === this.requestGeneration && !this.destroyed && !this.contextLost) {
+          this.invalidateFailedCamera(nextCamera);
           this.onError(error instanceof Error ? error : new Error("CAD scene tile loading failed"));
         }
         return;
@@ -655,9 +685,16 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
   }
 
   private setDisplayCamera(camera: CadSceneCamera): Promise<void> {
-    if (this.backend.renderDisplay) return this.backend.renderDisplay({ manifest: this.manifest, camera,
-      resolution: this.resolution, loadTile: this.loadTile, worker: this.worker, signal: this.loadAbortController.signal,
-      excludedIds: this.excludedIds, excludedGroupIds: this.excludedGroupIds, onError: this.onError, onDegraded: this.onDegraded });
+    if (this.backend.renderDisplay) {
+      const generation = ++this.requestGeneration;
+      return this.backend.renderDisplay({ manifest: this.manifest, camera,
+        resolution: this.resolution, loadTile: this.loadTile, worker: this.worker, signal: this.loadAbortController.signal,
+        excludedIds: this.excludedIds, excludedGroupIds: this.excludedGroupIds, onError: error => {
+          if (generation !== this.requestGeneration || this.currentCamera !== camera || this.destroyed || this.contextLost) return;
+          this.invalidateFailedCamera(camera);
+          this.onError(error);
+        }, onDegraded: this.onDegraded });
+    }
     const descriptors = this.visibleTileDescriptors(camera);
     const zoomBand = cadDisplayZoomBand(camera.zoom);
     const qualityFor = (key: string) => `${zoomBand}:${this.displayTileVersions.get(key) ?? 0}`;
@@ -737,7 +774,10 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
       this.flushDisplayRender();
       if (degraded) this.onDegraded({ requestedTileCount: descriptors.length, renderedTileCount: this.activeTileKeys.size, reason: "memory-budget" });
     })().catch(error => {
-      if (!signal.aborted && generation === this.requestGeneration && !this.destroyed) {
+      if (!signal.aborted && generation === this.requestGeneration && !this.destroyed && !this.contextLost &&
+          this.displayRequest === request && this.currentCamera) {
+        // Same-signature pans share this request; invalidate its latest consumer.
+        this.invalidateFailedCamera(this.currentCamera);
         this.tileLoadSignature = "";
         this.loadAbortController.abort();
         this.onError(error instanceof Error ? error : new Error("CAD display loading failed"));
@@ -745,6 +785,14 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
     });
     this.displayRequest = request;
     return request;
+  }
+
+  private invalidateFailedCamera(camera: CadSceneCamera): void {
+    // Reported I/O failures resolve their request; identity still fences retries.
+    if (this.currentCamera === camera) {
+      this.appliedCamera = null;
+      this.cameraRequest = null;
+    }
   }
 
   private scheduleDisplayRender(): void {
@@ -920,6 +968,8 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
         this.displayBudget.release(this.memoryOwner, `display:${key}`);
       }
       this.displayVersion++;
+      // Masks change the visible content even when the camera is unchanged.
+      this.appliedCamera = null;
       if (this.currentCamera && this.backendMounted && !this.contextLost) void this.setCamera(this.currentCamera);
       return;
     }
@@ -1017,6 +1067,8 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
     event.preventDefault();
     if (this.destroyed || this.contextLost) return;
     this.contextLost = true;
+    this.appliedCamera = null;
+    this.viewportSize = null;
     if (this.contextRestoreFrame !== null) cancelAnimationFrame(this.contextRestoreFrame);
     this.contextRestoreFrame = null;
     this.requestGeneration++;

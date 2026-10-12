@@ -10,6 +10,8 @@ import {
 } from "./cad-scene-camera";
 import { CadSceneTileCache } from "./cad-scene-tile-cache";
 import { CadSceneMemoryBudget } from "./cad-scene-memory-budget";
+import { MapRasterBackend } from "../map-scene/map-raster-backend";
+import type { MapDisplayManifest } from "@led-control/shared/map-display-contracts";
 import { cadSceneCodecGolden } from "./cad-scene-codec.golden";
 import {
   buildCadGeometryBatches,
@@ -19,6 +21,7 @@ import {
 } from "./cad-scene-worker";
 import {
   CadSceneRenderer,
+  PixiCadSceneRenderBackend,
   clipCadTextQuad,
   type CadSceneRenderBackend,
   type CadSceneRenderBackendFactory
@@ -507,6 +510,131 @@ function rendererFixture(primitive = linePrimitive(100)) {
 }
 
 describe("CadSceneRenderer", () => {
+  it("retries the latest pan consumer after a shared default display request fails", async () => {
+    const payload = encodeLineTile(linePrimitive()), tile = withIntegrity(descriptor(), payload);
+    const backend = new FakeBackend(), onError = vi.fn();
+    let reject!: (error: Error) => void;
+    const loadTile = vi.fn(async () => payload).mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const renderer = new CadSceneRenderer({ manifest: manifest([tile]), backendFactory: () => backend,
+      displayQuality: true, loadTile, onError, devicePixelRatio: 1,
+      worker: { decode: async () => ({ descriptor: tile, byteSize: payload.byteLength,
+        ...buildCadGeometryBatches([linePrimitive()]) }), destroy() {} } });
+    const next = camera({ centerX: 256.25, viewportWidth: 100, viewportHeight: 100 });
+    try {
+      await renderer.mount(document.createElement("canvas"));
+      const first = renderer.setCamera({ ...next, centerX: 256 });
+      await vi.waitFor(() => expect(loadTile).toHaveBeenCalledOnce());
+      const pan = renderer.setCamera(next);
+      expect(loadTile).toHaveBeenCalledOnce();
+      reject(new Error("still-wanted tile failed")); await Promise.all([first, pan]);
+      expect(onError).toHaveBeenCalledOnce();
+      const draws = backend.renderCalls;
+      await renderer.setCamera({ ...next });
+      expect(loadTile).toHaveBeenCalledTimes(2);
+      expect(backend.renderCalls).toBeGreaterThan(draws);
+      expect(backend.meshCount).toBeGreaterThan(0);
+      const successfulDraws = backend.renderCalls;
+      await renderer.setCamera({ ...next });
+      expect(loadTile).toHaveBeenCalledTimes(2);
+      expect(backend.renderCalls).toBe(successfulDraws);
+      expect(onError).toHaveBeenCalledOnce();
+    } finally { renderer.destroy(); }
+  });
+
+  it("reports a shared pending raster failure to the current pan consumer and retries", async () => {
+    const budget = new CadSceneMemoryBudget(32 * 1024 * 1024), backend = new MapRasterBackend(budget);
+    const tile = { ...descriptor(), version: 2 as const };
+    const display: MapDisplayManifest = { ...manifest(), version: 2, tiles: [tile] };
+    let reject!: (error: Error) => void;
+    const loadTile = vi.fn(async () => new Uint8Array()).mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const mount = vi.spyOn(backend, "mount").mockResolvedValue(), resize = vi.spyOn(backend, "resize").mockImplementation(() => {});
+    const transform = vi.spyOn(PixiCadSceneRenderBackend.prototype, "setCamera").mockImplementation(() => {});
+    const displayCalls = vi.spyOn(backend, "renderDisplay"), onError = vi.fn();
+    const renderer = new CadSceneRenderer({ manifest: display, backendFactory: () => backend, displayQuality: true, loadTile, onError,
+      worker: { decode: async (_bytes, descriptor) => ({ descriptor, byteSize: 1, ...buildCadGeometryBatches([]), nativePrimitives: [] }), destroy() {} } });
+    const next = camera({ centerX: 270, viewportWidth: 100, viewportHeight: 100 });
+    try {
+      await renderer.mount(document.createElement("canvas"));
+      const first = renderer.setCamera({ ...next, centerX: 256 });
+      await vi.waitFor(() => expect(loadTile).toHaveBeenCalledOnce());
+      const pan = renderer.setCamera(next);
+      expect(displayCalls).toHaveBeenCalledTimes(2);
+      reject(new Error("pending tile failed")); await Promise.all([first, pan]);
+      expect(onError).toHaveBeenCalledOnce();
+      await renderer.setCamera({ ...next });
+      expect(displayCalls).toHaveBeenCalledTimes(3);
+      expect(loadTile.mock.calls.length).toBeGreaterThan(1);
+    } finally { renderer.destroy(); mount.mockRestore(); resize.mockRestore(); transform.mockRestore(); displayCalls.mockRestore(); expect(budget.totalBytes).toBe(0); }
+  });
+
+  it.each([false, true])("retries identical camera after a reported tile failure, display=%s", async displayQuality => {
+    const payload = encodeLineTile(linePrimitive());
+    const tile = withIntegrity(descriptor(), payload), backend = new FakeBackend();
+    const loadTile = vi.fn(async () => payload).mockRejectedValueOnce(new Error("tile failed"));
+    const onError = vi.fn();
+    const renderer = new CadSceneRenderer({ manifest: manifest([tile]), backendFactory: () => backend,
+      displayQuality, loadTile, onError, worker: { decode: vi.fn(async () => ({ descriptor: tile,
+        byteSize: payload.byteLength, ...buildCadGeometryBatches([linePrimitive()]) })), destroy() {} } });
+    try {
+      await renderer.mount(document.createElement("canvas"));
+      await renderer.setCamera(camera());
+      expect(onError).toHaveBeenCalledOnce();
+      await renderer.setCamera(camera());
+      expect(loadTile).toHaveBeenCalledTimes(2);
+      expect(backend.meshCount).toBeGreaterThan(0);
+    } finally { renderer.destroy(); }
+  });
+
+  it("retries resolved raster failures without invalidating a newer camera from a stale callback", async () => {
+    const backend = Object.assign(new FakeBackend(), { renderDisplay: vi.fn(async (request: { onError(error: Error): void }) => {
+      if (backend.renderDisplay.mock.calls.length === 1) request.onError(new Error("raster failed"));
+    }) });
+    const onError = vi.fn();
+    const renderer = new CadSceneRenderer({ manifest: manifest(), backendFactory: () => backend,
+      displayQuality: true, loadTile: async () => new Uint8Array(), onError });
+    try {
+      await renderer.mount(document.createElement("canvas"));
+      await renderer.setCamera(camera());
+      await renderer.setCamera(camera());
+      expect(backend.renderDisplay).toHaveBeenCalledTimes(2);
+      await renderer.setCamera(camera({ centerX: 300 }));
+      backend.renderDisplay.mock.calls[1][0].onError(new Error("stale"));
+      await renderer.setCamera(camera({ centerX: 300 }));
+      expect(backend.renderDisplay).toHaveBeenCalledTimes(3);
+      expect(onError).toHaveBeenCalledOnce();
+    } finally { renderer.destroy(); }
+  });
+
+  it("retries an identical camera after its previous frame rejected", async () => {
+    const { renderer, backend, loadTile } = rendererFixture();
+    try {
+      await renderer.mount(document.createElement("canvas"));
+      vi.spyOn(backend, "render").mockImplementationOnce(() => { throw new Error("frame failed"); });
+      await expect(renderer.setCamera(camera())).rejects.toThrow("frame failed");
+      await renderer.setCamera(camera());
+      expect(loadTile).toHaveBeenCalledOnce();
+      expect(backend.meshCount).toBeGreaterThan(0);
+    } finally { renderer.destroy(); }
+  });
+
+  it("skips identical camera frames and only resizes when viewport dimensions change", async () => {
+    const { renderer, backend } = rendererFixture();
+    const resize = vi.spyOn(backend, "resize"), transform = vi.spyOn(backend, "setCamera");
+    try {
+      await renderer.mount(document.createElement("canvas"));
+      await renderer.setCamera(camera());
+      resize.mockClear(); transform.mockClear();
+      const draws = backend.renderCalls;
+      await renderer.setCamera(camera());
+      expect(backend.renderCalls).toBe(draws);
+      expect(transform).not.toHaveBeenCalled();
+      await renderer.setCamera(camera({ centerX: 300 }));
+      expect(resize).not.toHaveBeenCalled();
+      await renderer.setCamera(camera({ viewportWidth: 600 }));
+      expect(resize).toHaveBeenCalledOnce();
+    } finally { renderer.destroy(); }
+  });
+
   it("uses viewport-sized explicit batches, renders only on changes, and deduplicates visible loads", async () => {
     const { backend, loadTile, renderer } = rendererFixture();
     const canvas = document.createElement("canvas");

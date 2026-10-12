@@ -1,5 +1,31 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-12 공통 renderer 반복 작업 축소 후속
+
+### 구현 완료
+
+- 기존 공통 맵 요소와 PixiJS/Konva를 유지한다. 동일 camera/viewport 입력은 중복 작업을 생략하고 카메라 변경과 실제 캔버스 크기 변경을 분리한다.
+- 검증된 ordered paint 자산을 renderer 수명의 제한된 캐시에 보관해 새 영역/해상도 처리 시 재읽기·검증을 반복하지 않는다. 캐시는 기존 aggregate 메모리 예산을 사용하며 문서 교체·종료에서 해제한다.
+
+### 미구현
+
+- 소프트웨어 구현·최종 검증은 완료했고 로컬 작업 브랜치 반영을 진행한다. 실제 대형 DWG/iOS·Android WebView/HIL 검증과 50만 요소 실험은 기존 보류 범위를 유지한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이동할 때 화면 프레임을 그리는 것은 필요하다. 줄이는 대상은 도형 재구성·중복 resize/draw·동일 자산 재읽기이며 모든 redraw 제거를 보장하지 않는다. 설정 편집기의 팬 중 Konva hit 비용 축소는 모니터링의 조명 선택 동작을 바꾸지 않는다.
+- 합성 10,002개 공통 요소 계측의 개선과 실제 고객 도면·1000개 등록 조명 합성·모바일 WebView 성능 보장은 구분한다.
+- F3 집중 227 PASS/기존 opt-in 2 SKIP와 Chromium/WebGL 17/17을 확인했다. 1만 선 포함 10,002개 요소에서 60회 이동은 draw 120→59·resize 60→0이며 density/새 영역의 캐시 자산 재읽기는 16/12→0/0이다. frame p95는 기준 9.9ms·최종 9.4ms, peak는 25,719,627→26,350,981bytes/128MiB budget, dispose 뒤 0bytes다. 작업 횟수 감소와 실제 기기 FPS 보장을 구분한다.
+- 위 수치는 기본 CAD pending display 재시도 추가 전 cohort다. 마지막 source freeze 뒤 집중 228 PASS/2 SKIP·fresh 전체 Web 3,663 PASS/동일 기존 제어 5 FAIL/3 SKIP·타입 포함 build exit0·UI 정책 0/0·최종 브라우저 17/17을 확인했다. 총괄 마지막 dense p95는 10.1ms로 기준 9.9ms와 비슷하며 실제 FPS 향상률로 표현하지 않는다. 독립 최종 리뷰는 C0/P2 0이다.
+
+### 관련 파일
+
+- `apps/web/src/features/map-scene/{MapSceneRenderer,map-raster-backend,map-paint-window}.ts`, `features/cad-scene/CadSceneRenderer.ts`와 직접 unit·WebGL/Chromium 회귀.
+
+### 갱신 규칙
+
+- 공통 renderer 수정은 설정·모니터링 문서에 함께 기록한다. 실제 표시 완료와 document 준비를 구분하고 카메라/세대 실패 복구·dispose 메모리와 픽셀을 같은 검증에 포함한다.
+
 ## 2026-10-12 공통 맵 raster 카메라 재사용
 
 ### 구현 완료

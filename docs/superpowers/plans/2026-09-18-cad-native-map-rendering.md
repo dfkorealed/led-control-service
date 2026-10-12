@@ -10,6 +10,19 @@
 
 **설계:** [공통 맵 요소 설계](../specs/2026-09-18-cad-native-map-rendering-design.md)
 
+## 2026-10-12 추가 주석·반복 렌더링 후속 F1–F4
+
+사용자 승인: CAD 적용의 즉시 서버 저장 계약을 유지하는 권장안. 기존 PixiJS/Konva와 공통 맵 요소를 유지하며 초기화·실장비·현재 DB 변경·서비스 재시작 없이 기반 `c438bd71`의 격리 소스에서 구현한다. 상태판과 이 체크리스트를 함께 갱신한다.
+
+- [x] F1 UI: `FloorEditorView.tsx`, `FixturePlacementList.tsx`, 공통 UI 탭 및 해당 Vitest/E2E. 미변경 버튼은 `저장됨`, 변경 후 `저장` 활성화, CAD 적용 완료 안내와 새 편집 저장의 회귀를 RED→GREEN으로 검증했다. `자료`→`기록`, `맵으로 돌아가기` 제거, 기존 `UnderlineNavigation`과 tab keyboard/ARIA 계약을 재사용한다. 두 개 탭 그룹의 ID·포커스·선택을 분리하고 좁은 패널에서 잘리지 않는다. 저장 API·lease·revision과 `onSaved` 계약은 유지한다. 집중 191/191·핵심 Chromium 17/17·새 UI 3회 반복 15/15, 테스트 드래그 종점 bbox 보완 뒤 3/3 PASS다.
+- [x] F2 이력: `apps/api/src/floor-editor`의 리비전 생성 경로, `floor-import` 적용 경로와 `retention` worker·관련 Jest. 공통 prune helper를 새 리비전/자산 참조 생성 후 같은 Floor 잠금 transaction에 적용했다. 현재 포함 최신 30개만 보존하고 날짜 예외는 제거한다. 일반/legacy/checkpoint/staged 저장·복구·CAD 적용을 모두 포함하며 29/30/31개·층 격리·rollback·재전송·최소 보존 이력 복구를 검증했다. 정본 generation/delta/import/stage 자산은 보존하고 자산 삭제는 기존 참조 검사/유예 cleanup에 맡긴다. 스키마·공유 wire 계약 변경0. RED 10FAIL/3PASS→실제 임시 PG 13/13, focused 14 suites/289 PASS·타입 exit0·독립 F1/F2 리뷰 추가 결함0이다. 임시 PG 종료·삭제를 확인했고 실제 현장 DB는 불변이다.
+- [x] F3 renderer: `map-scene`, `cad-scene`, `FloorEditorCanvas.tsx` 및 관련 renderer/브라우저 회귀. 동일 camera/viewport 중복 갱신, 중복 RAF/draw/paint-ready, 반복 자산 준비·취소와 팬 중 Konva hit 비용을 기존 캐시/메모리 예산 안에서 보완했다. 새 가시 영역·zoom settle 정밀도·선택·숨김·삭제·반투명 z-order·dispose·context 복원을 유지한다. cache epoch/이전 lease·draw reject·tile callback 실패·공유 pending coverage 실패와 동일 camera 재시도까지 회귀를 추가했다. focused 227 PASS/기존 opt-in 2 SKIP·Chromium/WebGL 17/17·타입/diff-check exit0. 10,002개 합성 요소의 camera 20회 draw/resize 40/20→0/0, pan60 draw/resize 120/60→59/0, density/진입 load16/12→0/0·bake8/6 유지. p95 9.9→9.4ms·peak25,719,627→26,350,981bytes/128MiB·dispose0bytes·픽셀 불변이다. actual DWG/WebView/HIL/heap/FPS 보장은 구분하며 새 라이브러리는 없다.
+- [ ] F4 통합: 각 담당 소스/RED→GREEN 증거와 독립 리뷰를 회수한 후 전체 Web/API 테스트, 타입·빌드·UI 정책 및 Chromium UI/CAD 적용·편집 저장·새로고침·팬/줌·모니터링 표시를 검증한다. 기존 Control 5 실패·환경 skip·합성 fixture·실제 도면 검증을 구분하고 설정/모니터링 메뉴·교훈·상태판을 최신화한다. 원시 로그는 `.local/editor-followup-20261012`에 보존한다. 소유 변경만 작업 단위로 커밋하며 사용자 AGENTS/다른 소스·실행 중 API/Pi/현재 맵을 보존한다.
+
+연구 근거: [Autodesk geometry consolidation](https://aps.autodesk.com/blog/forge-viewer-consolidated-geometry), [공간별 묶음·LOD navigation](https://aps.autodesk.com/blog/viewer-performance-update-part-3-3-smooth-navigation), [CADian 공개 Emscripten viewer API](https://demo-viewer.cadian.com/API.html). 이 공개 자료는 캐시·batch·camera 분리 원리를 뒷받침하지만 AutoCAD Web/CADian의 비공개 내부 구현을 그대로 확인한 근거는 아니다. 우리 2D 공통 요소에 필요한 경로만 측정 후 적용한다.
+
+F4 최종 source freeze 관문: 기본 CAD 공유 display의 pending A→B→실패→동일 B retry 회귀를 추가해 focused 228 PASS/2 SKIP, 독립 C0/P2 0을 확인했다. fresh `corepack pnpm --filter @led-control/web test`는 3,663 PASS/동일 기존 Control 5 FAIL/3 SKIP(exit1), Web build(타입 포함)·UI 정책은 exit0/위반0, 총괄 최종 renderer Playwright 17/17 PASS다. API 전체 3,271 PASS/1,222 환경 SKIP·FAIL0 및 타입/build exit0도 확인했다. 로그는 `.local/editor-followup-20261012/{web-full-final-default,web-build-final-default,renderer-browser-final-default,api-full-linked,api-typecheck,api-build,ui-check-final,integration-browser}.log`이며 앞선 실패 로그를 덮지 않는다. F3 기존 227개/9.4ms는 중간 cohort이고 최종 총괄 dense p95는 10.1ms·기준9.9ms로 비슷하다. 작업 횟수 감소를 FPS 향상률로 확대하지 않는다. 로컬 소스 반영 뒤 보호된 사용자 AGENTS/실행 서버 및 검증한 소스 일치를 확인한 후 F4 체크를 닫는다.
+
 ## 2026-10-12 승인된 로컬 API·DB 적용 후속
 
 사용자는 기존 DB를 백업한 뒤 미적용12개 migration을 적용하고, DB에 이상이 없으면 이번 백업본만 삭제하도록 승인했다. 기존 `Shell·인증·운영 담당자`가 DB 단독 writer이며 총괄은 결과 취합과 삭제 관문을 담당한다. 이는 아래 과거 맵 초기화 승인과 별개로 **현재 저장된 맵·현장·등록 장비를 보존하는 운영 작업**이다.

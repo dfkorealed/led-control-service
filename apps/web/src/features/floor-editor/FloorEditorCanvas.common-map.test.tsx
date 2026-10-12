@@ -27,6 +27,22 @@ function Canvas({ readOnly = false }: { readOnly?: boolean } = {}) { const map =
   return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} readOnly={readOnly} />
     <ConfirmDialog isOpen={map.removeRequested} title="선택 전체 삭제" confirmLabel="전체 삭제" onClose={map.cancelRemove} onConfirm={() => { void map.confirmRemove(); }} /></>; }
 describe("actual common editor Canvas", () => {
+  it.each(["space", "middle"])("disables hit listening during %s pan and restores it after release", mode => {
+    render(<Canvas />);
+    act(() => store().setActiveTool("select"));
+    const stage = Konva.stages.at(-1)!;
+    const layers = ["editor-object-layer", "editor-fixture-layer", "editor-overlay-layer"]
+      .map(name => stage.findOne<Konva.Layer>(`.${name}`)!);
+    expect(layers.map(layer => layer.listening())).toEqual([true, true, true]);
+    if (mode === "space") fireEvent.keyDown(window, { key: " ", code: "Space" });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    fireEvent.mouseDown(canvas, { button: mode === "middle" ? 1 : 0, clientX: 20, clientY: 20 });
+    expect(layers.map(layer => layer.listening())).toEqual([false, false, false]);
+    fireEvent.mouseUp(canvas, { button: mode === "middle" ? 1 : 0, clientX: 40, clientY: 20 });
+    if (mode === "space") fireEvent.keyUp(window, { key: " ", code: "Space" });
+    expect(layers.map(layer => layer.listening())).toEqual([true, true, true]);
+  });
+
   it.each([false, true])("commits the final aligned legacy position after a frame already ran: %s", (frameAlreadyRan) => {
     const object = (id: string, x: number) => ({ id, floorId: "floor", type: "rectangle" as const,
       x, y: 100, width: 100, height: 80, rotation: 0, points: null, text: "", fontSize: null,

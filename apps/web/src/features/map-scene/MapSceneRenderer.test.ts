@@ -83,6 +83,42 @@ function collisionHarness() {
 }
 
 describe("bounded common map renderer", () => {
+  it("retries the host camera after a reported display load failure", async () => {
+    const h = harness();
+    vi.mocked(h.source.loadDisplayTile).mockRejectedValueOnce(new Error("display failed"));
+    await h.start();
+    expect(h.onError).toHaveBeenCalledOnce();
+    h.renderer.setCamera({ ...camera }); await h.flush();
+    expect(h.source.loadDisplayTile).toHaveBeenCalledTimes(3);
+    expect(h.backend.replaceTile).toHaveBeenCalled();
+  });
+  it("retries the same host camera after a rejected frame without replaying a stale request", async () => {
+    const h = harness(); await h.start();
+    const next = { ...camera, centerX: 513 };
+    vi.mocked(h.backend.render).mockImplementationOnce(() => { throw new Error("frame failed"); });
+    h.renderer.setCamera(next); await h.flush();
+    expect(h.onError).toHaveBeenCalledOnce();
+    vi.mocked(h.backend.setCamera).mockClear();
+    h.renderer.setCamera({ ...next }); await h.flush();
+    expect(h.backend.setCamera).toHaveBeenCalledOnce();
+    expect(h.backend.setCamera).toHaveBeenLastCalledWith(next);
+  });
+
+  it("does not submit an identical camera again or resize the viewport during pan", async () => {
+    const h = harness(); await h.start();
+    vi.mocked(h.backend.setCamera).mockClear();
+    vi.mocked(h.backend.resize).mockClear();
+    vi.mocked(h.backend.render).mockClear();
+    h.renderer.setCamera({ ...camera }); await h.flush();
+    expect(h.backend.setCamera).not.toHaveBeenCalled();
+    expect(h.backend.render).not.toHaveBeenCalled();
+    h.renderer.setCamera({ ...camera, centerX: 513 }); await h.flush();
+    expect(h.backend.setCamera).toHaveBeenCalledOnce();
+    expect(h.backend.resize).not.toHaveBeenCalled();
+    h.renderer.setCamera({ ...camera, viewportWidth: 900 }); await h.flush();
+    expect(h.backend.resize).toHaveBeenCalledOnce();
+  });
+
   it("picks by the same ordinal layer and element tie-breaks as ordered painting", async () => {
     const h = harness(); await h.start();
     h.renderer.applyChanges([

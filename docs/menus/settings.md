@@ -10,7 +10,7 @@
 
 ### 미구현
 
-- 최종 통합 검증과 renderer 보완은 진행 중이다. 실행 중 API·현재 현장 DB는 변경하지 않으며 이력 정책의 실제 서버 반영과 기존 초과 이력 정리는 새 API 배포 뒤에 진행한다.
+- 소프트웨어 구현·최종 검증은 완료했고 로컬 작업 브랜치 반영을 진행한다. 실행 중 API·현재 현장 DB는 변경하지 않으며 이력 정책의 실제 서버 반영과 기존 초과 이력 정리는 새 API 배포 뒤에 진행한다.
 
 ### 부족하거나 개선이 필요한 기능
 
@@ -18,6 +18,9 @@
 - 제거된 `맵으로 돌아가기`를 찾던 stage ACK 이탈 회귀도 실제 `맵 관리` 목적지의 Link로 입력을 보완했다. RED 2 FAIL→GREEN 2/2이며 취소 뒤 초안·이탈/새로고침 보호와 저장 ACK 뒤 이동 검증을 유지한다. 총괄 통합 Chromium 18/18에는 CAD 적용·후속 편집 저장·모니터링 표시·좁은 화면과 내부 기록 스크롤이 포함된다.
 - 이력 정책의 집중 14 suites/289 PASS와 실제 임시 PostgreSQL 13개 시나리오, fresh 전체 API 264 suites PASS/85 SKIP·3,271 PASS/1,222 SKIP·FAIL0 및 API 타입/빌드 exit0을 확인했다. opt-in skip은 실제 장비/외부 의존 검증으로 분류하지 않는다.
 - 정상 head에서는 최신 30개를 보존한다. 기존 head가 잘못된 구버전을 가리키는 경우 현재 정본을 보호하기 위해 30개를 넘겨 보존할 수 있으며 임의로 live head를 삭제하지 않는다.
+- 렌더러는 동일 camera/viewport의 중복 draw/resize를 생략하고 검증한 ordered 자산을 aggregate budget 안에서 재사용한다. 이동 중 Konva hit 계산을 끄고 종료/취소 뒤 복원한다. 공유 pending coverage 실패도 최신 소비자에게 전달하여 같은 카메라 재시도를 허용하고 문서 교체 뒤 이전 acquire/lease가 새 예약을 해제하지 않도록 보호한다.
+- F3 집중 227 PASS/기존 opt-in 2 SKIP, Chromium/WebGL 17/17을 확인했다. 합성 10,002개 요소에서 동일 카메라 20회는 draw/resize 40/20→0/0, 이동 60회는 draw 120→59·resize 60→0, 정밀도/새 영역의 캐시 자산 재읽기는 16/12→0/0이다. frame p95는 기준 9.9ms와 최종 9.4ms이며 실기기 FPS 개선률로 확대하지 않는다. peak는 25,719,627→26,350,981bytes로 증가했으나 128MiB 예산 이내이며 종료 뒤 0bytes다. 실제 픽셀·반투명 순서·HATCH·320px·팬 직후 첫 조명 선택을 검증했고 50만 요소는 제외했다.
+- 위 227개/9.4ms는 기본 CAD pending display 재시도 추가 전 cohort다. 마지막 source freeze 뒤 집중 228 PASS/2 SKIP, fresh 전체 Web 3,663 PASS/동일 기존 Control 5 FAIL/3 SKIP, 타입 포함 Web 빌드 exit0·UI 정책 0/0·최종 Chromium/WebGL 17/17을 확인했다. 마지막 총괄 브라우저 p95는 10.1ms로 기준 9.9ms와 비슷하다. 개선 근거는 중복 작업/자산 재읽기 감소이며 FPS 개선을 단정하지 않는다. 독립 최종 리뷰는 C0/P2 0이다.
 
 ### 관련 파일
 

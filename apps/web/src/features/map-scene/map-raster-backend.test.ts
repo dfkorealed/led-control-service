@@ -31,7 +31,10 @@ function setup(maximum = 32 * 1024 * 1024, onPaintReady?: (ready: boolean) => vo
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform() {}, beginPath() {} } as unknown as GPUCanvasContext);
   const request: CadRasterDisplayRequest<MapDisplayTile> = {
     camera: { centerX: 512, centerY: 100, viewportWidth: 200, viewportHeight: 200, zoom: 1 }, resolution: 1,
-    manifest: { version: 2, sceneId: "scene", width: 1024, height: 512, tileSize: 512, tiles: [] } as unknown as CadRasterDisplayRequest<MapDisplayTile>["manifest"],
+    manifest: { version: 2, sceneId: "scene", regionId: "region", manifestAssetId: "manifest", width: 1024, height: 512,
+      padding: 0, gridSize: 10, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
+      byteSize: 1, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 1024, maxY: 512 },
+      transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [] },
     loadTile: vi.fn(async () => new Uint8Array()),
     worker: { decode: vi.fn(async (_bytes, tile) => ({ descriptor: tile, byteSize: 100,
       ...buildMapGeometryBatches([], 1, true), nativePrimitives: [] })), destroy() {} },
@@ -42,6 +45,71 @@ function setup(maximum = 32 * 1024 * 1024, onPaintReady?: (ready: boolean) => vo
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("bounded ordered raster lifecycle", () => {
+  it("finishes a still-wanted pending cell when the next camera only adds coverage", async () => {
+    const { backend, request, budget } = setup();
+    request.manifest = { ...request.manifest, version: 2, width: 2048, tiles: [descriptor] };
+    request.camera = { ...request.camera, centerX: 256, centerY: 256, viewportWidth: 100, viewportHeight: 100 };
+    let release!: () => Promise<void>;
+    let signal!: AbortSignal;
+    const load = request.loadTile;
+    let started = false;
+    request.loadTile = vi.fn((tile, currentSignal) => {
+      if (started) return load(tile, currentSignal);
+      started = true;
+      signal = currentSignal;
+      return new Promise<Uint8Array>(resolve => { release = async () => resolve(await load(tile, currentSignal)); });
+    });
+    try {
+      const first = backend.renderDisplay(request);
+      await vi.waitFor(() => expect(request.loadTile).toHaveBeenCalledOnce());
+      const next = backend.renderDisplay({ ...request, camera: { ...request.camera, centerX: 500, viewportWidth: 600 } });
+      const wasAborted = signal.aborted;
+      await release(); await first; await next;
+      expect(wasAborted).toBe(false);
+      expect(request.loadTile).toHaveBeenCalledOnce();
+      expect(request.onError).not.toHaveBeenCalled();
+    } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); }
+  });
+
+  it("does not schedule another draw after a camera frame already displays complete coverage", async () => {
+    const frames = new Map<number, FrameRequestCallback>(); let id = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++id, callback); return id; });
+    vi.stubGlobal("cancelAnimationFrame", (key: number) => frames.delete(key));
+    const flush = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback(0)); };
+    const ready = vi.fn(), { backend, request, budget } = setup(undefined, ready);
+    try {
+      backend.setCamera(request.camera); backend.render(); await backend.renderDisplay(request); flush();
+      calls.render.mockClear();
+      const camera = { ...request.camera, centerX: request.camera.centerX + 0.25 };
+      backend.setCamera(camera); backend.render(); await backend.renderDisplay({ ...request, camera });
+      await Promise.resolve(); flush();
+      expect(calls.render).toHaveBeenCalledOnce();
+      expect(ready).toHaveBeenLastCalledWith(true, request.manifest);
+    } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); vi.unstubAllGlobals(); }
+  });
+
+  it("reuses a validated ordered asset across density refreshes within the aggregate budget", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const { backend, request, budget } = setup();
+    const primitive = { type: "line" as const, elementId: "base", zIndex: 0, fragmentOrder: 0,
+      layerName: "layer", groupId: null, sourceType: "line", clipBounds: null,
+      bounds: { minX: 20, minY: 20, maxX: 40, maxY: 40 }, style: line.style,
+      geometry: { start: { x: 20, y: 20 }, end: { x: 40, y: 40 } } };
+    const bytes = encodeMapDisplayTile([primitive]), key = { elementId: "base", zIndex: 0, fragmentOrder: 0 };
+    const tile = { ...descriptor, byteSize: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"),
+      pages: [{ layerId: "layer", sequence: 0, primitiveStart: 0, primitiveCount: 1, firstKey: key, lastKey: key }] };
+    request.manifest = { ...request.manifest, orderedPages: { version: 1 }, tiles: [tile] } as typeof request.manifest;
+    request.loadTile = vi.fn(async () => bytes);
+    try {
+      await backend.renderDisplay(request);
+      await backend.renderDisplay({ ...request, camera: { ...request.camera, zoom: 1.1 } });
+      await new Promise(resolve => setTimeout(resolve, 160));
+      expect(request.loadTile).toHaveBeenCalledOnce();
+      expect(budget.totalBytes).toBeLessThanOrEqual(budget.maximumBytes);
+      backend.suspend(); expect(budget.totalBytes).toBe(0);
+    } finally { backend.destroy(); vi.unstubAllGlobals(); }
+  });
+
   it("pins pending successor coverage across a same-signature pan under memory pressure", async () => {
     const { backend, request, budget } = setup();
     request.manifest.tiles = [descriptor, { ...descriptor, assetId: "right", tileX: 1 }];

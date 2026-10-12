@@ -2,6 +2,16 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 맵 편집 추가 주석·반복 렌더링 후속: 소프트웨어 완료 / 로컬 반영 중
+
+- 사용자가 권장 저장 방식을 승인했다. CAD 확인/적용의 즉시 서버 저장은 유지하고 미변경 버튼은 `저장됨`, 편집 후에는 `저장`으로 표시한다. 자료 탭은 `기록`으로 바꾸고 배치 상태/편집 패널은 공통 탭으로 통일하며 `맵으로 돌아가기` 버튼은 제거한다.
+- 현재 포함 층별 최신 30개 복구 이력을 모든 저장/적용/복구 경로에서 원자적으로 제한한다. 번호는 단조 증가하며 정본 복원에 필요한 generation/delta/자산은 임의 삭제하지 않는다. 실제 DB의 일괄 정리·서비스 재시작은 이번 소프트웨어 검증에서 실행하지 않는다.
+- [기존 맵 계획 F1–F4](superpowers/plans/2026-09-18-cad-native-map-rendering.md)를 정본으로 사용한다. 기반 `c438bd71`의 기존 worktree에서 UI·backend·renderer를 소유 범위별로 구현하고 통합 검증 후 반영한다. 기존 Web Control 5 실패는 알려진 기준선이며 새 실패와 분리한다.
+- 렌더링은 PixiJS/Konva와 공통 요소를 유지한다. 중복 프레임/동일 viewport 갱신, 진행 중 영역 작업의 반복, 이동 중 Konva hit 비용을 우선 검증한다. 실제 성능 개선은 수치와 표시 픽셀로 확인하며 새 기술 도입이나 50만 요소 실험은 하지 않는다.
+- F1 제품 소스 freeze 후 집중 191/191·핵심 Chromium 17/17·새 UI 반복 15/15, 별도 텍스트 드래그 QA 종점 보완 뒤 3/3 PASS다. F2 focused 14 suites/289 PASS·타입 exit0와 실제 임시 PostgreSQL 13개 시나리오를 확인했고 해당 DB는 종료·삭제됐다. 전체 API 첫 실행의 sibling gateway 의존성 누락 4 suite 시작 실패는 제품 결함과 구분해 원 로그를 보존하며 연결 보완 후 전체 재검증 중이다. F3 retry/epoch 회귀 및 최종 리뷰·전체 Web/API·build는 아직 완료로 표시하지 않는다.
+- F2 `9aa44528`, F1 `acd1bb3f`를 작업 단위로 커밋했다. fresh 전체 API 재실행은 264 suites PASS/85 SKIP·3,271 PASS/1,222 SKIP·FAIL0, API 타입/빌드 exit0이다. UI 통합 Chromium 18/18과 stage ACK 이탈 회귀 2/2가 통과했다. 현재 전체 Web 3,661 PASS/동일 기존 Control 5 FAIL/3 SKIP·타입 포함 build exit0은 마지막 pending coverage 실패 전달 보완 전 cohort다. F3 최종 소스 freeze 뒤 전체 Web/build와 renderer/browser를 다시 확인한다.
+- 마지막 기본 CAD 공유 display 실패 보완 뒤 source freeze 검증은 집중 228 PASS/기존 opt-in 2 SKIP·전체 Web 3,663 PASS/동일 기존 Control 5 FAIL/3 SKIP(64.85s, exit1)·타입 포함 Web 빌드 exit0·UI 정책 0/0·최종 Chromium/WebGL 17/17(29.7s, exit0), 독립 리뷰 C0/P2 0이다. 전체 Web GREEN/HIL 완료로 표현하지 않는다. protected Shared/Gateway/ESP/infra/MQTT/auth/Control·AGENTS diff0과 현재 서버 PID57162/90698 불변을 확인했다. 이력 30개 정책의 실행 중 API 반영은 보류하고 원 로그는 worktree `.local/editor-followup-20261012`에 보존한다.
+
 ## 2026-10-12 BIO 수동 제어 TIMEOUT 이력 판정 — 소프트웨어 수리·검증 완료 / 런타임 반영 대기
 
 - 실제 명령 `337f5ac3-76fd-4abc-b41b-bab2a3d896c1`은70%·원4대상 중 B1-L004가 `failed/TIMEOUT/brightness=null`, 나머지3개가 `succeeded/70`이다. 서버가 BIO TIMEOUT을 확정 실패로 해석해 `partially_applied`와 `일부 조명 적용 실패`를 만들었다. 응답 부재를70% 성공으로 합성할 수는 없다.

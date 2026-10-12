@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MapDisplayTile, OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
 import { encodeMapDisplayTile } from "../../../../api/src/floor-import/cad-scene-codec";
 import { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
-import { MapPaintWindow, createMapPageCursor } from "./map-paint-window";
+import { MapPaintAssetCache, MapPaintWindow, createMapPageCursor } from "./map-paint-window";
 import { mergeMapPaintStreams } from "./map-ordered-pages";
 
 function fixture(id: string, start: number) {
@@ -24,6 +24,63 @@ function fixture(id: string, start: number) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("bounded ordered asset and logical-page window", () => {
+  it("fences an old acquire and old lease from a cache cleared and refilled at the same key", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const a = fixture("a", 0), budget = new CadSceneMemoryBudget(32 * 1024 * 1024), assets = new MapPaintAssetCache(budget);
+    let complete!: (bytes: Uint8Array) => void;
+    const pending = assets.acquire(a.tile, new AbortController().signal, () => new Promise(resolve => { complete = resolve; }));
+    const rejected = expect(pending).rejects.toThrow("Aborted");
+    assets.clear();
+    const current = await assets.acquire(a.tile, new AbortController().signal, async () => a.bytes);
+    const bytes = budget.totalBytes;
+    complete(a.bytes); await rejected;
+    expect(budget.totalBytes).toBe(bytes);
+    assets.clear();
+    const replacement = await assets.acquire(a.tile, new AbortController().signal, async () => a.bytes);
+    current.release();
+    expect(budget.reserve("pressure", "all", budget.maximumBytes)).toBe(false);
+    replacement.release(); assets.clear(); expect(budget.totalBytes).toBe(0);
+  });
+
+  it("shares validated assets between windows, evicts idle inputs and reloads after pressure", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const a = fixture("a", 0), b = fixture("b", 1), budget = new CadSceneMemoryBudget(32 * 1024 * 1024);
+    const assets = new MapPaintAssetCache(budget), load = vi.fn(async (tile: MapDisplayTile) => tile.assetId === "a" ? a.bytes : b.bytes);
+    const read = async (value: ReturnType<typeof fixture>) => {
+      const window = new MapPaintWindow({ budget, assets, load, signal: new AbortController().signal, layerId: () => "canonical" });
+      try { const record = await window.read(value.tile, value.tile.pages![0], 0); record.release?.(); return record.primitive.elementId; }
+      finally { window.close(); }
+    };
+    try {
+      expect(await read(a)).toBe("a-0"); expect(await read(b)).toBe("b-0"); expect(await read(a)).toBe("a-0");
+      expect(load).toHaveBeenCalledTimes(2); expect(budget.totalBytes).toBeGreaterThan(0);
+      expect(budget.reserve("pressure", "all", budget.maximumBytes)).toBe(true);
+      budget.releaseOwner("pressure");
+      expect(await read(a)).toBe("a-0"); expect(load).toHaveBeenCalledTimes(3);
+    } finally { assets.clear(); expect(budget.totalBytes).toBe(0); }
+  });
+
+  it("does not publish an aborted shared asset or reuse bytes with a changed digest", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const a = fixture("same", 0), b = fixture("same", 2), budget = new CadSceneMemoryBudget(32 * 1024 * 1024);
+    const assets = new MapPaintAssetCache(budget), controller = new AbortController();
+    let complete!: (bytes: Uint8Array) => void;
+    const window = new MapPaintWindow({ budget, assets, signal: controller.signal, layerId: () => "canonical",
+      load: () => new Promise(resolve => { complete = resolve; }) });
+    const pending = window.read(a.tile, a.tile.pages![0], 0);
+    controller.abort(); await expect(pending).rejects.toThrow();
+    complete(a.bytes); await Promise.resolve(); expect(budget.totalBytes).toBe(0);
+    const load = vi.fn(async (tile: MapDisplayTile) => tile.sha256 === a.tile.sha256 ? a.bytes : b.bytes);
+    try {
+      for (const value of [a, b]) {
+        const next = new MapPaintWindow({ budget, assets, load, signal: new AbortController().signal, layerId: () => "canonical" });
+        try { const record = await next.read(value.tile, value.tile.pages![0], 0); expect(record.primitive.zIndex).toBe(value === a ? 0 : 2); record.release?.(); }
+        finally { next.close(); }
+      }
+      expect(load).toHaveBeenCalledTimes(2);
+    } finally { window.close(); assets.clear(); expect(budget.totalBytes).toBe(0); }
+  });
+
   it("merges interleaved pages with one admitted raw asset and bounded reusable pages", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const a = fixture("a", 0), b = fixture("b", 1), data = new Map([["a", a], ["b", b]]);

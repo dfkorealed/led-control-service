@@ -174,8 +174,10 @@ for (const width of [768, 320]) test(`ordinary drawing reuses pan coverage and r
   expect(evidence.densities.some(value => Math.abs(value - 1.2) < 1e-10)).toBe(true);
   expect(evidence.peakBytes).toBeLessThanOrEqual((width === 320 ? 32 : 128) * 1024 * 1024);
   expect(evidence.readyBeforeRelease).toBe(false);
-  expect(evidence.recovery).toEqual(Array.from({ length: 3 }, () => ({ reset: true, restored: true })));
-  expect(evidence.readyPixels).toHaveLength(4);
+  // Identical input preserves the already painted frame and emits no new ready edge.
+  expect(evidence.recovery).toEqual([{ reset: false, restored: true },
+    { reset: true, restored: true }, { reset: true, restored: true }]);
+  expect(evidence.readyPixels).toHaveLength(3);
   for (const pixel of evidence.readyPixels) expect(pixel).toEqual(evidence.initialPixel);
   expect(evidence.readiness.at(-1)).toBe(false);
   expect(evidence.previewDisposedBytes).toBe(0);

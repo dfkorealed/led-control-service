@@ -10,13 +10,13 @@ import type { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget"
 import type { DecodedCadSceneTile } from "../cad-scene/cad-scene-worker";
 import { paintDisplayPrimitive, paintDisplayFillRun, canJoinDisplayFill, paintMapElement } from "./map-native-painter";
 import { mapRasterGrid, mapRasterInfluenceMargin } from "./map-raster-grid";
-import { MapPaintWindow } from "./map-paint-window";
+import { MapPaintAssetCache, MapPaintWindow } from "./map-paint-window";
 import { paintMapOrderedCell } from "./map-ordered-cell";
 
 type Request = CadRasterDisplayRequest<MapDisplayTile>;
 interface CoverageRequest {
   signature: string; controller: AbortController; promise: Promise<void>; pending: boolean;
-  wanted: ReadonlyMap<string, string>; manifest: Request["manifest"];
+  wanted: ReadonlyMap<string, string>; manifest: Request["manifest"]; observer: Request;
 }
 interface Cell {
   signature: string; quality: string; bounds: CadBounds; canvas: HTMLCanvasElement | null; visible: boolean;
@@ -59,12 +59,19 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   private readonly bandCameras = new Map<number, CadSceneCamera>();
   private indexedTiles: readonly MapDisplayTile[] | null = null;
   private readonly parts = new Map<string, MapDisplayTile[]>();
+  private readonly assets: MapPaintAssetCache;
+  private desiredSignature = "";
+  private camera: CadSceneCamera | null = null;
+  private renderedCamera: CadSceneCamera | null = null;
 
   constructor(private readonly budget: CadSceneMemoryBudget,
     private readonly layerId: (name: string) => string | undefined = name => name,
-    private readonly onPaintReady?: (ready: boolean, manifest: Request["manifest"]) => void) { super(); }
+    private readonly onPaintReady?: (ready: boolean, manifest: Request["manifest"]) => void) {
+    super(); this.assets = new MapPaintAssetCache(budget);
+  }
 
   override setCamera(camera: CadSceneCamera): void {
+    this.camera = { ...camera };
     this.resetPaintReady();
     super.setCamera(camera);
     const bounds = { minX: camera.centerX - camera.viewportWidth / camera.zoom / 2,
@@ -146,6 +153,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     if (this.disposed || request.signal.aborted) return Promise.resolve();
     const sceneKey = displaySceneKey(request.manifest);
     if (!this.rasterCamera || this.rasterSceneKey !== sceneKey || this.rasterResolution !== request.resolution) {
+      if (this.rasterSceneKey !== sceneKey) this.assets.clear();
       this.cancelSettledCamera();
       this.rasterCamera = { ...request.camera };
       this.rasterResolution = request.resolution;
@@ -224,14 +232,33 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
       return { key, bounds, tiles, signature, raster };
     });
     const signature = `${this.revision}:` + jobs.map(job => `${job.key}:${job.signature}`).join(";");
+    this.desiredSignature = signature;
     if (this.request?.signature === signature && !this.request.controller.signal.aborted &&
         (this.request.pending || this.coverageComplete(this.request))) {
+      this.request.observer = request;
       for (const key of this.request.wanted.keys()) this.budget.setPinned(this.owner, key, true);
-      if (!this.request.pending) { this.paintCandidate = this.request; this.schedulePaint(); }
+      if (!this.request.pending) {
+        this.paintCandidate = this.request;
+        // The synchronous camera frame may already show these exact cells.
+        // Readiness still requires that frame, not just cache/request admission.
+        const rendered = this.renderedCamera;
+        if (rendered && rendered.centerX === camera.centerX && rendered.centerY === camera.centerY && rendered.zoom === camera.zoom &&
+            rendered.viewportWidth === camera.viewportWidth && rendered.viewportHeight === camera.viewportHeight) this.reportPaintReady();
+        else this.schedulePaint();
+      }
       return this.request.promise;
     }
     this.resetPaintReady();
     const previousRequest = this.request;
+    if (previousRequest?.pending && !previousRequest.controller.signal.aborted &&
+        [...previousRequest.wanted].every(([key, value]) => jobs.some(job => job.key === key && job.signature === value))) {
+      previousRequest.observer = request;
+      // A wider viewport still needs every pending cell. Finish that bounded
+      // window, then extend ONLY the latest camera; do not restart common work.
+      return previousRequest.promise.then(() => {
+        if (!this.stopped && !this.disposed && !request.signal.aborted && this.lastRequest === request) return this.renderDisplay(request);
+      });
+    }
     const drained = this.drain;
     previousRequest?.controller.abort();
     const controller = new AbortController();
@@ -249,14 +276,14 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
       if (wanted.has(key)) this.budget.touch(this.owner, key);
     }
     const current: CoverageRequest = { signature, controller, promise: Promise.resolve(), pending: true,
-      wanted: new Map(jobs.map(job => [job.key, job.signature])), manifest };
+      wanted: new Map(jobs.map(job => [job.key, job.signature])), manifest, observer: request };
     this.request = current;
     current.promise = (async () => {
       // Serialize the one-cell staging window, including cancelled Worker work.
       await drained;
       if (controller.signal.aborted || this.stopped) return;
       const window = ordered ? new MapPaintWindow({ budget: this.budget, signal: controller.signal,
-        layerId: this.layerId, load: request.loadTile }) : null;
+        layerId: this.layerId, load: request.loadTile, assets: this.assets }) : null;
       let yieldedAt = performance.now();
       try {
       for (const job of jobs) {
@@ -407,12 +434,15 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
       }
       } finally { window?.close(); }
     })().catch(error => {
-      if (controller.signal.aborted || this.stopped) return;
+      const observer = current.observer;
+      // Shared work belongs to the newest matching coverage consumer, not the
+      // camera closure that originally started its load. Replaced work is stale.
+      if (controller.signal.aborted || observer.signal.aborted || this.stopped || this.disposed || this.request !== current) return;
       this.request = null;
       for (const [key, cell] of this.cells) if (!cell.visible) this.budget.setPinned(this.owner, key, false);
-      if (error instanceof RasterBudgetError || error instanceof Error && error.message.includes("memory budget")) request.onDegraded({ requestedTileCount: jobs.length,
+      if (error instanceof RasterBudgetError || error instanceof Error && error.message.includes("memory budget")) observer.onDegraded({ requestedTileCount: jobs.length,
         renderedTileCount: jobs.filter(job => this.cells.get(job.key)?.visible).length, reason: "memory-budget" });
-      request.onError(error instanceof Error ? error : new Error("Ordered map display failed"));
+      observer.onError(error instanceof Error ? error : new Error("Ordered map display failed"));
     }).finally(() => {
       current.pending = false;
       request.signal.removeEventListener("abort", cancel);
@@ -424,12 +454,15 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     return current.promise;
   }
 
-  override render(): void { this.cancelPaint(); super.render(); this.reportPaintReady(); this.queueRefresh(); }
+  override render(): void {
+    this.cancelPaint(); super.render(); this.renderedCamera = this.camera; this.reportPaintReady();
+  }
 
   override suspend(): void {
     this.resetPaintReady();
     this.stopped = true; this.cancelSettledCamera(); this.request?.controller.abort(); this.request = null; this.lastRequest = null;
     this.cancelPaint();
+    this.assets.clear(); this.camera = null; this.renderedCamera = null; this.desiredSignature = "";
     for (const key of this.cells.keys()) this.drop(key);
     for (const owner of this.stagingOwners) this.budget.releaseOwner(owner);
     super.suspend();
@@ -461,7 +494,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     if (this.paintFrame !== null || this.stopped || this.disposed) return;
     this.paintFrame = requestAnimationFrame(() => {
       this.paintFrame = null;
-      if (!this.stopped && !this.disposed) { super.render(); this.reportPaintReady(); }
+      if (!this.stopped && !this.disposed) { super.render(); this.renderedCamera = this.camera; this.reportPaintReady(); }
     });
   }
 
@@ -484,7 +517,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
 
   private reportPaintReady(): void {
     const candidate = this.paintCandidate;
-    if (this.paintReady || !candidate || candidate !== this.request || candidate.pending ||
+    if (this.paintReady || !candidate || candidate !== this.request || candidate.signature !== this.desiredSignature || candidate.pending ||
         candidate.controller.signal.aborted || this.stopped || this.disposed || !this.coverageComplete(candidate) ||
         [...candidate.wanted.keys()].some(key => !this.cells.get(key)?.visible)) return;
     this.paintReady = true;

@@ -935,7 +935,7 @@ export function FloorEditorCanvas({
         onFocusedCandidateChange={onFocusedCadCandidateChange}
         onToggle={onToggleCadCandidate}
       />
-      <Layer {...transform} name="editor-object-layer" visible={layers.objects.visible} listening={!onPlacementPointChange && !readOnly && !layers.objects.locked && activeTool === "select"}>
+      <Layer {...transform} name="editor-object-layer" visible={layers.objects.visible} listening={!isPanning && !onPlacementPointChange && !readOnly && !layers.objects.locked && activeTool === "select"}>
         {visibleObjects.map((object) => {
           let ref = objectRefCallbacks.current.get(object.id);
           if (!ref) { ref = (node) => { if (node) objectNodes.current.set(object.id, node); else objectNodes.current.delete(object.id); }; objectRefCallbacks.current.set(object.id, ref); }
@@ -982,10 +982,10 @@ export function FloorEditorCanvas({
             }} />;
         })}
       </Layer>
-      <Layer {...transform} name="editor-fixture-layer" visible={layers.fixtures.visible} listening={!onPlacementPointChange && activeTool === "select"}>
+      <Layer {...transform} name="editor-fixture-layer" visible={layers.fixtures.visible} listening={!isPanning && !onPlacementPointChange && activeTool === "select"}>
         {visibleFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} zoom={renderedZoom} colors={fixtureColors} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
       </Layer>
-      <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive && !onPlacementPointChange}>
+      <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!isPanning && !cadReviewActive && !onPlacementPointChange}>
         <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
         <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / renderedZoom} dash={[6 / renderedZoom, 4 / renderedZoom]} />
         {mapEditor?.document && mapEditor.selectionCount > 0 && !(mapEditor.shapeCount === 0 && mapEditor.fixtureCount === 1) && (mapEditor.promotedIds.length

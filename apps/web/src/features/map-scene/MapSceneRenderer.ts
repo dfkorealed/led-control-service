@@ -95,7 +95,10 @@ export class MapSceneRenderer {
     const worker = this.source.decodeDisplayTile
       ? { decode: this.source.decodeDisplayTile.bind(this.source), destroy() {} } : createCadSceneWorkerClient<MapDisplayTile>();
     this.scene = new CadSceneRenderer<MapDisplayManifest>({ ...options, manifest: emptyDisplay(), displayQuality: true,
-      onError: this.onError,
+      onError: error => {
+        if (this.camera === this.renderedCamera) this.camera = null;
+        this.onError(error);
+      },
       backendFactory: options.backendFactory ?? (() => new MapRasterBackend(this.budget, name => this.displayLayerIds.get(name),
         (ready, manifest) => {
           // Metadata adoption and raster publication are independent. An old
@@ -293,6 +296,8 @@ export class MapSceneRenderer {
 
   setCamera(camera: CadSceneCamera): void {
     this.assertAlive();
+    validateCadSceneCamera(camera);
+    if (sameCamera(this.camera, camera)) return;
     this.camera = { ...validateCadSceneCamera(camera) };
     this.setPaintReady(false);
     this.scheduleCamera();
@@ -478,8 +483,15 @@ export class MapSceneRenderer {
       if (this.disposed || !this.camera) return;
       // setCamera transforms/renders synchronously before starting asynchronous
       // display work. Never await a previous viewport's request here.
-      void this.scene.setCamera(this.camera).catch(error => this.onError(asError(error)));
-      this.renderedCamera = this.camera;
+      const camera = this.camera;
+      this.renderedCamera = camera;
+      // A cache-hit frame can now report readiness synchronously from setCamera.
+      // Publish the snapshot before that callback; it still follows actual draw.
+      void this.scene.setCamera(camera).catch(error => {
+        // Retry the same failed input, but never invalidate a newer request.
+        if (!this.disposed && this.camera === camera) this.camera = null;
+        this.onError(asError(error));
+      });
       // Native drafts retain canonical paths; changing a tessellation band
       // must not invalidate their raster cells during every zoom gesture.
       try { if (!this.nativePaint && cadDisplayZoomBand(this.camera.zoom) !== this.draftBand) this.refreshDraft(); }
