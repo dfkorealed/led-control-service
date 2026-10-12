@@ -18,6 +18,8 @@ Node 22.23.2 및 기존 초기 환경·동일 argv·local-app-only/PKI unavailab
 
 비공개 원본 종료 코드·백업 identity·digest·검사 결과는 `.local/db-migrations-20261012-hDROA0PJ/report.json`에 남긴다. 백업의 삭제 여부는 담당자가 결정하지 않으며, 사용자 요청에 따라 총괄의 독립 검증 후 이번 백업만 삭제하는 별도 관문으로 인계한다. 이 기록은 실제 로컬 반영 사실이고 아래 과거 ‘미적용’ 문장은 당시 검증 이력이다.
 
+총괄의 후속 독립 read-only 검사에서 완료 138개·미적용/실패 0개, 기존 원장 및 신규 checksum 보존, FK 196개·CHECK 206개 위반 0개와 맵/등록 정보 보존을 확인했다. 2026-10-12 06:29:09 UTC의 API/의존성·697초 오류 0건 최종 확인 뒤, exact backup identity와 SHA-256을 다시 대조해 06:29:30.249 UTC에 이번 `before.dump`만 영구 삭제하고 부재를 확인했다. 다른 백업은 삭제하지 않았다. [상태판](project-status.md)과 [R1–R5 실행 체크리스트](superpowers/plans/2026-09-18-cad-native-map-rendering.md)에 같은 완료 상태를 기록하며, 보호된 `.local`의 원 로그와 검사 증거는 유지한다.
+
 ## 2026-10-05 개인 알람 숨김과 영속 요청 원장 (추가 운영 UI Task 3)
 
 `20261004100000_monitoring_incident_dismissals`는 기존 읽음·장애 모델을 바꾸지 않고 아래 두 테이블을 추가한다. Task 3 검증은 소유권과 빈 public schema를 확인한 자기 소유 임시 PostgreSQL에서 수행했다. 이후 사용자 승인으로 2026-10-06 08:43 KST(2026-10-05 23:43 UTC), Task 10에서 로컬 `localhost:5432/led_control`의 두 테이블과 신규 migration 완료 기록만 한 additive transaction으로 반영했다. 실제 필드·복합 PK·4개 cascade FK·두 사용자 인덱스·완료 CHECK·UTC 기본값과 신규 테이블 0행을 확인했다. SQL SHA256은 `a1db886f2977a7005e30caf55748c052278ed509c40251bf599a174410130fae`, 적용 단계는 1이다. 기존 migration 기록 126행(과거 rolled-back 기록 포함)과 기존 `20260918090000_floor_light_slots_map_reset`의 DB/source checksum 불일치는 그대로 보존했고, 전체 migrate deploy/resolve/reset·기존 데이터 변경·원격 배포는 하지 않았다. 이 사실은 로컬 schema 반영이며 실장비 검증을 의미하지 않는다.

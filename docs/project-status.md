@@ -2,6 +2,13 @@
 
 기준일: 2026-10-12
 
+## 2026-10-12 로컬 API·DB 최신 적용 — 기존 12개 migration 반영·검증·이번 백업 삭제 완료
+
+- 사용자 승인으로 기존 `Shell·인증·운영 담당자`가 MAIN `416785d0`의 미적용 migration 12개를 백업·복원 시험 후 실제 로컬 DB에 적용했다. 복원 시험과 실제 `prisma migrate deploy` 모두 exit 0이며 완료 138/138·미적용 0·실패 0이다. 기존 원장 127행과 알려진 과거 checksum 차이는 수정 없이 보존했고, 신규 완료 12행의 checksum은 SQL과 일치한다. 운영 기록 전용 브랜치의 `0f655645`도 로컬 통합했다.
+- 총괄이 적용 직후 기존 108개 테이블 원본 컬럼의 count/digest 불변을 대조하고, 별도 read-only 접속으로 FK 196개·CHECK 206개 위반/미검증 0 및 무효 인덱스 0을 재확인했다. 재기동 후에도 25개 맵·현장·MeshNode 테이블의 원본 digest와 조명 6개·게이트웨이 1개의 등록 귀속은 보존됐다. 활성 telemetry·보고서 worker의 시각/수신 원장 및 승인된 BIO OFF 상태 수렴 갱신은 SQL 적용 직후의 데이터 보존과 구분한다.
+- 같은 초기 환경·Node·argv의 API PID72418과 기존 Web PID57162가 실행 중이다. 2026-10-12 06:29:09 UTC에 index/live/ready 200·의존성 5개 up·비로그인 auth 401, API 재기동 후 697초 오류 로그 0건 및 시험 DB/helper 정리를 확인했다. 실제 로그인·실장비·장기 무오류 또는 전체 제품 기능을 검증한 것은 아니다.
+- [기존 실행 체크리스트의 R1–R5](superpowers/plans/2026-09-18-cad-native-map-rendering.md)를 완료했다. 독립 DB/API 검증 뒤 이번 `before.dump`의 exact 경로·regular file identity·4,846,327bytes·SHA-256을 재대조해 06:29:30 UTC에 영구 삭제하고 부재를 확인했다. 다른 백업은 삭제하지 않았으며 검사 결과·원 로그는 보호된 `.local/db-migrations-20261012-hDROA0PJ`에 보존한다. DB reset·원장 수정·맵 backfill·수동 조명 명령·원격 배포는 하지 않았다. 아래 과거 서비스 미실행 기록은 해당 시점 이력이며, 별도 E1–E4 작업은 아직 통합하지 않았다.
+
 ## 2026-10-12 설정 CAD — 별도 브랜치 검증 후 보존 로컬 병합 완료
 
 - 사용자 지시대로 원 설정 담당자의 별도 `codex/cad-import-corrections-20261012`에서 검증한제품be35/최종문서13fb를 UI완료58bd 위 정상로컬merge5e9b640b로통합했다. 총괄이24소유diff/6원로그SHA·집중224/실제첨부DWG2/2/전체3266PASS1209기존환경SKIP·원타입/빌드exit0와전담독립리뷰C/I/M0을대조했다. 원pnpm경로1FAIL은보존하며후속GREEN과합산/소급하지않는다.

@@ -10,6 +10,18 @@
 
 **설계:** [공통 맵 요소 설계](../specs/2026-09-18-cad-native-map-rendering-design.md)
 
+## 2026-10-12 승인된 로컬 API·DB 적용 후속
+
+사용자는 기존 DB를 백업한 뒤 미적용12개 migration을 적용하고, DB에 이상이 없으면 이번 백업본만 삭제하도록 승인했다. 기존 `Shell·인증·운영 담당자`가 DB 단독 writer이며 총괄은 결과 취합과 삭제 관문을 담당한다. 이는 아래 과거 맵 초기화 승인과 별개로 **현재 저장된 맵·현장·등록 장비를 보존하는 운영 작업**이다.
+
+- [x] R1 최신 병합 API 재시작과 Web 접속 복구: API54980/Web57162, 직접 HTTPS 및 same-origin live/ready200·비로그인 auth401. 기존 DB126/138·BIO 테이블 누락·background 오류를 확인했고 성공 범위를 기본 응답으로 제한했다.
+- [x] R2 적용 SQL 901행과 기존 DB identity 검토, API만 quiesce, 보호된 custom 백업 및 disposable 복원/동일 12개 적용 시험. 백업 4,846,327bytes·SHA e6007294, 복원 DB 138/138·pending 0·failed 0 및 기존 108개 테이블 원본 컬럼 count/digest 불변을 총괄이 대조했다. FK 196·CHECK 206 위반/미검증·invalid index 0, 기존 원장 보존·신규 12개 SQL checksum 일치다. 알려진 과거 applied checksum 차이는 원장 수정 없이 보존했다.
+- [x] R3 실제 기존 12개 `prisma migrate deploy` exit 0, 138/138·pending 0·failed 0 확인. 적용 직후 기존 108개 테이블 원본 컬럼 count/digest가 모두 같다. 총괄의 06:23:32 UTC 독립 read-only 검사에서도 기존 원장·신규 checksum 보존, FK 196·CHECK 206 위반/미검증 0·invalid index 0 및 25개 맵/현장/MeshNode 원본 digest 보존을 확인했다. 재기동 후 등록 조명 6개·게이트웨이 1개의 identity/귀속은 같으며, 정상 telemetry/보고서 worker 갱신과 BIO OFF 상태의 revision 2 retire·revision 3 완료는 별도 예상 변경으로 구분했다.
+- [x] R4 같은 초기 환경·Node 22.23.2·argv·local-app/TLS 설정의 API PID72418 재기동, 기존 Web57162·DB·Redis·MQTT 유지. 06:29:09 UTC fresh index/live/ready 200·의존성 5개 up·비로그인 auth 401, 재기동 후 697초 오류 로그 0건을 총괄이 확인했다. 시험 DB 부재와 담당자의 helper 정리도 재확인했다. DB 구조 문서 전용 `0f655645`를 통합하고 상태판을 갱신했다. 실제 로그인/실장비/전체 기능 검증은 하지 않았다. 최종 점검 도구의 첫 실행은 모듈 형식 충돌로 DB 접속 전 실패했고, 도구만 수정한 후 exit 0으로 재검증했으며 원 실패를 성공으로 바꾸지 않았다.
+- [x] R5 독립 DB/API 검증 관문 통과 후 exact `.local/db-migrations-20261012-hDROA0PJ/before.dump`의 regular file·device 16777234/inode 59560400·4,846,327bytes·SHA-256 e600729433676737d131e80b0d5eea0132958356a4334e116f399e99e822495d를 재확인했다. 06:29:30.249 UTC에 이 파일만 영구 삭제하고 ENOENT로 부재를 검증했다. 다른 백업 삭제 0개이며 검사 결과·원 로그는 보존한다.
+
+DB reset/원장 재작성·기존 data 임의 정리·실제 조명 명령·claim·맵 재가져오기/자동 backfill·원격 배포는 하지 않는다. 진행 중인 E1–E4와 외부 소유 변경을 스테이지·되돌리지 않으며 실행 증거는 담당자의 보호된 `.local` 경로에 유지한다.
+
 ## 2026-10-12 제공 DWG 인코딩·치수·문자 오류 보완
 
 - [x] `11.DF11-1000X33-12X8.dwg`의 변환 성공과 제품 streaming parser의 UTF-8 decode 실패 재현. 원본은 읽기만 한다.
