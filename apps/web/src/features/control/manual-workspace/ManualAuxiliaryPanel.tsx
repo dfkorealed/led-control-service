@@ -2,6 +2,11 @@ import { createContext, useCallback, useContext, useId, useEffect, useLayoutEffe
 import { createPortal } from "react-dom";
 import { Button, Heading } from "../../../components/ui";
 
+// Basic mobile rows must keep their height budget. A square 44px-high,
+// at-least48px-wide outer hit frame avoids rounded corner gaps and narrow
+// Apply text while preserving the map row; this never changes common defaults.
+export const manualCompactButtonHitClassName = "h-11 min-h-11! min-w-12 rounded-none!";
+
 type Kind = "selection" | "more";
 type Auxiliary = {
   enabled: boolean;
@@ -56,7 +61,7 @@ export function ManualAuxiliaryPanel() {
     }}>
     <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border-default px-2">
       <Heading as="h3" variant="customer-card-title">{auxiliary.active === "selection" ? "선택 조명 목록" : "제어 더보기"}</Heading>
-      <Button type="button" variant="ghost" className="min-h-11! min-w-11 shrink-0" aria-label="보조 패널 닫기" onClick={() => auxiliary.close()}>닫기</Button>
+      <Button type="button" variant="ghost" className={`${manualCompactButtonHitClassName} shrink-0`} aria-label="보조 패널 닫기" onClick={() => auxiliary.close()}>닫기</Button>
     </div>
     <div ref={auxiliary.registerHost} className="min-h-0 overflow-y-auto overscroll-contain p-2" data-manual-auxiliary-body="" />
   </section>;

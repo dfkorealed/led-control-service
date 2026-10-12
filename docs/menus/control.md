@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-12 실제 continuous44 실패 후 수동 compact 버튼 보완
+
+### 구현 완료
+
+- 수동 compact camera 네 버튼은 기존52px coarse 프레임을 사용한다. compact overlay placement·zoom/reset/fit handler는 그대로이며 지도 flow 높이를 늘리지 않는다. 기본/editor/PC의 compactChrome=false 경로는 변경하지 않았다.
+- 수동 compact Apply/More/조명 목록/전체 보기/reader close/빠른 값/선택 해제는 재사용 feature class로 사각 외곽·높이44·최소너비48을 사용한다. basic 행을52로 늘리지 않아 지도 높이 budget을 보존한다. 버튼의 keyboard/disabled/권한/Apply guard 및 handler는 그대로다.
+
+### 미구현
+
+- 최종 source continuous44 및 map240+·overlay control/reader 마지막 action의 actual 재측정은 총괄 source freeze 후 UX 관문이다. 본 담당 browser 자동 재실행0.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이전4093 actual에서320 map251/390 map249·문서overflow0을 확인했으나 camera geometry44(배율47.625×44)의 usable43/연속44영역false가 실측됐다. 소스 보완·직접 동작 GREEN을 실제 hit 합격으로 해석하지 않는다.
+- 넓은 층/범위 select의 기존44 프레임과 numeric/slider·긴 이력 action의 actual hit/가림은 같은 후속 UX 관문에서 확인한다. 기준44/지도240은 완화하지 않았다. 새 public API/공통Button/default 스타일 변경0.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`와 직접 테스트.
+- `features/control/{ManualExecutionPanel,manual-workspace/ManualAuxiliaryPanel,target-selection/ManualSelectionPanel,target-selection/TargetSelectionToolbar}.tsx` 및 실제 Control/Shell/Spatial/ManualExecution 소비자 직접 테스트.
+
+### 갱신 규칙
+
+- geometry 선언과 실제 reachable continuous44를 구분하고 원 actual RED와 후속 source/실측 cohort를 각각 남긴다. compact true 전달 경로와 PC/default false 영향 경로를 명시한다.
+- 이번 버튼 보완은 camera/renderer/UUID/frozen request/query/복구·권한/raw31/첫Apply 계약을 함께 확인하고 실제 UX 후 최종 수치를 기록한다.
+
 ## 2026-10-12 승인 후속 — 지도 하단 단일 보조 패널
 
 ### 구현 완료

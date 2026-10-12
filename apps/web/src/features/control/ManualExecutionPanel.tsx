@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ManualAuxiliaryContent, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
+import { ManualAuxiliaryContent, manualCompactButtonHitClassName, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
 import { Button, NumberField, Slider, Text } from "../../components/ui";
 
 export interface ManualExecutionPanelProps {
@@ -62,7 +62,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
 
   // One editable input stays mounted while auxiliary content is disclosed.
   // Blur/Enter and the first invalid Apply guard remain owned by this draft.
-  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? "h-11 min-h-11! min-w-0 px-2 text-caption" : "max-compact:scroll-mb-shell-navigation-safe"}
+  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? `${manualCompactButtonHitClassName} px-2 text-caption` : "max-compact:scroll-mb-shell-navigation-safe"}
     aria-label={applyLabel} onClick={() => {
       if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
       if (!rawValid.current || restoring.current || !canSubmit) return;
@@ -70,7 +70,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
     }} disabled={!canSubmit || invalidDraft} data-control-submit="">{compact ? "적용" : applyLabel}</Button>;
   const moreBody = <>
       <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
-        {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className="whitespace-nowrap px-2" aria-pressed={brightness === value && !invalidDraft}
+        {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className={compact ? `${manualCompactButtonHitClassName} whitespace-nowrap px-2` : "whitespace-nowrap px-2"} aria-pressed={brightness === value && !invalidDraft}
           disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}
       </div>
       {moreContent}
@@ -101,7 +101,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
       </div>
       <Slider aria-label="밝기" presentation="bare" className="min-w-0" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={changeDraft} />
       {apply}
-      <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? "h-11 min-h-11! min-w-11 px-2 text-caption" : "hidden"}
+      <Button ref={moreRef} hidden={!compact} type="button" variant="secondary" className={compact ? `${manualCompactButtonHitClassName} px-2 text-caption` : "hidden"}
         aria-expanded={moreOpen} aria-controls={auxiliary?.panelId ?? moreId} onClick={event => auxiliary ? auxiliary.toggle("more", event.currentTarget) : setMoreOpen(value => !value)}>더보기</Button>
     </div>
     {invalidDraft ? <Text role="alert" tone="danger">0~100 사이 정수를 입력해 주세요.</Text> : null}

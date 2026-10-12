@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { ManualAuxiliaryContent, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
+import { ManualAuxiliaryContent, manualCompactButtonHitClassName, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
 import type { DashboardFixture } from "../../../api/queries";
 import { Button, Heading, Text } from "../../../components/ui";
 
@@ -16,7 +16,7 @@ export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
   const listId = useId();
   const opener = useRef<HTMLButtonElement>(null);
   const content = <>
-      <Button type="button" variant="ghost" disabled={locked || fixtures.length === 0} onClick={onClear}>선택 해제</Button>
+      <Button type="button" variant="ghost" className={compact ? manualCompactButtonHitClassName : undefined} disabled={locked || fixtures.length === 0} onClick={onClear}>선택 해제</Button>
       {fixtures.length ? <ul aria-label="선택 조명" className="m-0 grid min-h-0 list-none gap-1 p-0">
         {fixtures.map(fixture => <li key={fixture.id} className="rounded-control bg-surface-inset px-2 py-1 text-body-sm wrap-anywhere" title={fixture.id}>{fixture.name}</li>)}
       </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
@@ -26,7 +26,7 @@ export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
     <div className="grid min-w-0 gap-1">
       <Heading as="h3" variant="customer-card-title" className={compact ? "text-caption" : undefined}
         aria-live={compact ? "polite" : undefined} aria-atomic="true">선택 조명 {fixtures.length}개</Heading>
-      <Button ref={opener} hidden={!compact} type="button" variant="secondary" className={compact ? "min-h-11! w-full" : "hidden"}
+      <Button ref={opener} hidden={!compact} type="button" variant="secondary" className={compact ? `${manualCompactButtonHitClassName} w-full` : "hidden"}
         aria-expanded={expanded} aria-controls={auxiliary?.panelId ?? listId} onClick={event => auxiliary ? auxiliary.toggle("selection", event.currentTarget) : setExpanded(value => !value)}>{expanded ? "접기" : "전체 보기"}</Button>
     </div>
     <div id={listId} hidden={Boolean(auxiliary?.enabled) || (compact && !expanded)}

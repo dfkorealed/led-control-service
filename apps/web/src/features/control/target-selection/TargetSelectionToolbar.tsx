@@ -1,5 +1,6 @@
 import { useState, type ReactNode, type RefObject } from "react";
 import type { Dashboard } from "../../../api/queries";
+import { manualCompactButtonHitClassName } from "../manual-workspace/ManualAuxiliaryPanel";
 import { List } from "lucide-react";
 import { Button, SelectBox } from "../../../components/ui";
 import type { ControlMode, ControlSelection } from "../control-selection";
@@ -44,7 +45,7 @@ export function TargetSelectionToolbar({
     items={floors.map((item) => ({ id: item.id, label: item.name }))}
     selectedKey={activeFloorId} isDisabled={disabled || floors.length === 0} onSelectionChange={(floorId) => floorId && onFloorChange(floorId)} />;
   const actions = <>
-    <Button ref={listOpenerRef} type="button" variant="secondary" className={compact ? "size-11 min-h-11! shrink-0 p-0" : undefined} aria-label={compact ? "조명 목록" : undefined} disabled={disabled} onClick={onOpenList}>{compact ? <List size={18} aria-hidden="true" /> : manual ? "조명 목록" : "조명 목록 열기"}</Button>
+    <Button ref={listOpenerRef} type="button" variant="secondary" className={compact ? `${manualCompactButtonHitClassName} w-12 shrink-0 p-0` : undefined} aria-label={compact ? "조명 목록" : undefined} disabled={disabled} onClick={onOpenList}>{compact ? <List size={18} aria-hidden="true" /> : manual ? "조명 목록" : "조명 목록 열기"}</Button>
     {managementAction}
     {allowedModes.length === 1 && onClear ? <Button type="button" variant="ghost" disabled={disabled} onClick={onClear}>선택 비우기</Button> : null}
   </>;

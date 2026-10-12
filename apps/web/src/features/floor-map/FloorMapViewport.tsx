@@ -710,13 +710,17 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   // Only an explicit footer slot opts in; overlay and existing footer callers
   // retain their placement. The viewport/renderer subtree never changes owner.
   const combinedFooter = controlsPlacement === "footer" && footerStart != null;
+  // A rounded 44px frame has no continuous 44x44 hit square. The opt-in
+  // camera chrome uses the existing 52px coarse frame without consuming a
+  // map flow row; default/editor callers retain their original classes.
+  const compactCameraIconClassName = "size-13 min-h-13!";
   const cameraControls = showControls ? (
     <div className={cn("flex items-center", compactChrome ? "gap-0" : "gap-1", combinedFooter ? "ml-auto shrink-0" : "rounded-control border border-border-default bg-surface-panel p-1", !combinedFooter && (controlsPlacement === "footer" ? "m-2 shrink-0 self-end" : "absolute right-3 bottom-3 z-6 shadow-popover max-compact:right-2 max-compact:bottom-2"))} role="group" aria-label={controlAfterZoom ? "지도 조작" : "지도 확대 축소"}>
-      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
-      <Button type="button" variant="ghost" size="sm" className={compactChrome ? "min-h-11! min-w-11 px-1" : "min-w-14 px-2 max-compact:min-h-13"} aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
-      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
+      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? compactCameraIconClassName : "max-compact:size-13"} aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoomRef.current - 0.1, undefined, true)}><Minus size={16} aria-hidden="true" /></IconButton>
+      <Button type="button" variant="ghost" size="sm" className={compactChrome ? "min-h-13! min-w-13 px-1" : "min-w-14 px-2 max-compact:min-h-13"} aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} aria-description={resetControlFits ? "누르면 지도 가운데 100%로 재설정" : "누르면 100%로 재설정"} title={resetControlFits ? "가운데 100%로 재설정" : "100%로 재설정"} onClick={() => resetControlFits ? fit() : changeZoom(1, undefined, true)}>{Math.round(zoom * 100)}%</Button>
+      <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? compactCameraIconClassName : "max-compact:size-13"} aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoomRef.current + 0.1, undefined, true)}><Plus size={16} aria-hidden="true" /></IconButton>
       {controlAfterZoom}
-      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? "size-11 min-h-11!" : "max-compact:size-13"} aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
+      {showFitControl ? <IconButton type="button" variant="ghost" size="sm" className={compactChrome ? compactCameraIconClassName : "max-compact:size-13"} aria-label="지도 화면 맞춤" onClick={fit}><Maximize size={16} aria-hidden="true" /></IconButton> : null}
     </div>
   ) : null;
 
