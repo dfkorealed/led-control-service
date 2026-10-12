@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-10-12 `https://kinda.dfkorealed.com/`의 landing-only 공개 완료. 정확한 커밋 Public Landing Release와 CI proof/로컬 fresh build 해시 검증, 실제 HTTPS·메뉴 이동 검사를 통과했다. `/`, `/features`, `/pricing`만 공개하며 로그인/관제/API는 차단된다. 상담 팝업은 전화·이메일 문의 방식이다.
+
 - 2026-10-11 공개 배포는 단일 `WEB_DEPLOY_MODE=landing|service`와 동일 deploy 명령을 사용한다. 미설정은 landing, 잘못된 값은 오류다. `build:public` → `apps/web/dist-public`에 실제 graph/산출물 검사와 모드·SHA-256 메타데이터를 적용하며 플래그 변경 후 재빌드·재배포해야 한다. 기존 `build:landing`은 독립 로컬 검증용으로 유지한다.
 - landing은 `/`, `/features`, `/pricing`만 공개하며 내부 모듈과 API를 제외한다. service는 시안·테스트를 제외한 현재 관제 앱과 기존 인증을 포함한다. 실제 앱의 허용된 중첩 경로는 직접 접속·새로고침을 지원하고 알 수 없는 주소는 두 모드 모두 HTTP 404다.
 - 모든 공개 도입 상담 CTA는 전화 `032-528-2953`과 이메일 `kymkjh2002@dfkorealed.com`을 제공하는 공통 연락 안내 팝업을 연다. `tel:0325282953`·`mailto:kymkjh2002@dfkorealed.com` 링크이며 양식·개인정보 제출·API 접수·접수 완료 표시는 제공하지 않는다. 팝업 닫기와 Escape 후 원래 버튼으로 포커스가 돌아간다.
@@ -27,11 +29,11 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- 2026-10-12 사용자가 static landing 공개의 별도 보안·기능·접근 차단 관문을 승인했다. Web 빌드/검증 도구까지 fresh 감사하며 Vite6.4.3/Vitest4.1.11 최소 업데이트와 source/산출물 SHA 검증을 완료했다. 공개37unit·실제 Chromium6·계약29 및 scoped finding0의 local cohort를 보존하며 exact final commit CI를 확인해야 한다. 기존 전체 서비스 CI·production audit 기준은 유지한다. 현재 ACM 인증서·DNS 검증은 완료했지만 사이트 콘텐츠·`kinda` 연결 CNAME·최종 HTTPS는 아직 공개 검증 전이다. 실제 접수 API와 로그인/관제 앱은 이번 landing 배포 대상이 아니다.
+- 2026-10-12 사용자가 static landing 공개의 별도 보안·기능·접근 차단 관문을 승인했다. Web 빌드/검증 도구까지 fresh 감사하며 Vite6.4.3/Vitest4.1.11 최소 업데이트와 source/산출물 SHA 검증을 완료했다. 공개37unit·실제 Chromium6·계약29 및 scoped finding0을 보존하며 exact final commit Public Landing Release도 실제 성공했다. 기존 전체 서비스 CI·production audit 기준은 유지한다. ACM 인증서·콘텐츠·`kinda` CNAME·최종 HTTPS 공개 검증까지 완료했다. 실제 접수 API와 로그인/관제 앱은 이번 landing 배포 대상이 아니다.
 
 - 2026-10-11 한정 검증: 공개 모드/배포 Node 계약 17/17, 공개·일반 entry·mobile bootstrap 단위 45/45, Web typecheck, UI 정책 0/0·정책 테스트 79/79, 양 모드 실제 production build가 통과했다. production Chromium은 landing 2/2(서비스 전용 2개 제외), service 4/4로 직접 경로·새로고침·401/403·390px 운영자 로그인/쿠키 mock을 확인했다. 전체 canonical CI·실제 AWS/API·native 앱·HIL 검증 결과는 아니다.
 
-- 배포 모드 전환은 로컬 production 빌드/브라우저와 fake AWS로 준비한 기능이다. 실제 AWS 배포·TLS·쿠키·운영 API는 미검증이며 최초에 정확한 계정/리소스와 HTTPS API origin을 구성해야 한다. service 전환은 인증을 우회하지 않는다. CloudFront 전파 동안 이전 모드가 일부 edge에 남을 수 있으며 이미 받은 JS/세션을 회수하지 않는다. 실패 잠금 복구와 모드별 롤백은 [배포 실행서](../runbooks/kinda-static-landing-aws.md)를 따른다.
+- 배포 모드 전환은 로컬 production 빌드/브라우저와 fake AWS로 준비한 기능이다. landing-only AWS 배포·TLS는 실제 검증했다. Service 전환의 쿠키·운영 API는 미검증이며 공개 HTTPS API origin과 전체 Software CI를 준비해야 한다. service 전환은 인증을 우회하지 않는다. CloudFront 전파 동안 이전 모드가 일부 edge에 남을 수 있으며 이미 받은 JS/세션을 회수하지 않는다. 실패 잠금 복구와 모드별 롤백은 [배포 실행서](../runbooks/kinda-static-landing-aws.md)를 따른다.
 
 - 2026-10-09 정적 배포 검증: 공개 연락·내용·서비스 URL 집중 단위 테스트 36/36, 실제 Rollup 문의 API import 차단을 포함한 정적 계약 6/6, 기본 production Chromium 5/5와 최신 명시 HTTPS 주소 홈의 직접 진입·새로고침·상담 확인 1/1, UI 정책 위반 0/0·정책 단위 67/67, Web typecheck와 일반/정적 build가 통과했다. 시안 전용 레이아웃 추출 후 시안·공개 헤더 반응형 집중 브라우저 14/14도 통과했다. 일반 앱의 기존 브라우저 72개는 첫 실행 실패 범위를 좁혀 재검증했고 모든 시나리오를 통과했다. 전체 Web 단위 첫 실행의 Prisma Client 준비·비동기 지연 실패는 필요한 Client 생성과 해당 App/운영자/편집 활성화 범위 82/82 재검증으로 해소했다. 전체 suite의 동일 시점 재실행 결과가 아닌, 최초 실행과 실패 범위 후속 검증을 취합한 증거다.
 

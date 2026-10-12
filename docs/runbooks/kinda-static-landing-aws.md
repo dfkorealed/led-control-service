@@ -1,10 +1,27 @@
 # 킨다 공개 Web AWS 배포
 
-기준일: 2026-10-12. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 사이트용 stack·S3·CloudFront와 `kinda` 연결 CNAME은 아직 생성하지 않았다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
+기준일: 2026-10-12. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 전용 Sydney stack·private S3·CloudFront 생성과 릴리스 게시, 호스팅케이알 `kinda` CNAME 연결 및 실제 HTTPS 검증까지 완료했다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
 
 현재 계정의 무료 플랜을 유지하기로 선택했으므로 첫 사이트 배포 리전은 **Sydney `ap-southeast-2`**다. CloudFront용 ACM만 `us-east-1`에 둔다. 아래 Seoul 리전 예시는 일반 입력 형식 설명이며 현재 계정에 그대로 적용하지 않는다. 추후 Seoul 이전은 새 리소스 생성·검증·DNS 전환이 필요하다. 전체 서비스는 정확한 배포 후보의 canonical CI 여섯 단계 통과를 요구한다. 사용자가 승인한 landing-only 공개는 아래의 별도 landing 관문 통과를 요구한다. 관문 통과 전 사이트 리소스 생성·콘텐츠 게시를 하지 않는다. 최신 진행 상태는 [실행 계획](../superpowers/plans/2026-10-11-web-deploy-mode.md)을 참조한다.
 
 현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. 2026-10-12 사용자가 landing 전용 release 관문 추가와 통과 후 배포를 명시 승인했다. 별도 frozen dependencies/공개 기능/산출물 security graph/HTTP 차단 검증을 구현·독립 검토하고 exact 후보의 landing CI가 실제 성공한 뒤에만 공개한다. 전체 서비스 CI·감사 정책은 유지하며 현재 두 High findings의 해결을 주장하지 않는다.
+
+## 최초 실제 공개 결과 — 2026-10-12
+
+- 공개 주소: **https://kinda.dfkorealed.com/**
+- 공개 소스: `f5eb68154156d1f98d4626654a69f32d70a3a16b` · [Public Landing Release 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38217099893)
+- 모드/릴리스: `landing` / `20261012-landing-r1`
+- 리전/stack: `ap-southeast-2` / `kinda-landing-prod-20261012`
+- bucket: `kinda-landing-456721863474-web-20261012`
+- CloudFront: `E2XZYU4N91AW5N` / `dyj4x3eldv08n.cloudfront.net`
+- 배포 manifest SHA: `ee1534a9ad1be5b61b8bd2ee9d1834fe98914996e112492386ca65a6a2b3a55a`
+- 실제 배포10파일, stack `UPDATE_COMPLETE`, invalidation `I8XCKUBM4KCAFENL14ZFR9SAJ1` `Completed`.
+- HostingKR CNAME `kinda` → `dyj4x3eldv08n.cloudfront.net`, TTL180. 기존 회사 홈페이지 A·메일 MX·TXT·ACM 검증 CNAME을 유지했다.
+- AWS 기본 주소와 회사 주소에서 `/`, `/features`, `/pricing` 200, 로그인·내부·API·unknown·concepts·archive404, HTTP→HTTPS와 보안 헤더를 확인했다. 실제 브라우저에서 세 페이지 이동, 요금제 문구, 상담 팝업 열기/닫기를 확인했다.
+- 상담은 전화·이메일 fallback이며 온라인 접수 API·DB·메일 발송 백엔드와 로그인/관제 앱은 배포하지 않았다. 무료 플랜·기존 리전 제한을 유지한다.
+- 같은 SHA의 전체 Software CI는 quality SUCCESS/unit FAILURE/나머지4 SKIPPED다. 랜딩 공개 성공은 전체 서비스 CI/API·모바일·장비/HIL 성공을 뜻하지 않는다. 전체 서비스 공개는 기존 전체 관문을 충족해야 한다.
+
+Ignored actual 로그·CI proof·스크린샷은 배포 후보의 `.local` 및 `/Users/kim-jh/Documents/led-control-service/.local/landing-deploy-20261012`에 보존한다. AWS 인증 정보는 문서와 공개 산출물에 포함하지 않는다.
 
 ## 한 번 설정할 항목
 

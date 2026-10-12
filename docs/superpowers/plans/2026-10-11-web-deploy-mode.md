@@ -116,9 +116,9 @@
     - [x] Web manifest/lock 두 frozen hash를 root·reviewer가 검토 전후 확인했다. 독립 YAML 비교와 실제 installed tool metadata를 확인했고 C/I/M0/0/0·source scoped integrationYES다. 새 버전의 public37/typecheck/build/browser/security final 결과는 다음 gate cohort에서 확인한다.
 - [x] Frozen dependency, frontend typecheck 및 public 기능/계약 검증, fresh raw/emitted package/version graph와 산출물 SHA를 결속하고 적용 범위 보안 감사를 fail-closed한다. 모바일 finding 제외는 숨기지 않고 해당 패키지가 공개 및 public build tool scope 밖임을 증거로 기록한다.
 - [x] 실제 public dist Chromium에서 `/`, `/features`, `/pricing`와 header/consultation fallback 동작, login/internal/API/unknown/concept/archive 차단을 검증한다.
-- [ ] 고정 소스·실제 검사 로그의 독립 최종 검토를 통과하고 정확한 SHA의 새 landing CI 성공을 확인한다. 기존 whole CI의 실패는 별도 상태로 유지한다.
-- [ ] 통과한 exact landing 후보를 Sydney 전용 private S3/OAC/CloudFront stack으로 provision하고 실제 ID를 구성한다. ACM은 ISSUED, 회사 DNS 기존 5개 record는 보존한다.
-- [ ] fresh mode-bound deploy·edge 전파·기본 주소 smoke 성공 후 HostingKR `kinda` CNAME을 연결한다. 최종 custom HTTPS public/blocked routes와 headers를 확인하고 실제 release/hash/resources 증거를 기록한다.
+- [x] 고정 소스·실제 검사 로그의 독립 최종 검토를 통과하고 정확한 SHA의 새 landing CI 성공을 확인한다. 기존 whole CI의 실패는 별도 상태로 유지한다.
+- [x] 통과한 exact landing 후보를 Sydney 전용 private S3/OAC/CloudFront stack으로 provision하고 실제 ID를 구성한다. ACM은 ISSUED, 회사 DNS 기존 5개 record는 보존한다.
+- [x] fresh mode-bound deploy·edge 전파·기본 주소 smoke 성공 후 HostingKR `kinda` CNAME을 연결한다. 최종 custom HTTPS public/blocked routes와 headers를 확인하고 실제 release/hash/resources 증거를 기록한다.
 
 ### Landing 전용 관문 실제 첫 실행
 
@@ -139,3 +139,8 @@
 - [x] 최종 source hash에 결속된 fresh build 증명, dev 포함 audit와 served-dist Chromium6 결과를 회수한다. 앞선 wrapper 실패 cohort와 성공 새 증명을 혼동하지 않는다.
 
 - [x] 최종 source/file freeze 해시를 root가 독립 대조했다(17/17 일치). Fresh build raw2,928/emitted164/published15, scoped audit closure419/installed324 적용0·차단0/범위 밖23, served-dist Chromium6/6·0skip/0retry를 회수했다. 앞선 실패와 sequential local cohort를 구분하며 exact committed-SHA CI proof는 다음 단계다.
+
+- [x] 최종 독립 검토 C/I/M0·spec/quality/integrationYES(17/17 hash 동일)를 회수했다. 커밋 `f5eb68154156d1f98d4626654a69f32d70a3a16b`의 [실제 landing CI](https://github.com/dfkorealed/led-control-service/actions/runs/38217099893) 성공, archive hash/HEAD/37unit·6Chromium·적용finding0/범위밖23을 확인했다. CI proof를 로컬 fresh build에 적용해 검증 성공했다.
+- [x] AWS actual account456721863474/certISSUED, template validation 성공 뒤 전용 Sydney stack create 요청 성공. 현재 CloudFront 전파를 기다리며 콘텐츠·서비스 DNS 변경은 아직 실행하지 않았다.
+
+- [x] 실제 provision/check/deploy/stack wait/CloudFront invalidation을 성공했다. 공개source `f5eb68154156d1f98d4626654a69f32d70a3a16b`/release20261012-landing-r1/10files, 전용 stackUPDATE_COMPLETE·distributionE2XZYU4N91AW5N이다. 기본AWS와 회사domain smoke exit0(3public200/blocked404/HTTPS/API계약), HostingKR 실제kindaCNAME/TTL180과 권한DNS응답, in-app 실제3페이지·상담fallback·요금문구 확인 및 최종 JPEG 스크린샷을 보존했다. 무료플랜·Sydney 유지, 전체 SoftwareCI는unitFAIL이며 service/장비는 미배포다.
