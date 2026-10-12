@@ -248,3 +248,14 @@ test('managed provision still checks the public Route 53 zone and existing recor
   assert.deepEqual(aws.calls.filter(a=>a[0]==='route53').map(a=>a[1]),['get-hosted-zone','list-resource-record-sets']);
   assert.ok(aws.calls.some(a=>a[0]==='cloudformation'&&a[1]==='create-stack'));
 });
+test('documented deploy role can only describe its exact us-east-1 ACM certificate',async()=>{
+  const policy=JSON.parse(await readFile(new URL('../../infra/landing/oidc-policy.example.json',import.meta.url),'utf8'));
+  const statements=policy.permissionsPolicy.Statement;
+  const acm=statements.filter(statement=>[].concat(statement.Action).some(action=>action.startsWith('acm:')));
+  assert.deepEqual(acm,[{
+    Effect:'Allow',
+    Action:['acm:DescribeCertificate'],
+    Resource:'arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/EXACT_CERTIFICATE_ID'
+  }]);
+  assert.equal(statements.some(statement=>[].concat(statement.Action).includes('*')),false);
+});

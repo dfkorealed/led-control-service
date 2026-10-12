@@ -96,6 +96,13 @@
       {
         "Effect": "Allow",
         "Action": [
+          "acm:DescribeCertificate"
+        ],
+        "Resource": "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/EXACT_CERTIFICATE_ID"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
           "cloudformation:ValidateTemplate"
         ],
         "Resource": "*"

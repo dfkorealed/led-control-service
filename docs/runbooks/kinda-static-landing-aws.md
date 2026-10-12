@@ -154,7 +154,7 @@ WEB_DEPLOY_MODE=service node scripts/landing/deploy.mjs rollback --config .local
 
 ## 권한과 검증 경계
 
-`infra/landing/oidc-policy.example.json`은 정확한 계정·stack·bucket·distribution·OAC·Function과 protected GitHub Environment를 넣는 검토 템플릿이다. trust의 aud/sub를 고정한다. 배포 역할은 해당 stack 갱신, 해당 distribution/Function 갱신·게시·invalidation, 해당 S3 경로 읽기/쓰기와 lock 하나 삭제, 기존 bucket policy 갱신을 포함한다. ValidateTemplate은 AWS가 resource scoping을 지원하지 않아 Resource `*`가 필요하다. 새 stack/인증서/DNS/역할 생성 권한은 제공하지 않는다. OIDC workflow나 권한을 실제 생성하지 않았다.
+`infra/landing/oidc-policy.example.json`은 정확한 계정·stack·bucket·distribution·OAC·Function과 protected GitHub Environment를 넣는 검토 템플릿이다. trust의 aud/sub를 고정한다. 배포 역할은 해당 stack 갱신, 해당 distribution/Function 갱신·게시·invalidation, 해당 S3 경로 읽기/쓰기와 lock 하나 삭제, 기존 bucket policy 갱신을 포함한다. 사용자 도메인을 쓰면 외부 DNS/Route 53 방식 모두 `check`·`deploy`·`rollback`에서 ACM 인증서를 다시 확인하므로, `EXACT_CERTIFICATE_ID`를 config의 `certificateArn`에 있는 ID로 바꿔 **같은 계정의 해당 `us-east-1` 인증서 하나에 대한 `acm:DescribeCertificate` 읽기 권한**을 배포 역할에 부여해야 한다. 기본 CloudFront 도메인만 쓰는 역할에는 이 ACM 권한 항목이 필요 없다. [AWS ACM API 권한 표](https://docs.aws.amazon.com/acm/latest/userguide/authen-apipermissions.html). ValidateTemplate은 AWS가 resource scoping을 지원하지 않아 Resource `*`가 필요하다. 새 stack/인증서/DNS/역할 생성 권한은 제공하지 않는다. 최초 `provision`은 별도 승인된 생성 권한으로 수행한다. OIDC workflow나 권한을 실제 생성하지 않았다.
 
 기존 canonical CI **quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit**와 동일 검토 커밋을 배포 전 필수 확인한다. 이 도구는 CI 성공을 자동 조회하지 않으며 좁은 로컬 테스트가 전체 CI 성공을 대체하지 않는다. 새 workflow를 연결할 때 protected environment·동일 SHA의 CI 성공 확인·frozen toolchain·직렬화를 유지한다.
 
