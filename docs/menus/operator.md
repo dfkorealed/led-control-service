@@ -1,5 +1,27 @@
 # 운영자 메뉴 기능 현황
 
+## 2026-10-12 계정 보안 route 제목 소유 보완
+
+### 구현 완료
+
+- `/operator/security`는 기존 공통 `PageHeader`로 `계정 및 보안` h1 하나를 표시한다. 고객 설정은 기존 `SettingsShell`이 제목을 소유하고, 공통 `AccountSecurityView`의 비밀번호 요약·변경 팝업·MFA·활성 세션을 그대로 소비한다.
+
+### 미구현
+
+- 실제 운영 계정·배포 환경의 로그인/보안 API 확인과 전체 canonical CI는 별도 관문이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 다른 운영자 route의 기존 제목 소유와 권한·API·로그아웃 계약은 유지한다. 관련 네 파일 116개 단위 회귀는 mock API 범위이며 실제 MFA·메일·실장비 증거가 아니다.
+
+### 관련 파일
+
+- `apps/web/src/features/operator/OperatorShell.tsx`, `OperatorShell.test.tsx`.
+
+### 갱신 규칙
+
+- 공통 계정 화면을 다른 shell에서 소비할 때 제목 소유자를 확인하고 단일 h1, 비밀번호 팝업 진입과 기존 MFA·세션 조회를 함께 검증한다.
+
 ## 2026-10-08 센서 호환 프로파일 관리 (Task 5)
 
 - 구현 완료(소프트웨어): 기존 `OperatorShell`·공통 UI·서비스 제공자 활성 operator 권한 경계를 재사용한 `/operator/sensor-profiles`를 추가했다. 현장 관리자 계정 목록과 분리하며 보호된 route 밖에서는 프로파일 API/승인 입력을 마운트하지 않는다.

@@ -271,7 +271,11 @@ describe("FixtureGroupDialog", () => {
     expect(screen.getByRole("heading", { name: "구역 관리" })).toBeInTheDocument();
     expect(await screen.findByText("확인 필요")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "현재 저장 구역" })).toBeInTheDocument();
-    expect(screen.getByText("Mesh 구성 v2 · 주소 정보 없음")).toBeInTheDocument();
+    const list = screen.getByRole("list", { name: "저장 구역 목록" });
+    expect(list).toHaveTextContent("B2 입구");
+    expect(list).toHaveTextContent("1개");
+    expect(list).toHaveTextContent("Mesh 설정 실패");
+    expect(list).not.toHaveTextContent(/Mesh 구성|주소 정보 없음/);
 
     fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
     expect(screen.getByRole("dialog", { name: "구역 수정" })).toBeInTheDocument();
