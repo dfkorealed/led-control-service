@@ -1447,10 +1447,11 @@ export class MqttService implements OnModuleInit {
         return;
       }
 
-      // Older BlueZ producers encoded lost Lightness Status as failed + STATUS_TIMEOUT.
+      // Older BlueZ/BIO producers encoded lost Status as failed + STATUS_TIMEOUT/TIMEOUT.
       // Validate the original aggregate/hash first, then persist absence of evidence as
       // timed_out. A compatibility conversion must not legitimize a malformed wire ACK.
-      const results = ack.results.map((result) => result.status === "failed" && result.faultCode === "STATUS_TIMEOUT"
+      const results = ack.results.map((result) => result.status === "failed"
+        && (result.faultCode === "STATUS_TIMEOUT" || result.faultCode === "TIMEOUT")
         ? { ...result, status: "timed_out" as const, brightness: undefined } : result);
       const normalizedStatus = deriveDeviceStatusAckStatus(results);
       const dispatchStatus = normalizedStatus === "succeeded" ? "completed" : normalizedStatus === "timed_out" ? "timed_out" : "failed";

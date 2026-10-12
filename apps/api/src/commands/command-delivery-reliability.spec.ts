@@ -26,19 +26,20 @@ const draft = { ...identity, targetType: "fixture", targetId: ids.fixture, targe
   deliveryMode: "unicast", brightness: 65, requestedAt: startedAt.toISOString() };
 
 describe("command delivery uncertainty across publisher, ACK ingestion and recovery", () => {
-  it.each(["failed", "timed_out"])("ingests BlueZ %s + STATUS_TIMEOUT as unknown and permits Get while protecting overlapping Set", async (status) => {
-    const h = harness();
-    await h.ack(status, [{ fixtureId: ids.fixture, status, faultCode: "STATUS_TIMEOUT" }]);
-    expect(h.command.outcome).toBe("unknown");
-    expect(h.dispatch).toMatchObject({ status: "timed_out", errorCode: "STATUS_TIMEOUT" });
-    expect(h.results[0]).toMatchObject({ status: "timed_out", brightness: null, faultCode: "STATUS_TIMEOUT" });
-    await expectRecoveryEligible(h);
-    expect(h.unlockedMutations).toEqual([]);
-  });
+  it.each([["failed", "STATUS_TIMEOUT"], ["timed_out", "STATUS_TIMEOUT"], ["failed", "TIMEOUT"]])(
+    "ingests %s + %s as unknown and permits Get while protecting overlapping Set", async (status, faultCode) => {
+      const h = harness();
+      await h.ack(status, [{ fixtureId: ids.fixture, status, faultCode }]);
+      expect(h.command.outcome).toBe("unknown");
+      expect(h.dispatch).toMatchObject({ status: "timed_out", errorCode: "STATUS_TIMEOUT" });
+      expect(h.results[0]).toMatchObject({ status: "timed_out", brightness: null, faultCode });
+      await expectRecoveryEligible(h);
+      expect(h.unlockedMutations).toEqual([]);
+    });
 
-  it("validates the raw legacy aggregate before normalizing timeout evidence", async () => {
+  it.each(["STATUS_TIMEOUT", "TIMEOUT"])("validates the raw %s aggregate before normalizing timeout evidence", async (faultCode) => {
     const h = harness();
-    await h.ack("timed_out", [{ fixtureId: ids.fixture, status: "failed", faultCode: "STATUS_TIMEOUT" }]);
+    await h.ack("timed_out", [{ fixtureId: ids.fixture, status: "failed", faultCode }]);
     expect(h.dispatch.errorCode).toBe("ack_status_mismatch");
     expect(h.command.outcome).toBe("unknown");
     expect(h.results[0].faultCode).toBeNull();

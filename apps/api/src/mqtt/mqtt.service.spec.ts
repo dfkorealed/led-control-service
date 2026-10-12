@@ -1314,6 +1314,42 @@ describe("MqttService", () => {
     expect(state.order.slice(0, 2)).toEqual(["mutation-lock", "dispatch-lock"]);
   });
 
+  it.each([
+    ["failed", "TIMEOUT", "unknown", "timed_out", "STATUS_TIMEOUT"],
+    ["failed", "state_mismatch", "partially_applied", "failed", null],
+    ["timed_out", "TIMEOUT", "unknown", "timed_out", "STATUS_TIMEOUT"]
+  ])("classifies four-fixture 70%% ACK with %s / %s as %s without inventing success", async (
+    status, faultCode, outcome, resultStatus, errorCode
+  ) => {
+    // The reported four-fixture ACK: the first fixture has no observed brightness,
+    // while the other three report 70. Missing Status is not proof of non-application.
+    const fixtureIds = [
+      "32f6dcd0-6357-45bb-bd80-a7ec84c71c64", "60c9af1a-8dd4-486c-8614-d72c598a9828",
+      "8bd8f767-8aa9-4ea4-881d-754eefc46543", "a6334e1e-476a-4351-b345-2866d7f997fc"
+    ];
+    const state = reconciliationPrisma(4);
+    state.command.id = "337f5ac3-76fd-4abc-b41b-bab2a3d896c1";
+    state.command.targetFixtureIds = fixtureIds;
+    state.dispatch.commandId = state.command.id;
+    state.results.forEach((result, index) => { result.fixtureId = fixtureIds[index]; });
+    const payload = { ...deviceStatusAckPayload(), commandId: state.command.id, status: "partially_succeeded",
+      results: [{ fixtureId: fixtureIds[0], status, faultCode },
+        ...fixtureIds.slice(1).map((fixtureId) => ({ fixtureId, status: "succeeded", brightness: 70 }))] };
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(payload)));
+    expect(state.command).toMatchObject({ outcome, brightness: 70, targetFixtureIds: fixtureIds });
+    expect(state.dispatch).toMatchObject({ status: "failed", errorCode });
+    expect(state.results[0]).toMatchObject({ status: resultStatus, brightness: null, faultCode });
+    expect(state.results.slice(1)).toEqual(fixtureIds.slice(1).map((fixtureId) => expect.objectContaining({
+      fixtureId, status: "succeeded", brightness: 70
+    })));
+    expect(state.order.slice(0, 2)).toEqual(["mutation-lock", "dispatch-lock"]);
+    // Reusing the event ID with changed evidence must not promote the unknown result.
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...payload,
+      status: "succeeded", results: fixtureIds.map((fixtureId) => ({ fixtureId, status: "succeeded", brightness: 70 })) })));
+    expect(state.command.outcome).toBe(outcome);
+    expect(state.results[0]).toMatchObject({ status: resultStatus, brightness: null, faultCode });
+  });
+
   it.each([["dimming", "pending", "not_applied"], ["status_check", "unknown", "unknown"]])(
     "reconciles a rejected %s dispatch without confusing Get failure with Set failure", async (kind, initial, outcome) => {
       const state = reconciliationPrisma(1, { kind, verificationAttempt: kind === "status_check" ? 1 : null }, initial);
