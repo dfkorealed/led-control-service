@@ -1,11 +1,12 @@
 # 모니터링·수동 제어 신규8건 UI 결과
 
-UI 한정 검증 및 독립 검토 완료. 최신제품e35c0c20, clean 통합후보7d48d7fb는 QA 제품과 동일하다. 실제 MAIN 반영은 독립 작업 문서의 안전한 경계 확인 후 진행한다. 아직 머지/정리 완료 기록이 아니다.
+UI 한정 검증·독립 검토와 MAIN 로컬 병합 f566e997 완료. 최신제품e35c0c20, 병합후Webtree는 검증한7d48과동일하고 fresh타입0이다. UI18blob/최종메뉴·배포문서·사용자AGENTS 보존을 확인했다. exactown 증거백업/recursivecompare0 후 cleanmerged UIworktree·branch만정리했다. 다른업무/서비스·별도CAD/배포후보는유지한다.
 
 - [변경 내용·6고유 case/source·한계·기존Ruling3](evidence/root-final-outcome.md)
 - [최종320×600 실제 검사:1PASS/exit0](evidence/page-session-ux-target-card-e35c0c20-report.md)
 - [독립 리뷰와7d48 보존 통합 승인](evidence/final-review-e35-report.md)
 - [UI18·upstream5·문서/userAGENTS 보존 증거](evidence/root-7d48-integration-proof.json)
+- [실제MAIN f566 병합·UI18/배포문서/사용자AGENTS 보존](evidence/root-main-f566-integration-proof.json), [병합후타입원로그](evidence/final-main-ui-typecheck.log)
 - [실행 계획](../../superpowers/plans/2026-10-12-map-workspace-comments.md)
 
 ## 실제 PASS와 원실패는 별도 cohort
@@ -22,7 +23,7 @@ UI 한정 검증 및 독립 검토 완료. 최신제품e35c0c20, clean 통합후
 
 ## 재현 자료와 보존
 
-`evidence/runs`에 모든원실패/통과 log·JSON·PNG를 그대로 보존했다. `page-session-ux-source-*/*.source.txt`는 해당실행의정확4파일이다. 원report에있는worktree절대경로는당시역사적주소이며 checkout정리뒤에는이폴더의동일상대파일을사용한다. 오래된harness를현재서비스에직접실행하지않는다. [파일무결성목록](evidence-sha256.json)은복사한원본의SHA256이다.
+`evidence/runs`에 모든원실패/통과 log·JSON·PNG를 그대로 보존했다. `page-session-ux-source-*/*.source.txt`는 해당실행의정확4파일이다. 원report에있는worktree절대경로는당시역사적주소이며 checkout정리뒤에는이폴더의동일상대파일을사용한다. 오래된harness를현재서비스에직접실행하지않는다. [파일무결성목록](evidence-sha256.json)은현재복사본과원백업SHA256을대조하며 root의현황문서3개만 병합/정리후갱신했음을명시한다. 원백업은 `.superpowers/sdd/map-workspace-comments-backup-20261012.sHONIh`로보존했다.
 
 최종320캡처는 `evidence/runs/actual-one-target-card-e35c0c20-20261012/results/page-session-ux-aux-03-nar-3a191-y-and-exclusive-auxiliaries-chromium-ux-approved-aux-six-cases/`의 `slider-endpoint-0.png`, `list-open.png`, `more-end.png`, `invalid-first-apply.png`, `complete.png`에있다. 같은이름의JSON은mapbox·노출area·document·camera·request 기록이다.
 

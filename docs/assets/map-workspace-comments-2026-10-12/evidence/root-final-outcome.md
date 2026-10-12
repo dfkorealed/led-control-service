@@ -1,6 +1,6 @@
 # 모니터링·수동 제어 신규8건 결과
 
-현재 UI 제품 `e35c0c209fab13f9be17ed3dcda079d8de642efd`는 한정 검증과 독립 검토를 통과했다. 설정 담당자의 CAD 작업은 별도 브랜치/작업 폴더로 분리됐고 MAIN의 해당 변경이 빠진 것을 확인했다. 최신 committed MAIN a844는 UI 브랜치에만 7d48로 보존 통합했고 fresh 타입 검증을 통과했다. 제어 ea0019b1·모니터링 867a0c13은 제품 변경 없는 최종 메뉴 증거 갱신이다. MAIN에 남은 독립 배포 문서의 안전한 커밋 경계를 사용자 승인대로 원 배포 담당자와 협의 중이며, 아직 실제 MAIN 머지·정리 완료 기록이 아니다.
+UI 제품 `e35c0c209fab13f9be17ed3dcda079d8de642efd`는 한정 검증과 독립 검토를 통과했고, 실제 MAIN 정상로컬merge `f566e9973631f5c4e453494e81578707b8804382`를 완료했다. 사용자 승인대로 설정CAD를 별도브랜치로분리하고 원배포담당자 자기문서커밋e5f863ec/쓰기창release 뒤병합했다. 제어ea0019b1·모니터링867a0c13은 제품변경0 메뉴최종증거다. 병합후fresh Web타입exit0, UI18blob=QAe35/전체Webtree=검증한7d48/배포원문·메뉴·사용자AGENTS 보존/indexempty를확인했다. 원자료exactbackup/recursivecompare0 후 cleanmerged UIworktree·branch만정리했다. 별도CAD는 원담당 최종검증을 확인해 별도순서로통합하며 이UI결과와합산하지않는다.
 
 ## 반영한 동작
 
@@ -30,7 +30,7 @@ e35 case3 최신 run은1PASS/0FAIL/exit0/20.149886s.11geometry/11PNG를 UX 담�
 
 - 기존 모니터링 owner 직접2suite127PASS(소프트웨어); 최신 제어 owner 직접5files81PASS/242비선택(exit0/wall23.927s/Vitest21.29s), 타입0/UIexisting0-new0. App-only69PASS 및 후속 타입0은 별도 test-only cohort다. 수를 합산하지 않는다.
 - root e35 UI policy79PASS/0FAIL(exit0/39.088830584s), 타입 포함 buildexit0/Vite18.26s. main932.47KB chunkwarning은 원 상태로 유지한다.
-- 같은 reviewer 최소delta/원raw/geometry/대표PNG 검토 새confirmedC/I/M0, UI source scopedReadyYes. MAIN 통합/backup/cleanup은 별도 미래 관문이다.
+- 같은 reviewer 최소delta/원raw/geometry/대표PNG 검토 새confirmedC/I/M0, UI source scopedReadyYes. 같은 reviewer가7d48 보존 통합을확인했고 이후배포2문서만추가된58b8을MAIN f566으로정상merge했다. 병합후fresh타입0·제품/원문보존을확인했다.
 - 원 config-load/각actual FAIL·부분도달·각source 원로그/JSON/PNG/실행4source snapshot을 유지했다. 기준44/240·실제hit알고리즘·timeout·안전 assertion을 완화하지 않았다.
 
 ## 한계와 보존

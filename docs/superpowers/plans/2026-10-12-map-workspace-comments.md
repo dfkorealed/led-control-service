@@ -44,16 +44,16 @@ Ruling: 사용자 요청의 필요한 검증만 수행하는 방침에 따라 �
 - [x] Task1 모니터링 C1–5 제품ac323a3d 인수·자체검토, 원 페이지 세션 직접2suite127PASS 및 메뉴문서87f658ef. 실제geometry는후속QA.
 - [x] Task2 지정 앱세션 제어 C6–8 제품9f3e25d7/소유13파일, 최종선택41PASS·identity2국소PASS(중복합산0)·타입/UI0. 실제기하는후속QA.
 - [x] Task3 한정 browser·정적 관문·실제 UI/UX 리뷰, 발견 문제 원 owner 수리. 마지막 case3 e35 실제PASS 및 다른5case 명시된source carry/최소delta를 독립review가 승인했다. 새e35six일괄PASS가 아니다.
-- [ ] Task4 독립 통합 리뷰·fresh MAIN 확인·로컬 머지·회복 가능한 정리.
+- [x] Task4 독립 통합 리뷰·fresh MAIN 확인·로컬 머지·회복 가능한 정리. 실제MAIN f566e997/병합후타입0·QA18동일/foreign보존·exactownbackupcompare0/owncleanmergedcheckout정리 완료.
 
-### 현재 인계 — UI 검증 완료, 독립 작업 보존 후 MAIN 반영 대기
+### 최종 인계 — UI 검증·독립 작업 보존 병합·회복 가능한 정리 완료
 
 - [x] 지정 기존 모니터링/제어UI/UIUX 원 세션이 신규8건과 사용자 승인한 단일 하단 reader를 구현·실측했다. 최신제품e35c0c20/제어문서ea0019b1, 정책79PASS/타입포함build0/direct81/type0/UI0. 실제case1/2/4=2290,3=e35,5=f28,6=4093PC/sourcecarry로 별도 기록한다.
 - [x] e35 case3는1PASS0FAIL/exit0/20.149886s,11phase/11PNG: 기본map251·aux269불변·invalid복원후247px,44hit/0·1008target/raw31/More끝·Escape/첫invalidApply31복원0POST/documentoverflow0. 원FAIL·미도달·하네스오류를 소급PASS 처리하지 않는다.
 - [x] 동일 reviewer 최소delta/raw/geometry/대표PNG 확인 새C/I/M0·UI scopedReadyYes. 최신committedMAINa844를 별도UIbranch에 정상merge한 clean후보7d48의 UI18blob=QAe35/upstream5blob=a844/상태문서원행보존/owner문서동일·사용자AGENTSsha보존과 fresh tsc0도 같은 reviewer가 확인했다.
 - [x] 사용자 지시로 설정 담당CAD를 별도codex/cad-import-corrections-20261012/worktree로 분리했다. 담당은23소유파일snapshot/hash후 자기MAINdiff만release했고 rootfreshMAIN에서CAD/메뉴dirty가 사라진 것을 확인했다. 해당별도 검증/머지는원담당의다른업무이며 UI 증거와 합산하지 않는다.
-- [ ] 실제MAIN머지: 현재MAINa844에는 사용자AGENTS 및 독립 배포의 상태문서1줄/배포plan1줄 dirty가 남는다. 상태문서가 겹쳐 일반merge는 아직실행하지 않았다. 사용자 승인대로 원 ‘랜딩페이지 담당자’에게 자기 문서의 안전한commit시점과 공용문서 쓰기를 잠시 멈출 병합 창을 요청했다. 해당외부변경을 root가stage/stash/revert하지 않는다. 모니터링867a0c13은 제품변경0의 최종 메뉴 증거 갱신이다.
-- [ ] MAIN확정머지·최종byte/dirty보존확인 후 exactownignored자료backup/recursivecompare 및 cleanmergedworktree/branch만정리. remote/push/PR/서비스restart0.
+- [x] 실제MAIN머지: 사용자가 배포담당 협의를 승인했고 원 ‘랜딩페이지 담당자’가 자기소유2문서를e5f863ec로커밋/쓰기창release했다. feature의정상문서통합58b8후 MAIN f566e997 정상로컬merge 완료, fresh Webtsc0·UI18=QAe35/전체Webtree=검증한7d48/최종메뉴owner동일/배포원status행·plan보존/사용자AGENTSsha83202256불변/indexempty·dirtyonlyAGENTS 확인. foreignstage/stash/revert0.
+- [x] exactownignored자료를 .superpowers/sdd/map-workspace-comments-backup-20261012.sHONIh로recoverablecopy·recursivecompare0 후 cleanmergedworktree와 branch만정리했고 원자료Git보존도확인했다. 원다른worktree/서비스/독립배포·CAD는보존, remote/push/PR/서비스restart0.
 - [영구 결과와 원자료](../../assets/map-workspace-comments-2026-10-12/README.md). pointerSliderdrag/OSkeyboard/전체Web/실장비HIL 미실행·기존932.47KBchunkwarning 유지. 아래69b1 인계는 역사적 이력이며 현재상태는 이 절이 정본이다.
 
 ### 이전 인계 이력 — 사용자 승인한 지도 하단 단일 보조 패널로 재개

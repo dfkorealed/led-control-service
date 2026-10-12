@@ -1,0 +1,87 @@
+{
+  "main": "f566e9973631f5c4e453494e81578707b8804382",
+  "parents": "f566e9973631f5c4e453494e81578707b8804382 e5f863ec7ca562310e1834e2aed8d539e873c469 58b8ae81cba64e7364f3244ca79b0b272a28973f",
+  "mainBranch": "codex/mvp1-cloud-web",
+  "ui": [
+    {
+      "path": "apps/web/src/App.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ControlView.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ControlView.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/ManualExecutionPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/control/target-selection/TargetSelectionToolbar.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/floor-map/FloorMapViewport.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/floor-map/FloorMapViewport.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/FloorMap.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/FloorMap.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/MonitoringView.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/monitoring/MonitoringView.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.test.tsx",
+      "same": true
+    },
+    {
+      "path": "apps/web/src/features/shells/CustomerShell.tsx",
+      "same": true
+    }
+  ],
+  "uiAll": true,
+  "webTreeSameChecked7d48": true,
+  "upstreamStatusLinesPreserved": true,
+  "deploymentPlanSame": true,
+  "dirty": "M AGENTS.md",
+  "indexEmpty": true,
+  "userAgentsSHA": "832022567dd810c3668e5f9f1d3200988052e84fd8069554a3ab0db9976c04c6",
+  "all": true
+}

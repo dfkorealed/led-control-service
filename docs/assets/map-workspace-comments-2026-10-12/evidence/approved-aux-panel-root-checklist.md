@@ -10,9 +10,9 @@
 - [x] 320 endpoint0/100 actualhit·invalid raw/firstApply0POST·상호배타/focus/scope,390touch/60list끝/헤더/닫기,717→390resize, monitoring reopen/native page·노출점 wheel을 각 실제source에서 확인했다. 마지막 case3 전체11phase 1PASS/exit0, 한계는 결과 문서에 기록했다.
 - [x] e35 owner direct81/type0/UI0·root 정책79PASS/타입포함build0, sourcehashes/exit 대조. a844→7d48 통합 후 fresh Web 타입0, 제품18blob=QA e35.
 - [x] 기존 reviewer 전체base..final제품 + delta·raw·UIUX evidence 및7d48 보존proof 인계; UI scopedReadyYes·새C/I/M0. 실제MAINmerge/cleanup은 foreign dirty release 후 별도 관문이다.
-- [ ] final assets/README cohort·counts·PNG/geometry·미검증·Ruling3 취합, plan/status 업데이트.
-- [ ] fresh MAIN SHA/dirty/교집합 점검, 사용자 독립 AGENTS.md 등 보존; 승인된 localmerge tree 확인/통합/원보호변경sha 동일.
-- [ ] exactown ignored 증거 recoverablebackup+recursivecompare0 후 clean merged worktree/branch만 정리.
+- [x] final assets/README cohort·counts·PNG/geometry·미검증·Ruling3 취합, plan/status 업데이트. 원raw와실행source를Git보존, 무결성manifest 대조.
+- [x] 사용자 승인된 원배포문서 안전커밋e5f863ec 뒤 MAIN f566e997 정상로컬merge, fresh타입0·UI18/Webtree/메뉴·배포원문·사용자AGENTS SHA83202256불변/indexempty·dirtyonlyAGENTS 확인.
+- [x] exactown ignored 증거 .superpowers/sdd/map-workspace-comments-backup-20261012.sHONIh recoverablecopy+recursivecompare0 후 clean merged ownworktree/branch만 정리. 다른worktree/서비스보존.
 
 사전 MAIN 읽기: f4fc4d94, 사용자 AGENTS.md 미커밋 변경. 초기 f31..f4fc apps/web/packages/shared/package/lock 교집합0; 스크립트 CI portability·배포 문서 변경은 이번 UI와 별도. 통합 직전 재확인이 정본이다.
 

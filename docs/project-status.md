@@ -2,13 +2,13 @@
 
 기준일: 2026-10-12
 
-## 2026-10-12 지도 작업 공간 — UI 한정 검증 완료·보존 병합 대기
+## 2026-10-12 지도 작업 공간 — UI 검증·로컬 병합·회복 가능한 정리 완료
 
 - 기존 모니터링·제어 UI 개선·UI/UX 세션이 신규8건과 승인된 단일 지도 하단 목록/More reader를 구현했다. 제품e35c0c20, 제어문서ea0019b1, same reviewer 새C/I/M0·UI scopedReadyYes다. 운영 인사이트/장비/원격은 변경하지 않았다.
 - 실제case1/2/4=2290·case3=e35·case5=f28·case6=4093PC/sourcecarry를 구분한다. 마지막320×600 case3는1PASS0FAIL/exit0/20.149886s,44hit·0/1008target·raw31·reader끝/초점·invalid첫Apply31복원0POST/documentoverflow0·최종지도247px≥240을 확인했다. 새e35six일괄PASS/전체Web/HIL/pointerSliderdrag/OSkeyboard로 확대하지 않는다. 직접81/정책79/타입포함build0은 별도cohort다.
-- 최신committedMAINa844를 UI별도branch에만 정상통합한 후보7d48은 UI18blob=QAe35/upstream5blob=a844 및 양쪽문서행·userAGENTS 보존/fresh tsc0을 root와 동일reviewer가 확인했다. 실제MAIN UI머지는 아직이다.
-- 사용자 지시대로 설정 담당CAD를 codex/cad-import-corrections-20261012 별도worktree로 분리했고 MAIN의 해당소유변경release를 확인했다. MAIN에 남은 사용자AGENTS/독립배포문서1줄씩은 미커밋으로 유지했다. 사용자가 배포 담당자 협의를 승인해 원 ‘랜딩페이지 담당자’에게 자기 문서의 안전한 커밋 경계와 잠시 공용문서 쓰기를 멈출 병합 창을 요청했다. root의foreignstage/stash/revert·서비스restart·remote변경0이다. 모니터링 최종 메뉴 증거867a0c13도 제품변경0으로 확인했다.
-- [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)와 [원자료·한계·Ruling3](assets/map-workspace-comments-2026-10-12/README.md)에 현재결과를 취합했다. 실제MAINmerge/backup/ownworktree정리는미완료다. 아래준비/실패/재개문장은보존한이력이며 현재판정은이절을따른다.
+- 최신committedMAINa844를 UI별도branch에 정상통합한 후보7d48의 UI18blob=QAe35/upstream5blob=a844 및 양쪽문서행·userAGENTS 보존/fresh tsc0을 root와 동일reviewer가 확인했다. 배포 owner의 안전한 문서커밋e5f863ec도 별도branch에 정상통합했고 실제MAIN은 f566e997 정상로컬merge(부모e5+58b8) 완료다. 병합 후 fresh Webtsc exit0·Webtree=검증한7d48·UI18=QAe35/메뉴최종owner문서동일·배포status원행/plan보존·사용자AGENTSsha83202256불변/indexempty를 확인했다.
+- 사용자 지시대로 설정 담당CAD는 codex/cad-import-corrections-20261012 별도worktree로 분리했다. 원 배포담당은 자기소유2문서만커밋하고 공용문서쓰기창을 release했으며 배포/CI는 별도후보로 계속한다. 모니터링867a0c13·제어ea0019b1은 제품변경0의 최종 메뉴 증거다. root의foreignstage/stash/revert·서비스restart·remote변경0이다. 검증완료된 CAD는 원담당 최종증거 확인 뒤 UI와 별도 순서로 병합한다.
+- [실행 체크리스트](superpowers/plans/2026-10-12-map-workspace-comments.md)와 [원자료·한계·Ruling3](assets/map-workspace-comments-2026-10-12/README.md)에 결과를 취합했다. exactownignored자료를 .superpowers/sdd/map-workspace-comments-backup-20261012.sHONIh로복사/recursivecompare0 후 cleanmerged UIworktree·branch만정리했다. 원자료는 Git와백업에서회복가능하며 다른worktree/서비스는그대로다. 아래준비/실패/재개문장은보존한이력이며 현재판정은이절을따른다.
 
 ## 2026-10-12 지도 작업 공간 신규 브라우저 주석 — 승인한 단일 하단 보조 패널 수리 재개
 
