@@ -1,4 +1,5 @@
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -14,6 +15,13 @@ describe("argv CAD converter adapter", () => {
   beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "cad-converter-")); });
   afterEach(async () => { await rm(directory, { recursive: true, force: true }); });
   const delay = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
+  const quoteFixtureArgument = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const writeExecutableFixture = async (name: string, body: string) => {
+    const executable = join(directory, name);
+    await writeFile(executable, "#!/bin/bash\n" + body + "\n");
+    await chmod(executable, 0o755);
+    return executable;
+  };
   const runtimeExecution = process.platform === "linux"
     ? { mode: "linux-resource-limited" } as const
     : { mode: "macos-development-polling", acknowledgeNonProductionRisk: true } as const;
@@ -96,9 +104,10 @@ describe("argv CAD converter adapter", () => {
 
   (process.platform === "linux" ? it : it.skip)("uses GNU prlimit to stop an oversized write at the kernel boundary", async () => {
     const script = join(directory, "kernel-oversize.cjs");
+    const writeAttempt = join(directory, "kernel-write-attempt");
     const inputPath = join(directory, "input.dwg");
     const outputPath = join(directory, "output.dxf");
-    await writeFile(script, "require('node:fs').writeFileSync(process.argv[3], Buffer.alloc(1024 * 1024));");
+    await writeFile(script, `require("node:fs").writeFileSync(${JSON.stringify(writeAttempt)}, "attempted"); require("node:fs").writeFileSync(process.argv[3], Buffer.alloc(1024 * 1024));`);
     await writeFile(inputPath, "input");
     const converter = new ArgvCadConverter({
       executable: process.execPath,
@@ -109,33 +118,74 @@ describe("argv CAD converter adapter", () => {
     });
 
     await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/output.*limit/i);
+    await expect(readFile(writeAttempt, "utf8")).resolves.toBe("attempted");
     await expect(access(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("kills the detached Unix process group so descendants cannot retain pipes or write later", async () => {
     const markerPath = join(directory, "descendant-marker");
-    const script = join(directory, "descendant.cjs");
+    const readyPath = join(directory, "descendant-ready");
     const inputPath = join(directory, "input.dwg");
     const outputPath = join(directory, "output.dxf");
-    const descendant = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'escaped'), 300)`;
-    await writeFile(script, `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: ['ignore', 'inherit', 'inherit'] }); setInterval(() => {}, 60000);`);
+    // A descendant publishes its own ready PID before its delayed write. Node
+    // startup, or macOS evaluation of a new shebang file, can consume the entire
+    // 50ms deadline and otherwise make the group-kill assertion a false positive.
+    // Linux uses Bash builtins; acknowledged macOS development uses its native
+    // Perl interpreter (no new executable-script evaluation or external sleep).
+    const script = join(directory, "descendant.pl");
+    await writeFile(script, [
+      "my ($ready, $marker) = @ARGV; my $pid = fork(); die 'fork failed' unless defined $pid;",
+      "if ($pid == 0) { open(my $fh, '>', $ready) or die $!; print {$fh} $$; close($fh);",
+      "select(undef, undef, undef, 0.3); open(my $out, '>', $marker) or die $!; print {$out} 'escaped'; exit 0; }",
+      "while (1) {}"
+    ].join("\n"));
+    const executable = process.platform === "linux" ? await writeExecutableFixture("descendant-fixture", [
+      `(`,
+      `printf '%s' "$BASHPID" > ${quoteFixtureArgument(readyPath)}`,
+      "start=${EPOCHREALTIME/./}",
+      "while (( ${EPOCHREALTIME/./} - start < 300000 )); do :; done",
+      `printf escaped > ${quoteFixtureArgument(markerPath)}`,
+      ") &",
+      "while :; do :; done"
+    ].join("\n")) : "/usr/bin/perl";
     await writeFile(inputPath, "input");
-    const converter = new ArgvCadConverter({ executable: process.execPath, argv: [script, "{input}", "{output}"], timeoutMs: 50, maxOutputBytes: 1024, execution: runtimeExecution });
+    const argv = process.platform === "linux" ? ["{input}", "{output}"] : [script, readyPath, markerPath, "{input}", "{output}"];
+    const converter = new ArgvCadConverter({ executable, argv, timeoutMs: 50, maxOutputBytes: 1024, execution: runtimeExecution });
     const startedAt = Date.now();
 
-    await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/time.*limit/i);
+    let readyPid: number | undefined;
+    let existedBeforeKill = false;
+    const observer = setInterval(() => {
+      try {
+        const pid = Number(readFileSync(readyPath, "utf8"));
+        process.kill(pid, 0);
+        readyPid = pid; existedBeforeKill = true;
+      } catch { /* Ready file may not exist yet; missing child must fail the assertion below. */ }
+    }, 1);
+    try {
+      await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/time.*limit/i);
+    } finally { clearInterval(observer); }
+    expect(existedBeforeKill).toBe(true);
+    expect(readyPid).toBeGreaterThan(0);
     expect(Date.now() - startedAt).toBeLessThan(250);
     await delay(350);
     await expect(access(markerPath)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(() => process.kill(readyPid!, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
   });
 
   it("polls the output file during conversion, kills on overflow and removes the partial file", async () => {
-    const script = join(directory, "growing-output.cjs");
     const inputPath = join(directory, "input.dwg");
     const outputPath = join(directory, "output.dxf");
+    // A single-process double attempts the write immediately under the same
+    // limits. Node startup must not turn this output-limit case into a timeout.
+    const script = join(directory, "growing-output.cjs");
     await writeFile(script, "require('node:fs').writeFileSync(process.argv[3], Buffer.alloc(4096)); setTimeout(() => {}, 500);");
+    const executable = process.platform === "linux"
+      ? await writeExecutableFixture("growing-output-fixture", 'printf "%4096s" "" > "$2"\nwhile :; do :; done')
+      : process.execPath;
     await writeFile(inputPath, "input");
-    const converter = new ArgvCadConverter({ executable: process.execPath, argv: [script, "{input}", "{output}"], timeoutMs: 1000, maxOutputBytes: 32, execution: runtimeExecution });
+    const argv = process.platform === "linux" ? ["{input}", "{output}"] : [script, "{input}", "{output}"];
+    const converter = new ArgvCadConverter({ executable, argv, timeoutMs: 1000, maxOutputBytes: 32, execution: runtimeExecution });
     const startedAt = Date.now();
 
     await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/output.*limit/i);

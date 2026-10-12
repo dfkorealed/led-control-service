@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter @led-control/automation-engine build && nest start --watch",
     "build": "nest build",
-    "test": "jest",
+    "test": "node scripts/run-unit-tests.mjs",
     "test:command-migration": "pnpm --filter @led-control/shared build && jest src/commands/command-target-migration.integration.spec.ts --runInBand",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",

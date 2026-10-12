@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -99,6 +99,130 @@ test("canonical unit gate runs UI policy fail-closed with its reviewed Git histo
   assert.ok(command.indexOf("pnpm -r test") < command.indexOf(webTests));
   assert.ok(command.indexOf(webTests) < command.indexOf(webCheck));
   assertCannotBeSkipped(findRunStep(unit, "pnpm test"), "canonical unit gate");
+});
+
+test("unit CI isolates only the full API Jest suite without altering canonical gates", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const step = findRunStep(workflow.jobs.unit, "pnpm test");
+  assert.equal(step.env?.LED_API_UNIT_PROFILE, "isolated-linux-ci");
+  assertCannotBeSkipped(step, "isolated API unit gate");
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    if (name !== "unit") assert.ok(!JSON.stringify(job).includes("LED_API_UNIT_PROFILE"));
+  }
+  const pkg = JSON.parse(await readFile(path.join(root, "apps/api/package.json"), "utf8"));
+  assert.equal(pkg.scripts.test, "node scripts/run-unit-tests.mjs");
+});
+
+test("API Jest launcher preserves default argv and validates the complete CI profile", async () => {
+  const file = path.join(root, "apps/api/scripts/run-unit-tests.mjs");
+  assert.ok(await readFile(file, "utf8").catch(() => ""), "API Jest launcher must exist");
+  const { createJestInvocation } = await import(file);
+  const apiRoot = path.join(root, "apps/api");
+  const args = ["src/floor-import/cad-converter.spec.ts", "--runInBand"];
+  const normal = createJestInvocation({ args, env: {}, platform: "linux", nodeExecutable: process.execPath, apiRoot });
+  assert.equal(normal.executable, process.execPath);
+  assert.deepEqual(normal.args.slice(1), args);
+  assert.equal(normal.args[0], path.join(apiRoot, "node_modules/jest/bin/jest.js"));
+  assert.equal(normal.detached, false);
+  const env = { CI: "true", GITHUB_ACTIONS: "true", GITHUB_JOB: "unit", RUNNER_OS: "Linux", GITHUB_WORKSPACE: root, LED_API_UNIT_PROFILE: "isolated-linux-ci" };
+  const isolated = createJestInvocation({ args: [], env, platform: "linux", nodeExecutable: process.execPath, apiRoot });
+  assert.equal(isolated.executable, "/usr/bin/sudo");
+  assert.equal(isolated.detached, true);
+  assert.deepEqual(isolated.args, ["--non-interactive", "--", "/usr/bin/python3", path.join(apiRoot, "scripts/ci-unit-supervisor.py"), "--node", process.execPath]);
+  for (const key of ["CI", "GITHUB_ACTIONS", "GITHUB_JOB", "RUNNER_OS", "GITHUB_WORKSPACE"]) {
+    assert.throws(() => createJestInvocation({ args: [], env: { ...env, [key]: "invalid" }, platform: "linux", nodeExecutable: process.execPath, apiRoot }), /profile|workspace/i);
+  }
+  assert.throws(() => createJestInvocation({ args: [], env, platform: "darwin", nodeExecutable: process.execPath, apiRoot }), /Linux/);
+  assert.throws(() => createJestInvocation({ args, env, platform: "linux", nodeExecutable: process.execPath, apiRoot }), /full suite/);
+  assert.throws(() => createJestInvocation({ args: [], env: { LED_API_UNIT_PROFILE: "typo" }, platform: "linux", nodeExecutable: process.execPath, apiRoot }), /profile/);
+});
+
+test("API default launcher executes the same Jest argv and preserves failure status", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "api-unit-launcher-"));
+  try {
+    const scripts = path.join(directory, "scripts");
+    const cli = path.join(directory, "node_modules/jest/bin");
+    await mkdir(scripts, { recursive: true }); await mkdir(cli, { recursive: true });
+    const launcher = path.join(scripts, "run-unit-tests.mjs");
+    await writeFile(launcher, await readFile(path.join(root, "apps/api/scripts/run-unit-tests.mjs")));
+    await writeFile(path.join(cli, "jest.js"), "console.log(JSON.stringify(process.argv.slice(2))); process.exit(17);");
+    const args = ["file with spaces.spec.ts", "--runInBand"];
+    const result = spawnSync(process.execPath, [launcher, ...args], { encoding: "utf8", env: { PATH: process.env.PATH } });
+    assert.equal(result.status, 17, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), args);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("API default launcher forwards SIGTERM and waits for its Jest child", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "api-unit-signal-"));
+  let child;
+  try {
+    const scripts = path.join(directory, "scripts"); const cli = path.join(directory, "node_modules/jest/bin");
+    await mkdir(scripts, { recursive: true }); await mkdir(cli, { recursive: true });
+    const launcher = path.join(scripts, "run-unit-tests.mjs");
+    await writeFile(launcher, await readFile(path.join(root, "apps/api/scripts/run-unit-tests.mjs")));
+    await writeFile(path.join(cli, "jest.js"), "console.log('ready:'+process.pid); setInterval(()=>{},60000);");
+    child = spawn(process.execPath, [launcher], { env: { PATH: process.env.PATH }, stdio: ["ignore", "pipe", "pipe"] });
+    const exited = new Promise(resolve => child.once("exit", (code, signal) => resolve({ code, signal })));
+    const pid = await new Promise((resolve, reject) => { child.stdout.once("data", chunk => resolve(Number(String(chunk).trim().split(":")[1]))); child.once("error", reject); });
+    child.kill("SIGTERM");
+    assert.deepEqual(await exited, { code: null, signal: "SIGTERM" });
+    assert.throws(() => process.kill(pid, 0), error => error.code === "ESRCH");
+  } finally { if (child?.exitCode === null && child?.signalCode === null) child.kill("SIGKILL"); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("API supervisor rejects profile/argv changes and cleanup identity substitution", async () => {
+  const supervisor = path.join(root, "apps/api/scripts/ci-unit-supervisor.py");
+  assert.ok(await readFile(supervisor, "utf8").catch(() => ""), "privileged API supervisor must exist");
+  const checked = spawnSync("python3", ["-c", `
+import importlib.util, os, pathlib, tempfile
+spec = importlib.util.spec_from_file_location("supervisor", ${JSON.stringify(supervisor)})
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+api = pathlib.Path(${JSON.stringify(path.join(root, "apps/api"))})
+env = {"CI":"true", "GITHUB_ACTIONS":"true", "GITHUB_JOB":"unit", "RUNNER_OS":"Linux", "GITHUB_WORKSPACE":str(api.parent.parent), "LED_API_UNIT_PROFILE":"isolated-linux-ci"}
+module.validate_bootstrap({"version":1,"env":env,"args":[]}, api)
+for key in env:
+    bad = dict(env); bad[key] = "invalid"
+    try: module.validate_bootstrap({"version":1,"env":bad,"args":[]},api)
+    except RuntimeError: pass
+    else: raise AssertionError("accepted invalid profile "+key)
+try: module.validate_bootstrap({"version":1,"env":env,"args":["--listTests"]},api)
+except RuntimeError: pass
+else: raise AssertionError("accepted filtered CI argv")
+with tempfile.TemporaryDirectory() as directory:
+    path=pathlib.Path(directory)/"owned"; path.mkdir()
+    identity=module.directory_identity(path,os.getuid())
+    module.verify_directory(path,identity)
+    path.rmdir(); path.symlink_to(directory,target_is_directory=True)
+    try: module.verify_directory(path,identity)
+    except RuntimeError: pass
+    else: raise AssertionError("accepted substituted cleanup path")
+account=module.OwnedAccount(); account.uid=12345; account.owns_uid=False
+module.signal_tasks=lambda *args: (_ for _ in ()).throw(AssertionError("attempted to signal a non-owned UID"))
+assert module.stop_and_reap(account,None)==0
+with tempfile.TemporaryDirectory() as directory:
+    root=pathlib.Path(directory)
+    baseline=root/"gateway-watermark-baseline"; baseline.mkdir()
+    ledger=module.FixtureDirectories(root)
+    try:
+        # Even replacing a baseline inode never transfers that pathname's ownership.
+        baseline.rmdir(); baseline.mkdir(); (baseline/"keep").write_text("baseline")
+        symlink=root/"gateway-watermark-link"; symlink.symlink_to(baseline,target_is_directory=True)
+        owned=root/"gateway-watermark-owned"; owned.mkdir()
+        (owned/"nested-link").symlink_to(baseline,target_is_directory=True)
+        ledger.observe(os.getuid()); assert set(ledger.captured)=={owned.name}
+        original=root/"original"; owned.rename(original); owned.mkdir()
+        try: ledger.remove()
+        except RuntimeError: pass
+        else: raise AssertionError("accepted changed fixture inode")
+        assert (baseline/"keep").read_text()=="baseline" and symlink.is_symlink()
+        owned.rmdir(); original.rename(owned); ledger.remove()
+        assert not owned.exists() and (baseline/"keep").read_text()=="baseline" and symlink.is_symlink()
+    finally: ledger.close()
+print("profile/argv/directory identity passed")
+`], { encoding: "utf8", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } });
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+  assert.match(checked.stdout, /identity passed/);
 });
 
 test("unit CI exposes checked PostgreSQL 16 tools before disposable migration tests", async () => {

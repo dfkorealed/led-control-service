@@ -55,6 +55,9 @@ jobs:
           done
           printf '%s\n' "$pg_bin_dir" >> "$GITHUB_PATH"
       - run: pnpm test
+        env:
+          # A fresh API-only UID prevents unrelated pnpm/Jest threads consuming RLIMIT_NPROC.
+          LED_API_UNIT_PROFILE: isolated-linux-ci
       - run: pnpm --filter @led-control/web test:date-bundle
       - run: pnpm --filter @led-control/web test:overlay-bundle
 
