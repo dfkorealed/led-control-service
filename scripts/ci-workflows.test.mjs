@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import yaml from "js-yaml";
@@ -98,6 +99,65 @@ test("canonical unit gate runs UI policy fail-closed with its reviewed Git histo
   assert.ok(command.indexOf("pnpm -r test") < command.indexOf(webTests));
   assert.ok(command.indexOf(webTests) < command.indexOf(webCheck));
   assertCannotBeSkipped(findRunStep(unit, "pnpm test"), "canonical unit gate");
+});
+
+test("unit CI exposes checked PostgreSQL 16 tools before disposable migration tests", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const stepName = "Prepare PostgreSQL tools for disposable unit fixtures";
+  function requireSetup(job) {
+    const setup = job.steps.findIndex(step => step.name === stepName);
+    const generate = job.steps.findIndex(step => step.run === "pnpm --filter @led-control/api prisma:generate");
+    const unit = job.steps.findIndex(step => step.run === "pnpm test");
+    assert.ok(setup > generate && unit > setup && generate >= 0, "PostgreSQL tools must be prepared after Prisma generation and before unit tests");
+    assertCannotBeSkipped(job.steps[setup], "unit PostgreSQL tools setup");
+    return job.steps[setup].run;
+  }
+  const command = requireSetup(workflow.jobs.unit);
+  const missingSetup = structuredClone(workflow.jobs.unit);
+  missingSetup.steps = missingSetup.steps.filter(step => step.name !== stepName);
+  assert.throws(() => requireSetup(missingSetup), /must be prepared/);
+  const lateSetup = structuredClone(workflow.jobs.unit);
+  lateSetup.steps.push(lateSetup.steps.splice(lateSetup.steps.findIndex(step => step.name === stepName), 1)[0]);
+  assert.throws(() => requireSetup(lateSetup), /must be prepared/);
+  for (const flag of ["if", "continue-on-error"]) {
+    const skipped = structuredClone(workflow.jobs.unit);
+    skipped.steps.find(step => step.name === stepName)[flag] = true;
+    assert.throws(() => requireSetup(skipped), /must not declare/);
+  }
+
+  const directory = await mkdtemp(path.join(tmpdir(), "unit-pg-tools-"));
+  const lookup = path.join(directory, "lookup");
+  const bindir = path.join(directory, "postgres-bin");
+  const githubPath = path.join(directory, "github-path");
+  try {
+    await mkdir(lookup);
+    await mkdir(bindir);
+    // Only version probes are modeled; this fixture cannot start a DB or read ambient credentials.
+    await writeFile(path.join(lookup, "pg_config"), '#!/bin/bash\ncase "$1" in --bindir) printf "%s\\n" "$TEST_PG_BINDIR";; --version) printf "%s\\n" "$TEST_PG_VERSION";; *) exit 1;; esac\n', { mode: 0o755 });
+    for (const tool of ["initdb", "pg_ctl", "psql", "postgres"]) {
+      await writeFile(path.join(bindir, tool), `#!/bin/bash\n[ "$1" = --version ] || exit 1\nprintf '%s\\n' '${tool} (PostgreSQL) 16.15'\n`, { mode: 0o755 });
+    }
+    function run(version = "PostgreSQL 16.15") {
+      return spawnSync("/bin/bash", ["-e", "-o", "pipefail", "-c", command], {
+        encoding: "utf8", env: { PATH: lookup + ":/usr/bin:/bin", TEST_PG_BINDIR: bindir, TEST_PG_VERSION: version, GITHUB_PATH: githubPath }
+      });
+    }
+    const ready = run();
+    assert.equal(ready.status, 0, ready.stdout + ready.stderr);
+    assert.equal(await readFile(githubPath, "utf8"), bindir + "\n");
+    for (const tool of ["initdb", "pg_ctl", "psql", "postgres"]) assert.match(ready.stdout, new RegExp(`${tool} \\(PostgreSQL\\) 16\\.15`));
+    assert.match(ready.stdout, /PostgreSQL 16\.15/);
+    await rm(githubPath);
+    const wrongVersion = run("PostgreSQL 17.7");
+    assert.notEqual(wrongVersion.status, 0, "a different major must not silently replace the PostgreSQL 16 test environment");
+    await assert.rejects(readFile(githubPath), { code: "ENOENT" });
+    await rm(path.join(bindir, "initdb"));
+    const unavailable = run();
+    assert.notEqual(unavailable.status, 0, "missing server tools must fail before exporting PATH");
+    await assert.rejects(readFile(githubPath), { code: "ENOENT" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("cold-checkout and protected-gate mutations are rejected", async () => {
