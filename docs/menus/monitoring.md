@@ -8,6 +8,7 @@
 - 순수 snapshot 60초 초과 지연은 기존 알람센터 ‘현재 화면 상태’에만 표시하고 상단 toast/최근 알림을 생성하지 않는다. 새 snapshot으로 복구하면 사라진다. 조회 실패·invalid/future 시각 경고는 기존 transient 안내를 유지하며 서버 현장 장애 알람·읽음/지우기·미읽음 수는 별도 계약이다.
 - loading/error/main의 h1은 sr-only로 보존한다. 층 선택·통합 검색/목록·마지막 갱신·새로고침을 한 도구 행으로 배치한다. 좁은 화면은 기존52px icon action과 accessible label, 현장 시간 HH:mm/전체 시각 설명을 사용한다. 시각 미확인 안내도 전체 접근 가능한 설명을 유지한다.
 - 조명 상세는 PC·모바일 동일한 지도 내부 하단 약 절반 nonmodal overlay다. 지도 영역은 줄이지 않으며 상세 본문만 스크롤한다. 닫기/Escape·현재 scope의 opener 복귀·선택/필터/삭제 수명과 상세 scroll 기억을 유지한다.
+- 기존 페이지 담당의 인수 검증에서 제품 `ac323a3d`와 동일한 소스의 직접 `MonitoringView`/`FloorMap` 2개 suite 127개가 일괄 통과했다. snapshot 60,000/60,001ms·복구·오류/시각 안내, marker gesture/단일 선택, 상세 열기/닫기·scroll/초점 수명을 확인한 소프트웨어 증거이며 실제 화면 geometry 완료를 뜻하지 않는다.
 
 ### 미구현
 
