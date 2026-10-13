@@ -1,3 +1,4 @@
+import { BIO_DEFAULT_DEVICE_REPORT_TIMEOUT_MS } from "./bio-timeout-defaults";
 import { randomInt } from "node:crypto";
 import { bioSensorFingerprintV1Schema, type BioSensorFingerprintV1 } from "@led-control/shared";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
@@ -104,7 +105,7 @@ export class BioDongleClient {
     this.sequence = options.initialSequence ?? randomInt(10, 100);
     if (!Number.isInteger(this.sequence) || this.sequence < 0 || this.sequence > 255) throw new RangeError("Invalid BIO initial sequence");
     this.scanDurationMs = positiveDuration(options.scanDurationMs ?? 5000, "scan duration");
-    this.observationTimeoutMs = positiveDuration(options.observationTimeoutMs ?? options.timeoutMs ?? 300, "observation timeout");
+    this.observationTimeoutMs = positiveDuration(options.observationTimeoutMs ?? options.timeoutMs ?? BIO_DEFAULT_DEVICE_REPORT_TIMEOUT_MS, "observation timeout");
     this.reconnectReadyTimeoutMs = positiveDuration(options.reconnectReadyTimeoutMs ?? 35000, "reconnect ready timeout");
     this.transport = new BioUsbTransport({
       timeoutMs: options.timeoutMs,

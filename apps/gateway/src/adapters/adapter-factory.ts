@@ -1,3 +1,4 @@
+import { BIO_DEFAULT_DEVICE_REPORT_TIMEOUT_MS, BIO_DEFAULT_USB_RESPONSE_TIMEOUT_MS } from "../bio/bio-timeout-defaults";
 import type { BleMeshAdapter, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -90,12 +91,14 @@ async function createBioUsbAdapters(
   env: NodeJS.ProcessEnv,
   dependencies: AdapterFactoryDependencies
 ): Promise<GatewayAdapters> {
-  const responseTimeoutMs = parseBioPositiveInteger(env.GATEWAY_BIO_RESPONSE_TIMEOUT_MS, 300);
+  const responseTimeoutMs = parseBioPositiveInteger(env.GATEWAY_BIO_RESPONSE_TIMEOUT_MS, BIO_DEFAULT_USB_RESPONSE_TIMEOUT_MS);
+  const observationTimeoutMs = parseBioPositiveInteger(env.GATEWAY_BIO_OBSERVATION_TIMEOUT_MS, BIO_DEFAULT_DEVICE_REPORT_TIMEOUT_MS);
   const scanDurationMs = parseBioPositiveInteger(env.GATEWAY_BIO_SCAN_DURATION_MS, 5_000);
   const connectionFactory = dependencies.createBioConnection ?? (() => new BioDirectUsbConnection());
   const client = (dependencies.createBioClient ?? ((options) => new BioDongleClient(options)))({
     connectionFactory,
     timeoutMs: responseTimeoutMs,
+    observationTimeoutMs,
     scanDurationMs
   });
   const mappingPath = env.GATEWAY_BIO_MAPPING_PATH ?? "/var/lib/led-control/bio-device-mappings.json";

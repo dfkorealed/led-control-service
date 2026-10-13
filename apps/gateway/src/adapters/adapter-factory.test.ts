@@ -247,7 +247,11 @@ describe("createProductionAdapters", () => {
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
-  it("constructs BIO direct USB without reading a Company Identifier or BlueZ dependency", async () => {
+  it.each([
+    { response: undefined, observation: undefined, expectedResponse: 1000, expectedObservation: 2000 },
+    { response: "450", observation: undefined, expectedResponse: 450, expectedObservation: 2000 },
+    { response: "450", observation: "650", expectedResponse: 450, expectedObservation: 650 }
+  ])("constructs BIO direct USB with independent response=$expectedResponse/report=$expectedObservation limits", async ({ response, observation, expectedResponse, expectedObservation }) => {
     const connection = { kind: "direct-usb" };
     const createBioConnection = vi.fn(() => connection);
     const client = {
@@ -290,7 +294,8 @@ describe("createProductionAdapters", () => {
     const result = await createProductionAdapters({
       GATEWAY_ADAPTER: "bio-usb",
       GATEWAY_BIO_MAPPING_PATH: "/data/bio-mappings.json",
-      GATEWAY_BIO_RESPONSE_TIMEOUT_MS: "450",
+      GATEWAY_BIO_RESPONSE_TIMEOUT_MS: response,
+      GATEWAY_BIO_OBSERVATION_TIMEOUT_MS: observation,
       GATEWAY_BIO_SCAN_DURATION_MS: "6500"
     }, {
       createBioConnection: createBioConnection as never,
@@ -303,7 +308,8 @@ describe("createProductionAdapters", () => {
 
     expect(createBioClient).toHaveBeenCalledWith({
       connectionFactory: expect.any(Function),
-      timeoutMs: 450,
+      timeoutMs: expectedResponse,
+      observationTimeoutMs: expectedObservation,
       scanDurationMs: 6500
     });
     expect(createBioMappingStore).toHaveBeenCalledWith("/data/bio-mappings.json");
@@ -477,6 +483,10 @@ describe("createProductionAdapters", () => {
     await expect(createProductionAdapters({
       GATEWAY_ADAPTER: "bio-usb",
       GATEWAY_BIO_SCAN_DURATION_MS: value
+    })).rejects.toThrow("BIO timeout and scan settings");
+    await expect(createProductionAdapters({
+      GATEWAY_ADAPTER: "bio-usb",
+      GATEWAY_BIO_OBSERVATION_TIMEOUT_MS: value
     })).rejects.toThrow("BIO timeout and scan settings");
   });
 

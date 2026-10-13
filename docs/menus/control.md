@@ -12,20 +12,29 @@
 
 ### 구현 완료
 
+- 2026-10-13 소프트웨어 보완: BIO 기본 USB ACK/startup/partial frame 대기는 300→1,000ms, 장치 확인 보고 대기는 300→2,000ms로 늘린다. 제품 factory의 USB·관측 override는 독립이며, 직접 client의 기존 `timeoutMs` 단독 지정은 두 대기에 적용되는 호환성을 유지한다. UUID/address/kind 검증, ACK보다 먼저 도착하는 report, generation 폐기, 자동 Set 재전송 금지 및 만료 뒤 Set fence는 유지한다.
+
 - 수동 명령의 장비 결과가 `failed + TIMEOUT`이면 기존 `failed + STATUS_TIMEOUT`과 같이 관측 부재로 정규화한다. 해당 결과는 `timed_out`, 관측 밝기는 `null`, 원래 `faultCode`는 그대로 보존하며 명령은 `unknown`으로 분류해 이력에서 `실제 상태 확인 필요`를 표시한다. 일부 응답만 70%인 경우 전체 성공이나 확정된 일부 실패를 합성하지 않는다.
 - 원문 aggregate·fixture 집합·신원·event hash 검증은 정규화 전에 유지한다. `state_mismatch` 같은 확정된 실패는 기존 `partially_applied`/`일부 조명 적용 실패` 의미를 유지한다. 기존 native `timed_out`, `STATUS_TIMEOUT`, unknown 이후 상태 확인과 겹치는 Set 차단도 유지한다. 공유 wire 계약과 DB 스키마는 변경하지 않았다.
 
 ### 미구현
+
+- 응답 대기 보완은 새 bundle의 장비 배포·현재 Pi의 명시적 timeout 변경·원래 70% 명령의 성공 재검증을 포함하지 않는다. 기존 명령의 정확한 USB/RF 또는 brightness/mode Get 유실 단계도 미확정이다.
 
 - 이미 저장된 명령 `337f5ac3-76fd-4abc-b41b-bab2a3d896c1`의 `partially_applied` 기록은 소스 수정만으로 변경되지 않는다. 과거 기록 재분류·런타임 반영·실제 장비 Get/Set·게이트웨이 배포는 이번 구현에서 실행하지 않았다.
 - 문제 시각에 실행된 구버전 BIO 컨테이너(revision `27138ae5e35936f136d8e194712110ea8e13ae44`)의 catch가 관측 부재에도 `failed`를 반환하는 구조와 실제 기록이 일치한다. 다만 해당 명령 UUID 로그·원문 ACK가 없어 실행기록의 최종 귀속과 USB/RF 또는 brightness/mode Get 중 정확한 유실 단계는 미확정이며, 최신 Pi 실행 bundle의 적용·실장비 재검증은 이번 작업에서 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
 
+- 전체 수동 실행은 기본 8초와 남은 MQTT TTL 10초로 계속 제한된다. BIO는 4 worker여도 USB 전역 queue에서 비영 밝기 대상마다 두 Set·두 Get을 직렬 처리하므로 이번 기본값 조정만으로 1,000개 이상 일괄 제어를 지원하지 않는다. API 30초 accepted 제한, 분할 dispatch와 안전한 실행 소유권을 포함하는 대규모 설계는 별도 후속 범위다. 독립 BIO Compose의 timeout override 전달도 이번 변경에 포함하지 않는다.
+
 - 원래 70%·네 조명 중 하나의 `TIMEOUT`과 세 조명의 `succeeded/70`을 넣는 API 회귀가 수정 전 `partially_applied`로 실패했다. 상태 저장을 모사하는 단위 경계에서 정규화·원문 hash 충돌 거부와 기존 실패/확인/잠금 회귀를 검증하며, PostgreSQL·실장비 동작 증거와 구분한다.
 - 과거 명령을 무조건 `unknown`으로 바꾸면 원래 70%·네 대상에 대한 새 Set 잠금이 생긴다. 이후 성공한 0% 명령이 있는 경우, 현재 값을 읽는 Get을 과거 70% 적용 사실의 증명으로 해석하지 않는다. 과거 기록 보정은 원문·보관 경계·신원·후속 명령을 대조하고 감사 가능한 별도 절차로 결정해야 한다.
 
 ### 관련 파일
+
+- `apps/gateway/src/bio/{bio-timeout-defaults,bio-usb-transport,bio-dongle-client}.ts`, `apps/gateway/src/adapters/adapter-factory.ts` 및 관련 단위 테스트
+- `apps/gateway/.env.appliance.example`, `apps/gateway/README.md`
 
 - `apps/api/src/mqtt/mqtt.service.ts`
 - `apps/api/src/mqtt/mqtt.service.spec.ts`
@@ -33,6 +42,8 @@
 - 무변경 소비자 `apps/api/src/commands/{command-status.service,command-verification.service,commands.service}.ts`, `apps/web/src/features/control/command-history-presentation.ts`
 
 ### 갱신 규칙
+
+- 응답 대기 보완은 가상 byte connection의 소프트웨어 증거와 실장비 배포·RF 관측을 분리해 기록한다. 전체 TTL·Set fence와 이미 실행 중인 Pi 설정의 실제 반영 여부를 확인 없이 완료로 표시하지 않는다.
 
 - 응답 유실과 확정된 장비 실패를 구분하고, 원문 검증 뒤에만 호환 정규화를 적용한다. 성공을 추정하거나 원래 밝기·대상·UUID를 바꾸지 않는다.
 - 단위 RED/GREEN·전체 API 검사·실제 운영 반영·과거 기록 보정·장비 확인을 분리해 기록한다. 장비 응답이 없었다는 이유로 과거 이력을 성공으로 덮지 않는다.

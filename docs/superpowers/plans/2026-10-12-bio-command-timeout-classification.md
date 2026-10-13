@@ -58,3 +58,42 @@
 - [ ] 과거337f의 보정 필요 여부와 의미·잠금 영향에 대해 감사 가능한 절차를 확정한다. 성공값 합성 금지.
 
 - 제품·제어문서 소유4파일 커밋 `03bb454d`를 기존 MAIN `1ffa69f4`에서 ff-only 통합했다. 원 사용자 AGENTS.md hash `8472784d2cf414e45cc3f4b9ae3e9e3bf69acdf7`은 통합 전후 보존 대상이며, 원 증거를 가진 수리 worktree는 runtime handoff까지 유지한다. 실제 실행 반영·과거 보정 체크는 위 미실행 상태로 남긴다.
+
+## 2026-10-13 사용자 선택 후속: 개별 응답 대기 확대
+
+사용자는 과거 이력 조회 재분류 대신 응답 대기를 넉넉히 늘리도록 요청했고, 이번에는 응답 대기시간 조정과 대규모 제어 설계 정리까지 선택했다. 위 과거 기록 보정·다른 채팅 메시지 발송 단계는 이번 범위에서 실행하지 않는다. 현재 MAIN 소스·dist에 기존 API TIMEOUT 정규화가 포함되어 있으나, 과거337f 기록은 그대로 보존한다.
+
+**Goal:** BIO USB ACK 기본 대기를300ms→1,000ms, 조명 상태 보고 기본 대기를300ms→2,000ms로 늘려 늦은 정상 응답을 수용한다.
+**Architecture:** Gateway의 설정과 직접 생성 경로에서 동일한 기본값을 사용한다. 명시적인 설정 override, 응답 신원/종류 검증, 세대 폐기, Set 재시도 금지와 기존 전체 명령 만료 경계를 유지한다.
+**Workspace:** `.worktrees/dimming-timeout-budget-20261013`, branch `codex/dimming-timeout-budget-20261013`, base `d88e4d4c`, merge target `codex/mvp1-cloud-web`.
+**Files:** Gateway timeout/config/client/transport 및 해당 Vitest 테스트·README/env 예제·`docs/menus/control.md`는 gateway 소유; 이 체크리스트와 `docs/project-status.md`는 총괄 소유.
+
+### Task 3: Gateway 대기 기본값과 회귀
+
+- [x] ACK/상태 보고와 전체 명령 deadline을 구분하고 현재 wire 직렬 처리·target 제한을 읽기 조사한다.
+- [x] 사용자에게ACK1초·상태보고2초 및 대규모 설계만 정리하는 범위를 보고하고 선택을 반영한다.
+- [x] 지연ACK/상태보고·응답부재·명시적override 테스트로 기본값 변경 전 assertion RED를 확인한다.
+- [x] 실제 설정 경로와 직접 client/transport 생성 기본값을 수정하고 scoped GREEN을 확인한다.
+- [x] Gateway 전체 test·typecheck·build, 메뉴5섹션·README/예제를 검증한다.
+
+### Task 4: 검토·대규모 설계 기록·로컬 머지
+
+- [x] 대규모 제어 설계와 현재 제한을 아래 및 메뉴 문서에 정리한다.
+- [x] 독립 QA가 diff/RED-GREEN/원문 응답 검증·no Set retry·만료 fence·문서와 증거를 검토한다.
+- [ ] 소유 변경만 커밋하고 MAIN의 진행 중 사용자/다른 작업 변경을 보존하여 로컬 머지한다.
+- [ ] 머지 소스 일치와 dirty 변경 보존을 검증하고 소프트웨어 완료·실장비 적용 경계를 함께 보고한다.
+
+### 대규모 제어 설계 (미구현)
+
+- 현재 수동 Set은 한 dispatch이며 wire 대상 상한은1,000개다. 상태 확인 Get의64개 분할은 수동 Set 분할을 구현한 것이 아니다. 따라서1,000개 초과 제어는 이번 수정으로 지원되지 않는다.
+- BIO 가상 mesh group은 개별 unicast로 처리되고 USB wire 작업은 직렬이다. 양수 밝기는 대상별 밝기Set→강제ON Set→밝기Get→모드Get의 최소4회 transaction,0%는 강제OFF Set→모드Get의2회다. 다른 adapter의 실제 병렬성/그룹 전송과 구분해 실행 예산을 산정해야 한다.
+- 현재 전체 수동 실행 기본8초/설정 상한29초, wire TTL10초와 만료2초 guard, API accepted 결과 대기30초는 이번 수정에서 유지한다. 긴 개별 대기는 전체 만료를 넘겨 Set을 허용하지 않는다. ACK/상태보고 확대만으로 모든 대상의 적용 확인을 보장할 수 없다.
+- 후속 설계는 부모 명령과 bounded chunk dispatch·대상별 결과 집계·진행률/heartbeat/취소를 함께 다룬다. chunk를 실제 발행할 때 fresh TTL을 부여하고 command/dispatch idempotency와 정확한 대상 집합을 유지해야 한다.
+- 현재 TTL은 각 native Set 직전에도 검사하므로 수신 freshness와 장기 실행을 분리하려면 별도 durable 실행 lease(commandID·대상·bootID·publishEpoch·monotonic deadline), 대상별 최신 수동 명령 fence, API 대기/복구 정책을 함께 설계해야 한다. 현재 pending 수동 명령끼리의 supersession을 이미 보장한다고 가정하지 않는다.
+- 장기 처리 중 재시작·응답 유실은 기존 불확정 결과 및 Get 확인으로 수렴한다. 실제 응답 없이 성공을 합성하거나 Set을 자동 재실행하지 않는다. 처리량 수치는 실제 장비 지연/queue 측정 후 확정한다.
+
+### 후속 검증 증거
+
+- 초기 assertion RED는 Node24.19.0에서5FAIL/2PASS/94개 필터 제외였고 초기 GREEN은7PASS다. 초기 탐색의 직접client USB-only 설정 분리 테스트는 최종 요구인 기존 `timeoutMs` 단독 호환 회귀로 교체했다. 모든 최종 신규 테스트가 동일 RED 이름을 가졌다고 해석하지 않는다. 기존 timeout 시간 좌표를 맞춘 최종 focused3파일191PASS(exit0)는 Node24에서 검증했다.
+- 최종 기준 환경은 Node22.20.0/pnpm9.15.0이며 `workspace:prepare`·Gateway typecheck/build는exit0다. 코드·메뉴 freeze10파일 SHA256과 원 로그는 수리 worktree `.local/dimming-timeout-budget-20261013`에 보존한다. 전체Gateway test도exit0(102파일/1,839PASS/FAIL0/SKIP0,82.95초)다. 독립 QA는 C0/I0/M0·Ready to merge Yes다. 머지 검증은 아직 진행 중이다.
+- 초기 RED5FAIL 중 변경된 직접client 탐색1case를 제외한 나머지4FAIL은 최종 기본 대기 요구와 일치한다. 최종 override 회귀와 전체 Node22 GREEN을 별도 증거로 유지한다.

@@ -1,3 +1,4 @@
+import { BIO_DEFAULT_USB_RESPONSE_TIMEOUT_MS } from "./bio-timeout-defaults";
 import type { BioByteConnection } from "./bio-byte-connection";
 import { BioFrameCodec, encodeCrcFrame, encodeGsFrame, type BioFrame, type BioProtocol } from "./bio-frame-codec";
 import { BioUsbError, type BioUsbErrorCode } from "./bio-usb-error";
@@ -65,11 +66,13 @@ export class BioUsbTransport {
   private closing: Promise<void> = Promise.resolve();
   private closeError?: BioUsbError;
   private readonly retirementTimeoutMs: number;
+  private readonly responseTimeoutMs: number;
   private attempt?: { promise: Promise<void>; resolve: () => void; reject: (error: BioUsbError) => void };
 
   constructor(private readonly options: BioTransportOptions) {
-    const timeout = options.timeoutMs ?? 300;
+    const timeout = options.timeoutMs ?? BIO_DEFAULT_USB_RESPONSE_TIMEOUT_MS;
     if (!Number.isInteger(timeout) || timeout < 1 || timeout > 2147483647) throw new RangeError("Invalid BIO response timeout");
+    this.responseTimeoutMs = timeout;
     this.retirementTimeoutMs = options.retirementTimeoutMs ?? 10_000;
     if (!Number.isInteger(this.retirementTimeoutMs) || this.retirementTimeoutMs < 1 || this.retirementTimeoutMs > 2147483647) {
       throw new RangeError("Invalid BIO retirement timeout");
@@ -178,7 +181,7 @@ export class BioUsbTransport {
     // [미확인]이며, zero trailer literal을 일반 checksum 응답이나 83 ACK로 해석하지 않는다.
     const startup = traced ? new Promise<void>((resolve, reject) => {
       this.startup = { infoSeen: false, literalsComplete: false, resolve, reject };
-      this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO converter info timed out")), this.options.timeoutMs ?? 300);
+      this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO converter info timed out")), this.responseTimeoutMs);
     }) : undefined;
     void startup?.catch(() => {});
     await connection.open();
@@ -263,7 +266,7 @@ export class BioUsbTransport {
 
   private armResponseTimeout() {
     const generation = this.status.generation;
-    this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO response timed out")), this.options.timeoutMs ?? 300);
+    this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO response timed out")), this.responseTimeoutMs);
   }
 
   private receive(generation: number, bytes: Buffer) {
@@ -320,7 +323,7 @@ export class BioUsbTransport {
       // [확인됨] idle 상태의 분할 03/12 알림은 정상 캡처에 존재한다. 완전한 header/frame이
       // 소유권을 확정할 때까지 다음 요청을 막고, 지연 ACK는 새 요청이 소비하지 못하게 한다.
       // startup 이후의 멈춘 partial도 timeout으로 제한한다.
-      this.partialTimeout ??= setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO partial notification timed out")), this.options.timeoutMs ?? 300);
+      this.partialTimeout ??= setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO partial notification timed out")), this.responseTimeoutMs);
     }
     // Finish inspecting complete and partial candidates before another request
     // becomes eligible to own bytes from this connection.

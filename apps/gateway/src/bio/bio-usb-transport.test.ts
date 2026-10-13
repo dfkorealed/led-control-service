@@ -276,7 +276,7 @@ describe("BioUsbTransport", () => {
     try {
       await flush();
       h.devices[0].receive(Buffer.concat([validInfo03, validGsInfo03.subarray(0, 14)]).toString("hex"));
-      await vi.advanceTimersByTimeAsync(299);
+      await vi.advanceTimersByTimeAsync(999);
       expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
       await vi.advanceTimersByTimeAsync(1);
       expect(await starting).toMatchObject({ code: "TIMEOUT" });
@@ -312,7 +312,7 @@ describe("BioUsbTransport", () => {
     try {
       await flush();
       h.devices[0].receive(`${validInfo03.toString("hex")}55`);
-      await vi.advanceTimersByTimeAsync(299);
+      await vi.advanceTimersByTimeAsync(999);
       expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
       await vi.advanceTimersByTimeAsync(1);
       expect(await starting).toMatchObject({ code: "TIMEOUT" });
@@ -398,7 +398,7 @@ describe("BioUsbTransport", () => {
     void settled(h.transport.start()).then((value) => { outcome = value; }); await flush();
     h.devices[0].receive("55aa030c02050320682f0000000300001147");
     try {
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(1000);
       expect(outcome).toMatchObject({ code: "TIMEOUT" });
     } finally {
       await h.transport.stop();
@@ -421,7 +421,7 @@ describe("BioUsbTransport", () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
     const start = settled(h.transport.start()); await flush();
     expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(await start).toMatchObject({ code: "TIMEOUT" });
     await vi.advanceTimersByTimeAsync(2000);
     expect(h.devices).toHaveLength(2);
@@ -529,7 +529,7 @@ describe("BioUsbTransport", () => {
     h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
     h.devices[0].receive("55aa121c");
     const request = settled(h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") }));
-    await vi.advanceTimersByTimeAsync(299);
+    await vi.advanceTimersByTimeAsync(999);
     expect(h.transport.snapshot().ready).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
     expect(await request).toMatchObject({ code: "TIMEOUT" });
@@ -675,7 +675,7 @@ describe("BioUsbTransport", () => {
     const queued = settled(value.transport.request({ command: 0, payload: hex("01") }));
     await flush();
     if (failure === "timeout") {
-      await vi.advanceTimersByTimeAsync(299);
+      await vi.advanceTimersByTimeAsync(999);
       expect(value.transport.snapshot().ready).toBe(true);
       await vi.advanceTimersByTimeAsync(1);
     } else if (failure === "malformed") oldDevice.receive("47530100ff");
@@ -747,7 +747,7 @@ describe("BioUsbTransport", () => {
     const value = harness(); await ready(value);
     value.devices[0].receive("47");
     const pending = settled(value.transport.request({ command: 0, payload: hex("") }));
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(await pending).toMatchObject({ code: "NOT_READY" });
     expect(value.devices[0].writes).toEqual(["4753820000"]);
     await value.transport.stop();
@@ -758,7 +758,7 @@ describe("BioUsbTransport", () => {
     const starting = settled(value.transport.start()); await flush();
     expect(value.devices).toHaveLength(1);
     expect(value.devices[0].writes).toEqual(["55aa82000000"]);
-    await vi.advanceTimersByTimeAsync(300); expect(await starting).toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(1000); expect(await starting).toMatchObject({ code: "TIMEOUT" });
     await vi.advanceTimersByTimeAsync(2000);
     expect(value.devices[1].writes).toEqual(["4753820000"]);
     value.devices[1].receive("475383007c"); await flush();
@@ -768,11 +768,11 @@ describe("BioUsbTransport", () => {
 
   it("backs off repeated failed probes at 2/4/8/16/32/32 seconds", async () => {
     const value = harness(); const starting = settled(value.transport.start()); await flush();
-    await vi.advanceTimersByTimeAsync(300); await starting;
+    await vi.advanceTimersByTimeAsync(1000); await starting;
     for (const [index, delay] of [2000, 4000, 8000, 16000, 32000, 32000].entries()) {
       await vi.advanceTimersByTimeAsync(delay - 1); expect(value.devices).toHaveLength(index + 1);
       await vi.advanceTimersByTimeAsync(1); expect(value.devices).toHaveLength(index + 2);
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(1000);
     }
     await value.transport.stop(); await vi.advanceTimersByTimeAsync(64000);
     expect(value.devices).toHaveLength(7);
@@ -823,7 +823,7 @@ describe("BioUsbTransport", () => {
   it("rejects command ff because command + 1 cannot fit a response byte", async () => {
     const value = harness(); await ready(value);
     const pending = settled(value.transport.request({ command: 255, payload: hex("") }));
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(await pending).toBeInstanceOf(RangeError);
     expect(value.devices[0].writes).toEqual(["4753820000"]);
     await value.transport.stop();

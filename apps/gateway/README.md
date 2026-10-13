@@ -14,6 +14,10 @@ claim 응답의 기대 Site/Gateway ID와 제조 serial, 유효 HTTPS bootstrap 
 
 BIO full runtime은 `compose.bio-runtime.yml`과 `scripts/gateway-bio-runtime.sh`만 사용한다. 과거 base+BIO overlay 병합은 BlueZ capability/mount가 남으므로 신규 BIO 배포에 사용하지 않으며 구형 `--adapter bio-usb` launcher는 원격 변경 전에 실패한다. 호스트가 새 root/descriptor/identity를 검증하고 UID999로 디렉터리를 준비하므로 컨테이너는 root entrypoint 없이 UID999·capability0으로 제품 Node runtime을 실행한다. [독립 배포 관문](../../docs/runbooks/raspberry-pi-gateway-appliance.md#독립-bio-runtime-배포)을 따른다. 소프트웨어 격리 검증과 실제 healthy heartbeat/BIO HIL은 별개다.
 
+BIO 응답 대기는 USB 전송 수락 ACK와 조명의 확인 보고를 나눠 제한한다. 기본 USB ACK·startup·미완성 프레임 대기는 **1,000ms**, UUID/address/kind가 일치하는 device report 대기는 **2,000ms**다. 제품 adapter factory는 `GATEWAY_BIO_RESPONSE_TIMEOUT_MS`와 `GATEWAY_BIO_OBSERVATION_TIMEOUT_MS`로 각각 덮어쓸 수 있다. 직접 `BioDongleClient`를 사용하는 기존 호출의 `timeoutMs`만 지정한 경우에는 두 대기 모두 그 값을 사용하며, `observationTimeoutMs`를 명시하면 보고 대기만 분리된다.
+
+시간을 늘려도 ACK만으로 성공을 합성하거나 Set을 재전송하지 않는다. 보고 유실 시 기존 USB generation 폐기와 명령 불확정 처리를 유지한다. 수동 전체 실행의 기본 8초와 남은 MQTT TTL 10초 제한, 만료 뒤 Set 금지는 그대로이므로 이 수정은 1,000개 이상 일괄 제어의 완료 보장이 아니다. 문제 명령의 정확한 유실 단계는 미확정이며, 가상 USB 검증을 실제 RF 성공으로 취급하지 않는다. 이미 실행 중인 Pi의 bundle·명시적 설정값은 소스 변경으로 바뀌지 않는다. 독립 BIO Compose는 이 두 환경 변수를 현재 전달하지 않으므로 운영 override 전달 및 배포는 별도 검토가 필요하다.
+
 프론트엔드에서 API 응답을 화면 상태로 바꾸는 경계가 있다면, Gateway는 현장에서는 클라우드 명령을 조명 무선 명령으로 바꾸는 경계다. 다만 브라우저나 웹 서버가 아니라 Raspberry Pi에서 계속 실행되는 현장 process다. 브라우저가 닫혀도 조명이 동작해야 하므로, 통신과 저장소를 Pi 안에서 직접 관리한다.
 
 - **클라우드 방향:** HTTPS bootstrap으로 현장 Gateway의 배정을 받고, mTLS MQTT로 gateway 범위의 명령·ACK·상태를 API와 주고받는다.

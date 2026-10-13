@@ -46,7 +46,7 @@ class Device extends EventEmitter implements BioByteConnection {
   }
   receive(hex: string) { this.emit("data", Buffer.from(hex, "hex")); }
 }
-function harness(initialSequence = 75, options: { scanDurationMs?: number; observationTimeoutMs?: number; retirementTimeoutMs?: number } = {}) {
+function harness(initialSequence = 75, options: { timeoutMs?: number; scanDurationMs?: number; observationTimeoutMs?: number; retirementTimeoutMs?: number } = {}) {
   const device = new Device();
   const client = new BioDongleClient({
     initialSequence,
@@ -57,6 +57,7 @@ function harness(initialSequence = 75, options: { scanDurationMs?: number; obser
 }
 
 function generationHarness(initialSequence = 75, options: {
+  timeoutMs?: number;
   scanDurationMs?: number;
   observationTimeoutMs?: number;
   retirementTimeoutMs?: number;
@@ -598,7 +599,7 @@ describe("BIO evidence-gated dongle client", () => {
     h.device.receive(discoveryHex("001122334455", 0x1234));
     await vi.advanceTimersByTimeAsync(100); await flush();
     expect(commandBodies(h.device).at(-1)).toBe("85");
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1000);
 
     await expect(scanning).rejects.toMatchObject({ code: "TIMEOUT" });
     await h.client.close();
@@ -749,7 +750,7 @@ describe("BIO evidence-gated dongle client", () => {
     await flush();
     expect(commandBodies(h.device).at(-1)).toBe("cc1203");
 
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(commandBodies(h.device).filter((body) => body === "cc1200")).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(2000); await flush();
     await recoverReady(h.device);
@@ -936,7 +937,7 @@ describe("BIO evidence-gated dongle client", () => {
     await flush();
     expect(commandBodies(h.device).at(-1)).toBe("b8810011223344552345");
 
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(commandBodies(h.device).filter((body) => body.startsWith("b881"))).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(2000); await flush();
     await recoverReady(h.device);
@@ -990,6 +991,107 @@ describe("BIO evidence-gated dongle client", () => {
     await expect(setting).resolves.toMatchObject({ brightnessPercent: 60, mode: "force-on" });
     expect(started).toBe(2);
     await h.client.close();
+  });
+
+  // A short USB/report default must not reject an otherwise exact delayed lamp response.
+  it.each([0, 500])("accepts delayed 70%% read-back with default budgets and %d ms Set ACKs", async (ackDelay) => {
+    const h = generationHarness(); await ready(h);
+    const setting = h.client.setOutput(verifiedTarget, 70);
+    void setting.catch(() => undefined);
+    try {
+      await flush();
+      expect(commandBodies(h.device)).toEqual(["cd13d5"]);
+      await vi.advanceTimersByTimeAsync(ackDelay);
+      h.device.receive("55aa1101002055"); await flush();
+      expect(commandBodies(h.device).at(-1)).toBe("cc1203");
+      await vi.advanceTimersByTimeAsync(ackDelay);
+      h.device.receive("55aa1101002055"); await flush();
+      expect(commandBodies(h.device).at(-1)).toBe("4e13");
+      h.device.receive("55aa1101002055"); await flush();
+      await vi.advanceTimersByTimeAsync(1500);
+      h.device.receive(brightnessReportHex("001122334455", 0x1234, 213)); await flush();
+      expect(commandBodies(h.device).at(-1)).toBe("4e12");
+      // The matched lamp report can precede its independent dongle acceptance ACK.
+      await vi.advanceTimersByTimeAsync(500);
+      h.device.receive(modeReportHex("001122334455", 0x1234, 3)); await flush();
+      await vi.advanceTimersByTimeAsync(400);
+      h.device.receive("55aa1101002055");
+      await expect(setting).resolves.toEqual({ brightnessPercent: 70, powerOn: true, rawHighBrightness: 213, mode: "force-on" });
+      expect(commandBodies(h.device)).toEqual(["cd13d5", "cc1203", "4e13", "4e12"]);
+      expect(h.devices).toHaveLength(1);
+    } finally { await h.client.close(); }
+  });
+
+  it("bounds a missing default device report at two seconds and retires its generation", async () => {
+    const h = generationHarness(); await ready(h);
+    const device = h.device;
+    const reading = h.client.readBrightness(verifiedTarget);
+    let settled = false;
+    void reading.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      await flush(); device.receive("55aa1101002055"); await flush();
+      // Valid packets from a different UUID/address or of another kind cannot satisfy this GET.
+      device.receive(brightnessReportHex("001122334466", 0x1234, 213));
+      device.receive(brightnessReportHex("001122334455", 0x1235, 213));
+      device.receive(modeReportHex("001122334455", 0x1234, 3));
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(reading).rejects.toMatchObject({ code: "TIMEOUT", name: "BioDeviceReadTimeoutError" });
+      expect(device.isOpen).toBe(false);
+      expect(commandBodies(device)).toEqual(["4e13"]);
+    } finally { await h.client.close(); }
+  });
+
+  it("bounds a missing default USB ACK at one second without reporting a device timeout", async () => {
+    const h = generationHarness(); await ready(h);
+    const device = h.device;
+    const reading = h.client.readBrightness(verifiedTarget);
+    let settled = false;
+    void reading.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      await flush();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(reading).rejects.toMatchObject({ code: "TIMEOUT", name: "BioUsbError" });
+      expect(device.isOpen).toBe(false);
+      expect(commandBodies(device)).toEqual(["4e13"]);
+    } finally { await h.client.close(); }
+  });
+
+  it("keeps a legacy timeout-only override for both USB ACK and device reports", async () => {
+    const h = generationHarness(75, { timeoutMs: 450 }); await ready(h);
+    const reading = h.client.readBrightness(verifiedTarget);
+    let settled = false;
+    void reading.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      await flush(); h.device.receive("55aa1101002055"); await flush();
+      await vi.advanceTimersByTimeAsync(449);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(reading).rejects.toMatchObject({ code: "TIMEOUT", name: "BioDeviceReadTimeoutError" });
+      expect(commandBodies(h.devices[0])).toEqual(["4e13"]);
+    } finally { await h.client.close(); }
+  });
+
+  it.each([
+    { timeoutMs: 450, observationTimeoutMs: 2000, accepted: false, limit: 450, name: "BioUsbError" },
+    { timeoutMs: 1000, observationTimeoutMs: 650, accepted: true, limit: 650, name: "BioDeviceReadTimeoutError" }
+  ])("honors explicit missing-response bounds $limit ms ($name)", async ({ timeoutMs, observationTimeoutMs, accepted, limit, name }) => {
+    const h = generationHarness(75, { timeoutMs, observationTimeoutMs }); await ready(h);
+    const reading = h.client.readBrightness(verifiedTarget);
+    let settled = false;
+    void reading.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      await flush();
+      if (accepted) { h.device.receive("55aa1101002055"); await flush(); }
+      await vi.advanceTimersByTimeAsync(limit - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(reading).rejects.toMatchObject({ code: "TIMEOUT", name });
+      expect(commandBodies(h.devices[0])).toEqual(["4e13"]);
+    } finally { await h.client.close(); }
   });
 
   it("sets 60% using raw 198 and returns applied only after brightness and mode read-back match", async () => {
@@ -1344,7 +1446,7 @@ describe("BIO evidence-gated dongle client", () => {
     const reading = h.client.readBrightness(verifiedTarget);
     void reading.catch(() => undefined);
     await flush();
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1000);
     await expect(reading).rejects.toMatchObject({ code: "TIMEOUT", name: "BioUsbError" });
     await h.client.close();
     expect(vi.getTimerCount()).toBe(0);
