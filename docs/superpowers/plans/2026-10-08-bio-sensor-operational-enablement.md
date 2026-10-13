@@ -8,6 +8,26 @@
 
 **Tech Stack:** React, NestJS/Prisma/PostgreSQL, MQTT, Raspberry Pi BIO Gateway.
 
+## 10월13일 제품 이벤트 UI 진단 영역 정리
+
+- [x] 긴 `BIO 운영 상태` 영역이 시험 전용이 아닌 제품 UI임을 확인하고 사용자 승인 범위를 정한다. 시험 전용 도구/기록은 보존한다.
+- [x] 메인 개발 브랜치에서 격리한 `codex/event-user-status-cleanup`에서 공통 상태 배지를 구현하고 긴 진단 영역만 제거한다. 자격/활성화/장애 차단은 유지한다.
+- [x] 짧은 상태와 기술 설명 제거를 RED→GREEN으로 확인한다. 관련 패널84/84와 타입 포함 빌드 exit0이다.
+- [x] 모바일·PC mock Chromium8/8, 직접 diff 리뷰(자격/권한/명령 계약 무변경)와 메뉴 문서 갱신을 완료한다. 초기 새 PC 검사의 모바일 터치 정책 적용 실패는 보존하고 PC viewport/no-scroll과 기존 모바일 터치 검사를 구분했다. 독립 에이전트 리뷰는 사용자 단독 진행 요청에 따라 수행하지 않았다.
+- [x] `ad1dcd5a`를 메인 개발 브랜치에 ff-only 병합하고 병합 후84/84·타입 포함 build exit0·현재 로그인 화면의 간결한 상태/긴 진단 제거를 확인했다. 규칙 비활성100%/60초/적용됨과 다른 작업의 미커밋 diff를 보존했다. 현재4대 오프라인·활성화 차단을 별도 후속으로 기록한다. API/장비 명령·실제 시험·시간 동기화는 하지 않았다. 시험 기록이 있는 재사용 작업 공간은 보존한다.
+
+## 10월13일 직접 UI 시험 준비 후속
+
+- [x] 기존 실제 Gateway를 새로 식별하고 서버 ready/SSH/runtime/현재 주소의 TCP8883을 최소 읽기로 대조한다. 17:34 KST 기존 주소는 실패(errno113), 현재 서버 주소는 성공하며 assignment 별칭/ExtraHosts가 현재 IP와 다르다. Gateway running/restart0·서버5서비스 up이다.
+- [x] 현재 중단 승인을 받은 뒤 서버 별칭2개 주소만 교정하고 동일 이미지·등록·인증·state를 보존하여 Gateway를 재구성한다. fresh3root 백업52항목/67,249,820bytes 전체 hash 확인·TERM1/create1/start1·hosts write1, 기존 컨테이너/백업 유지다. 현재 singleUSB owner1·restart0·MQTT/heartbeat/transport/protocol/mapping true·UI4online이다. 신뢰/ACL 확장·새 이미지·DB/cache 강제 수복은0이다.
+- [ ] 서버 PC의 시간 동기화 실행 범위를 추가 승인받는다. A query 보고가 수신보다2.015초 앞서1초 future gate에 걸렸으며, Pi NTP synchronized와 Mac Apple NTP offset +2.041126±0.004667초를 확인했다. 시간 허용 오차나 sourceEligible를 강제로 바꾸지 않는다.
+- [ ] 정상 heartbeat/현재 catalog ACK/장비 준비 자격을 확인한다. 필요한 새 센서 준비는 정상 현장 관리자 UI를 사용하고, 중복 pending 요청 없이 결과를 확인한다.
+- [ ] 기존 A→B100%/60초 비활성 규칙과 명시적 활성화 UI를 사용자에게 인계한다. 실제 활성화/움직임 시험은 자동으로 시작하지 않는다.
+
+사용자가 후속 `진행해`로 이번 주소 교정·동일 이미지 Gateway 재구성·제어 중단을 승인했다. 새 snapshot과 단독 USB owner를 확인하고 현재 state를 fresh 암호화 백업한 뒤 교정한다. 기존 one-shot 원장은 덮거나 재실행하지 않고 별도 `ui-address` 원장을 사용한다. 이 후속은 다른 채팅 공유/위임 없이 직접 실행하며 과거 START를 재사용하지 않는다.
+
+실제 후속: 주소 복구는 완료했다. 시작 직후 postflight의 빈 JSON 실패는 원장에 보존했고 독립 읽기는 정상이다. A의 정상 UI query1회는 mode/link true·ready 보고라도 서버가 future 시각으로 stale 거절했으므로 사용 가능/전체 시험 준비 완료로 승격하지 않는다. OS 시간 동기화는 별도 승인 전 실행하지 않으며 활성 규칙0·SET/움직임 시험0을 유지한다. 제품 소스 변경/전체 테스트/독립 리뷰는 이번 운영 작업에서 하지 않았다.
+
 **Spec:** `../specs/2026-10-08-common-bio-sensor-configuration-design.md`의 승인된 공통 프로파일·준비·실행 설계와 `2026-10-08-bio-sensor-local-merge.md`의 남은 제품 과제를 구현·적용한다. 10월12일 현재 테스트 현장의 필요한 호환 버전 적용·장비 조회·프로파일 등록은 승인됐으며 정책/규칙 활성화와 새로운 현장 감지 시험은 별도다.
 
 **상태:** 계획 초안 작성·사용자 검토 대기. 아래 작업은 미실행이다. 기준 main `208d6833`; 실제 실행 시 최신 HEAD/현장 상태를 다시 확인한다.

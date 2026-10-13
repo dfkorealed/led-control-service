@@ -10,6 +10,13 @@
 - `85983e90`·`166566ad`·`c784d4ff`의 구현/브라우저 회귀를 고정했다. 담당/총괄 관련199/199·전체Web3,704PASS/기존 Control5FAIL/3SKIP·타입/빌드/UI0·Chromium21/21을 확인했다. 선/문자/치수/숨김 레이어의 다지점 preview→apply→reload·legacy/native 교체를 검증했다. 독립 QA 및 로컬 머지는 아직이며 실제 사용자 도면 전체 동일성/장비 검증으로 확대하지 않는다. 원 로그는 worktree `.local/cad-preview-parity-20261013`에 보존한다.
 - 독립 QA `c784d4ff`는 P1없음/P2한건으로 ReadyNo다. 늦은 authoritative GET 뒤 폐기된 principal/층의 ACK가 store/cache/onSaved를 갱신할 수 있는 기존 guard 누락을 담당자가 먼저 실행 재현하고 최소 보완한다. 정상 save와 같은 lifecycle/generation 보호를 적용하며 보완/재리뷰 전에는 머지하지 않는다. 기존 RED와 fixture 보완이 테스트 약화가 아님은 QA가 확인했다.
 
+## 2026-10-13 이벤트 사용자 화면 기술 진단 정리
+
+- 사용자가 확인한 긴 `BIO 운영 상태` 영역은 시험 전용이 아니라 상시 제품 화면이었다. 승인에 따라 별도 `codex/event-user-status-cleanup` 브랜치에서 제거하고 이벤트 목록 안의 공통 준비/점검/복귀 확인 배지로 대체한다. 시험 전용 도구·기록과 조명/규칙 설정은 보존한다.
+- 현재 자격과 명시적 활성화 조건은 유지하며 과거 운영 보고를 준비 완료나 실제 복귀 성공으로 승격하지 않는다. API/DB/MQTT/장비/OS 시간 설정을 변경하거나 실제 시험을 시작하지 않는다. 요청대로 다른 세션 공유·위임 없이 직접 구현/리뷰한다.
+- 관련 패널 단위84/84, 타입 포함 Web 빌드 exit0, mock Chromium320/390/1440px의 상태·조명 선택·유지시간10초·명시적 활성화8/8과 diff check를 확인했다. 직접 diff 리뷰에서 자격/권한/명령 계약 변경이 없음을 확인했으며 독립 에이전트 리뷰는 사용자 단독 진행 요청에 따라 하지 않았다. 초기 추가 PC 검사에 기존 모바일 터치 면적 정책을 적용한1FAIL은 보존하고, 기존 모바일 검사는 유지한 채 PC viewport/no-scroll 검사로 구분한 뒤8/8이다. 메인 병합 후 확인은 진행 중이다. 기존 전체 Web 기준선 실패와 실제 하드웨어 검증을 이번 결과에 포함하지 않는다.
+- `ad1dcd5a`를 `codex/mvp1-cloud-web`에 ff-only 병합한 뒤 관련 패널84/84·타입 포함 build exit0을 새로 확인했다. 사용자 기존 로그인 브라우저에서 긴 진단 영역 제거·짧은 준비 상태·기존 비활성100%/60초/적용됨을 확인했다. AGENTS·LandingPage·landing 문서의 미커밋 diff는 완전히 동일하게 보존했다. 현재 화면은4대 오프라인·활성화 차단이다. 이전17:39의 online 증거는 당시 상태이며 이번 UI 확인을 연결 복구/시험 준비 완료로 해석하지 않는다. OS 시간 동기화 승인과 현재 연결/새 자격 확인은 여전히 별도 후속이다. 기존 시험 기록이 있는 격리 작업 공간은 삭제하지 않는다.
+
 ## 2026-10-13 공통 맵 로딩 — 구현·검증·로컬 메인 반영 완료
 
 - 승인한 공통 loading overlay를 설정 맵 편집·모니터링·제어 대상 선택·설정 맵 목록·CAD 미리보기의 실제 첫 paint 완료까지 표시한다. 동일 맵의 이동/줌은 반복 차단하지 않고 층·문서 변경/오류/stale 완료를 구분한다. [기존 맵 계획 L1–L3](superpowers/plans/2026-09-18-cad-native-map-rendering.md)에 순차 작업을 기록한다.
@@ -23,6 +30,15 @@
 - 최종 `3b43b988`은 지정된 두 테스트의 알림/선택 요약 조회 범위만 바꾸며 `3797d37a` 대비 제품 diff0이다. 담당 fresh 관련144/144·전체 Web3,701PASS/동일 Control5FAIL/3SKIP·타입 포함 build0/UI0/Chromium10/10, 마지막 QA는 기존 assertions/role/hidden/testcount/timeout/skip 유지와 ReadyYes를 확인했다. 총괄도 마지막 source의 별도15192 Chromium12/12(exit0,27.4s)로 query/image 대기와 새 자동 legacy draw 두 회귀·native/legacy 적용→저장→모니터링을 확인했다.
 - 사용자 승인 범위대로 `5ce9d347`→`3b43b988`을 로컬 메인에 ff-only 머지했다. 관련12파일/378테스트PASS(exit0,13.85s)·타입 포함 빌드/UI0을 새로 확인했고 검증 브랜치와 Web 소스의 차이는 보존한 사용자 LandingPage4줄뿐이다. AGENTS·LandingPage SHA는 시작과 동일하며 기존 다른 dirty 문서와 작업을 임의 커밋/복구하지 않는다. 기존 Control5 기준선 실패는 신규 실패와 구분하며 원격 push·API/Pi 재시작·DB/장비/인증 변경0이다. Web5173 PID3528을 유지한다.
 - ROOT `.local/map-loading-20261013`에 최종 로그/화면을, 기존 worktree에도 원 검증을 보존한다. 테스트 조합의 의도된503·시작 전 CLI 오류·12FAIL 중간 결과는 성공 결과와 구분한다. 새 라이브러리는 없고 이전 완료 범위를 새 HIL/실기기 WebView 검증으로 확대하지 않는다. 위 미완료/No 문장은 실행 당시 이력이다.
+
+## 2026-10-13 사용자 직접 UI 센서 시험 준비 — 연결 복구 완료, 서버 PC 시간 동기화 승인 대기
+
+- 사용자가 직접 UI에서 시험하도록 연결/준비를 요청했다. 다른 세션 공유·위임 없이 직접 진행하며 기존 규칙은 비활성으로 유지한다.
+- 17:33–17:34 KST 최소 읽기에서 정상 Web ready200/의존성5개 up·기존 exact Pi Gateway running/restart0·SSH 가능을 확인했다. 현재 assignment의 MQTT 별칭과 Docker ExtraHosts는 서버 PC의 현재 유일 LAN IP와 다르다. Pi에서 기존 주소 TCP8883은 실패(errno113), 현재 서버 주소는 성공했다. 현재 오프라인의 주소 경계 원인을 확인했으며 TLS/MQTT 인증 및 센서 자격은 아직 새로 검증하지 않았다.
+- 사용자가 후속 `진행해`로 서버 별칭2개 교정·동일 이미지 Gateway 재구성·제어 중단을 승인했다. 새 exact snapshot/USB 단일 owner와 기존 주소 교정 helper3/3을 확인하고 fresh3root 암호화 백업 후 정상 재개한다. 다른 세션 공유/위임·브로커/API 재시작·규칙 활성화/움직임 START는 범위 밖이다. 실제 UI 센서 준비와 현재 자격 확인은 연결 복구 후 수행한다.
+- 실제17:38–17:39 KST: fresh3root 암호화 백업52항목/67,249,820bytes 전체 payload hash를 off-Pi에서 확인했다. TERM1/create1/start1/hosts write1로 동일 이미지·모든 launch/mount 의미·등록/assignment/mapping/state를 보존하고 이전 컨테이너/백업을 유지했다. 브로커/API 재시작·PKI/ACL/DB 직접 쓰기·밝기/모드 SET0이다. 시작 직후 첫 읽기의 빈 JSON 결과는 실패로 보존하고, 후속 독립 읽기에서 singleUSB owner1/restart0/주소정합·fresh health/MQTT/heartbeat/transport/protocol/mapping 모두true를 확인했다. 정상 UI조명4online/0offline이다.
+- 정상 UI의 A `준비 상태 확인`(query) 새1개는 published·modeVerified/linkVerified true·ready 보고/ACK 발행이나 서버 판정은 unverified/stale다. 보고 시각08:40:56.482Z가 서버 수신08:40:54.467Z보다2.015초 앞서1초 future 관문을 넘었다. 요청 기간 내·현재 담당자·catalog5 적용은 정상이고 활성 규칙0이다. 최소 읽기에서 Pi NTP enabled/synchronized true, Mac의 Apple NTP 읽기 offset +2.041126±0.004667초로 서버 PC 시각 지연을 교차 확인했다. 허용 오차/DB자격을 완화하지 않는다.
+- 남은 차단: 서버 PC 시간 동기화는 승인된 주소 교정/게이트웨이 재구성과 다른 OS 범위라 새 승인을 요청한다. 시간 동기화 뒤 정상 UI에서 새 query1회와 현재 sourceEligible/활성화 버튼을 확인해야 UI 시험 준비가 완료된다. 센서 SET·규칙 활성화·움직임 시험은 아직0이다.
 
 ## 2026-10-13 BIO 보정의 현재 메인 통합·로컬 API 반영 — 완료, 현장 연결 확인은 남음
 

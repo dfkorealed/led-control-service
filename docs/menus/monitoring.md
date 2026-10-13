@@ -23,6 +23,8 @@
 
 - 공통 맵 loading 변경은 설정·제어 문서와 함께 갱신하고 실제 렌더링 완료/전환/실패 검증과 장비 검증 범위를 구분한다.
 
+- 2026-10-13 17:39 KST 직접 UI 시험 준비 후속: 승인된 서버 별칭2개 교정/동일 이미지 Gateway 재구성 뒤 actual fresh health/MQTT/heartbeat/transport/protocol/mapping true·USB owner1/restart0·UI4online/0offline을 확인했다. 등록/assignment/mapping/state·원래 컨테이너/암호화 백업을 보존했다. 현재 A 준비 판정은 서버 PC 시각 지연으로 차단되므로 online을 센서 사용 가능/실제 감지 성공으로 확대하지 않는다.
+
 ## 2026-10-13 BIO 이벤트 보정 서비스 반영 후 관찰
 
 - 구현 완료: 최신 지도 작업을 보존한 채 BIO 이벤트 보정만 메인/로컬 API에 반영했다. 정상 기존 로그인 UI와 서버 ready200/5서비스 up을 확인했다. 모니터링 제품 소스/도면/배치는 변경하지 않았다.
