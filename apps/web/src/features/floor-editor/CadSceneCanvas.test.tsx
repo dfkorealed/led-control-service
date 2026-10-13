@@ -109,6 +109,26 @@ function decoded(descriptorTile: CadSceneTile, groupId: string | null = "group-1
 }
 
 describe("CadSceneCanvas", () => {
+  it("waits past renderer mount for current camera paint and ignores stale first-camera completion", async () => {
+    const pending: Array<() => void> = [];
+    const renderer: CadSceneRendererLike = { mount: vi.fn().mockResolvedValue(undefined),
+      setCamera: vi.fn(() => new Promise<void>(resolve => pending.push(resolve))),
+      pick: vi.fn(() => null), setSelectionExclusion: vi.fn(), setLayerStates: vi.fn(), destroy: vi.fn() };
+    const props = { descriptor, sceneState: sceneState(), pan: { x: 0, y: 0 }, zoom: 1,
+      viewport: { width: 800, height: 600 }, selection: null, onSelectionChange: vi.fn(),
+      loadManifest: vi.fn().mockResolvedValue(manifest), createRenderer: () => renderer };
+    const view = render(<CadSceneCanvas {...props} />);
+    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    view.rerender(<CadSceneCanvas {...props} pan={{ x: 100, y: 0 }} />);
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => pending[0]());
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    await act(async () => pending[1]());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    view.rerender(<CadSceneCanvas {...props} pan={{ x: 200, y: 0 }} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
   it("promotes the exact pick seed when overview geometry has no metadata and raw cache admission fails", async () => {

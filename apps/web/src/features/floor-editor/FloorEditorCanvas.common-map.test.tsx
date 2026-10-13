@@ -15,6 +15,8 @@ import { EditorMinimap } from "./EditorMinimap";
 import * as mapDocumentApi from "../../api/map-document";
 import { createMapElementFromDrag } from "./map-element-tools";
 import type { MapElement } from "@led-control/shared/map-document-contracts";
+const planImage = vi.hoisted(() => ({ image: vi.fn() }));
+vi.mock("./use-floor-plan-image", () => ({ useFloorPlanImage: planImage.image }));
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="map-scene" /> }));
 vi.mock("../../api/map-document", () => ({ createMapDocumentSource: () => ({ scopeKey: "test",
@@ -27,6 +29,36 @@ function Canvas({ readOnly = false }: { readOnly?: boolean } = {}) { const map =
   return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} readOnly={readOnly} />
     <ConfirmDialog isOpen={map.removeRequested} title="선택 전체 삭제" confirmLabel="전체 삭제" onClose={map.cancelRemove} onConfirm={() => { void map.confirmRemove(); }} /></>; }
 describe("actual common editor Canvas", () => {
+  it("waits for legacy layer draw after image decode, keeps pan/zoom unblocked, and preserves image errors", async () => {
+    const initial = structuredClone(base);
+    initial.floor.mapDocument = null;
+    initial.floor.floorPlan = { imageUrl: "/legacy.svg", sourceType: "image", width: 1200, height: 800, gridSize: 10, version: 1 };
+    store().initialize(initial, "user");
+    const retry = vi.fn();
+    planImage.image.mockReturnValue({ image: null, status: "loading", retry });
+    const view = render(<FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} />);
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    planImage.image.mockReturnValue({ image: new Image(), status: "ready", retry });
+    view.rerender(<FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} />);
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    act(() => Konva.stages.at(-1)!.findOne<Konva.Layer>(".editor-static-layer")!.draw());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    act(() => { store().setZoom(1); store().setPan({ x: 100, y: 20 }); });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    planImage.image.mockReturnValue({ image: null, status: "error", retry });
+    view.rerender(<FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("CAD 도면을 표시하지 못했습니다.");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("covers prepared CAD document lookup without adding an overlay on query error", () => {
+    const value = { floorId: "floor", jobId: "job", manifest: null, isError: false, onRetry: vi.fn() };
+    const view = render(<FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} cadReviewActive cadImportScene={value} />);
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    view.rerender(<FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} cadReviewActive cadImportScene={{ ...value, isError: true }} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
   it.each(["space", "middle"])("disables hit listening during %s pan and restores it after release", mode => {
     render(<Canvas />);
     act(() => store().setActiveTool("select"));
@@ -190,7 +222,7 @@ describe("actual common editor Canvas", () => {
     expect(context.strokeStyle).toBe("#abcdef"); expect(screen.getByRole("button", { name: "미니맵" })).toBe(canvas);
     expect({ pan: store().pan, zoom: store().zoom }).toEqual(before);
   });
-  beforeEach(() => { store().initialize(structuredClone(base), "user");
+  beforeEach(() => { planImage.image.mockReturnValue({ image: null, status: "idle", retry: vi.fn() }); store().initialize(structuredClone(base), "user");
     store().loadMapStructures(store().mapScope!, { groups: [], layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }] });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 900, bottom: 600, width: 900, height: 600, toJSON() {} }); });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });

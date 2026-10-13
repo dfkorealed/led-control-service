@@ -6,6 +6,7 @@ import type {
   CadSceneTile
 } from "@led-control/shared";
 import { TriangleAlert } from "lucide-react";
+import { MapLoadingOverlay, useMapPaintLoading } from "../../components/ui/MapLoadingOverlay";
 import {
   forwardRef,
   useCallback,
@@ -190,10 +191,13 @@ function CadSceneCanvasComponent({
   const [elementIndexRevision, setElementIndexRevision] = useState(0);
   const [hasRenderError, setHasRenderError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
+  const paint = useMapPaintLoading(JSON.stringify([descriptor.id, descriptor.version, sceneState.revision, retryVersion]));
+  const paintRequest = useRef(0);
   const reportError = useCallback((error: Error) => {
     setHasRenderError(true);
+    paint.onError();
     onError(error);
-  }, [onError]);
+  }, [onError, paint.onError]);
   const memoryBudgetRef = useRef<CadSceneMemoryBudget | null>(null);
   if (!memoryBudgetRef.current) memoryBudgetRef.current = new CadSceneMemoryBudget(decodedCacheMaximumBytes);
   const decodedTiles = useRef<CadDecodedTileStore | null>(null);
@@ -506,7 +510,11 @@ function CadSceneCanvasComponent({
       renderer.setLayerStates(new Map(sceneState.layers.map((layer) => [layer.layerName, { visible: layer.visible }])));
       syncExclusion();
       await preloadMovedOverrides(manifest, cameraRef.current);
-      await renderer.setCamera(cameraRef.current);
+      if (disposed) return;
+      const request = ++paintRequest.current;
+      const camera = cameraRef.current;
+      await renderer.setCamera(camera);
+      if (!disposed && request === paintRequest.current && JSON.stringify(camera) === JSON.stringify(cameraRef.current)) paint.onPaintReady(true);
     }).catch((error: unknown) => {
       if (!controller.signal.aborted) reportError(error instanceof Error ? error : new Error("CAD 장면을 불러오지 못했습니다."));
     });
@@ -524,20 +532,22 @@ function CadSceneCanvasComponent({
     };
   }, [createRenderer, createWorker, descriptor.id, descriptor.manifestContentPath, descriptor.tileContentPathTemplate,
     descriptor.version, exclusionIds, hasViewport, loadManifest, loadTile, reportError, retryVersion, preloadMovedOverrides, rememberDecoded,
-    sceneState.layers, sceneState.revision, syncExclusion]);
+    sceneState.layers, sceneState.revision, syncExclusion, paint.onPaintReady]);
 
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || viewport.width <= 0 || viewport.height <= 0) return;
     const signal = sceneAbortRef.current?.signal;
+    const request = ++paintRequest.current;
     let current = true;
     const camera = editorTransformToCadCamera(pan, zoom, viewport);
     const manifest = manifestRef.current;
     void (manifest ? preloadMovedOverrides(manifest, camera) : Promise.resolve()).then(() => {
-      if (!current || signal?.aborted) return;
+      if (!current || signal?.aborted || request !== paintRequest.current) return;
       return renderer.setCamera(camera);
     }).then(() => {
-      if (!current || signal?.aborted) return;
+      if (!current || signal?.aborted || request !== paintRequest.current) return;
+      paint.onPaintReady(true);
       const manifest = manifestRef.current;
       if (manifest) decodedTiles.current!.pinElements(element =>
         !element.override?.hidden && isLayerVisible(element.layerName) &&
@@ -548,7 +558,7 @@ function CadSceneCanvasComponent({
       }
     });
     return () => { current = false; };
-  }, [isLayerVisible, reportError, pan.x, pan.y, preloadMovedOverrides, viewport.height, viewport.width, zoom]);
+  }, [isLayerVisible, reportError, pan.x, pan.y, preloadMovedOverrides, viewport.height, viewport.width, zoom, paint.onPaintReady]);
 
   useEffect(() => {
     syncExclusion();
@@ -575,6 +585,7 @@ function CadSceneCanvasComponent({
 
   return (
     <>
+      <MapLoadingOverlay loading={paint.loading && !hasRenderError} />
       {hasRenderError ? <div className="absolute left-3 right-3 top-3 z-2">
         <FeedbackState tone="danger" icon={TriangleAlert} title="CAD 맵을 표시하지 못했습니다."
           action={<Button size="sm" variant="secondary" onClick={() => setRetryVersion(value => value + 1)}>CAD 맵 다시 시도</Button>} />

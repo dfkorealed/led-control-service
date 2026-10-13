@@ -2,7 +2,8 @@ import Konva from "konva";
 import type { CadElementOverridePatch, CadSceneDescriptor, CadSceneState, FloorImportCandidate, FloorImportRenderedViewport } from "@led-control/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
-import { Button, FeedbackState, Text as UiText, useThemeColors } from "../../components/ui";
+import { Button, FeedbackState, useThemeColors } from "../../components/ui";
+import { MapLoadingOverlay, useMapPaintLoading } from "../../components/ui/MapLoadingOverlay";
 import { TriangleAlert } from "lucide-react";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
 import { cameraFromTransform, fitMapTransform, mapViewportBounds } from "../floor-map/map-camera-geometry";
@@ -226,6 +227,9 @@ export function FloorEditorCanvas({
   const backgroundUrl = mapEditor?.document || cadSceneDescriptor || cadImportScene ? "" : cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
   const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "");
+  const [backgroundAttempt, setBackgroundAttempt] = useState(0);
+  const legacyPaint = useMapPaintLoading(JSON.stringify([state?.floor.id, floorPlan?.version, backgroundUrl, backgroundAttempt]));
+  const legacySurface = !mapEditor?.document && !cadSceneDescriptor && !cadImportScene;
   const bounds = cadImportScene?.manifest ?? mapEditor?.mapBounds ?? (cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 });
@@ -895,7 +899,7 @@ export function FloorEditorCanvas({
       {cadImportScene.isError ? <FeedbackState tone="danger" icon={TriangleAlert}
         title="선택한 CAD 도면을 불러오지 못했습니다."
         action={<Button variant="secondary" onClick={cadImportScene.onRetry}>도면 다시 불러오기</Button>} />
-        : <UiText role="status">선택한 CAD 도면을 불러오는 중</UiText>}
+        : null}
     </div> : null}
     {!cadReviewActive && cadSceneDescriptor && cadSceneState ? (
       <CadSceneCanvas
@@ -913,7 +917,9 @@ export function FloorEditorCanvas({
       />
     ) : null}
     <Stage ref={registerStage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={handleWheel}>
-      <Layer {...transform} name="editor-static-layer" listening={false}>
+      <Layer {...transform} name="editor-static-layer" listening={false} onDraw={() => {
+        if (legacySurface && measured && (!backgroundUrl || backgroundStatus === "ready")) legacyPaint.onPaintReady(true);
+      }}>
         <Rect width={bounds.width} height={bounds.height} fill={mapEditor?.document || cadSceneDescriptor || cadImportScene ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
         {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={renderedZoom} color={editorColors.grid} /> : null}
@@ -1018,10 +1024,16 @@ export function FloorEditorCanvas({
     </Stage>
     {backgroundStatus === "error" ? <div className="absolute inset-x-3 top-3 z-5 flex items-start gap-2 border border-status-danger-border bg-surface-panel p-1.5 shadow-panel compact:items-center compact:gap-3 compact:p-3" role="alert">
       <span className="min-w-0 flex-1 break-keep text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
-      <Button size="sm" variant="secondary" className="min-h-13 min-w-13 shrink-0 whitespace-nowrap" onClick={retryBackground}>도면 다시 시도</Button>
+      <Button size="sm" variant="secondary" className="min-h-13 min-w-13 shrink-0 whitespace-nowrap" onClick={() => { setBackgroundAttempt(value => value + 1); retryBackground(); }}>도면 다시 시도</Button>
     </div> : null}
     {!cadReviewActive ? <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} /> : null}
     {!cadReviewActive && !onPlacementPointChange ? <EditorMinimap /> : null}
+    <MapLoadingOverlay loading={Boolean(
+      legacySurface && backgroundStatus !== "error" && legacyPaint.loading
+      || !cadReviewActive && mapEditor?.document && !measured
+      || !cadReviewActive && cadSceneDescriptor && !cadSceneState
+      || cadImportScene && !cadImportScene.manifest && !cadImportScene.isError
+    )} />
   </div>;
 }
 
