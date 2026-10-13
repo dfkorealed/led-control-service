@@ -117,7 +117,7 @@ describe("FloorScene", () => {
 
   it("uses first-paint loading for legacy images and fences replaced image events", () => {
     const value = { ...snapshot, floorPlan: { sourceType: "image" as const, imageUrl: "/plan-a.svg",
-      width: 1200, height: 800, gridSize: 10 } };
+      width: 1200, height: 800, gridSize: 10, originalFileUrl: null, renderedImageUrl: null } };
     const scene = (data: FloorMapSnapshot) => <FloorMapViewport snapshot={data} ariaLabel="legacy map"><FloorScene snapshot={data} fixtures={[]} interactive={false} /></FloorMapViewport>;
     const view = render(scene(value));
     expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
