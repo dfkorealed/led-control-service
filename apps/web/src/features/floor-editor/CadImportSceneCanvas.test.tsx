@@ -192,7 +192,7 @@ describe("prepared import canvas", () => {
     expect(canvas.props!.camera).toMatchObject({ centerX: 600, centerY: 300 });
     expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
   });
-  it("waits for visible coverage paint rather than a document handle, fails closed, and rechecks after retry", () => {
+  it.each(["onError", "onDegraded"])("waits for visible coverage paint, fails closed on %s, and rechecks after retry", callback => {
     const { wrapper } = setup(); const onDisplayStateChange = vi.fn();
     render(<CadImportSceneCanvas {...props()} onDisplayStateChange={onDisplayStateChange} />, { wrapper });
     expect(onDisplayStateChange).toHaveBeenLastCalledWith("loading");
@@ -201,7 +201,10 @@ describe("prepared import canvas", () => {
     act(() => canvas.props?.onPaintReady?.(true));
     expect(onDisplayStateChange).toHaveBeenLastCalledWith("ready");
     const oldPaint = canvas.props?.onPaintReady;
-    act(() => canvas.props?.onError?.(new Error("display failed")));
+    act(() => {
+      if (callback === "onError") canvas.props?.onError?.(new Error("display failed"));
+      else canvas.props?.onDegraded?.({ requestedTileCount: 2, renderedTileCount: 0, reason: "memory-budget" });
+    });
     expect(onDisplayStateChange).toHaveBeenLastCalledWith("error");
     fireEvent.click(screen.getByRole("button", { name: "도면 다시 불러오기" }));
     act(() => oldPaint?.(true));

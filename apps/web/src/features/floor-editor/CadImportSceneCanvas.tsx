@@ -101,6 +101,7 @@ export function CadImportSceneCanvas({ floorId, jobId, manifest, pan, zoom, view
         if (currentViewKey.current === viewKey) setReadyKey(ready ? viewKey : null);
       }}
       onError={() => { if (currentKey.current === key) { setReadyKey(null); setFailedKey(key); } }}
+      onDegraded={() => { if (currentKey.current === key) { setReadyKey(null); setFailedKey(key); } }}
       style={{ position: "absolute", inset: 0 }} /> : null}
     {failed || !authorized ? <div className="absolute inset-x-3 top-3 z-20">
       <FeedbackState tone="danger" icon={TriangleAlert} title="선택한 CAD 도면을 표시하지 못했습니다."
