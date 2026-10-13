@@ -197,7 +197,7 @@ describe("SpatialTargetSelector", () => {
   it("announces the current count once and does not announce static unavailable choices as alerts", () => {
     renderSelector({ selection: { mode: "group", groupId: "" }, requiredGatewayId: "gateway-b" });
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
-    const liveCounts = document.querySelectorAll('[aria-live="polite"]');
+    const liveCounts = screen.getByRole("complementary", { name: "선택 대상 요약" }).querySelectorAll('[aria-live="polite"]');
     expect(liveCounts).toHaveLength(1);
     expect(liveCounts[0]).toHaveTextContent("0개 선택");
   });

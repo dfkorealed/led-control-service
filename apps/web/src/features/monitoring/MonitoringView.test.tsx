@@ -1040,7 +1040,7 @@ describe("MonitoringView refresh", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("일부 현황 데이터를 새로고침하지 못했습니다.");
+    expect(await within(screen.getByRole("region", { name: "알림" })).findByRole("status")).toHaveTextContent("일부 현황 데이터를 새로고침하지 못했습니다.");
     expect(screen.getByRole("button", { name: /B1-L001/ })).toBeInTheDocument();
   });
 
@@ -1131,7 +1131,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(updatedAt()).toHaveTextContent("시간 차이 확인 (2099-01-01 09:00:00)");
-    expect(screen.getByRole("status")).toHaveTextContent("시간 차이 확인: 2099-01-01 09:00:00");
+    expect(within(screen.getByRole("region", { name: "알림" })).getByRole("status")).toHaveTextContent("시간 차이 확인: 2099-01-01 09:00:00");
   });
 
   it("evaluates a newly arrived current snapshot against Date.now instead of the prior timer tick", () => {
@@ -1161,13 +1161,14 @@ describe("MonitoringView refresh", () => {
     });
 
     render(<MonitoringView siteId="site-1" />);
+    const toastRegion = screen.getByRole("region", { name: "알림" });
     act(() => vi.advanceTimersByTime(60_000));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(openCurrentStatus()).not.toHaveTextContent("현황 갱신이 지연되고 있습니다.");
     act(() => vi.advanceTimersByTime(1));
     // The alarm dialog hides sibling regions from accessibility; include hidden
     // statuses so a duplicate transient toast would still fail this assertion.
-    expect(screen.queryByRole("status", { hidden: true })).not.toBeInTheDocument();
+    expect(within(toastRegion).queryByRole("status", { hidden: true })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "현재 화면 상태" })).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
   });
 
@@ -1189,7 +1190,7 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("status")).toHaveTextContent(warning);
+    expect(within(screen.getByRole("region", { name: "알림" })).getByRole("status")).toHaveTextContent(warning);
   });
 
   it("explains a fault without exposing technical telemetry", () => {
