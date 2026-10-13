@@ -1,6 +1,14 @@
 # 공개 사이트 모바일 보완 — 2026-10-13 실제 배포
 
-## 공개 결과
+## 2026-10-13 히어로 정리·추가 간격 — r5 공개 완료
+
+- 실제 공개 소스 `f3f97f3f2f54a1b055364db6948a8e63229b63de`, `landing` / `20261013-landing-ui-r5`. [동일 SHA Public Landing Release 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38370409105), artifact11798773328, unit37/Chromium12·실패/skip/flaky0, scoped blocked0.
+- CI ZIP SHA `52884ac37ef61c3ca1df633623f7e6bad200fd6515780ae564549e034a082d26`, source SHA `0c9386bf03e1ac04fde3e60638dc547142f20affdb22718d81c924f67005d42c`, artifact SHA `43b79a00a50adb1553ebc0d6c0f4cceb5c624ae4c4472a9ad90586dfe2d067af`. CI proof와 fresh local build/source/artifact guard 통과 후 기존 공식 MCP transport로 게시했다.
+- 기존 Sydney/private S3/OAC/CloudFront에 불변10파일 게시, UPDATE_COMPLETE/Deployed, invalidation `I59BDHZAF9M6IDP3JPKFNMWKEL` Completed, 소유 lock 삭제와 engine exit0. 회사/CloudFront 두 HTTPS smoke exit0(공개3경로200·내부/API/unknown/archive404·보안헤더/HTTPS 계약) 확인.
+- 공개627×1226 Chromium 터치 화면에서 정상 motion을8회 관찰: 실제 최소59px 간격, 겹침/가로넘침0. 미리보기 버튼 그룹0·설명문구0, 새 JS `public-CmxkjRIG.js` 확인. In-app CUA는 kernel assets 오류로 실행되지 않아 이번 화면은 자동 Chromium 증거이며 수동 in-app 검증으로 기록하지 않는다.
+- [새 공개 모바일 화면](hero-627-r5.jpg). 기존 아래 r4 화면·선택 버튼 설명은 당시 구현 이력이다. 무료 플랜/Sydney/DNS/API/DB/장비 변경 없이 공개 랜딩만 갱신했다.
+
+## r4 공개 결과 (이전 이력)
 
 - 주소: https://kinda.dfkorealed.com/
 - 실제 공개 소스: `3222fb34bb196c62142420b3fc02dc13263d1cbc` (이후 문서 커밋과 구분)

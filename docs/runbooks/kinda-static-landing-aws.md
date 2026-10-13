@@ -6,13 +6,19 @@
 
 현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. 2026-10-12 사용자가 landing 전용 release 관문 추가와 통과 후 배포를 명시 승인했다. 별도 frozen dependencies/공개 기능/산출물 security graph/HTTP 차단 검증을 구현·독립 검토하고 exact 후보의 landing CI가 실제 성공한 뒤에만 공개한다. 전체 서비스 CI·감사 정책은 유지하며 현재 두 High findings의 해결을 주장하지 않는다.
 
-## 최신 실제 공개 결과 — 2026-10-13
+## 최신 실제 공개 결과 — r5, 2026-10-13
+
+- 공개 source `f3f97f3f2f54a1b055364db6948a8e63229b63de` · `landing` / `20261013-landing-ui-r5`. [정확 커밋 CI 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38370409105), unit37/Chromium12·실패/skip/flaky0·fresh CI proof/로컬 빌드 일치.
+- 모바일 grid64px·미리보기 버튼/설명 제거. 실제627px 정상 motion중 최소59px 여유·겹침/overflow0·삭제요소0을 Chromium에서 확인했다.
+- 동일 stack/private S3/OAC/CloudFront 10파일 게시·UPDATE_COMPLETE/Deployed·invalidation `I59BDHZAF9M6IDP3JPKFNMWKEL` Completed·lock 삭제·engine exit0. 두 HTTPS smoke exit0, 무료 플랜/Sydney/DNS/API/DB/장비 불변. [CI·해시·자동 브라우저 증거](../assets/landing-mobile-2026-10-13/README.md).
+
+## 이전 r4 실제 공개 결과 — 2026-10-13
 
 - 공개 주소 https://kinda.dfkorealed.com/ · 소스 `3222fb34bb196c62142420b3fc02dc13263d1cbc` · `landing` / `20261013-landing-ui-r4`.
 - [정확 커밋 Public Landing Release SUCCESS](https://github.com/dfkorealed/led-control-service/actions/runs/38326334739): 공개unit37, Chromium12, 실패/제외/재시도0. 새 fresh build와 CI proof/artifact 동일성을 실제 guard로 확인했다.
 - 기존 Sydney stack/private S3/OAC/CloudFront를 재사용하고 10파일 게시·UPDATE_COMPLETE/Deployed 및 invalidation `I9GDZQWNV5R2KFGX60QHF1VQ9W` Completed·lock 삭제를 확인했다. DNS/무료 플랜/서비스 API는 변경하지 않았다.
 - 두 실제 HTTPS 주소의 공개200/차단404·보안 헤더와 실제 모바일504px 메뉴/hero 선택·간격/이메일 팝업/요금제/푸터를 확인했다. 상담 팝업은 이메일만 제공하고 회사 푸터 연락처는 유지한다. 메일 발송/수신·온라인 접수는 수행하지 않았다.
-- [실제 배포 증거·실패 이력·스크린샷](../assets/landing-mobile-2026-10-13/README.md). r1 최초 결과와 r2 중단/r3 hover 발견은 역사이며 현재 공개는r4다. 전체 서비스 CI/장비 검증을 대신하지 않는다.
+- [실제 배포 증거·실패 이력·스크린샷](../assets/landing-mobile-2026-10-13/README.md). r1 최초 결과와 r2 중단/r3 hover 발견은 역사이며 당시 공개는r4였다. 전체 서비스 CI/장비 검증을 대신하지 않는다.
 
 ## 최초 실제 공개 결과 — 2026-10-12
 

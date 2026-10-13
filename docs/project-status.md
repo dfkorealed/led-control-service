@@ -2,9 +2,9 @@
 
 기준일: 2026-10-13
 
-## 2026-10-13 히어로 정리·모바일 추가 간격 — 진행 중
+## 2026-10-13 히어로 정리·모바일 추가 간격 — 공개 완료
 
-- 사용자가627px 로컬 CTA와 그림 사이 추가 간격 및 직전 미리보기 제거의 배포를 승인했다. 개발 담당은 후보 gap64px와 MAIN 최소 음수 margin 제거·gap64px/회귀를 담당하고 총괄은 exact CI·공식 MCP 배포를 담당한다. 개발 결과는 실제 MAIN627 gap0→64px/7너비 비겹침·overflow0, 후보 typecheck/build·unit37/37·Chromium6/6 PASS다. 독립 검토와 exact CI·배포를 확인 중이다. 기존 무료 플랜/Sydney·landing-only와 MAIN/API/CAD/외부 AGENTS는 유지한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
+- 사용자가627px 로컬 CTA와 그림 사이 추가 간격 및 직전 미리보기 제거의 배포를 승인했다. 개발 담당은 후보 gap64px와 MAIN 최소 음수 margin 제거·gap64px/회귀를 담당하고 총괄은 exact CI·공식 MCP 배포를 담당한다. 개발 결과는 실제 MAIN627 gap0→64px/7너비 비겹침·overflow0, 후보 typecheck/build·unit37/37·Chromium6/6 PASS다. 독립 검토 C/I0와 정확source `f3f97f3f`의 CI38370409105 SUCCESS(unit37/browser12·skip/flaky0) 및 fresh build/proof 일치를 확인했다. r5 불변10파일 게시·UPDATE_COMPLETE/Deployed·invalidation I59BDHZAF9M6IDP3JPKFNMWKEL Completed/lock삭제·engine exit0을 확인했다. 두 HTTPS smoke와 실제 공개627px 정상 motion중 최소59px·겹침/overflow0·삭제요소0 검증도 통과했다. 새 Chromium 화면과 CI/해시 증거를 docs/assets/landing-mobile-2026-10-13에 보존했다. 기존 무료 플랜/Sydney·landing-only와 MAIN/API/CAD/외부 AGENTS는 유지한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
 
 ## 2026-10-13 히어로 미리보기 정리 — 소스 적용 완료
 
