@@ -437,6 +437,7 @@ function CommonMapReadOnlyLayer({ snapshot }: { snapshot: FloorMapSnapshot }) {
       source={source} documentRef={document} camera={frame.camera} readOnly
       platform={isMobileWebView() ? "mobile" : "desktop"}
       onError={() => setFailedKey(key)}
+      onDegraded={() => setFailedKey(key)}
       style={{ position: "absolute", left: frame.left, top: frame.top, width: frame.width, height: frame.height }}
     /></Suspense>, overlay.overlayRoot) : null}
     <ViewportMapLoading loading={active && Boolean(authScope) && !failed && (!frame || !overlay?.overlayRoot)} />

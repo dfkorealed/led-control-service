@@ -119,12 +119,15 @@ describe("common monitoring host", () => {
     await waitFor(() => expect(scene.props!.source).not.toBe(second));
   });
 
-  it("fails visibly without legacy fallback and retries with a new source", async () => {
+  it.each(["onError", "onDegraded"])("fails visibly on %s without legacy fallback and retries with a new source", async callback => {
     const { ui, client } = setup();
     const invalidate = vi.spyOn(client, "invalidateQueries");
     render(ui()); await screen.findByTestId("common-canvas");
     const first = scene.props!.source;
-    act(() => scene.props!.onError?.(new Error("forbidden")));
+    act(() => {
+      if (callback === "onError") scene.props!.onError?.(new Error("forbidden"));
+      else scene.props!.onDegraded?.({ requestedTileCount: 2, renderedTileCount: 0, reason: "memory-budget" });
+    });
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.queryByTestId("common-canvas")).not.toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "층 도면" })).not.toBeInTheDocument();
