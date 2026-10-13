@@ -170,3 +170,15 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 - [x] 실제 r3 engine 10파일/UPDATE_COMPLETE/Deployed/invalidation I29VLZAQAC5N32XZNB3TS8GNOQ Completed/lock삭제·exit0. 회사/CloudFront HTTPS smoke exit0와 native504px 새JS·43px간격/두기능반응/이메일popup·pricing/footer를 확인했다. 실제 hover 선택 배경 경쟁을 발견해 기존 desktop 테스트 내 색상/대비 RED→최소 수리→정확 CI→새immutable release의 한정 후속을 수행한다.
 
 - [x] 실제 hover 대비 RED1→선택/hover 결합 상태 한 줄 수리·기존 desktop 케이스 내 세 버튼 coral/대비 검증 GREEN·public-polish6PASS. Source3222fb34 exactCI38326334739 unit37/Chromium12·skip/flaky0, source09fd8671/artifact2744a84d/proof7cab310b 검증 후 r4 fresh guard/ownedtarget8/immutable10files/UPDATE_COMPLETE/Deployed/invalidation I9GDZQWNV5R2KFGX60QHF1VQ9W Completed/lock삭제·exit0을 확인했다. 실제 회사/CloudFront HTTPS smoke exit0, native504px 43px간격/hover=true coral배경/전화없는 emailpopup/3페이지·pricing/footer를 확인하고 docs/assets/landing-mobile-2026-10-13에 JPEG와 완료 기록을 보존했다. 전체 서비스·native장비·메일 도착은 이번 범위가 아니다.
+
+
+## 2026-10-13 히어로 정리·모바일 추가 간격 배포
+
+사용자 승인: 직전 미리보기 버튼/설명 제거에 이어 627px 로컬의 CTA·그림 간격 수정과 배포. 기존 후보와 실행 중 MAIN의 소스 차이를 유지하면서 각 홈의 모바일 gap을64px로 맞춘다. MAIN 음수 그림 margin만 제거하고 API/CAD/외부 AGENTS는 보존한다.
+
+- [x] 개발 담당: 후보 `LandingPage.tsx` gap16, MAIN 같은 gap과 음수 margin 제거, 기존 `public-mobile-polish.spec.ts` 6케이스 내 reported627px 포함 간격48px·footer32px·overflow·motion 회귀와 랜딩 메뉴 문서를 갱신한다.
+- [ ] 총괄: source diff/검증 결과를 확인하고 정확 SHA의 Public Landing Release SUCCESS와 CI proof·fresh build 동일성을 확인한다. 기존 미리보기 제거 소스도 함께 포함한다.
+- [ ] 기존 공식 MCP adapter에 새 immutable release ID만 적용하고 기존 Sydney/private S3/OAC/CloudFront·lock·source/artifact guard·전체 전파/invalidaton 계약으로 게시한다.
+- [ ] 실제 회사/CloudFront HTTPS route·header와 모바일 CTA 간격·제거된 두 요소를 확인하고 메뉴/상태판/체크리스트를 완료한다.
+
+- 개발 검증: actual MAIN627 CTA/art gap0→64px, 320/390/504/627/720/721/768 비겹침·overflow0. 후보 정적504 gap48<56 RED1→gap64 GREEN Chromium6/6(no skip/flaky), unit37/37·전체Webtypecheck/publicbuild exit0. 기존기능/축소모션/상담포커스는 유지하며 MAIN API/서버재시작0이다.

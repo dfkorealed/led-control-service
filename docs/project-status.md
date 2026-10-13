@@ -2,6 +2,14 @@
 
 기준일: 2026-10-13
 
+## 2026-10-13 히어로 정리·모바일 추가 간격 — 진행 중
+
+- 사용자가627px 로컬 CTA와 그림 사이 추가 간격 및 직전 미리보기 제거의 배포를 승인했다. 개발 담당은 후보 gap64px와 MAIN 최소 음수 margin 제거·gap64px/회귀를 담당하고 총괄은 exact CI·공식 MCP 배포를 담당한다. 개발 결과는 실제 MAIN627 gap0→64px/7너비 비겹침·overflow0, 후보 typecheck/build·unit37/37·Chromium6/6 PASS다. 독립 검토와 exact CI·배포를 확인 중이다. 기존 무료 플랜/Sydney·landing-only와 MAIN/API/CAD/외부 AGENTS는 유지한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
+
+## 2026-10-13 히어로 미리보기 정리 — 소스 적용 완료
+
+- 사용자 추가 주석에 따라 홈 그림 아래 미리보기 버튼 3개와 설명 문구만 제거하고 관련 선택 상태·미사용 import를 정리했다. 기존 그래프·포인터 motion, 마우스 깊이와 재진입 재생은 유지한다. Web typecheck·public 빌드·기존 집중 Chromium 6개가 통과했다. 이번 요청은 소스 수정만이며 운영은 아래 `20261013-landing-ui-r4` 그대로다. [랜딩 기능 현황](menus/landing.md)을 함께 갱신했다.
+
 ## 2026-10-13 공개 사이트 모바일 보완 — 완료(landing-only 운영)
 
 - 다섯 주석 보완과 실제 공개에서 발견한 선택 버튼 hover 대비를 `3222fb34bb196c62142420b3fc02dc13263d1cbc`로 완료했다. [Public Landing Release](https://github.com/dfkorealed/led-control-service/actions/runs/38326334739) SUCCESS/unit37·Chromium12·skip/flaky0. CI artifact/proof와 fresh local build 동일성 guard를 통과했다.
