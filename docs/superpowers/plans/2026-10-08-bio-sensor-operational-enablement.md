@@ -8,6 +8,16 @@
 
 **Tech Stack:** React, NestJS/Prisma/PostgreSQL, MQTT, Raspberry Pi BIO Gateway.
 
+## 10월14일 직접 UI 시험 준비 재개
+
+- [x] 현재 로그인 UI의 비활성 규칙/준비 차단을 확인한다. 조명4대 오프라인, 기존 A→B100%/60초/적용됨이다. 서버 ready200/의존성5up, strict SSH 정상이다. Mac 주소는 전날과 다르고 Apple NTP 읽기 offset +0.007670±0.025955초로 현재 시간 동기화 변경은 불필요하다.
+- [x] 현재 exact Gateway·USB owner·저장 주소와 서버 TCP 경계를 최소 읽기로 대조한다. 같은 이미지/running/restart0·USB1/owner1/현재 runtime 귀속·transport/protocol/mapping true다. 저장된 두 별칭·ExtraHosts는 이전 PC 주소이며 그 주소 TCP8883은 실패, 현재 주소 TCP8883은 성공이다. MQTT/heartbeat false로 UI 시험은 아직 불가다. 제품 쓰기·USB open·RF query0이며 이전 승인/원장을 재실행하지 않았다.
+- [ ] 중단이 필요한 경우 새 승인 후 서버 별칭 주소만 교정한다. 동일 이미지·등록·매핑·인증·밝기와 fresh 암호화 백업을 보존하고 브로커/API 재시작·보안 관문 완화는 하지 않는다.
+
+현재 일시 중단/주소 교정의 새 승인 요청을 전달했으며 답변 전에는 중단·재구성하지 않는다. 어제의 중단 승인을 오늘 작업에 재사용하지 않는다. 진단 원장은 `task-3-oct14-ui-readonly-result.json`으로 별도 보존한다.
+- [ ] 정상 UI에서 새 센서 준비 query1회와 현재 sourceEligible·명시적 활성화 버튼을 확인한다. 센서 mode SET이 필요하면 해당 조건을 알리고 승인 범위 안에서만 수행한다.
+- [ ] 비활성 A→B100%/60초 규칙과 유지시간10초 변경 가능한 UI를 인계하고 결과를 메뉴/상태판에 기록한 뒤 작업 브랜치에서 메인으로 통합한다. 규칙 활성화·움직임 START는 실행하지 않는다.
+
 ## 10월13일 제품 이벤트 UI 진단 영역 정리
 
 - [x] 긴 `BIO 운영 상태` 영역이 시험 전용이 아닌 제품 UI임을 확인하고 사용자 승인 범위를 정한다. 시험 전용 도구/기록은 보존한다.
