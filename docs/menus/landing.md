@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-10-13 실제 공개: 공통 demo footer 5개 제거와 내부 navy 상담 카드를 r6로 공개했다. 실제 운영에서 footer 0개·기존 회사 footer 예시 안내 유지, 상담320/637/1440px 외곽0·닫기/Plus/이메일/초점 복귀를 확인했다. 정확 소스 `2627a80d`, Public Landing Release unit37/Chromium12 통과. [배포 증거](../assets/landing-mobile-2026-10-13/README.md).
+
 - 2026-10-13 후속 화면 보완: 공개 상담 팝업은 공통 `ModalDialog`의 선택적 `chrome="none"`을 사용해 바깥 흰 프레임과 중복 제목/설명을 제거했다. 남색 이메일 카드 안에 닫기 버튼과 Basic/Plus 선택 맥락을 배치하며 대화상자 이름 `도입 상담`, 포커스 순환·Escape·복귀·스크롤을 유지한다. 다섯 예시 데모의 하단 안내 문단과 불필요한 `disclaimer` 전달을 제거했다. 재생·조명 선택·밝기 조정·추정치/보고서/맵 안내와 회사 푸터의 예시 데이터 고지는 유지한다. 공통 데모를 쓰는 보관 시안에도 하단 제거가 적용되며 API·장비·실제 저장/다운로드와 연결된 기능은 아니다.
 
 - 2026-10-13 홈 히어로 정리와 모바일64px 간격 보완을 실제 `20261013-landing-ui-r5`로 공개했다. 소스 `f3f97f3f2f54a1b055364db6948a8e63229b63de`의 CI unit37/Chromium12와 fresh proof guard·공식 MCP 배포/전파/lock정리가 통과했다. 실제 공개627×1226 Chromium에서 정상 motion중 최소59px 간격·겹침/overflow0와 미리보기 버튼 그룹/설명0을 확인했다. 회사/CloudFront HTTPS의 공개·차단 경로/headers도 통과했다. [r5 증거](../assets/landing-mobile-2026-10-13/README.md).

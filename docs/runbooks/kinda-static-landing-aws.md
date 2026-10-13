@@ -6,7 +6,13 @@
 
 현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. 2026-10-12 사용자가 landing 전용 release 관문 추가와 통과 후 배포를 명시 승인했다. 별도 frozen dependencies/공개 기능/산출물 security graph/HTTP 차단 검증을 구현·독립 검토하고 exact 후보의 landing CI가 실제 성공한 뒤에만 공개한다. 전체 서비스 CI·감사 정책은 유지하며 현재 두 High findings의 해결을 주장하지 않는다.
 
-## 최신 실제 공개 결과 — r5, 2026-10-13
+## 최신 실제 공개 결과 — r6, 2026-10-13
+
+- 공개 source `2627a80d7717e51f83ee75f4a75a7aa2969dfc4d` · `landing` / `20261013-landing-ui-r6`. [정확 커밋 CI 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38388627479), unit 37/Chromium 12·실패/skip/flaky 0·scoped blocked 0·CI proof와 fresh local build 일치.
+- 주요 기능·요금제 첫 제목의 헤더 간격, 상담 카드 단독 UI, overview 안내 1개/demo footer 5개 삭제를 반영했다. 실제637px 두 페이지 제목 여유 37px, 320/637/1440px 상담 외곽 padding/border 0·내부 Plus/닫기/초점 복귀와 삭제 요소 0개를 확인했다.
+- 기존 stack/private S3/OAC/CloudFront에 10파일 게시·UPDATE_COMPLETE/Deployed·invalidation `I90YIJQJLOJ7NB4NPI9K0LMNDL` Completed·소유 lock 삭제·engine exit 0. 두 HTTPS smoke exit 0, 무료 플랜/Sydney/DNS/API/DB/장비 불변. [CI·해시·실제 운영 화면 증거](../assets/landing-mobile-2026-10-13/README.md).
+
+## 이전 r5 실제 공개 결과 — 2026-10-13
 
 - 공개 source `f3f97f3f2f54a1b055364db6948a8e63229b63de` · `landing` / `20261013-landing-ui-r5`. [정확 커밋 CI 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38370409105), unit37/Chromium12·실패/skip/flaky0·fresh CI proof/로컬 빌드 일치.
 - 모바일 grid64px·미리보기 버튼/설명 제거. 실제627px 정상 motion중 최소59px 여유·겹침/overflow0·삭제요소0을 Chromium에서 확인했다.

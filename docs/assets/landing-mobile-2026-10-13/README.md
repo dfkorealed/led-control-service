@@ -1,5 +1,13 @@
 # 공개 사이트 모바일 보완 — 2026-10-13 실제 배포
 
+## 2026-10-13 공개 페이지 간격·상담 카드 정리 — r6 공개 완료
+
+- 실제 공개 소스 `2627a80d7717e51f83ee75f4a75a7aa2969dfc4d`, `landing` / `20261013-landing-ui-r6`. [동일 SHA Public Landing Release 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38388627479), artifact `11806909424`, 공개 unit 37/37·Chromium 12/12·실패/skip/flaky 0·scoped blocked 0. 독립 검토 C/I/M 0, frozen source 25/25를 확인했다.
+- CI ZIP SHA `96a1d10c5e5beee15a75afe6c5e9f65ab2b647c66f1d78841dbb47b1925b130f`, source SHA `e95b254f60d0d461c3110582ce0df8dc90099ebd258bd41adb26e9df6a5c490f`, artifact SHA `2e0cc1812c78ca3b63c0a323bf6f77288421a0095b88bc07528ea0bff147cabd`, proof file SHA `01c8c6a72a1c3b15e4c1b56f43bcda2991f675312d71617f471e537c2c7e8eb2`. CI proof와 새 local build/source/artifact guard를 통과한 뒤 공식 AWS MCP로 게시했다.
+- 기존 Sydney/private S3/OAC/CloudFront에 불변 10파일 게시, stack UPDATE_COMPLETE·distribution Deployed·invalidation `I90YIJQJLOJ7NB4NPI9K0LMNDL` Completed·소유 lock 삭제·engine exit 0. 회사/CloudFront 두 HTTPS smoke exit 0: 공개 3경로 200, 내부/API/unknown/concepts/archive 404 및 보안 헤더/HTTPS 계약 통과.
+- 실제 운영 Chromium 320/390/637/720/1440px에서 주요 기능·요금제 제목 여유 32px 이상과 가로 넘침 0을 확인했다. 보고된 637×1226px에서 두 페이지 여유는 37px다. 320/637/1440px 상담은 외곽 투명·padding/border 0·중복 헤더 0, 남색 내부 카드·Plus 문맥·이메일 CTA·닫기·Tab trap·Escape·초점 복귀를 확인했다. Feature overview 안내 0개·demo disclaimer footer 0개이며 기존 footer 예시 안내와 상세 hash 이동은 유지됐다. 새 JS `/assets/landing/public-Bc8C3zXJ.js`.
+- [주요 기능 화면](features-637-r6.jpg), [요금제 화면](pricing-637-r6.jpg), [상담 카드](contact-637-r6.jpg)는 실제 운영 주소의 자동 Chromium 화면이다. In-app 수동 검증 또는 메일 발송/수신·API/관제·장비/HIL 검증으로 확대하지 않는다. 무료 플랜·Sydney·DNS·전체 Software CI 정책과 외부 MAIN 변경은 유지했다.
+
 ## 2026-10-13 히어로 정리·추가 간격 — r5 공개 완료
 
 - 실제 공개 소스 `f3f97f3f2f54a1b055364db6948a8e63229b63de`, `landing` / `20261013-landing-ui-r5`. [동일 SHA Public Landing Release 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38370409105), artifact11798773328, unit37/Chromium12·실패/skip/flaky0, scoped blocked0.

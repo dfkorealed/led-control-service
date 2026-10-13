@@ -196,10 +196,14 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 
 - [x] 개발 담당: 공통 내부 페이지 간격과 opt-in 모달 UI, overview1개/공통 demo footer5개·미사용 prop을 정리하고 영향 메뉴3문서를 갱신한다. 기존 기본 모달 UI/접근성을 유지한다.
 - [x] 개발 담당 검증: 기존 모바일 Chromium6케이스 안에서637px 포함 제목 여유와 navy 팝업·닫기/포커스를 확인하고 stale 문구 기대만 갱신한다. public unit/typecheck/fresh build와 공유 모달 집중 검증을 확인한다.
-- [ ] 총괄: 소스 freeze·독립 리뷰·정확 Git SHA의 Public Landing Release 성공 및 CI proof/fresh build 동일성을 확인한다.
-- [ ] 총괄: 공식 MCP·기존 guard/lock/archive/ownedtarget으로 새 immutable release를 게시하고 stack/CloudFront/invalidation 완료·lock 정리를 확인한다.
-- [ ] 총괄: 실제 회사/CloudFront HTTPS 및637px 모바일 제목 간격·내부 상담 UI·6개 안내 삭제를 확인하고 영구 증거와 상태/배포 문서를 완료한다.
+- [x] 총괄: 소스 freeze·독립 리뷰·정확 Git SHA의 Public Landing Release 성공 및 CI proof/fresh build 동일성을 확인한다.
+- [x] 총괄: 공식 MCP·기존 guard/lock/archive/ownedtarget으로 새 immutable release를 게시하고 stack/CloudFront/invalidation 완료·lock 정리를 확인한다.
+- [x] 총괄: 실제 회사/CloudFront HTTPS 및637px 모바일 제목 간격·내부 상담 UI·6개 안내 삭제를 확인하고 영구 증거와 상태/배포 문서를 완료한다.
 
 - 개발 검증: 실제 운영637px 첫 제목 gap-3px/팝업 흰 외곽20px·1px 원인을 확인하고, 지정 문구·팝업 기대 RED8/14와 간격 browser RED2/2→공통 내부 페이지pt40px·chrome opt-in·navy 카드 닫기/plan·안내6개 삭제로GREEN을 회수했다. 마지막 닫기 버튼 흰 기본 배경은 RED1→transparent 보완 뒤 final public37/37·Chromium6/6·전체Webtypecheck/publicbuild exit0을 확인했다. 공통 overlay42/42·UIpolicy0/0도 통과했다. 운영 반영은 아직 r5다.
 
 - 독립 검토: writer25/25 및 aggregateSHA6818ed를 재검증했고 C/I/M0·spec/integrationPASS를 회수했다. 기본 modal/drawer/sheet/safe-area와 새 title/description/초점 계약, 내부 요금제/닫기 버튼을 확인했다. 정확 커밋 CI와 실제 운영 배포는 다음 관문이다.
+
+- 정확 source `2627a80d7717e51f83ee75f4a75a7aa2969dfc4d` [Public Landing Release38388627479](https://github.com/dfkorealed/led-control-service/actions/runs/38388627479) SUCCESS: unit37·Chromium12·실패/skip/flaky0·scoped blocked0. Artifact11806909424/zipSHA96a1d10c/sourceSHAe95b254f/artifactSHA2e0cc181을 검증하고 CI proof와 adapter fresh local build/source/artifact guard를 통과했다. 새 r6 불변10파일 게시 및 기존 stack UpdateStack은 성공했고 현재 UPDATE_IN_PROGRESS 전파 대기다. 운영 완료는 아직 주장하지 않는다.
+
+- r6 운영 완료: 기존 stack UPDATE_COMPLETE·CloudFront Deployed·invalidation I90YIJQJLOJ7NB4NPI9K0LMNDL Completed·소유 lock 삭제·engine exit0. 실제 두 HTTPS smoke exit0, 운영320/390/637/720/1440px 제목 여유32px 이상(637px37px), 상담320/637/1440px 외곽0·navy/Plus/닫기/Tab/Escape/초점 복귀, overview/footer 안내6개 삭제와 footer 예시 안내 유지·새JS 확인을 통과했다. 자동 운영JPEG3개와 메뉴3문서/상태/실행서를 갱신했다.

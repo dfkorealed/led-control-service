@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-10-13 실제 공개: 첫 제목의 고정 헤더 간격과 내부 navy 상담의 요금제 문맥을 r6로 공개했다. 실제637px 제목 여유37px·Plus 문맥·이메일 CTA·닫기/초점 복귀를 확인했다. 정확 소스 `2627a80d`, Public Landing Release unit37/Chromium12 통과. [배포 증거](../assets/landing-mobile-2026-10-13/README.md).
+
 - 2026-10-13 후속 화면 보완: 공통 `PublicInnerPage`의 40px 보정 여백으로 `/pricing`의 첫 KINDA / PLANS 문구를 고정 헤더 아래 최소 32px 띄운다. 공통 상담 팝업의 외곽 흰 프레임과 중복 제목/설명을 제거했으며 남색 이메일 카드 내부에 선택한 Basic/Plus와 닫기 버튼을 표시한다. 기존 요금제 안내·mailto·포커스 순환·Escape·복귀·스크롤 계약을 유지한다. 상품 안내는 실제 요금 집행이나 AI 제공·상담 API 접수/메일 발송 완료를 뜻하지 않는다.
 
 - 2026-10-13 모바일·이메일 상담·푸터·요금제 안내 보완을 실제 landing-only 운영에 반영했다. 공개 소스 `3222fb34`, release `20261013-landing-ui-r4`의 CI unit37/Chromium12와 회사/CloudFront HTTPS 검증을 통과했다. 실제504px 브라우저에서 새 화면·상담 팝업·요금제 안내·푸터와 메뉴 이동을 확인했다. 자동320/390/504 검증, 실제 이메일 발송/수신·운영 관제/API·장비 검증은 구분한다. [배포 증거](../assets/landing-mobile-2026-10-13/README.md).

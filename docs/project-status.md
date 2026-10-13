@@ -2,9 +2,9 @@
 
 기준일: 2026-10-13
 
-## 2026-10-13 공개 페이지 간격·상담 카드 정리 — 진행 중
+## 2026-10-13 공개 페이지 간격·상담 카드 정리 — 공개 완료
 
-- 사용자 주석9개와 직접 배포 지시에 따라 주요 기능·요금제 첫 제목의 고정 헤더 간격, 상담 팝업의 흰 외곽 제거, 기능 overview 안내1개와 demo footer 안내5개 삭제를 적용한다. 개발 담당은 공통 UI·기존 회귀와 영향 메뉴3문서를, 총괄은 체크리스트·정확 CI·공식 MCP 배포를 담당한다. 독립 검토는 frozen25/25·C/I/M0·spec/integrationPASS다. 개발 결과는 public37/37·집중Chromium6/6·공통overlay42/42·전체Webtypecheck/publicbuild·UIpolicy 통과다. 실제637px gap-3px와 white shell을 재현했고 제목+40px/카드 단독 UI와 닫기 버튼 색상을 보완했다. 기본 서비스 모달의 외형과 접근성, 상담 이메일/요금제 문맥, replay/motion과 footer 예시 안내를 유지한다. 기존 무료 플랜/Sydney·private S3/OAC·landing-only를 재사용하고 운영 완료는 실제 전파와 HTTPS 확인 뒤 기록한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
+- 사용자 주석9개와 직접 배포 지시에 따라 주요 기능·요금제 첫 제목의 고정 헤더 간격, 상담 팝업의 흰 외곽 제거, 기능 overview 안내1개와 demo footer 안내5개 삭제를 적용한다. 개발 담당은 공통 UI·기존 회귀와 영향 메뉴3문서를, 총괄은 체크리스트·정확 CI·공식 MCP 배포를 담당한다. 독립 검토는 frozen25/25·C/I/M0·spec/integrationPASS다. 개발 결과는 public37/37·집중Chromium6/6·공통overlay42/42·전체Webtypecheck/publicbuild·UIpolicy 통과다. 실제637px gap-3px와 white shell을 재현했고 제목+40px/카드 단독 UI와 닫기 버튼 색상을 보완했다. 기본 서비스 모달의 외형과 접근성, 상담 이메일/요금제 문맥, replay/motion과 footer 예시 안내를 유지한다. 정확source2627a80d CI38388627479 SUCCESS/unit37·browser12·실패/skip/flaky0와 fresh build/proof 일치를 확인했다. 기존 무료 플랜/Sydney·private S3/OAC·landing-only를 재사용해 r6 불변10파일 게시·UPDATE_COMPLETE/Deployed·invalidation I90YIJQJLOJ7NB4NPI9K0LMNDL Completed·소유 lock 삭제·engine exit0을 확인했다. 두 HTTPS smoke exit0과 실제 운영320/390/637/720/1440px 제목 간격(637px37px)·상담 외곽0/내부 Plus/닫기·초점·안내6개 삭제 검증을 통과했다. [실제 운영 화면과 증거](assets/landing-mobile-2026-10-13/README.md)를 보존했다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
 
 ## 2026-10-13 히어로 정리·모바일 추가 간격 — 공개 완료
 
