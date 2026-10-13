@@ -29,6 +29,38 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+for (const surface of ["editor", "monitoring"] as const) {
+  test(`map loading ${surface} spans delayed query and image paint without returning on zoom`, async ({ page }, testInfo) => {
+    const api = await installCadJourney(page, false);
+    let releaseQuery!: () => void, releaseImage!: () => void;
+    const query = new Promise<void>(resolve => { releaseQuery = resolve; });
+    const image = new Promise<void>(resolve => { releaseImage = resolve; });
+    const queryPath = surface === "editor" ? "floors/floor-1/editor-state" : "sites/site-1/floors/floor-1/map-snapshot";
+    await page.route(`**/api/${queryPath}`, async route => { await query; await route.fallback(); });
+    await page.route("**/api/floors/floor-1/assets/rendered/content", async route => { await image; await route.fallback(); });
+    const loading = page.getByRole("status").filter({ hasText: "맵을 불러오는 중입니다." });
+    try {
+      await page.goto(surface === "editor" ? "/settings/floor-plans/floor-1/edit?siteId=site-1" : "/monitoring?siteId=site-1");
+      await expect(loading).toHaveCount(1);
+      await expect(loading).toHaveAttribute("aria-busy", "true");
+      releaseQuery();
+      const map = surface === "editor" ? page.getByTestId("floor-editor-canvas") : page.getByRole("region", { name: "층 도면" });
+      await expect(map).toBeVisible();
+      await expect(loading).toHaveCount(1);
+      await page.screenshot({ path: testInfo.outputPath(`${surface}-loading.png`) });
+      releaseImage();
+      await expect(loading).toHaveCount(0);
+      await page.getByRole("button", { name: surface === "editor" ? "확대" : "지도 확대", exact: true }).click();
+      await expect(loading).toHaveCount(0);
+      await page.screenshot({ path: testInfo.outputPath(`${surface}-painted.png`) });
+      expect(api.unhandledRequests).toEqual([]);
+    } finally {
+      releaseQuery();
+      releaseImage();
+    }
+  });
+}
+
 async function expectCadPageBounded(page: Page) {
   await expect.poll(() => page.evaluate(() => ({
     width: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth,
