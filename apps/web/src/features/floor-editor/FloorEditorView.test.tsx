@@ -1269,7 +1269,12 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
   });
 
-  it.each([false, true])("previews CAD review results and applies with editor authority (common map: %s)", async common => {
+  it.each([
+    { common: false, interruption: "none" },
+    { common: true, interruption: "none" },
+    ...["purge", "floor", "site", "principal", "unmount", "invalidation-purge", "onSaved-purge"]
+      .map(interruption => ({ common: true, interruption }))
+  ])("previews CAD review results and applies with editor authority (common map: $common, interruption: $interruption)", async ({ common, interruption }) => {
     previewPaint.automatic = false;
     const originalBounds = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
@@ -1312,7 +1317,7 @@ describe("FloorEditorView", () => {
       createdAt: "2026-09-17T00:00:00.000Z",
       updatedAt: "2026-09-17T00:00:01.000Z"
     });
-    floorEditorApi.listFloorImportCandidates.mockResolvedValueOnce({
+    floorEditorApi.listFloorImportCandidates.mockResolvedValue({
       jobId,
       candidates: [{
         id: candidateId,
@@ -1403,11 +1408,16 @@ describe("FloorEditorView", () => {
       const prepared = readyMobileMap(structuredClone(authoritative)).floor.mapDocument!;
       Object.assign(authoritative.floor, { mapDocument: { ...prepared, generationId: "prepared", width: 16384, height: 8192, gridSize: 80 } });
     }
-    floorEditorApi.getFloorEditorState.mockResolvedValueOnce(authoritative);
+    const authoritativeGet = deferred<FloorEditorState>();
+    floorEditorApi.getFloorEditorState.mockReturnValueOnce(authoritativeGet.promise);
     const onReload = vi.fn();
     const onSaved = vi.fn();
     installPreparedImport(jobId);
     const view = renderEditor(editorState, { onReload, onSaved }, "preview-user");
+    const invalidation = deferred<void>();
+    const invalidate = vi.spyOn(view.queryClient, "invalidateQueries");
+    if (interruption === "invalidation-purge") invalidate.mockReturnValue(invalidation.promise);
+    if (interruption === "onSaved-purge") onSaved.mockImplementation(() => clearTenantCache(view.queryClient));
     expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
@@ -1468,6 +1478,55 @@ describe("FloorEditorView", () => {
       candidateIds: [candidateId]
     }));
     await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2"));
+    if (["purge", "floor", "site", "principal", "unmount"].includes(interruption)) {
+      const oldScope = `preview-user:${editorDraftGeneration()}:admin`;
+      if (interruption === "purge") act(() => clearTenantCache(view.queryClient));
+      else if (interruption === "unmount") view.unmount();
+      else if (interruption === "principal") {
+        act(() => view.queryClient.setQueryData(["auth", "me"], {
+          user: { id: "other-user", organizationId: "org", role: "admin", status: "active" }
+        }));
+        view.rerenderWithProps({});
+      } else {
+        const next = structuredClone(editorState);
+        if (interruption === "floor") next.floor.id = "floor-other";
+        else next.floor.siteId = "site-other";
+        view.rerenderEditor(next);
+      }
+      const current = useFloorEditorStore.getState();
+      const cached = view.queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"]);
+      invalidate.mockClear();
+      // Even the discarded scope's local draft must not be removed by a late ACK.
+      saveEditorDraft(oldScope, editorState, editorState);
+      await act(async () => authoritativeGet.resolve(authoritative));
+      expect(useFloorEditorStore.getState().state).toBe(current.state);
+      expect(useFloorEditorStore.getState().initialState).toBe(current.initialState);
+      expect(useFloorEditorStore.getState().mapScope).toBe(current.mapScope);
+      expect(view.queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toBe(cached);
+      expect(loadEditorDraft(oldScope, editorState)).not.toBeNull();
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.queryByText("CAD 도면을 적용하고 저장했습니다.")).not.toBeInTheDocument();
+      return;
+    }
+    await act(async () => authoritativeGet.resolve(authoritative));
+    if (interruption === "invalidation-purge") {
+      await waitFor(() => expect(useFloorEditorStore.getState().initialState?.floor.mapRevision).toBe(8));
+      expect(onSaved).not.toHaveBeenCalled();
+      act(() => clearTenantCache(view.queryClient));
+      await act(async () => invalidation.resolve());
+      expect(useFloorEditorStore.getState().state).toBeNull();
+      expect(view.queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toBeUndefined();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.queryByText("CAD 도면을 적용하고 저장했습니다.")).not.toBeInTheDocument();
+      return;
+    }
+    if (interruption === "onSaved-purge") {
+      await waitFor(() => expect(onSaved).toHaveBeenCalledWith(authoritative));
+      expect(useFloorEditorStore.getState().state).toBeNull();
+      expect(screen.queryByText("CAD 도면을 적용하고 저장했습니다.")).not.toBeInTheDocument();
+      return;
+    }
     expect(useFloorEditorStore.getState()).toMatchObject({
       isDirty: false,
       initialState: { floor: { mapRevision: 8, floorPlan: { width: common ? 16384 : 640, height: common ? 8192 : 360 } } },

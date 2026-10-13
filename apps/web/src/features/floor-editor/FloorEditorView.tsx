@@ -292,12 +292,12 @@ export function FloorEditorView({
     setPanelTab((current) => current === "details" || current === "layers" ? current : "properties");
   }, [selection?.kind, selection?.id, cadSelection?.targetId, selectedFixtureIds.length]);
 
-  function isCurrentSave(principalGeneration: number) {
+  const isCurrentSave = useCallback((principalGeneration: number) => {
     return activeInstance.current && principalGeneration === editorDraftGeneration()
       && activeScope.current.floorId === floorId && activeScope.current.siteId === siteId
       && activeScope.current.authScope === draftScope
       && useFloorEditorStore.getState().initialState?.floor.id === floorId;
-  }
+  }, [draftScope, floorId, siteId]);
 
   function captureSaveAcknowledgement(principalGeneration: number) {
     const renderer = map.handle.current;
@@ -400,7 +400,10 @@ export function FloorEditorView({
   }, []);
 
   const handleCadApplied = useCallback(async (_result: FloorImportApplyResult | null) => {
+    const principalGeneration = editorDraftGeneration();
     const authoritative = await getFloorEditorState(floorId);
+    // A late authoritative read must not revive a purged or departed editor scope.
+    if (!isCurrentSave(principalGeneration)) return;
     if (authoritative.floor.id !== floorId || authoritative.floor.siteId !== siteId) {
       throw new Error("Editor response scope mismatch");
     }
@@ -410,13 +413,13 @@ export function FloorEditorView({
     if (authoritative.floor.mapDocument) initialize(authoritative, draftScope);
     else adoptBaseline(authoritative);
     await invalidateEditorQueries(queryClient, authoritative);
+    if (!isCurrentSave(principalGeneration)) return;
     await onSaved(authoritative);
-    if (activeInstance.current && activeScope.current.floorId === floorId && activeScope.current.siteId === siteId
-      && activeScope.current.authScope === draftScope) {
+    if (isCurrentSave(principalGeneration)) {
       setSaveStatus("idle");
       toast.publish({ id: `${noticeScope}:saved`, tone: "success", title: "CAD 도면을 적용하고 저장했습니다." });
     }
-  }, [adoptBaseline, initialize, baseline, draftScope, floorId, noticeScope, onSaved, queryClient, siteId, toast, userId]);
+  }, [adoptBaseline, initialize, baseline, draftScope, floorId, isCurrentSave, noticeScope, onSaved, queryClient, siteId, toast, userId]);
 
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const appliedOverlay = appliedOverlayQuery.data?.overlay;
