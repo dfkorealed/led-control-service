@@ -536,7 +536,8 @@ function CadSceneReadOnlyLayer({ descriptor, mapRevision }: { descriptor: CadSce
           platform: isMobileWebView() ? "mobile" : "desktop",
           devicePixelRatio: window.devicePixelRatio,
           loadTile: (tile, tileSignal) => fetchBinary(tilePath(descriptor, tile), tileSignal),
-          onError: () => fail(run)
+          onError: () => fail(run),
+          onDegraded: () => fail(run)
         }, overrides);
         if (disposed || signal.aborted || run !== generation) {
           nextRenderer.destroy();

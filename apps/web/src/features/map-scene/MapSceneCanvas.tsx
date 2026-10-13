@@ -94,7 +94,7 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
     const alive = () => current?.active && session.current === current;
     const renderer = (latest.current.createRenderer ?? (options => new MapSceneRenderer(options)))({ source: sourceFacade.current!, platform,
       onError: error => { if (alive()) { latestPaint.current.onError(); latest.current.onPaintReady?.(false); latest.current.onError?.(error); } },
-      onDegraded: result => { if (alive()) latest.current.onDegraded?.(result); },
+      onDegraded: result => { if (alive()) { latestPaint.current.onError(); latest.current.onDegraded?.(result); } },
       onManifest: manifest => { if (alive()) latest.current.onManifest?.(manifest); },
       onPaintReady: ready => {
         if (alive() && (!ready || current!.documentKey === JSON.stringify(latest.current.documentRef))) {

@@ -109,6 +109,23 @@ function decoded(descriptorTile: CadSceneTile, groupId: string | null = "group-1
 }
 
 describe("CadSceneCanvas", () => {
+  it.each([0, 1])("reports memory-budget degradation with %s rendered tiles through the existing error hook", async renderedTileCount => {
+    const options: CadSceneRendererOptions[] = [], onError = vi.fn();
+    let finish!: () => void;
+    const renderer: CadSceneRendererLike = { mount: vi.fn().mockResolvedValue(undefined),
+      setCamera: vi.fn(() => new Promise<void>(resolve => { finish = resolve; })),
+      pick: vi.fn(() => null), setSelectionExclusion: vi.fn(), setLayerStates: vi.fn(), destroy: vi.fn() };
+    render(<CadSceneCanvas descriptor={descriptor} sceneState={sceneState()} pan={{ x: 0, y: 0 }} zoom={1}
+      viewport={{ width: 800, height: 600 }} selection={null} onSelectionChange={vi.fn()} onError={onError}
+      loadManifest={vi.fn().mockResolvedValue(manifest)} createRenderer={value => { options.push(value); return renderer; }} />);
+    await waitFor(() => expect(renderer.setCamera).toHaveBeenCalled());
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    act(() => options[0].onDegraded?.({ requestedTileCount: 2, renderedTileCount, reason: "memory-budget" }));
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    await act(async () => finish());
+    expect(onError).toHaveBeenCalledOnce();
+  });
   it("waits past renderer mount for current camera paint and ignores stale first-camera completion", async () => {
     const pending: Array<() => void> = [];
     const renderer: CadSceneRendererLike = { mount: vi.fn().mockResolvedValue(undefined),

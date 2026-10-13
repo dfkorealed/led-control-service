@@ -502,7 +502,10 @@ function CadSceneCanvasComponent({
         displayQuality: true,
         memoryBudget: memoryBudgetRef.current!,
         loadTile: (tile, signal) => loadTile(resolveCadTileContentPath(descriptor.tileContentPathTemplate, tile), signal),
-        onError: error => { if (!controller.signal.aborted) reportError(error); }
+        onError: error => { if (!controller.signal.aborted) reportError(error); },
+        onDegraded: () => {
+          if (!controller.signal.aborted) reportError(new Error("CAD 맵 메모리 예산을 초과했습니다."));
+        }
       });
       await renderer.mount(canvas);
       if (disposed) return;

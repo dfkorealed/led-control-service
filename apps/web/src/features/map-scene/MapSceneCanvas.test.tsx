@@ -32,6 +32,38 @@ function harness() {
 afterEach(cleanup);
 
 describe("common map Canvas lifecycle", () => {
+  it("fences actual consumer paint, error and degraded callbacks on A -> B -> A visits", async () => {
+    const h = harness(), options: MapSceneRendererOptions[] = [];
+    const onDegraded = vi.fn();
+    const createRenderer = (value: MapSceneRendererOptions) => { options.push(value); return h.props.createRenderer(value); };
+    const view = render(<MapSceneCanvas {...h.props} createRenderer={createRenderer} onDegraded={onDegraded} />);
+    await waitFor(() => expect(h.props.onReady).toHaveBeenCalledWith(expect.any(Object)));
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer} onDegraded={onDegraded} source={{ ...h.source, scopeKey: "floor-b" }} />);
+    await waitFor(() => expect(options).toHaveLength(2));
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer} onDegraded={onDegraded} />);
+    await waitFor(() => expect(options).toHaveLength(3));
+    act(() => {
+      options[0].onPaintReady?.(true);
+      options[1].onPaintReady?.(true);
+      options[0].onError?.(new Error("old A"));
+      options[0].onDegraded?.({ requestedTileCount: 2, renderedTileCount: 0, reason: "memory-budget" });
+    });
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(h.props.onError).not.toHaveBeenCalled();
+    expect(onDegraded).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.props.onReady.mock.calls.filter(([handle]) => handle !== null)).toHaveLength(3));
+    act(() => options[2].onPaintReady?.(true));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("stops first paint loading on degradation and retains the existing host failure route", () => {
+    const h = harness(), options: MapSceneRendererOptions[] = [], onDegraded = vi.fn();
+    render(<MapSceneCanvas {...h.props} onDegraded={onDegraded} createRenderer={value => { options.push(value); return h.props.createRenderer(value); }} />);
+    const result = { requestedTileCount: 2, renderedTileCount: 0, reason: "memory-budget" as const };
+    act(() => options[0].onDegraded?.(result));
+    expect(onDegraded).toHaveBeenCalledWith(result);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
   it("keeps the overlay after handle creation until actual viewport paint and ignores subsequent pan/zoom waits", async () => {
     const h = harness(), options: MapSceneRendererOptions[] = [];
     const createRenderer = (value: MapSceneRendererOptions) => { options.push(value); return h.props.createRenderer(value); };

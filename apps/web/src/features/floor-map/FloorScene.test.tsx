@@ -383,7 +383,7 @@ describe("FloorScene", () => {
     expect(screen.queryByTestId("cad-scene-canvas")).not.toBeInTheDocument();
   });
 
-  it("shows renderer failures and retries with a fresh renderer", async () => {
+  it.each(["onError", "onDegraded"])("shows %s failures and retries with a fresh renderer", async callback => {
     const cadSnapshot = createCadSnapshot();
     vi.stubGlobal("fetch", createSuccessfulCadFetch(cadSnapshot));
 
@@ -393,10 +393,11 @@ describe("FloorScene", () => {
       </FloorMapViewport>
     );
     await waitFor(() => expect(cadRenderer.instances).toHaveLength(1));
-    const onError = cadRenderer.instances[0].options.onError as (error: Error) => void;
-    onError(new Error("tile failed"));
+    const fail = cadRenderer.instances[0].options[callback] as (error: unknown) => void;
+    act(() => fail?.(callback === "onError" ? new Error("tile failed") : { requestedTileCount: 2, renderedTileCount: 0, reason: "memory-budget" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("CAD 도면을 불러오지 못했습니다");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "CAD 도면 다시 시도" }));
     await waitFor(() => expect(cadRenderer.instances).toHaveLength(2));
     await waitFor(() => expect(cadRenderer.instances[1].mount).toHaveBeenCalled());
