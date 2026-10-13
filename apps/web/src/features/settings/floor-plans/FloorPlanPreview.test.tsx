@@ -9,6 +9,15 @@ vi.mock("../../../api/queries", () => ({ useFloorMapSnapshot }));
 const snapshot: FloorMapSnapshot = { floorId: "floor-1", revision: 0, width: 1200, height: 800, floorPlan: null, objects: [], fixtures: [{ id: "fixture-1", name: "실제 조명", x: 200, y: 300, size: 20 }] };
 function preview(active: boolean) { return <QueryClientProvider client={new QueryClient()}><FloorPlanPreview floorId="floor-1" siteId="site-1" floorName="B1" active={active} /></QueryClientProvider>; }
 describe("FloorPlanPreview", () => {
+  it("uses the shared map overlay during snapshot fetch and stops it on error", () => {
+    useFloorMapSnapshot.mockReturnValue({ data: undefined, error: null, refetch });
+    const view = render(preview(true));
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    useFloorMapSnapshot.mockReturnValue({ data: undefined, error: new Error("failed"), refetch });
+    view.rerender(preview(true));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
   it("renders actual readonly snapshot with unknown pins and disposes scene offscreen", () => {
     useFloorMapSnapshot.mockReturnValue({ data: snapshot, error: null, refetch });

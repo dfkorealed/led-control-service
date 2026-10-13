@@ -49,6 +49,12 @@ const dashboard: Dashboard = {
 };
 
 describe("SpatialTargetSelector", () => {
+  it("distinguishes a pending map query from no map without duplicate loading overlays", () => {
+    floorMapQuery.mockReturnValue({ data: undefined, error: null, isLoading: true, isPending: true });
+    renderSelector({ selection: { mode: "fixtures", fixtureIds: [] } });
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    expect(screen.queryByText("등록된 도면이 없어 목록으로 선택합니다.")).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     floorMapQuery.mockReturnValue({ data: snapshot, error: null, isLoading: false, isFetching: false });
@@ -223,7 +229,7 @@ describe("SpatialTargetSelector", () => {
   it("keeps an initial loading map in place without opening an error fallback", () => {
     floorMapQuery.mockReturnValue({ data: undefined, error: null, isLoading: true, isFetching: true });
     renderSelector();
-    expect(screen.getByText("등록된 도면이 없어 목록으로 선택합니다.")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
     expect(screen.queryByRole("dialog", { name: "조명 목록" })).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });

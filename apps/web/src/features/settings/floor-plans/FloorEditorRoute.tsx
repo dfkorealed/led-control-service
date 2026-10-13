@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useDashboard, type SiteCapabilities } from "../../../api/queries";
 import { Button, ConfirmDialog, FeedbackState } from "../../../components/ui";
+import { MapLoadingOverlay } from "../../../components/ui/MapLoadingOverlay";
 import {
   acquireFloorEditorLease,
   getFloorEditorState,
@@ -106,8 +107,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
 
   if (!canEdit) return <Navigate to={listPath} replace />;
   if (editorQuery.error) return <div className="panel danger">맵 편집기를 불러오지 못했습니다.</div>;
-  if (editorQuery.isLoading || !editorQuery.data) return <div className="panel">맵 편집기를 불러오는 중</div>;
-  if (!selectedSiteId) return <div className="panel">맵 편집기를 불러오는 중</div>;
+  if (editorQuery.isLoading || !editorQuery.data || !selectedSiteId) return <div className="relative h-full min-h-0 bg-surface-canvas"><MapLoadingOverlay loading /></div>;
   if (selectedSiteId !== editorQuery.data.floor.siteId) {
     return <Navigate to={`/settings/floor-plans?siteId=${encodeURIComponent(selectedSiteId)}`} replace />;
   }

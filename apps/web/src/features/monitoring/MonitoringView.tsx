@@ -9,6 +9,7 @@ import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../ap
 import { Button, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
+import { MapLoadingOverlay } from "../../components/ui/MapLoadingOverlay";
 import { MonitoringFixtureFinder } from "./MonitoringFixtureFinder";
 import { MonitoringSummary } from "./MonitoringSummary";
 import { MonitoringLogDrawer } from "./MonitoringLogDrawer";
@@ -406,7 +407,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
               action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
             />
           ) : floor ? (
-            <FeedbackState icon={Clock3} title="저장된 지도를 불러오는 중" />
+            <div className="relative min-h-[240px] flex-1"><MapLoadingOverlay loading /></div>
           ) : (
             <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
           )}

@@ -1534,7 +1534,7 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("저장된 지도를 불러오는 중");
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
   });
 

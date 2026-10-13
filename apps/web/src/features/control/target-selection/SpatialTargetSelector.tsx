@@ -3,6 +3,7 @@ import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { useFloorMapSnapshot } from "../../../api/queries";
 import { Button, ConfirmDialog, InlineStatusSummary, OperationMapPanel, Text } from "../../../components/ui";
 import { FloorScene } from "../../floor-map/FloorScene";
+import { MapLoadingOverlay } from "../../../components/ui/MapLoadingOverlay";
 import { FloorMapViewport, type MapSelectionRect } from "../../floor-map/FloorMapViewport";
 import { resolveControlSelection, toggleFixtureSelection, type ControlMode, type ControlSelection } from "../control-selection";
 import { humanizeDeviceResponseMessage } from "../control-copy";
@@ -166,7 +167,9 @@ export function SpatialTargetSelector({
           mode="pan" toolModePolicy={manualWorkspace ? "manual-cad" : "interaction-default"}
           compactChrome={compactManual} onAreaSelect={selectArea} wheelZoomWithoutModifier controlsPlacement={compactAuxiliary ? "overlay" : "footer"} footerStart={manualWorkspace && !compactAuxiliary ? legend : undefined} maintainCameraOnResize viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} inspectDisabledFixtures={Boolean(onInspectFixture) && !disabled} />
-        </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
+        </FloorMapViewport> : activeFloor && !mapQuery.error && (mapQuery.isLoading || mapQuery.isPending) ?
+          <div className="relative h-full min-h-[240px] flex-1"><MapLoadingOverlay loading /></div>
+          : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
         <>
           <ManualAuxiliaryPanel />
           {auxiliary ? <ManualAuxiliaryContent kind="more" mobileOnly>

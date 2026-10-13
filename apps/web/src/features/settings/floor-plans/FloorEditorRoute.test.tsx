@@ -152,6 +152,11 @@ function FloorTransitionControl() {
 }
 
 describe("FloorEditorRoute", () => {
+  it("uses the shared overlay while the editor document query is pending", () => {
+    getFloorEditorState.mockReturnValue(new Promise(() => {}));
+    renderRoute("admin");
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+  });
   it.each([['details', 'details'], ['invalid', 'properties']])("normalizes initial history intent %s and preserves hash on return", async (query, expected) => {
     getFloorEditorState.mockResolvedValue(editorState);
     renderRoute("admin", `/settings/floor-plans/floor-b2/edit?siteId=site-2&keep=value&editorPanel=${query}#draft`);
