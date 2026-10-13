@@ -1269,7 +1269,7 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
   });
 
-  it("previews CAD review results without registering fixtures and applies with the editor authority", async () => {
+  it.each([false, true])("previews CAD review results and applies with editor authority (common map: %s)", async common => {
     previewPaint.automatic = false;
     const originalBounds = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
@@ -1396,11 +1396,18 @@ describe("FloorEditorView", () => {
         }
       }
     };
+    if (common) {
+      authoritative.objects = [];
+      authoritative.floor.floorPlan.width = 16384;
+      authoritative.floor.floorPlan.height = 8192;
+      const prepared = readyMobileMap(structuredClone(authoritative)).floor.mapDocument!;
+      Object.assign(authoritative.floor, { mapDocument: { ...prepared, generationId: "prepared", width: 16384, height: 8192, gridSize: 80 } });
+    }
     floorEditorApi.getFloorEditorState.mockResolvedValueOnce(authoritative);
     const onReload = vi.fn();
     const onSaved = vi.fn();
     installPreparedImport(jobId);
-    renderEditor(editorState, { onReload, onSaved }, "preview-user");
+    const view = renderEditor(editorState, { onReload, onSaved }, "preview-user");
     expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
@@ -1463,8 +1470,8 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2"));
     expect(useFloorEditorStore.getState()).toMatchObject({
       isDirty: false,
-      initialState: { floor: { mapRevision: 8, floorPlan: { width: 640, height: 360 } } },
-      state: { floor: { mapRevision: 8, floorPlan: { width: 640, height: 360 } } }
+      initialState: { floor: { mapRevision: 8, floorPlan: { width: common ? 16384 : 640, height: common ? 8192 : 360 } } },
+      state: { floor: { mapRevision: 8, floorPlan: { width: common ? 16384 : 640, height: common ? 8192 : 360 } } }
     });
     expect(onSaved).toHaveBeenCalledWith(authoritative);
     expect(onReload).not.toHaveBeenCalled();
@@ -1473,6 +1480,14 @@ describe("FloorEditorView", () => {
     expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
     expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledTimes(2);
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
+    if (common) {
+      expect(useFloorEditorStore.getState().mapScope?.authScope).toBe(`preview-user:${editorDraftGeneration()}:admin`);
+      const fitted = { zoom: useFloorEditorStore.getState().zoom, pan: useFloorEditorStore.getState().pan };
+      expect(fitted.zoom).toBeCloseTo(0.0458984375);
+      view.rerenderEditor(structuredClone(authoritative));
+      expect(useFloorEditorStore.getState().zoom).toBe(fitted.zoom);
+      expect(useFloorEditorStore.getState().pan).toEqual(fitted.pan);
+    }
   });
 
   it("reloads applied CAD candidates as a read-only reference while fixture placement and identify stay enabled", async () => {

@@ -405,7 +405,10 @@ export function FloorEditorView({
       throw new Error("Editor response scope mismatch");
     }
     if (userId && baseline) removeEditorDraft(draftScope, baseline);
-    adoptBaseline(authoritative);
+    // A legacy map has no mapScope to inherit. Bind the incoming common map to
+    // this principal so the later query echo does not initialize away its fit.
+    if (authoritative.floor.mapDocument) initialize(authoritative, draftScope);
+    else adoptBaseline(authoritative);
     await invalidateEditorQueries(queryClient, authoritative);
     await onSaved(authoritative);
     if (activeInstance.current && activeScope.current.floorId === floorId && activeScope.current.siteId === siteId
@@ -413,7 +416,7 @@ export function FloorEditorView({
       setSaveStatus("idle");
       toast.publish({ id: `${noticeScope}:saved`, tone: "success", title: "CAD 도면을 적용하고 저장했습니다." });
     }
-  }, [adoptBaseline, baseline, draftScope, floorId, noticeScope, onSaved, queryClient, siteId, toast, userId]);
+  }, [adoptBaseline, initialize, baseline, draftScope, floorId, noticeScope, onSaved, queryClient, siteId, toast, userId]);
 
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const appliedOverlay = appliedOverlayQuery.data?.overlay;
