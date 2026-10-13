@@ -109,7 +109,8 @@
 - [x] 승인된 A→B100%/60초 시험 규칙을 비활성 초안1개로 저장하고 exact membership·configuration APPLIED를 확인한다. 활성 규칙0이다.
 - [x] 사용자 후속 승인: Web의 BIO 활성화 차단/고정 OFF, 활성 규칙 편집 시 비활성화, API 동기화 응답·필터·집계를 직접 수정했다. 현재 현장/Gateway/프로토콜과 모든 sourceEligible을 대조하고 명시적 활성화만 제공한다. 새 BIO는 비활성 초안, 기존 활성 상태는 유지한다. BIO APPLIED는 현재 양수 desired와 같은 V2 rule appliedRevision이 있어야 하며 V1 ACK/이전 revision/0은 PENDING이다. Gateway REJECTED는 센서 건강/실행 성공의 근거가 아니다.
 - [x] 원래 증상 RED→GREEN, Web103/103·API4 suites71/71·mock Chromium7/7(320/390/1440px)·양쪽 타입/빌드·자체 diff 검토 및 메뉴/상태판을 갱신했다. 사용자의 단독 진행/최소 검증 지시에 따라 위임·외부 메시지·독립 리뷰·실제 DB 필터 통합·실장비 시험은 하지 않았다. 기존 Web chunk 경고는 미해소다.
-- [ ] 사용자 후속 승인으로 현재 메인 `codex/mvp1-cloud-web`에 `92d5b83d`만 cherry-pick하고 양쪽 문서를 보존한다. 메인 결과의 표적 회귀·타입/빌드 뒤 동일 watcher/상속 환경의 API 반영과 정상 로그인 UI·readiness만 확인한다. 규칙 활성화/새 움직임 START는 승인 범위에서 계속 제외한다.
+- [x] 사용자 후속 승인으로 현재 메인 `codex/mvp1-cloud-web`에 `92d5b83d`만 cherry-pick(`e243110c`)하고 양쪽 문서를 보존했다. 메인 Web103/API71/mock Chromium7·양쪽 타입/빌드가 통과했다. 동일 watcher3493/상속 환경으로 API24883이 새로 기동하고 Web3528·ready200/5서비스 up·정상 기존 로그인 UI의 비활성100%/60초 규칙 `적용됨`을 확인했다. 규칙 활성화/새 움직임 START는 하지 않았다.
+- [ ] 최신 actual heartbeatFresh=false·조명4대 오프라인이므로 현장 연결을 확인한 뒤 현재 sourceEligible 및 새 현장 START를 다시 확인한다. 등록/조명·노드 수·AGENTS/.env는 보존됐으나14:09 설정 보고 캐시 digest와 지금 값은 다르다. 마지막 보고는4개 모두 이번 통합 이전이고 직접 DB쓰기/장비 명령0이다. 최초 보존 검사 incomplete(exit2)와 현재 장비 GET/광학 밝기 미검증 한계를 보존하며 cache를 원복하거나 정상으로 합성하지 않는다.
 - Ruling: 전체 센서 브랜치가 아니라 이번 수정 커밋만 통합한다. 메인은 최신 지도 작업209개 커밋이 진행돼 있고 이전 센서36개에는 별도 의존성/배포 변경이 포함돼 있기 때문이다. 이번 UI/API 수정만 승인한 사용자 범위를 보존하며, 제외한 과거 커밋은 원 브랜치와 보호 작업 공간에 남긴다.
 - [ ] 아래 Task4의 fresh 현장 START 뒤 감지·연장·복귀/10초 변경을 필요한 최소 범위로 확인한다.
 

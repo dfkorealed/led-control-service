@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-13 BIO 보정 메인·현재 서비스 반영
+
+- 구현 완료: 현재 메인에 이번 보정만 `e243110c`로 통합했다. Web103·API71·mock Chromium7/7·양쪽 타입/빌드를 새로 확인하고 같은 개발 watcher/환경으로 API를 재기동했다. 정상 로그인 UI에서 비활성 A→B100%/60초 시험 규칙의 Gateway 동기화가 `적용됨`이다. 기존 지도/공통 목록·사용자 AGENTS 변경·패키지/lock/schema와 원 센서 작업 공간을 보존했다.
+- 미구현: 현재 현장 heartbeat가 오래돼 조명4대가 오프라인이다. 활성화 버튼은 현재 sourceEligible에 따라 안전하게 차단되며 새 장비 준비·규칙 활성화·감지/유지/복귀/실제10초 변경 시험은 하지 않았다.
+- 부족하거나 개선이 필요한 기능: 서버 MQTT ready와 현장 Gateway online은 다른 증거다. 연결 확인이 다음 단계다.14:09 설정 보고 캐시 digest는 다르며4개 마지막 보고가 이번 통합 이전임만 확인했다. 현재 장비 GET/광학 밝기 보존까지 주장하지 않고 기존 기록을 보존한다.
+- 관련 파일: `apps/api/src/automation/vehicle-event-rules.service.ts`, `apps/web/src/features/control/automation/{VehicleEventControlPanel,VehicleEventDialog}.tsx`, `docs/project-status.md`.
+- 갱신 규칙: 이전 소프트웨어/운영 기록은 당시 상태다. 새 서비스 반영·현재 자격·현재 현장 연결과 RF/광학 시험을 각각 구분한다. 이번 직접 장비 명령/규칙 활성화0이다.
+
 ## 2026-10-12 BIO TIMEOUT 응답 유실의 제어 이력 분류 보완
 
 ### 구현 완료
