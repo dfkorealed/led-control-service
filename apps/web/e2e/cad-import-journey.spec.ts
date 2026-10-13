@@ -61,6 +61,68 @@ for (const surface of ["editor", "monitoring"] as const) {
   });
 }
 
+test("map loading version-only editor save paints automatically with grid off and no slots", async ({ page }, testInfo) => {
+  const api = await installCadJourney(page, false);
+  api.state().lightSlots = [];
+  await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+  const canvas = page.getByTestId("floor-editor-canvas");
+  await expect(canvas).toBeVisible();
+  await expect(canvas.getByRole("status")).toHaveCount(0);
+  const transitions = await page.evaluate(async () => {
+    const path = "/src/features/floor-editor/editor-store.ts";
+    const { useFloorEditorStore } = await import(/* @vite-ignore */ path);
+    useFloorEditorStore.getState().setSnap(false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const root = document.querySelector('[data-testid="floor-editor-canvas"]')!;
+    const store = useFloorEditorStore.getState();
+    const camera = { pan: store.pan, zoom: store.zoom };
+    return new Promise<{ loading: boolean; cameraStable: boolean }>((resolve, reject) => {
+      let loading = false;
+      const timeout = setTimeout(() => { observer.disconnect(); reject(new Error("version paint did not settle")); }, 5000);
+      const observer = new MutationObserver(() => {
+        if (root.querySelector('[role="status"]')) loading = true;
+        else if (loading) {
+          observer.disconnect(); clearTimeout(timeout);
+          const current = useFloorEditorStore.getState();
+          resolve({ loading, cameraStable: JSON.stringify(camera) === JSON.stringify({ pan: current.pan, zoom: current.zoom }) });
+        }
+      });
+      observer.observe(root, { childList: true, subtree: true });
+      store.updateFloorPlan({ ...store.state.floor.floorPlan, version: store.state.floor.floorPlan.version + 1,
+        gridSize: store.state.floor.floorPlan.gridSize + 10 });
+    });
+  });
+  expect(transitions).toEqual({ loading: true, cameraStable: true });
+  await expect(canvas.getByRole("status")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("version-only-painted.png") });
+  expect(api.unhandledRequests).toEqual([]);
+});
+
+test("map loading readonly objects and empty maps announce their automatic first layer paint", async ({ page }, testInfo) => {
+  const api = await installCadJourney(page, false);
+  api.state().floor.floorPlan = null;
+  await page.addInitScript(() => {
+    const observed = window as unknown as { legacyPaintLoadingObserved: boolean };
+    observed.legacyPaintLoadingObserved = false;
+    new MutationObserver(() => {
+      if (document.querySelector('[data-floor-scene]') && [...document.querySelectorAll('[role="status"]')]
+        .some(status => status.textContent?.includes("맵을 불러오는 중입니다."))) observed.legacyPaintLoadingObserved = true;
+    }).observe(document, { childList: true, subtree: true });
+  });
+  for (const empty of [false, true]) {
+    api.state().objects = empty ? [] : initialState().objects;
+    await page.goto("/monitoring?siteId=site-1");
+    await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { legacyPaintLoadingObserved: boolean }).legacyPaintLoadingObserved)).toBe(true);
+    await expect(page.getByRole("status").filter({ hasText: "맵을 불러오는 중입니다." })).toHaveCount(0);
+    await page.getByRole("button", { name: "지도 확대", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "맵을 불러오는 중입니다." })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`readonly-${empty ? "empty" : "objects"}-painted.png`) });
+    await page.goto("about:blank");
+  }
+  expect(api.unhandledRequests).toEqual([]);
+});
+
 async function expectCadPageBounded(page: Page) {
   await expect.poll(() => page.evaluate(() => ({
     width: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth,
