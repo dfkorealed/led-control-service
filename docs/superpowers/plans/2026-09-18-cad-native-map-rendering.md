@@ -10,6 +10,16 @@
 
 **설계:** [공통 맵 요소 설계](../specs/2026-09-18-cad-native-map-rendering-design.md)
 
+## 2026-10-13 CAD 미리보기·적용 일치 P1–P3
+
+**목표:** CAD 확인 팝업과 적용 후 편집기가 같은 도면 내용·좌표·스타일을 표시한다. 공통 맵 요소와 기존 renderer를 유지하며 사용자 맵/장비/DB를 초기화하지 않는다. 별도 `codex/cad-preview-parity-20261013`에서 검증 후 로컬 메인에 통합한다.
+
+- [ ] P1 원인 재현: Web 담당자가 `CadImportPreview.tsx`, `CadImportSceneCanvas.tsx`, `FloorEditorCanvas.tsx`와 prepared/active document reader 경계를 비교한다. 영역·좌표 정규화·스타일·레이어·카메라 중 실제 차이를 실패 회귀로 고정한다. API/공유 계약 변경이 필요하면 근거와 최소 범위를 먼저 총괄에게 보고한다.
+- [ ] P2 최소 수정: 소유 경로의 RED→GREEN 후 단일 공통 표시 계약을 재사용한다. 같은 요소의 편집/삭제·paint loading·pan/zoom과 영역 변경·오류 복구를 유지한다. 선택/조명 슬롯 같은 편집 전용 overlay는 도면 차이와 구분한다.
+- [ ] P3 검증/통합: 관련 단위 회귀, 전체 Web 테스트·타입 포함 빌드, Chromium 미리보기→적용→저장/새로고침의 내용/좌표/표시 비교와 독립 QA를 수행한다. 기존 Control 5 실패는 별도 기록한다. 설정/교훈/상태 문서 갱신과 작은 커밋 후 승인된 로컬 머지를 진행한다.
+
+기반 `036cd24a`, ignored worktree `.worktrees/cad-preview-parity-20261013`. 실제 고객 맵에 테스트 CAD를 적용하거나 현재 API/Pi를 재시작하지 않는다. 기존 dirty AGENTS/landing·문서는 보존한다. 검증 fixture와 실제 원본 도면 증거를 구분하며 단순 fit/화면 크기 차이를 데이터 동일성으로 오인하지 않는다.
+
 ## 2026-10-13 공통 맵 로딩 L1–L3
 
 사용자 승인: 공통 로딩 overlay를 모든 실제 맵 사용처에 적용하며 별도 브랜치 검증 후 메인 작업 브랜치에 머지한다. 현재 화면의 실제 첫 paint 완료가 종료 기준이다. 초기 로드·층/문서 교체는 표시하고 같은 맵의 pan/zoom은 반복 차단하지 않는다. 오류에서는 로딩을 종료하고 기존 오류 안내를 유지한다. API·DB·장비·렌더링 기술은 변경하지 않는다.
