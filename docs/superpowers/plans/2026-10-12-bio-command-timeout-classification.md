@@ -80,8 +80,8 @@
 
 - [x] 대규모 제어 설계와 현재 제한을 아래 및 메뉴 문서에 정리한다.
 - [x] 독립 QA가 diff/RED-GREEN/원문 응답 검증·no Set retry·만료 fence·문서와 증거를 검토한다.
-- [ ] 소유 변경만 커밋하고 MAIN의 진행 중 사용자/다른 작업 변경을 보존하여 로컬 머지한다.
-- [ ] 머지 소스 일치와 dirty 변경 보존을 검증하고 소프트웨어 완료·실장비 적용 경계를 함께 보고한다.
+- [x] 소유 변경만 커밋하고 MAIN의 진행 중 사용자/다른 작업 변경을 보존하여 로컬 머지한다.
+- [x] 머지 소스 일치와 dirty 변경 보존을 검증하고 소프트웨어 완료·실장비 적용 경계를 함께 보고한다.
 
 ### 대규모 제어 설계 (미구현)
 
@@ -95,5 +95,6 @@
 ### 후속 검증 증거
 
 - 초기 assertion RED는 Node24.19.0에서5FAIL/2PASS/94개 필터 제외였고 초기 GREEN은7PASS다. 초기 탐색의 직접client USB-only 설정 분리 테스트는 최종 요구인 기존 `timeoutMs` 단독 호환 회귀로 교체했다. 모든 최종 신규 테스트가 동일 RED 이름을 가졌다고 해석하지 않는다. 기존 timeout 시간 좌표를 맞춘 최종 focused3파일191PASS(exit0)는 Node24에서 검증했다.
-- 최종 기준 환경은 Node22.20.0/pnpm9.15.0이며 `workspace:prepare`·Gateway typecheck/build는exit0다. 코드·메뉴 freeze10파일 SHA256과 원 로그는 수리 worktree `.local/dimming-timeout-budget-20261013`에 보존한다. 전체Gateway test도exit0(102파일/1,839PASS/FAIL0/SKIP0,82.95초)다. 독립 QA는 C0/I0/M0·Ready to merge Yes다. 머지 검증은 아직 진행 중이다.
+- 최종 기준 환경은 Node22.20.0/pnpm9.15.0이며 `workspace:prepare`·Gateway typecheck/build는exit0다. 코드·메뉴 freeze10파일 SHA256과 원 로그는 수리 worktree `.local/dimming-timeout-budget-20261013`에 보존한다. 전체Gateway test도exit0(102파일/1,839PASS/FAIL0/SKIP0,82.95초)다. 독립 QA는 C0/I0/M0·Ready to merge Yes다. 제품 커밋 `91f3955d`를 메인에ff-only 통합했고 머지 후 핵심3파일191PASS와 Gateway9파일 freeze SHA 일치를 확인했다.
 - 초기 RED5FAIL 중 변경된 직접client 탐색1case를 제외한 나머지4FAIL은 최종 기본 대기 요구와 일치한다. 최종 override 회귀와 전체 Node22 GREEN을 별도 증거로 유지한다.
+- 통합 증거: MAIN의 기존 dirty8파일 중 겹치는 제어/상태 문서는 공통 조상으로3-way 미리 병합·backup·내용CAS를 확인하고ff-only 뒤 복원했다. dirty diff의 blob index hash를 제외한 모든 hunk가 바이트 일치하며 나머지6파일 원문도 일치한다. 사용자 AGENTS·랜딩·센서 작업을 커밋/취소하지 않았다. 보호 API/shared/handler/runtime 경계diff0이고 Pi 배포/장비 Get·Set/DB쓰기0다. 백업과 전후patch/보고서는 `.local/dimming-timeout-budget-20261013/main-integration-source`에 보존한다.
