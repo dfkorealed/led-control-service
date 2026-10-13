@@ -152,7 +152,7 @@
 - [x] 주석 요구사항과 코드/공개 상태를 확인하고 bounded 보완 방향을 확정했다. 모바일 hero의 grid gap15px+negative art margin(-15px/-5px)이 간격을 상쇄하는 원인을 writer가 확인했다.
 - [x] 단일 web_frontend writer: 모바일320/390/504에서 buttons↔실제 art 경계32px 이상, pointer/touch/keyboard 반응 그림, popup 전화 제거+email 카드/CTA, footer 회사 페이지 nav 제거, pricing 출시 전 변경 가능 안내를 구현하고 영향 메뉴3문서를 갱신한다.
 - [x] 실제 모바일 overlap RED→GREEN·touch/keyboard/reduced-motion 검증 및 기존 공개 unit/typecheck 결과를 회수한다. 사소한 카피 mirror 신규 unit은 추가하지 않는다.
-- [ ] 독립 final review·source freeze를 확인하고 정확한 commit의 Public Landing Release 성공 및 CI proof/fresh local build 동일성을 확인한다.
+- [x] 독립 final review·source freeze를 확인하고 정확한 commit의 Public Landing Release 성공 및 CI proof/fresh local build 동일성을 확인한다.
 - [ ] 기존 전용 stack 리소스를 재사용해 새 immutable landing release를 게시한다. 이번 세션의 AWS 작업은 공식 MCP를 사용하고 CLI는 호출하지 않는다. 기존 deployment engine의 target/lock/archive/hash/edge activation 계약을 보존한다.
 - [ ] 실제 custom HTTPS public/blocked/headers와 모바일popup/hero 상태반응·pricing/footer를 확인하고 screenshot/메뉴/상태판/배포 문서를 갱신한다.
 
@@ -160,3 +160,11 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 
 - [x] Root가 writer19/19 frozenSHA와 최종12/12 Chromium·37publicunit·9release계약·typecheck/UIpolicy 증거를 확인했다. 기존6+신규6을publicreleaseCI에연결하고staleexpected6report거부를보완했다. 아직새exactCI/prod배포완료는아니다.
 - [x] 공식MCP read로AWS project456721863474/FREE ACTIVE/기존ownedstackUPDATE_COMPLETE r1을확인했다. Ignored JSON-RPC bridge는기존freshbuild/proof/target/immutablelock/archive/SHA/activation/wait/cleanupengine을재사용하며7fake검증통과·actual쓰기0이다. CloudFrontglobalus-east1,regionalSydney를유지한다. Metadata가없는서명이나CLI우회는허용하지않는다.
+
+- [x] Source19/19 및ignoredbridge7파일해시/검토C/I/M0·specqualityPASS. 공개SHAafecbd55 actualCI SUCCESS/37unit12browser0skip0flaky/securityscope0/whole23유지, 내려받은proof와localfreshartifact가일치했다.
+- [x] R2실제시도는target8read/조건부lock/텍스트3archive파일Put 후PNGBadDigest로preactivation중단·ownlockDelete성공. Binary무결성검사를삭제하지않고실패를보존했다. 공식MCPregistrySDK호출실패후freshproviderinitialize에서OAuthrefresh만료를확인했다. User에게auth갱신을요청했고nativeTerminal자동조작은안전제한으로거절됐다.
+- [ ] 인증복구후새release20261013-landing-ui-r3를시작한다. 동일바이트PNG는r1sourceHead/version-pinnedpresignedGET·localSHA확인뒤 SDKconditionalCopy(IfNoneMatch*,CopySourceVersionId/ETag/양owner/MetadataDirectiveREPLACE/원Metadata,type,cache)를수행하고destHead의VersionId·length/SHA/type/cache/ETag까지확인후만existingengineRPC성공을반환한다. 현재Copy실행0/조건부QA승인이고서비스r1정상이다. Source/CI가변하지않더라도새freshbuild/proofguard/ownedtarget8검사를생략하지않는다.
+
+- [x] 2026-10-13 사용자 로그인 완료 후 공식 MCP 새 세션에서 회사 계정456721863474를 확인했다. 원본 PNG 두 파일은 r1의 실제 VersionId/ETag로 고정한 다운로드와 로컬 바이트가 일치했다. root MCP adapter 독립 검토 PASS/C0/I0, 새 fresh build와 실제 proof guard 뒤 owned target8 검사를 통과하고 immutable archive/published 파일을 모두 게시했다. PNG는 조건부 CopyObject 뒤 목적지 VersionId·ETag·SHA·크기·type/cache를 실제 HeadObject로 확인했다. 현재 CloudFormation UPDATE_IN_PROGRESS이며 전환 완료/공개 HTTPS 성공은 아직 주장하지 않는다.
+
+- [x] 실제 r3 engine 10파일/UPDATE_COMPLETE/Deployed/invalidation I29VLZAQAC5N32XZNB3TS8GNOQ Completed/lock삭제·exit0. 회사/CloudFront HTTPS smoke exit0와 native504px 새JS·43px간격/두기능반응/이메일popup·pricing/footer를 확인했다. 실제 hover 선택 배경 경쟁을 발견해 기존 desktop 테스트 내 색상/대비 RED→최소 수리→정확 CI→새immutable release의 한정 후속을 수행한다.

@@ -47,7 +47,8 @@ export function HeroIllustration({ isAnimating }: { isAnimating: boolean }) {
       </div>
     </div>
     <div className="hero-art__controls relative z-2 mt-6 flex justify-center gap-2" role="group" aria-label="현장 기능 미리보기">
-      {previews.map(({ label, icon: Icon }, index) => <Button key={label} type="button" variant="landingReportFormat" className="inline-flex min-h-11 items-center justify-center gap-1.5 cursor-pointer rounded-pill border-surface-panel/25 bg-transparent px-3 text-surface-panel hover:enabled:bg-surface-panel/10 aria-pressed:border-brand-coral aria-pressed:bg-brand-coral aria-pressed:text-brand-navy" aria-label={`${label} 미리보기`} aria-pressed={selected === index} onClick={() => setSelected(index)}><Icon className="size-3.5" aria-hidden="true" /><span>{label}</span></Button>)}
+      {/* The combined state keeps the selected foreground readable while hover is active or retained after touch. */}
+      {previews.map(({ label, icon: Icon }, index) => <Button key={label} type="button" variant="landingReportFormat" className="inline-flex min-h-11 items-center justify-center gap-1.5 cursor-pointer rounded-pill border-surface-panel/25 bg-transparent px-3 text-surface-panel hover:enabled:bg-surface-panel/10 aria-pressed:border-brand-coral aria-pressed:bg-brand-coral aria-pressed:hover:enabled:bg-brand-coral aria-pressed:text-brand-navy" aria-label={`${label} 미리보기`} aria-pressed={selected === index} onClick={() => setSelected(index)}><Icon className="size-3.5" aria-hidden="true" /><span>{label}</span></Button>)}
     </div>
     <p className="m-0 mt-3 text-center text-body-sm text-action-primary-soft" aria-live="polite" aria-atomic="true">{preview.detail}</p>
   </div>;

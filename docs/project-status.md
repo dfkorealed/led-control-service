@@ -1,6 +1,12 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-12
+기준일: 2026-10-13
+
+## 2026-10-13 공개 사이트 모바일 보완 — 운영 r3 반영·최종 색상 보정 중
+
+- 사용자 로그인 갱신 뒤 공식 AWS MCP 새 세션의 회사 계정456721863474를 확인했다. 정확 소스 `afecbd55`의 기존 CI proof와 새 fresh build guard를 통과하고 같은 Sydney/private S3/OAC/CloudFront를 재사용해 `20261013-landing-ui-r3` 10파일을 게시했다. stack UPDATE_COMPLETE, distribution Deployed, invalidation `I29VLZAQAC5N32XZNB3TS8GNOQ` Completed, own lock 삭제 및 engine exit0을 확인했다. DNS/무료 플랜/API/DB/장비는 변경하지 않았다.
+- 실제 회사 주소와 CloudFront 주소의 HTTPS smoke exit0: 공개3경로200, 로그인/내부/API/unknown/concepts/archive404 및 보안 헤더/HTTPS 계약 통과. 실제 in-app 모바일504px에서 새 JS `public-7sIl9A9w.js`와 hero 시각 간격43px·가로넘침없음·CONTROL/STATISTICS 반응, 전화 없는 이메일 팝업, pricing 신규 문장과 회사 페이지 nav 제거를 확인했다.
+- 실제 hover가 선택 버튼 배경보다 높은 specificity로 이겨 navy 글자가 어두운 배경 위에 놓이는 한 건을 발견했다. 현재 공개 r3의 다섯 주석 보완은 반영됐으며, 이 선택 색상은 최소 수정과 기존 desktop 회귀 내 대비 검증 후 새로운 정확 커밋 CI·immutable release로 추가 반영한다. 최종 완료로 확대하지 않는다. 아래 이전 인증 대기·r1 유지 문장은 실행 당시 이력이다.
 
 ## 2026-10-12 AWS Agent Toolkit — 로컬 설정·실제 연결 검증 완료
 
@@ -11,6 +17,10 @@
 - 다음 새 세션에서 설치한 스킬과 MCP 설정을 로드한다. 현재 세션 도구 목록의 자동 갱신이나 실제 리소스 배포·전체 서비스 검증 완료로 확대하지 않는다.
 
 ## 2026-10-12 공개 사이트 모바일 보완 — 진행 중
+
+- 소스 `afecbd55f2c38808940e60c1f54ed40470c80cac`의 [Public Landing Release](https://github.com/dfkorealed/led-control-service/actions/runs/38256361598) SUCCESS. 실제unit37/Chromium12·skip/flaky0·scoped finding0/범위밖23, archive SHA `a8349ebdb44ec7a6f47f749efac2e5a93a835ac7319eed6c094f7850acb239ba`, source SHA `a2bb5ee70a77d4b9f969a5270f91cc2faf25635c82b7643ca036866c5cbcb118`, manifest SHA `67109d1a6ee86ae5c658ecfb96230d75cc45fd4b41960628bc7e1ab98cb44b49`를 확인했다. 로컬freshbuild와CI proof도일치한다.
+- MCP 실제 r2게시 시 target8read·conditional lock·404/JS/CSS archive3filesPutObject(MD5/길이 검증) 성공 뒤 PNG binary-body serialization BadDigest로서비스가거부했다. 기존engine은activation전에중단하고ownlock삭제를성공했으며회사공개r1은정상이다. partialr2는비공개archive로보존하고재활용하지않는다. 변경없는PNG는r1정확VersionId의실제byteSHA/길이확인→양owner·sourceETag/version·destinationIfNoneMatch조건CopyObject→목적지Head재검증 방안의 독립QA조건부PASS를받았으나실제Copy는미실행이다.
+- 이후공식MCP 새세션initialize가 `CreateOAuth2Token: refresh token has expired`로거절됐다. credentials값읽기·권한확대·CLI리소스명령은수행하지않았고사용자에게기존kinda프로필로그인갱신을요청했다. Terminal자동조작은안전제한으로거절돼수동auth가필요하다. 배포완료로표시하지않으며auth복구후같은guard/source에서freshr3를게시하고최종HTTPS를확인해야한다.
 
 - 소스19개SHA를 root가 독립 대조했다. 최종 local production Chromium12/12(expected12,unexpected/skipped/flaky0), 공개unit37/37,release계약9/9,전체Webtypecheck0/UIpolicy기존·신규0이다. 중간reduced-motion/depthfixture 오류와 실제offscreen ripple RED를 보존하고후속최종source결과와구분했다. 현재최종독립review/정확SHA CI 대기이며 운영release는r1이다.
 

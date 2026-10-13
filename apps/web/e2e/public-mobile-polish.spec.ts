@@ -80,6 +80,27 @@ test.describe("touch", () => {
 test("desktop mouse adds shallow depth, resets on leave and cancels off-screen; the hero animation replays on return", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
+  // Selection must remain legible under hover, including touch browsers that retain hover after a tap.
+  const selectedBackground = await page.locator(".hero-art__bar.bg-brand-coral").first().evaluate(node => getComputedStyle(node).backgroundColor);
+  for (const label of ["모니터링", "제어", "통계"]) {
+    const preview = page.getByRole("button", { name: `${label} 미리보기` });
+    await preview.hover();
+    await preview.click();
+    await expect(preview).toHaveAttribute("aria-pressed", "true");
+    await expect(preview).toHaveCSS("background-color", selectedBackground);
+    const contrast = await preview.evaluate(node => {
+      const luminance = (color: string) => {
+        const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(value => Number(value) / 255);
+        const linear = channels.map(channel => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4);
+        return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
+      };
+      const style = getComputedStyle(node);
+      const foreground = luminance(style.color), background = luminance(style.backgroundColor);
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+  }
+  await page.mouse.move(2, 2);
   const stage = page.locator(".hero-art__stage");
   const ring = page.locator(".hero-art__ring");
   await expect(ring).toHaveClass(/animate-landing-hero-ring/);
