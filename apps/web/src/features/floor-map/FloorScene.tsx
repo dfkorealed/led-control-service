@@ -141,7 +141,15 @@ export function FloorScene({
   const backgroundUrl = commonMap || nativeCad ? null : snapshot.floorPlan?.renderedImageUrl ?? snapshot.floorPlan?.imageUrl;
   const imagePaint = useMapPaintLoading(JSON.stringify([snapshot.floorId, backgroundUrl]));
   const objectCanvasHost = useRef<HTMLDivElement>(null);
-  const [objectCanvasSize, setObjectCanvasSize] = useState({ width: 1, height: 1 });
+  const objectLayer = useRef<Konva.Layer>(null);
+  const [objectCanvasSize, setObjectCanvasSize] = useState({ width: 0, height: 0 });
+  const legacyObjectsOnly = !commonMap && !nativeCad && !backgroundUrl;
+  useEffect(() => {
+    if (!legacyObjectsOnly || !imagePaint.loading || !objectCanvasSize.width || !objectCanvasSize.height) return;
+    // Empty/same-geometry floor visits may not change Konva props. Request the
+    // measured first paint explicitly and settle only in the layer's onDraw.
+    objectLayer.current?.batchDraw();
+  }, [legacyObjectsOnly, imagePaint.loading, imagePaint.onPaintReady, objectCanvasSize.width, objectCanvasSize.height]);
   useLayoutEffect(() => {
     const host = objectCanvasHost.current;
     if (!host) return;
@@ -302,16 +310,18 @@ export function FloorScene({
           if (image.decode) void image.decode().then(() => imagePaint.onPaintReady(true), imagePaint.onError);
           else imagePaint.onPaintReady(true);
         }} onError={imagePaint.onError} /> : null}
-      {backgroundUrl ? <ViewportMapLoading loading={imagePaint.loading} /> : null}
+      {backgroundUrl || legacyObjectsOnly ? <ViewportMapLoading loading={imagePaint.loading} /> : null}
       {/* Konva owns generated child canvas dimensions; the stable hook is the documented library geometry exception. */}
       {!commonMap ? <div ref={objectCanvasHost} className="floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden" aria-hidden="true">
         {/* Logical CAD maps can be 32768 units wide. Rasterizing that extent
             before CSS scaling exhausts browser canvas memory; scale geometry
             into the measured display surface instead. */}
-        <Stage width={objectCanvasSize.width} height={objectCanvasSize.height}
+        <Stage width={Math.max(1, objectCanvasSize.width)} height={Math.max(1, objectCanvasSize.height)}
           scaleX={objectCanvasSize.width / snapshot.width} scaleY={objectCanvasSize.height / snapshot.height}
           listening={interactive}>
-          <Layer listening={interactive}>
+          <Layer ref={objectLayer} listening={interactive} onDraw={() => {
+            if (legacyObjectsOnly && objectCanvasSize.width > 0 && objectCanvasSize.height > 0) imagePaint.onPaintReady(true);
+          }}>
             {objects.map((object) => (
               <FloorMapObjectNode key={object.id} object={object} interactive={interactive} />
             ))}

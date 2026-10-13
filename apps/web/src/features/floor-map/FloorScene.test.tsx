@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CAD_SCENE_TILE_SIZE, normalizeCadMapSize, type CadSceneTile, type FloorMapSnapshot } from "@led-control/shared";
-import type Konva from "konva";
+import Konva from "konva";
 import { Layer, Stage } from "react-konva";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorMapObjectNode, FloorScene } from "./FloorScene";
@@ -95,6 +95,34 @@ it("keeps filtered pins selectable and exposes only unknown state for unobserved
 });
 
 describe("FloorScene", () => {
+  it.each([false, true])("waits for automatic first legacy layer paint without a background (empty=%s)", async empty => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect(0, 0, 800, 500));
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(500);
+    let blocked = true, actualPaints = 0;
+    const drawScene = Konva.Layer.prototype.drawScene;
+    vi.spyOn(Konva.Layer.prototype, "drawScene").mockImplementation(function (this: Konva.Layer, ...args) {
+      if (blocked) return this;
+      actualPaints++;
+      return drawScene.apply(this, args);
+    });
+    const value = { ...snapshot, objects: empty ? [] : snapshot.objects, fixtures: [] };
+    const scene = (data: FloorMapSnapshot) => <FloorMapViewport snapshot={data} ariaLabel="legacy map"><FloorScene snapshot={data} fixtures={[]} interactive={false} /></FloorMapViewport>;
+    const view = render(scene(value));
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    expect(actualPaints).toBe(0);
+    // Allow Konva's already scheduled frame to paint; never call draw in the test.
+    blocked = false;
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(actualPaints).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
+    view.rerender(scene({ ...value, floorId: "same-geometry-next-floor" }));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+  });
+
   it("waits for current viewport CAD paint after mount and never reloads the overlay during later zoom", async () => {
     const value = createCadSnapshot();
     cadRenderer.defer(true);
