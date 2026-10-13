@@ -205,8 +205,19 @@ describe("overlay migration contracts", () => {
     expect(root.current).toBe(dialog);
     expect(dialog).toHaveAccessibleDescription("설명");
     expect(dialog).toHaveAttribute("data-dialog-surface", "");
+    expect(dialog).toHaveClass("bg-surface-panel!", "border!", "p-4.5!", "compact:p-6!");
+    expect(dialog.querySelector("[data-dialog-header]")).toContainElement(within(dialog).getByRole("heading", { name: "안내" }));
     expect(initial.current).toHaveFocus();
     expect(within(dialog).getByRole("button", { name: "안내 닫기" })).toBeVisible();
+  });
+
+  it("lets a body own the surface and visible controls while retaining the dialog name and description", () => {
+    render(<ModalDialog title="본문 전용" description="접근성 안내" chrome="none" onClose={() => {}}><button>본문 닫기</button></ModalDialog>);
+    const dialog = screen.getByRole("dialog", { name: "본문 전용" });
+    expect(dialog).toHaveAccessibleDescription("접근성 안내");
+    expect(dialog.querySelector("[data-dialog-header]")).toBeNull();
+    expect(dialog).toHaveClass("bg-transparent!", "border-0!", "p-0!", "compact:p-0!");
+    expect(within(dialog).getByRole("button", { name: "본문 닫기" })).toHaveFocus();
   });
 
   it("forwards a caller body layout class without changing the dialog surface contract", () => {

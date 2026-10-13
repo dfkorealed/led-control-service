@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-10-13 후속 화면 보완: `/features`와 `/pricing`이 공통 `PublicInnerPage`를 사용해 기존 섹션 여백에 디자인 시스템의 40px 보정을 더한다. 고정 헤더 아래 첫 KINDA 문구의 최소 32px 간격과 상세 해시 이동을 보존한다. 기능 요약 하단의 반복 예시 안내 문단을 제거했으며 상세 미리보기 라벨·추정 전력/실측 한계 설명은 유지한다. 공통 상담 팝업은 흰 외곽 프레임/중복 제목을 제거하고 남색 카드 안에 닫기와 요금제 맥락을 표시한다. 화면은 설명용이며 실제 API 조회·조명 제어를 실행하지 않는다.
+
 - 2026-10-13 모바일·이메일 상담·푸터·요금제 안내 보완을 실제 landing-only 운영에 반영했다. 공개 소스 `3222fb34`, release `20261013-landing-ui-r4`의 CI unit37/Chromium12와 회사/CloudFront HTTPS 검증을 통과했다. 실제504px 브라우저에서 새 화면·상담 팝업·요금제 안내·푸터와 메뉴 이동을 확인했다. 자동320/390/504 검증, 실제 이메일 발송/수신·운영 관제/API·장비 검증은 구분한다. [배포 증거](../assets/landing-mobile-2026-10-13/README.md).
 
 
@@ -35,6 +37,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-13 후속 화면의 로컬 검증: 공개 단위 37/37, 기본·외곽 없는 공통 대화상자 42/42, Web typecheck와 fresh landing 빌드, UI 정책 기존/신규 0건, 실제 Chromium 모바일·조작 6/6(실패·제외·재시도 0)을 통과했다. 첫 문구 간격은 320·390·504·637·720·721·768·1440px에서 32px 이상이며 637×1226px의 기존 -3px 겹침은 37px로 수정했다. Basic/Plus 카드 내부 맥락, 남색 표면·외곽 여백/테두리 제거·닫기 아이콘 색상·Tab/Escape/포커스 복귀와 상세 해시 이동을 확인했다. 실제 재배포/HTTPS·메일 발송·장비 검증은 별도 기록을 따른다.
+
 - 2026-10-12 모바일·상담 보완 검증: 실제 정적 public 빌드에서 320/390/504px 간격 RED 3개를 재현한 뒤 시각 경계 32px 이상·푸터 비겹침을 통과했다. 공개 unit 37개, Web 전체 typecheck, UI 정책 기존/신규 0건, release 보고서 계약 9개를 확인했다. 공개 release Chromium은 기존 경로/차단 검사 6개를 유지하고 모바일·터치·키보드·축소 모션·pointer depth·섹션 재진입 6개를 추가해 최종 12/12(실패/제외/재시도 0)로 통과했다. 중간 5/6·11/12 실패와 ripple 이탈 RED는 원시 로그에 보존하며 최종 통과와 구분한다. 실제 재배포/HTTPS·메일 도착/장비 검증을 대신하지 않는다.
 
 - 2026-10-12 사용자가 static landing 공개의 별도 보안·기능·접근 차단 관문을 승인했다. Web 빌드/검증 도구까지 fresh 감사하며 Vite6.4.3/Vitest4.1.11 최소 업데이트와 source/산출물 SHA 검증을 완료했다. 공개37unit·실제 Chromium6·계약29 및 scoped finding0을 보존하며 exact final commit Public Landing Release도 실제 성공했다. 기존 전체 서비스 CI·production audit 기준은 유지한다. ACM 인증서·콘텐츠·`kinda` CNAME·최종 HTTPS 공개 검증까지 완료했다. 실제 접수 API와 로그인/관제 앱은 이번 landing 배포 대상이 아니다.
@@ -55,6 +59,8 @@
 - 현재 공통 정적 `index.html`의 설명/공유 메타를 사용하므로 `/features` 링크의 검색·공유 미리보기가 홈과 동일할 수 있다. 경로별 서버 HTML 메타 제공은 후속 작업이다.
 
 ## 관련 파일
+
+- 2026-10-13 후속 화면 보완: [공개 안쪽 페이지 틀](../../apps/web/src/components/ui/public-site/PublicInnerPage.tsx), [공통 대화상자](../../apps/web/src/components/ui/overlays/DialogBase.tsx), [이메일 상담 카드](../../apps/web/src/components/ui/public-site/ContactEmailCard.tsx), [모바일·팝업 회귀](../../apps/web/e2e/public-mobile-polish.spec.ts)
 
 - 2026-10-12 공통 보완: [이메일 상담 카드](../../apps/web/src/components/ui/public-site/ContactEmailCard.tsx), [인터랙티브 히어로](../../apps/web/src/components/ui/public-site/HeroIllustration.tsx), [모바일·조작 회귀](../../apps/web/e2e/public-mobile-polish.spec.ts), [공개 release 브라우저 관문](../../apps/web/playwright.landing-release.config.ts)
 

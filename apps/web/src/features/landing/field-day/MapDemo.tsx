@@ -111,7 +111,7 @@ export function MapDemo({ motion }: { motion: SceneMotion }) {
   }
   const markerStyle: CSSProperties = { left: `${position.x}%`, top: `${position.y}%` };
   return <DemoCard title="맵 편집" detail="지하 1층 · 예시" name="도면 위 조명 배치 인터랙티브 예시"
-    disclaimer="운영자가 도면과 위치를 직접 편집하는 예시입니다. 자동 등록이나 실제 저장은 수행하지 않습니다." motion={motion}
+    motion={motion}
     className={`map-demo ${placed ? "has-placed" : ""}`}>
     <div className="map-content relative p-landing-map-content-inset landing-narrow:p-landing-demo-content-compact-inset" ref={content}>
       <div className="map-tools flex items-center flex-wrap gap-landing-map-toolbar-gap mb-3.5"><span className="mr-auto text-landing-demo-meta font-extrabold landing-narrow:basis-full">배치 도구</span>

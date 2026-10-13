@@ -21,6 +21,8 @@ export interface ModalDialogProps {
   closeLabel?: string;
   className?: string;
   bodyClassName?: string;
+  /** Opt in when the body owns its visible heading, close action and surface. */
+  chrome?: "default" | "none";
   /** Opt in to one top/bottom inset owner; does not change the default scroll layout. */
   safeArea?: boolean;
 }

@@ -188,3 +188,18 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 - 정확source `f3f97f3f2f54a1b055364db6948a8e63229b63de` [Public Landing Release](https://github.com/dfkorealed/led-control-service/actions/runs/38370409105) SUCCESS: unit37·browser12/실패·skip·flaky0·scoped blocked0. CI zipSHA52884ac3/sourceSHA0c9386bf/artifactSHA43b79a00을검증했고기존adapter의freshbuild/source/artifact guard를통과했다. 새r5불변10파일게시/UpdateStack뒤전파대기중이며완료로확대하지않는다.
 
 - r5 완료: engine10파일/UPDATE_COMPLETE/Deployed/invalidation I59BDHZAF9M6IDP3JPKFNMWKEL Completed/ownlock삭제·exit0. 실제 회사/CloudFront HTTPS smoke exit0,627px Chromium 정상motion 8회 최소59px·overlap/overflow0·removed controls/description0. In-appkernel오류는자동Chromium증거와구분하며예전r4수동화면으로새수정을주장하지않는다. 새영구JPEG/메뉴/상태/실행서를갱신했다.
+
+
+## 2026-10-13 공개 페이지 간격·상담 카드 정리 배포
+
+사용자 승인: 운영 페이지 주석9개 적용 및 배포. 첫 페이지 제목은 고정 헤더 아래32px 이상 여유를 두고, 상담은 흰 외곽/중복 헤더를 제거해 내부 navy 카드·닫기·요금제 문맥으로 구성한다. 지정 안내6개만 삭제하며 footer 예시 문장과 그래프 추정치·replay/motion은 유지한다.
+
+- [x] 개발 담당: 공통 내부 페이지 간격과 opt-in 모달 UI, overview1개/공통 demo footer5개·미사용 prop을 정리하고 영향 메뉴3문서를 갱신한다. 기존 기본 모달 UI/접근성을 유지한다.
+- [x] 개발 담당 검증: 기존 모바일 Chromium6케이스 안에서637px 포함 제목 여유와 navy 팝업·닫기/포커스를 확인하고 stale 문구 기대만 갱신한다. public unit/typecheck/fresh build와 공유 모달 집중 검증을 확인한다.
+- [ ] 총괄: 소스 freeze·독립 리뷰·정확 Git SHA의 Public Landing Release 성공 및 CI proof/fresh build 동일성을 확인한다.
+- [ ] 총괄: 공식 MCP·기존 guard/lock/archive/ownedtarget으로 새 immutable release를 게시하고 stack/CloudFront/invalidation 완료·lock 정리를 확인한다.
+- [ ] 총괄: 실제 회사/CloudFront HTTPS 및637px 모바일 제목 간격·내부 상담 UI·6개 안내 삭제를 확인하고 영구 증거와 상태/배포 문서를 완료한다.
+
+- 개발 검증: 실제 운영637px 첫 제목 gap-3px/팝업 흰 외곽20px·1px 원인을 확인하고, 지정 문구·팝업 기대 RED8/14와 간격 browser RED2/2→공통 내부 페이지pt40px·chrome opt-in·navy 카드 닫기/plan·안내6개 삭제로GREEN을 회수했다. 마지막 닫기 버튼 흰 기본 배경은 RED1→transparent 보완 뒤 final public37/37·Chromium6/6·전체Webtypecheck/publicbuild exit0을 확인했다. 공통 overlay42/42·UIpolicy0/0도 통과했다. 운영 반영은 아직 r5다.
+
+- 독립 검토: writer25/25 및 aggregateSHA6818ed를 재검증했고 C/I/M0·spec/integrationPASS를 회수했다. 기본 modal/drawer/sheet/safe-area와 새 title/description/초점 계약, 내부 요금제/닫기 버튼을 확인했다. 정확 커밋 CI와 실제 운영 배포는 다음 관문이다.

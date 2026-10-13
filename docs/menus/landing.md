@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-10-13 후속 화면 보완: 공개 상담 팝업은 공통 `ModalDialog`의 선택적 `chrome="none"`을 사용해 바깥 흰 프레임과 중복 제목/설명을 제거했다. 남색 이메일 카드 안에 닫기 버튼과 Basic/Plus 선택 맥락을 배치하며 대화상자 이름 `도입 상담`, 포커스 순환·Escape·복귀·스크롤을 유지한다. 다섯 예시 데모의 하단 안내 문단과 불필요한 `disclaimer` 전달을 제거했다. 재생·조명 선택·밝기 조정·추정치/보고서/맵 안내와 회사 푸터의 예시 데이터 고지는 유지한다. 공통 데모를 쓰는 보관 시안에도 하단 제거가 적용되며 API·장비·실제 저장/다운로드와 연결된 기능은 아니다.
+
 - 2026-10-13 홈 히어로 정리와 모바일64px 간격 보완을 실제 `20261013-landing-ui-r5`로 공개했다. 소스 `f3f97f3f2f54a1b055364db6948a8e63229b63de`의 CI unit37/Chromium12와 fresh proof guard·공식 MCP 배포/전파/lock정리가 통과했다. 실제 공개627×1226 Chromium에서 정상 motion중 최소59px 간격·겹침/overflow0와 미리보기 버튼 그룹/설명0을 확인했다. 회사/CloudFront HTTPS의 공개·차단 경로/headers도 통과했다. [r5 증거](../assets/landing-mobile-2026-10-13/README.md).
 
 - 2026-10-13 추가 모바일 간격 보완: 720px 이하의 홈 히어로에서 CTA와 그림 사이 grid 간격을 64px로 늘렸다. 실행 중인 로컬 서비스에 남아 있던 그림의 음수 top margin을 제거했으며 627px에서 0px이던 실제 CTA–그림 간격을 64px로 확인했다. 로컬 320·390·504·627·720·721·768px에서 겹침·가로 넘침이 없었다. 공개 빌드의 기존 Chromium 6개는 320·390·504·627·720px의 전체 그림 여유 56px 이상, 721·768px의 두 열 배치 비겹침, 푸터 여유·축소 모션·상담 포커스·재진입을 검증한다. 소스 검증과 운영 배포 완료는 구분하며 최종 배포 결과는 별도 운영 기록을 따른다.
@@ -60,6 +62,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 2026-10-13 후속 화면의 로컬 검증: 공개 단위 37/37, 기본·외곽 없는 공통 대화상자 42/42, Web typecheck와 fresh landing 빌드, UI 정책 기존/신규 0건, 실제 Chromium 모바일·조작 6/6(실패·제외·재시도 0)을 통과했다. 첫 문구 간격은 320·390·504·637·720·721·768·1440px에서 32px 이상이며 637×1226px의 기존 -3px 겹침은 37px로 수정했다. Basic/Plus 카드 내부 맥락, 남색 표면·외곽 여백/테두리 제거·닫기 아이콘 색상·Tab/Escape/포커스 복귀와 상세 해시 이동을 확인했다. 실제 재배포/HTTPS·메일 발송·장비 검증은 별도 기록을 따른다.
+
 - 2026-10-12 모바일·상담 보완 검증: 실제 정적 public 빌드에서 320/390/504px 간격 RED 3개를 재현한 뒤 시각 경계 32px 이상·푸터 비겹침을 통과했다. 공개 unit 37개, Web 전체 typecheck, UI 정책 기존/신규 0건, release 보고서 계약 9개를 확인했다. 공개 release Chromium은 기존 경로/차단 검사 6개를 유지하고 모바일·터치·키보드·축소 모션·pointer depth·섹션 재진입 6개를 추가해 최종 12/12(실패/제외/재시도 0)로 통과했다. 중간 5/6·11/12 실패와 ripple 이탈 RED는 원시 로그에 보존하며 최종 통과와 구분한다. 실제 재배포/HTTPS·메일 도착/장비 검증을 대신하지 않는다.
 
 - 2026-10-12 사용자가 static landing 공개의 별도 보안·기능·접근 차단 관문을 승인했다. Web 빌드/검증 도구까지 fresh 감사하며 Vite6.4.3/Vitest4.1.11 최소 업데이트와 source/산출물 SHA 검증을 완료했다. 공개37unit·실제 Chromium6·계약29 및 scoped finding0을 보존하며 exact final commit Public Landing Release도 실제 성공했다. 기존 전체 서비스 CI·production audit 기준은 유지한다. ACM 인증서·콘텐츠·`kinda` CNAME·최종 HTTPS 공개 검증까지 완료했다. 실제 접수 API와 로그인/관제 앱은 이번 landing 배포 대상이 아니다.
@@ -96,6 +100,8 @@
 - 가격에 따른 부가세·계약 단위·기능 적용 정책과 Plus AI 기능의 제공 상태는 상담에서 확인해야 한다. 페이지의 Basic/Plus 구성은 현재 서비스의 실제 사용 한도 집행이나 AI 기능 가동을 증명하지 않는다.
 
 ## 관련 파일
+
+- 2026-10-13 후속 화면 보완: [공개 안쪽 페이지 틀](../../apps/web/src/components/ui/public-site/PublicInnerPage.tsx), [공통 대화상자](../../apps/web/src/components/ui/overlays/DialogBase.tsx), [이메일 상담 카드](../../apps/web/src/components/ui/public-site/ContactEmailCard.tsx), [모바일·팝업 회귀](../../apps/web/e2e/public-mobile-polish.spec.ts)
 
 - 2026-10-12 공통 보완: [이메일 상담 카드](../../apps/web/src/components/ui/public-site/ContactEmailCard.tsx), [인터랙티브 히어로](../../apps/web/src/components/ui/public-site/HeroIllustration.tsx), [모바일·조작 회귀](../../apps/web/e2e/public-mobile-polish.spec.ts), [공개 release 브라우저 관문](../../apps/web/playwright.landing-release.config.ts)
 

@@ -1,12 +1,17 @@
-import { ArrowUpRight, Mail } from "lucide-react";
+import { ArrowUpRight, Mail, X } from "lucide-react";
+import { Button } from "../Button";
 import { Card } from "../Card";
 import { LinkButton } from "../LinkButton";
 import { publicContact } from "./public-contact";
 
-export function ContactEmailCard() {
+export function ContactEmailCard({ onClose, plan }: { onClose?: () => void; plan?: string | null }) {
   return <Card className="relative isolate overflow-hidden border-0 bg-brand-navy p-5 text-surface-panel compact:p-7" aria-label="이메일 도입 상담">
     <div className="pointer-events-none absolute -right-12 -top-12 -z-1 size-48 rounded-landing-ellipse border border-surface-panel/10" aria-hidden="true" />
-    <div className="mb-6 flex items-center gap-3"><span className="grid size-11 place-items-center rounded-panel bg-surface-panel/10 text-brand-coral"><Mail className="size-5" aria-hidden="true" /></span><span className="text-overline font-bold text-brand-coral">LET’S TALK</span></div>
+    <div className="mb-6 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-panel bg-surface-panel/10 text-brand-coral"><Mail className="size-5" aria-hidden="true" /></span><span className="text-overline font-bold text-brand-coral">LET’S TALK</span></div>
+      {onClose && <Button type="button" variant="ghost" className="size-13! min-h-13! min-w-13! shrink-0 border-surface-panel/20! bg-transparent! p-0! text-surface-panel! hover:bg-surface-panel/10!" aria-label="상담 팝업 닫기" onClick={onClose}><X className="size-5" aria-hidden="true" /></Button>}
+    </div>
+    {plan && <p className="inquiry-selected-plan mb-4.5 mt-0 rounded-landing-compact-summary-surface bg-surface-panel/10 p-landing-inquiry-plan-inset text-landing-inquiry-plan text-surface-panel">선택한 요금제: <strong className="text-brand-coral">{plan}</strong></p>}
     <h3 className="m-0 text-section-title font-bold">우리 현장의 시작,<br />이메일로 함께 준비해요.</h3>
     <p className="mb-4 mt-3 text-body-sm text-action-primary-soft">현장 규모와 설치 환경, 필요한 운영 기능을 알려주세요.</p>
     <a className="mb-6 inline-flex min-h-11 items-center text-body-sm font-bold text-surface-panel underline decoration-surface-panel/30 underline-offset-4 wrap-anywhere hover:text-brand-coral" href={publicContact.emailHref}>{publicContact.email}</a>

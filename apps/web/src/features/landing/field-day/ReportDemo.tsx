@@ -4,7 +4,7 @@ import { DemoCard, useConceptPresentation, type SceneMotion } from "./Scene";
 export function ReportDemo({ motion }: { motion: SceneMotion }) {
   const concept = useConceptPresentation();
   return <DemoCard title="보고서" detail="생성 미리보기" name="보고서 생성 흐름 미리보기"
-    disclaimer="설명용 PDF 보고서입니다. 파일을 만들거나 내려받지 않습니다." motion={motion} className="report-demo">
+    motion={motion} className="report-demo">
     <div className="report-content p-landing-report-content-inset bg-brand-paper landing-narrow:p-landing-demo-content-compact-inset">
       <div className="report-controls flex items-center justify-between gap-2.5 mb-landing-report-controls-bottom-space text-landing-demo-meta font-[750]"><span className="landing-narrow:text-landing-demo-caption">예시 현장 / 이번 주</span><span>PDF 보고서</span></div>
       <Card key={motion.run} variant="landingDemoSurface" className="report-sheet card w-[min(100%,440px)] mx-auto p-landing-report-sheet-inset shadow-landing-report-sheet landing-narrow:px-4.5 landing-narrow:pt-5 landing-narrow:pb-4"><div className="report-sheet__top flex justify-between gap-2.5 text-brand-blue text-landing-report-micro font-extrabold"><span>KINDA / REPORT</span><small className="text-status-neutral-foreground text-landing-report-meta">예시 · 다운로드 불가</small></div>

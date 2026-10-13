@@ -53,7 +53,7 @@ export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProp
 });
 
 function DialogContent({ title, description, children, actions, onClose, isPending, initialFocusRef,
-  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, bodyClassName, safeArea = false, rootRef, surface = "modal"
+  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, bodyClassName, chrome = "default", safeArea = false, rootRef, surface = "modal"
 }: Omit<DialogBaseProps, "isOpen" | "open"> & { rootRef: Ref<HTMLElement> }) {
   const descriptionId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -92,20 +92,20 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
   }, []);
   const isSheet = surface === "sheet";
   const content = <>
-    <header className="mb-4.5! flex! items-start! justify-between! gap-4!" data-dialog-header="">
+    {chrome === "default" ? <header className="mb-4.5! flex! items-start! justify-between! gap-4!" data-dialog-header="">
       <div className="min-w-0">
         <Heading slot="title" className="m-0! text-card-title! font-bold text-content-primary!">{title}</Heading>
         {description ? <div id={descriptionId} className="mt-1.5 text-body-sm text-content-secondary" data-dialog-description="">{description}</div> : null}
       </div>
       <Button type="button" variant="ghost" className="size-13! min-h-13! min-w-13! shrink-0 p-0!" data-dialog-close=""
         aria-label={closeLabel} title={closeLabel} disabled={isPending} onClick={onClose}><X size={20} aria-hidden="true" /></Button>
-    </header>
+    </header> : description ? <div id={descriptionId} className="sr-only" data-dialog-description="">{description}</div> : null}
     <div ref={body} className={cn("min-w-0 break-words", isSheet && "min-h-0 flex-1 overflow-y-auto pb-4.5", bodyClassName)} data-dialog-body="">{children}</div>
     {actions ? <footer className={cn("mt-5! flex! flex-wrap! justify-end! gap-2!", isSheet && "shrink-0 pb-4.5")} data-dialog-actions="">{actions}</footer> : null}
   </>;
-  return <Dialog ref={dialog} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
+  return <Dialog ref={dialog} role={role} aria-label={chrome === "none" ? title : undefined} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
     render={(domProps) => <section {...domProps} aria-modal="true" />}
-    className={cn(surfaceClass[surface], className, safeArea && "p-0! compact:p-0!")}>
+    className={cn(surfaceClass[surface], chrome === "none" && "border-0! bg-transparent! p-0! compact:p-0! shadow-none!", className, safeArea && "p-0! compact:p-0!")}>
     {/* The opt-in wrapper or legacy sheet wrapper owns the insets, never both.
         Body/actions must not add shell navigation space or duplicate insets. */}
     {safeArea ? <div data-dialog-safe-area="" className="flex min-h-0 flex-1 flex-col overflow-hidden pt-safe-area-top pb-safe-area-bottom">

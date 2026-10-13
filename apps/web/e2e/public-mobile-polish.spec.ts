@@ -27,6 +27,20 @@ for (const width of [320, 390, 504]) {
       expect(bounds.fits).toBe(true);
       if (viewportWidth === 504) await page.screenshot({ path: ".local/mobile-polish-504.png", fullPage: false });
     }
+    for (const viewportWidth of width === 504 ? [504, 637, 720, 721, 768, 1440] : [width]) {
+      await page.setViewportSize({ width: viewportWidth, height: 1226 });
+      for (const [route, kicker] of [["/features", "KINDA / FEATURES"], ["/pricing", "KINDA / PLANS"]]) {
+        await page.goto(route);
+        const intro = page.getByText(kicker, { exact: true });
+        const headerBottom = await page.locator(".site-header").evaluate(node => node.getBoundingClientRect().bottom);
+        expect((await intro.boundingBox())!.y - headerBottom, `${route} kicker/header clearance at ${viewportWidth}px`).toBeGreaterThanOrEqual(32);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        if (viewportWidth === 637) await page.screenshot({ path: `.local/inner-page-${route.slice(1)}-637.png` });
+      }
+    }
+    await page.goto("/features#feature-control");
+    await expect.poll(() => page.locator("#feature-control").evaluate(node => node.getBoundingClientRect().top)).toBeGreaterThanOrEqual(80);
+    expect((await page.locator("#feature-control").boundingBox())!.y).toBeLessThan(160);
   });
 }
 
@@ -54,6 +68,15 @@ test.describe("touch", () => {
     const trigger = page.locator(".hero-contact");
     await trigger.tap();
     const dialog = page.getByRole("dialog", { name: "도입 상담" });
+    const card = dialog.getByLabel("이메일 도입 상담");
+    await expect(dialog.locator("[data-dialog-header]")).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "상담 팝업 닫기" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "상담 팝업 닫기" })).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(card.getByRole("button", { name: "상담 팝업 닫기" })).toHaveCSS("color", "rgb(255, 255, 255)");
+    await expect(card).toHaveCSS("background-color", "rgb(21, 50, 74)");
+    await expect(dialog).toHaveCSS("padding", "0px");
+    await expect(dialog).toHaveCSS("border-width", "0px");
+    await expect(dialog).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(dialog.locator('a[href^="tel:"]')).toHaveCount(0);
     await expect(dialog.getByRole("link", { name: "이메일로 상담하기" })).toBeVisible();
     await expect(dialog.getByRole("link", { name: "이메일로 상담하기" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
@@ -68,6 +91,14 @@ test.describe("touch", () => {
     await expect(page.getByRole("contentinfo").getByRole("link", { name: "032-528-2953" })).toHaveAttribute("href", "tel:0325282953");
     await expect(page.getByRole("contentinfo").getByRole("navigation", { name: "회사 페이지" })).toHaveCount(0);
     expect(api).toEqual([]);
+    await page.goto("/pricing");
+    for (const plan of ["Basic", "Plus"]) {
+      const planTrigger = page.getByRole("button", { name: `${plan} 도입 상담` });
+      await planTrigger.tap();
+      await expect(dialog.getByLabel("이메일 도입 상담").getByText(`선택한 요금제: ${plan}`)).toBeVisible();
+      await dialog.getByRole("button", { name: "상담 팝업 닫기" }).tap();
+      await expect(planTrigger).toBeFocused();
+    }
   });
 });
 

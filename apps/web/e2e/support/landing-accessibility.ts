@@ -33,7 +33,7 @@ export async function classifyLandingAxe(page: Page, raw: LandingAxeInput) {
     const decorationRole = (element: Element): string | null => {
       // Manual SC 1.4.3 ruling: only these existing incidental picture roles qualify.
       // Hidden ownership alone is insufficient; readable notices/hints always block.
-      if (element.tagName !== "SPAN" || element.matches(".demo-disclaimer,.map-save") ||
+      if (element.tagName !== "SPAN" || element.matches(".chart-foot > span,.map-save") ||
         element.children.length || !noInteraction(element) || !hasVisiblePaint(element)) return null;
       if (element.matches(".scene-watermark")) {
         const section = element.parentElement;

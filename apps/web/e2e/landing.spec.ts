@@ -211,7 +211,7 @@ for (const [width, selector] of [[1024, "#map-editor > .scene-watermark"], [320,
         if (mutation === "focus") e.setAttribute("tabindex", "0");
         if (mutation === "role") e.setAttribute("role", "button");
         if (mutation === "handler") e.setAttribute("onclick", "void 0");
-        if (mutation === "readable-role") e.classList.add("demo-disclaimer");
+        if (mutation === "readable-role") e.classList.add("map-save");
         if (mutation === "picture") {
           if (e.matches(".control-visual__caption")) e.parentElement!.querySelector(".control-visual__lamp")!.remove();
           else e.parentElement!.querySelector("h2")!.setAttribute("aria-hidden", "true");
@@ -270,14 +270,14 @@ test("decorative JSX owners and their owned ancestors reject delegated event pro
 test("readable contrast violations remain blocking when their exact DOM targets exist", async ({ page }) => {
   await page.goto("/");
   // Conditional classifier input, NOT a claim of a current raw axe failure.
-  // These unchanged selectors come from real axe 4.13.0 serious failures at 1024px
-  // before the approved foreground changes: task8-axe-cause.json before.violations
-  // and evidence/task8/chromium.log. INCOMPLETE bgOverlap is separate evidence.
+  // Exercise currently readable roles; the removed DemoCard footer is no longer
+  // a live DOM target. Synthetic contrast input must still block the chart legend
+  // and map-save hint rather than classify either as incidental picture text.
   const recorded = { violations: [{ id: "color-contrast", impact: "serious" as const, nodes: [
-    { target: [".monitoring-demo > .demo-disclaimer.p-landing-demo-disclaimer-inset.bg-surface-inset"] },
+    { target: [".chart-foot > span:first-child"] },
     { target: [".map-save"] }
   ] }] };
-  for (const [index, role] of [".demo-disclaimer", ".map-save"].entries()) {
+  for (const [index, role] of [".chart-foot > span", ".map-save"].entries()) {
     const target = page.locator(recorded.violations[0].nodes[index].target[0]);
     await expect(target).toHaveCount(1);
     expect(await target.evaluate((e, role) => e.matches(role), role)).toBe(true);

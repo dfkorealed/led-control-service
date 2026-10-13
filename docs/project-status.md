@@ -2,6 +2,10 @@
 
 기준일: 2026-10-13
 
+## 2026-10-13 공개 페이지 간격·상담 카드 정리 — 진행 중
+
+- 사용자 주석9개와 직접 배포 지시에 따라 주요 기능·요금제 첫 제목의 고정 헤더 간격, 상담 팝업의 흰 외곽 제거, 기능 overview 안내1개와 demo footer 안내5개 삭제를 적용한다. 개발 담당은 공통 UI·기존 회귀와 영향 메뉴3문서를, 총괄은 체크리스트·정확 CI·공식 MCP 배포를 담당한다. 독립 검토는 frozen25/25·C/I/M0·spec/integrationPASS다. 개발 결과는 public37/37·집중Chromium6/6·공통overlay42/42·전체Webtypecheck/publicbuild·UIpolicy 통과다. 실제637px gap-3px와 white shell을 재현했고 제목+40px/카드 단독 UI와 닫기 버튼 색상을 보완했다. 기본 서비스 모달의 외형과 접근성, 상담 이메일/요금제 문맥, replay/motion과 footer 예시 안내를 유지한다. 기존 무료 플랜/Sydney·private S3/OAC·landing-only를 재사용하고 운영 완료는 실제 전파와 HTTPS 확인 뒤 기록한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
+
 ## 2026-10-13 히어로 정리·모바일 추가 간격 — 공개 완료
 
 - 사용자가627px 로컬 CTA와 그림 사이 추가 간격 및 직전 미리보기 제거의 배포를 승인했다. 개발 담당은 후보 gap64px와 MAIN 최소 음수 margin 제거·gap64px/회귀를 담당하고 총괄은 exact CI·공식 MCP 배포를 담당한다. 개발 결과는 실제 MAIN627 gap0→64px/7너비 비겹침·overflow0, 후보 typecheck/build·unit37/37·Chromium6/6 PASS다. 독립 검토 C/I0와 정확source `f3f97f3f`의 CI38370409105 SUCCESS(unit37/browser12·skip/flaky0) 및 fresh build/proof 일치를 확인했다. r5 불변10파일 게시·UPDATE_COMPLETE/Deployed·invalidation I59BDHZAF9M6IDP3JPKFNMWKEL Completed/lock삭제·engine exit0을 확인했다. 두 HTTPS smoke와 실제 공개627px 정상 motion중 최소59px·겹침/overflow0·삭제요소0 검증도 통과했다. 새 Chromium 화면과 CI/해시 증거를 docs/assets/landing-mobile-2026-10-13에 보존했다. 기존 무료 플랜/Sydney·landing-only와 MAIN/API/CAD/외부 AGENTS는 유지한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.

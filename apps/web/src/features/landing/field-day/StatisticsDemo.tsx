@@ -4,7 +4,7 @@ const line = "M0 161 C42 145 60 158 103 131 S162 112 207 123 S264 163 310 140 S3
 
 export function StatisticsDemo({ motion }: { motion: SceneMotion }) {
   return <DemoCard title="통계" detail="기간별 추정 전력" name="추정 전력 그래프 애니메이션 예시"
-    disclaimer="이 그래프는 가상 값으로 만든 상태 기반 추정치입니다. 실측 전력이 아닙니다." motion={motion} className="chart-demo">
+    motion={motion} className="chart-demo">
     <div className="chart-content p-landing-chart-content-inset landing-narrow:px-3.5 landing-narrow:py-5">
       <div className="chart-heading flex items-end justify-between gap-landing-chart-heading-gap"><div><span className="block mb-2 text-content-secondary text-landing-demo-caption font-[750]">예시 현장 · 이번 주</span><strong className="text-landing-chart-heading landing-narrow:text-landing-chart-heading-narrow">상태 기반 추정 전력</strong></div><span className="chart-unit text-status-neutral-foreground text-landing-demo-caption landing-narrow:hidden">단위: kWh · 추정치</span></div>
       <div className="chart-frame relative mt-landing-chart-frame-top-space p-landing-chart-frame-inset">

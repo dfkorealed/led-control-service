@@ -31,7 +31,7 @@ export function MonitoringDemo({ motion }: { motion: SceneMotion }) {
   }, [motion.run, motion.phase]);
   const active = fixtures.find(fixture => fixture.id === selected);
   return <DemoCard title="현장 모니터링" detail="본관 · 지하 1층" name="조명 선택 인터랙티브 예시"
-    disclaimer="설명을 위한 예시 도면과 상태입니다. 실제 현장 데이터가 아닙니다." motion={motion} className="monitoring-demo">
+    motion={motion} className="monitoring-demo">
     <div className="monitoring-content grid grid-cols-[minmax(0,1.5fr)_minmax(170px,.62fr)] gap-3 p-5 landing-stack:grid-cols-1 landing-stack:landing-narrow:p-3">
       <div className="floorplan overflow-hidden border border-border-default rounded-landing-floorplan bg-brand-paper" aria-label="예시 주차장 도면에서 조명을 선택할 수 있습니다">
         <div className="floorplan__top flex justify-between gap-3 p-landing-floorplan-caption-inset bg-surface-panel text-landing-demo-caption font-[750]"><span>B1 · 주차장</span><span className="text-brand-blue">출입구 구역</span></div>

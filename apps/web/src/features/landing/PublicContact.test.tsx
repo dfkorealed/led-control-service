@@ -13,7 +13,13 @@ describe("public contact without backend", () => {
     const triggers = screen.getAllByRole("button", { name: /도입 상담/ });
     for (const trigger of triggers) {
       fireEvent.click(trigger);
-      const dialog = within(await screen.findByRole("dialog", { name: "도입 상담" }));
+      const surface = await screen.findByRole("dialog", { name: "도입 상담" });
+      const dialog = within(surface);
+      const card = dialog.getByLabelText("이메일 도입 상담");
+      expect(surface.querySelector("[data-dialog-header]")).toBeNull();
+      expect(surface).toHaveClass("p-0!", "border-0!", "bg-transparent!");
+      expect(card).toContainElement(dialog.getByRole("button", { name: "상담 팝업 닫기" }));
+      expect(dialog.getAllByRole("heading")).toHaveLength(1);
       expect(dialog.queryByRole("link", { name: /032-528-2953/ })).not.toBeInTheDocument();
       expect(dialog.getByRole("link", { name: "이메일로 상담하기" })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
       expect(dialog.getByRole("link", { name: /kymkjh2002@dfkorealed.com/ })).toHaveAttribute("href", "mailto:kymkjh2002@dfkorealed.com");
@@ -28,7 +34,8 @@ describe("public contact without backend", () => {
   it("keeps the selected plan as context for direct contact", async () => {
     render(<PricingPage />);
     fireEvent.click(screen.getByRole("button", { name: "Plus 도입 상담" }));
-    expect(await screen.findByText(/선택한 요금제:/)).toHaveTextContent("선택한 요금제: Plus");
+    const card = await screen.findByLabelText("이메일 도입 상담");
+    expect(within(card).getByText(/선택한 요금제:/)).toHaveTextContent("선택한 요금제: Plus");
     expect(screen.queryByRole("button", { name: "상담 문의 보내기" })).not.toBeInTheDocument();
   });
 });

@@ -26,6 +26,7 @@ describe("public features page", () => {
     expect(statistics.getByText(/상태 기반 추정 전력/)).toBeVisible();
     expect(statistics.getByText(/PDF 보고서/)).toBeVisible();
     expect(statistics.queryByText(/XLSX|Excel/)).not.toBeInTheDocument();
-    expect(screen.getByText(/실제 현장 데이터나 조명 제어 결과가 아닙니다/)).toBeVisible();
+    expect(screen.queryByText("화면은 기능 이해를 위한 예시이며 실제 현장 데이터나 조명 제어 결과가 아닙니다.")).not.toBeInTheDocument();
+    expect(screen.getAllByText("기능 이해를 위한 예시 화면")).toHaveLength(4);
   });
 });

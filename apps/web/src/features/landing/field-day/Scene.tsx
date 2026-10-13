@@ -80,8 +80,8 @@ export function Scene({ visualVariant = "site", kind, id, number, time, eyebrow,
   </section>;
 }
 
-export function DemoCard({ title, detail, name, disclaimer, motion, children, className = "" }: {
-  title: string; detail: string; name: string; disclaimer: string; motion: SceneMotion; children: ReactNode; className?: string;
+export function DemoCard({ title, detail, name, motion, children, className = "" }: {
+  title: string; detail: string; name: string; motion: SceneMotion; children: ReactNode; className?: string;
 }) {
   const concept = useContext(ConceptPresentation);
   return <Card variant="landingDemo" className={`demo-card ${className}`} aria-label={name}>
@@ -90,6 +90,5 @@ export function DemoCard({ title, detail, name, disclaimer, motion, children, cl
       <Button type="button" variant={concept ? "landingConceptReplay" : "landingReplay"} className="replay-button" onClick={motion.replay} aria-label={`${title} 예시 다시 보기`}>↺ <span className="landing-narrow:hidden">다시 보기</span></Button>
     </div>
     {children}
-    <p className="demo-disclaimer m-0 p-landing-demo-disclaimer-inset border-t border-border-subtle bg-surface-inset text-content-primary text-landing-demo-disclaimer landing-narrow:px-landing-demo-frame-compact-inline-inset">{disclaimer}</p>
   </Card>;
 }

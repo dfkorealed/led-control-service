@@ -17,7 +17,8 @@ describe("public field-day landing narrative", () => {
       expect(report.getByText("PDF 형식", { exact: true })).toBeVisible();
       expect(report.queryByRole("group", { name: "보고서 파일 형식 미리보기" })).not.toBeInTheDocument();
       expect(report.queryByRole("button", { name: /PDF|XLSX|CSV|Excel/ })).not.toBeInTheDocument();
-      expect(report.getByText(/설명용 PDF 보고서.*파일을 만들거나 내려받지 않습니다/)).toBeVisible();
+      expect(report.getByText("예시 · 다운로드 불가")).toBeVisible();
+      expect(report.queryByText(/설명용 PDF 보고서.*파일을 만들거나 내려받지 않습니다/)).not.toBeInTheDocument();
     };
     assertPdf();
     fireEvent.click(replay);
@@ -33,22 +34,22 @@ describe("public field-day landing narrative", () => {
     expect(screen.getByRole("link", { name: /하루 따라가기/ })).toHaveAttribute("href", "#monitoring");
   });
 
-  it("keeps the five scene explanations and example disclaimers together", () => {
+  it("keeps the five scene explanations and replay controls without bottom disclaimer footers", () => {
     const { container } = render(<LandingPage />);
     const scenes = [...container.querySelectorAll(".scene")];
     expect(scenes).toHaveLength(5);
     const [monitoring, control, statistics, report, map] = scenes.map(scene => within(scene as HTMLElement));
     expect(monitoring.getByRole("heading", { name: /찾는 조명은.*도면 위에/ })).toBeVisible();
-    expect(monitoring.getByText(/실제 현장 데이터가 아닙니다/)).toBeVisible();
+    expect(container.querySelectorAll(".demo-disclaimer")).toHaveLength(0);
+    for (const scene of scenes) expect(within(scene as HTMLElement).getByRole("button", { name: /예시 다시 보기/ })).toBeVisible();
     expect(control.getByRole("heading", { name: /필요한 만큼.*밝기를 맞추다/ })).toBeVisible();
-    expect(control.getByText(/실제 장비에 명령을 보내지 않습니다/)).toBeVisible();
     expect(statistics.getByRole("heading", { name: /운영의 흐름을.*그래프로 보다/ })).toBeVisible();
-    expect(statistics.getByText(/실측 전력이 아닙니다/)).toBeVisible();
+    expect(statistics.getByText("상태 기반 추정 전력", { exact: true })).toBeVisible();
     expect(report.getByRole("heading", { name: /정리한 기록을.*보고서로/ })).toBeVisible();
-    expect(report.getByText(/파일을 만들거나 내려받지 않습니다/)).toBeVisible();
+    expect(report.getByText("예시 · 다운로드 불가")).toBeVisible();
     expect(report.queryByRole("button", { name: /XLSX|Excel/ })).not.toBeInTheDocument();
     expect(map.getByRole("heading", { name: /도면도 조명도.*직접, 쉽게 배치/ })).toBeVisible();
-    expect(map.getByText(/자동 등록이나 실제 저장은 수행하지 않습니다/)).toBeVisible();
+    expect(map.getByText("배치 검토 → 저장")).toBeVisible();
   });
 
   it("keeps an accessible disabled preparation button and a skip link", () => {

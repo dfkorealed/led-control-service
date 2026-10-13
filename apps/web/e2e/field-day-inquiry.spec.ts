@@ -294,7 +294,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         await expect(report.getByRole("button", { name: /PDF|XLSX|CSV|Excel/ })).toHaveCount(0);
         await expect(report.locator(".report-sheet__footer")).toHaveText("작성 완료 예시PDF 형식");
         await expect(report.locator(".report-history strong")).toHaveText("주간 조명 운영 보고서 · PDF");
-        await expect(report.locator(".demo-disclaimer")).toHaveText("설명용 PDF 보고서입니다. 파일을 만들거나 내려받지 않습니다.");
+        await expect(report.locator(".demo-disclaimer")).toHaveCount(0);
+        await expect(report.getByText("예시 · 다운로드 불가", { exact: true })).toBeVisible();
       };
       {
         await assertFormat();
