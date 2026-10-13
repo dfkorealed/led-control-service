@@ -2,6 +2,12 @@
 
 기준일: 2026-10-13
 
+## 2026-10-13 공개 사이트 모바일 보완 — 완료(landing-only 운영)
+
+- 다섯 주석 보완과 실제 공개에서 발견한 선택 버튼 hover 대비를 `3222fb34bb196c62142420b3fc02dc13263d1cbc`로 완료했다. [Public Landing Release](https://github.com/dfkorealed/led-control-service/actions/runs/38326334739) SUCCESS/unit37·Chromium12·skip/flaky0. CI artifact/proof와 fresh local build 동일성 guard를 통과했다.
+- 실제 `20261013-landing-ui-r4` 10파일 게시·UPDATE_COMPLETE/Deployed·invalidation `I9GDZQWNV5R2KFGX60QHF1VQ9W` Completed·소유 lock 삭제·engine exit0, 회사/CloudFront HTTPS smoke exit0와 실제504px UI 검증을 확인했다. 선택 버튼은 hover 중에도 coral 배경을 유지한다. 임시 viewport 설정을 해제하고 홈으로 복귀했다.
+- [영구 증거와 스크린샷](assets/landing-mobile-2026-10-13/README.md), 공개 메뉴3문서와 실행서를 갱신했다. 상담은 이메일 앱 연결이며 실제 메일 발송/수신·온라인 접수·로그인/관제/API/DB·native 앱·HIL/전체 Software CI 성공을 뜻하지 않는다. 무료 플랜/Sydney/DNS와 다른 MAIN/외부 AGENTS 변경은 유지했다. 아래 r3 보정 중·인증 대기 문장은 실행 당시 이력이다.
+
 ## 2026-10-13 공개 사이트 모바일 보완 — 운영 r3 반영·최종 색상 보정 중
 
 - 사용자 로그인 갱신 뒤 공식 AWS MCP 새 세션의 회사 계정456721863474를 확인했다. 정확 소스 `afecbd55`의 기존 CI proof와 새 fresh build guard를 통과하고 같은 Sydney/private S3/OAC/CloudFront를 재사용해 `20261013-landing-ui-r3` 10파일을 게시했다. stack UPDATE_COMPLETE, distribution Deployed, invalidation `I29VLZAQAC5N32XZNB3TS8GNOQ` Completed, own lock 삭제 및 engine exit0을 확인했다. DNS/무료 플랜/API/DB/장비는 변경하지 않았다.

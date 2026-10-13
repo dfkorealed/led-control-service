@@ -153,8 +153,8 @@
 - [x] 단일 web_frontend writer: 모바일320/390/504에서 buttons↔실제 art 경계32px 이상, pointer/touch/keyboard 반응 그림, popup 전화 제거+email 카드/CTA, footer 회사 페이지 nav 제거, pricing 출시 전 변경 가능 안내를 구현하고 영향 메뉴3문서를 갱신한다.
 - [x] 실제 모바일 overlap RED→GREEN·touch/keyboard/reduced-motion 검증 및 기존 공개 unit/typecheck 결과를 회수한다. 사소한 카피 mirror 신규 unit은 추가하지 않는다.
 - [x] 독립 final review·source freeze를 확인하고 정확한 commit의 Public Landing Release 성공 및 CI proof/fresh local build 동일성을 확인한다.
-- [ ] 기존 전용 stack 리소스를 재사용해 새 immutable landing release를 게시한다. 이번 세션의 AWS 작업은 공식 MCP를 사용하고 CLI는 호출하지 않는다. 기존 deployment engine의 target/lock/archive/hash/edge activation 계약을 보존한다.
-- [ ] 실제 custom HTTPS public/blocked/headers와 모바일popup/hero 상태반응·pricing/footer를 확인하고 screenshot/메뉴/상태판/배포 문서를 갱신한다.
+- [x] 기존 전용 stack 리소스를 재사용해 새 immutable landing release를 게시한다. 이번 세션의 AWS 작업은 공식 MCP를 사용하고 CLI는 호출하지 않는다. 기존 deployment engine의 target/lock/archive/hash/edge activation 계약을 보존한다.
+- [x] 실제 custom HTTPS public/blocked/headers와 모바일popup/hero 상태반응·pricing/footer를 확인하고 screenshot/메뉴/상태판/배포 문서를 갱신한다.
 
 Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 범위를 확정하므로 설계/배포의 중복 승인 질문은 추가하지 않는다. 이메일 문의 방식은 유지하며 백엔드/API·온라인접수/가짜 제출 완료는 추가하지 않는다. Footer 회사 연락처와 회사 홈페이지 단일 CTA는 요청된 nav 목록 제거와 별개로 유지한다.
 
@@ -163,8 +163,10 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 
 - [x] Source19/19 및ignoredbridge7파일해시/검토C/I/M0·specqualityPASS. 공개SHAafecbd55 actualCI SUCCESS/37unit12browser0skip0flaky/securityscope0/whole23유지, 내려받은proof와localfreshartifact가일치했다.
 - [x] R2실제시도는target8read/조건부lock/텍스트3archive파일Put 후PNGBadDigest로preactivation중단·ownlockDelete성공. Binary무결성검사를삭제하지않고실패를보존했다. 공식MCPregistrySDK호출실패후freshproviderinitialize에서OAuthrefresh만료를확인했다. User에게auth갱신을요청했고nativeTerminal자동조작은안전제한으로거절됐다.
-- [ ] 인증복구후새release20261013-landing-ui-r3를시작한다. 동일바이트PNG는r1sourceHead/version-pinnedpresignedGET·localSHA확인뒤 SDKconditionalCopy(IfNoneMatch*,CopySourceVersionId/ETag/양owner/MetadataDirectiveREPLACE/원Metadata,type,cache)를수행하고destHead의VersionId·length/SHA/type/cache/ETag까지확인후만existingengineRPC성공을반환한다. 현재Copy실행0/조건부QA승인이고서비스r1정상이다. Source/CI가변하지않더라도새freshbuild/proofguard/ownedtarget8검사를생략하지않는다.
+- [x] 인증복구후새release20261013-landing-ui-r3를시작한다. 동일바이트PNG는r1sourceHead/version-pinnedpresignedGET·localSHA확인뒤 SDKconditionalCopy(IfNoneMatch*,CopySourceVersionId/ETag/양owner/MetadataDirectiveREPLACE/원Metadata,type,cache)를수행하고destHead의VersionId·length/SHA/type/cache/ETag까지확인후만existingengineRPC성공을반환한다. 계획 당시 Copy실행0/조건부QA승인이고서비스r1정상인 상태였다. 이후 실제 r3/r4 실행 완료는 아래 결과를 따른다. Source/CI가변하지않더라도새freshbuild/proofguard/ownedtarget8검사를생략하지않는다.
 
 - [x] 2026-10-13 사용자 로그인 완료 후 공식 MCP 새 세션에서 회사 계정456721863474를 확인했다. 원본 PNG 두 파일은 r1의 실제 VersionId/ETag로 고정한 다운로드와 로컬 바이트가 일치했다. root MCP adapter 독립 검토 PASS/C0/I0, 새 fresh build와 실제 proof guard 뒤 owned target8 검사를 통과하고 immutable archive/published 파일을 모두 게시했다. PNG는 조건부 CopyObject 뒤 목적지 VersionId·ETag·SHA·크기·type/cache를 실제 HeadObject로 확인했다. 현재 CloudFormation UPDATE_IN_PROGRESS이며 전환 완료/공개 HTTPS 성공은 아직 주장하지 않는다.
 
 - [x] 실제 r3 engine 10파일/UPDATE_COMPLETE/Deployed/invalidation I29VLZAQAC5N32XZNB3TS8GNOQ Completed/lock삭제·exit0. 회사/CloudFront HTTPS smoke exit0와 native504px 새JS·43px간격/두기능반응/이메일popup·pricing/footer를 확인했다. 실제 hover 선택 배경 경쟁을 발견해 기존 desktop 테스트 내 색상/대비 RED→최소 수리→정확 CI→새immutable release의 한정 후속을 수행한다.
+
+- [x] 실제 hover 대비 RED1→선택/hover 결합 상태 한 줄 수리·기존 desktop 케이스 내 세 버튼 coral/대비 검증 GREEN·public-polish6PASS. Source3222fb34 exactCI38326334739 unit37/Chromium12·skip/flaky0, source09fd8671/artifact2744a84d/proof7cab310b 검증 후 r4 fresh guard/ownedtarget8/immutable10files/UPDATE_COMPLETE/Deployed/invalidation I9GDZQWNV5R2KFGX60QHF1VQ9W Completed/lock삭제·exit0을 확인했다. 실제 회사/CloudFront HTTPS smoke exit0, native504px 43px간격/hover=true coral배경/전화없는 emailpopup/3페이지·pricing/footer를 확인하고 docs/assets/landing-mobile-2026-10-13에 JPEG와 완료 기록을 보존했다. 전체 서비스·native장비·메일 도착은 이번 범위가 아니다.

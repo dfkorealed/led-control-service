@@ -1,10 +1,18 @@
 # 킨다 공개 Web AWS 배포
 
-기준일: 2026-10-12. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 전용 Sydney stack·private S3·CloudFront 생성과 릴리스 게시, 호스팅케이알 `kinda` CNAME 연결 및 실제 HTTPS 검증까지 완료했다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
+기준일: 2026-10-13. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 전용 Sydney stack·private S3·CloudFront 생성과 릴리스 게시, 호스팅케이알 `kinda` CNAME 연결 및 실제 HTTPS 검증까지 완료했다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
 
 현재 계정의 무료 플랜을 유지하기로 선택했으므로 첫 사이트 배포 리전은 **Sydney `ap-southeast-2`**다. CloudFront용 ACM만 `us-east-1`에 둔다. 아래 Seoul 리전 예시는 일반 입력 형식 설명이며 현재 계정에 그대로 적용하지 않는다. 추후 Seoul 이전은 새 리소스 생성·검증·DNS 전환이 필요하다. 전체 서비스는 정확한 배포 후보의 canonical CI 여섯 단계 통과를 요구한다. 사용자가 승인한 landing-only 공개는 아래의 별도 landing 관문 통과를 요구한다. 관문 통과 전 사이트 리소스 생성·콘텐츠 게시를 하지 않는다. 최신 진행 상태는 [실행 계획](../superpowers/plans/2026-10-11-web-deploy-mode.md)을 참조한다.
 
 현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. 2026-10-12 사용자가 landing 전용 release 관문 추가와 통과 후 배포를 명시 승인했다. 별도 frozen dependencies/공개 기능/산출물 security graph/HTTP 차단 검증을 구현·독립 검토하고 exact 후보의 landing CI가 실제 성공한 뒤에만 공개한다. 전체 서비스 CI·감사 정책은 유지하며 현재 두 High findings의 해결을 주장하지 않는다.
+
+## 최신 실제 공개 결과 — 2026-10-13
+
+- 공개 주소 https://kinda.dfkorealed.com/ · 소스 `3222fb34bb196c62142420b3fc02dc13263d1cbc` · `landing` / `20261013-landing-ui-r4`.
+- [정확 커밋 Public Landing Release SUCCESS](https://github.com/dfkorealed/led-control-service/actions/runs/38326334739): 공개unit37, Chromium12, 실패/제외/재시도0. 새 fresh build와 CI proof/artifact 동일성을 실제 guard로 확인했다.
+- 기존 Sydney stack/private S3/OAC/CloudFront를 재사용하고 10파일 게시·UPDATE_COMPLETE/Deployed 및 invalidation `I9GDZQWNV5R2KFGX60QHF1VQ9W` Completed·lock 삭제를 확인했다. DNS/무료 플랜/서비스 API는 변경하지 않았다.
+- 두 실제 HTTPS 주소의 공개200/차단404·보안 헤더와 실제 모바일504px 메뉴/hero 선택·간격/이메일 팝업/요금제/푸터를 확인했다. 상담 팝업은 이메일만 제공하고 회사 푸터 연락처는 유지한다. 메일 발송/수신·온라인 접수는 수행하지 않았다.
+- [실제 배포 증거·실패 이력·스크린샷](../assets/landing-mobile-2026-10-13/README.md). r1 최초 결과와 r2 중단/r3 hover 발견은 역사이며 현재 공개는r4다. 전체 서비스 CI/장비 검증을 대신하지 않는다.
 
 ## 최초 실제 공개 결과 — 2026-10-12
 
