@@ -167,6 +167,15 @@ describe("prepared import canvas", () => {
   const props = () => ({ floorId: "floor-1", jobId: "job-1", manifest: { ...ref,
     source: createMapDocumentSource({ floorId: "floor-1", jobId: "job-1", authScope: authScope() }) },
     pan: { x: 20, y: 40 }, zoom: 0.5, viewport: { width: 800, height: 600 } });
+  it("covers viewport measurement wait, then delegates exactly one overlay to the native canvas", () => {
+    const { wrapper } = setup(); const value = props();
+    const view = render(<CadImportSceneCanvas {...value} viewport={{ width: 0, height: 0 }} />, { wrapper });
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    expect(screen.queryByTestId("common-preview")).not.toBeInTheDocument();
+    view.rerender(<CadImportSceneCanvas {...value} />);
+    expect(screen.getByTestId("common-preview")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
   it("retains camera identity through paint readiness and equivalent parent viewport renders", () => {
     const { wrapper } = setup(); const value = props(); const onDisplayStateChange = vi.fn();
     const view = render(<CadImportSceneCanvas {...value} onDisplayStateChange={onDisplayStateChange} />, { wrapper });

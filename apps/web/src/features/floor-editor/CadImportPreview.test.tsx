@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CadImportReviewState } from "./editor-types";
 import { CadImportPreview } from "./CadImportPreview";
 import { useFloorEditorStore } from "./editor-store";
+import type { ReactNode } from "react";
 
 const preview = vi.hoisted(() => ({ scene: vi.fn(), image: vi.fn(), retry: vi.fn(),
+  draw: null as (() => void) | null,
   displayChange: null as ((state: "loading" | "ready" | "error") => void) | null }));
 vi.mock("react-konva", () => ({
   Stage: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Layer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Layer: ({ children, onDraw }: { children: ReactNode; onDraw?: () => void }) => { preview.draw = onDraw ?? null; return <div>{children}</div>; },
   Image: () => <canvas data-testid="legacy-import-renderer" />
 }));
 vi.mock("./use-floor-plan-image", () => ({ useFloorPlanImage: preview.image }));
@@ -39,6 +41,7 @@ describe("CadImportPreview", () => {
     preview.image.mockReturnValue({ image: null, status: "loading", retry: preview.retry });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 800, 400));
     preview.displayChange = null;
+    preview.draw = null;
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
@@ -49,12 +52,48 @@ describe("CadImportPreview", () => {
     expect(ready).toHaveBeenLastCalledWith(false);
     preview.image.mockReturnValue({ image: new Image(), status: "ready", retry: preview.retry });
     view.rerender(<CadImportPreview floorId="floor-1" review={review} onReadyChange={ready} />);
+    expect(ready).toHaveBeenLastCalledWith(false);
+    act(() => preview.draw?.());
     await waitFor(() => expect(ready).toHaveBeenLastCalledWith(true));
     expect(screen.getByTestId("preview-candidates")).toHaveAttribute("data-count", "1");
     expect(screen.getByTestId("preview-candidates")).toHaveAttribute("data-disabled", "true");
     expect(useFloorEditorStore.getState().pan).toEqual(camera.pan);
     expect(useFloorEditorStore.getState().zoom).toBe(camera.zoom);
     expect(screen.getByRole("region", { name: "CAD 도면 미리보기" })).toHaveAttribute("data-zoom", "0.044");
+  });
+
+  it("uses one shared overlay through legacy image wait and removes it only after canvas draw", () => {
+    const ready = vi.fn();
+    const view = render(<CadImportPreview floorId="floor-1" review={review} onReadyChange={ready} />);
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    preview.image.mockReturnValue({ image: new Image(), status: "ready", retry: preview.retry });
+    view.rerender(<CadImportPreview floorId="floor-1" review={review} onReadyChange={ready} />);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    act(() => preview.draw?.());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    const oldDraw = preview.draw;
+    view.rerender(<CadImportPreview floorId="floor-2" review={{ ...review, job: { ...review.job, jobId: "import-2" } }} onReadyChange={ready} />);
+    act(() => oldDraw?.());
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    preview.image.mockReturnValue({ image: null, status: "error", retry: preview.retry });
+    view.rerender(<CadImportPreview floorId="floor-2" review={{ ...review, job: { ...review.job, jobId: "import-2" } }} onReadyChange={ready} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
+  it("hands native data wait to the canvas without duplicate overlays or stale job readiness", () => {
+    const nativeReview = { ...review, scene: { kind: "native" as const, regionId: "region-1" } };
+    const ready = vi.fn();
+    const view = render(<CadImportPreview floorId="floor-1" review={nativeReview} onReadyChange={ready} />);
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    preview.scene.mockReturnValue({ data: { width: 16000, height: 8000, generationId: "prepared" }, isError: false, refetch: preview.retry });
+    view.rerender(<CadImportPreview floorId="floor-1" review={nativeReview} onReadyChange={ready} />);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    act(() => preview.displayChange?.("ready"));
+    const old = preview.displayChange;
+    view.rerender(<CadImportPreview floorId="floor-1" review={{ ...nativeReview, job: { ...review.job, jobId: "import-2" } }} onReadyChange={ready} />);
+    act(() => old?.("ready"));
+    expect(ready).toHaveBeenLastCalledWith(false);
   });
 
   it("keeps native apply blocked until the existing renderer reports ready, and blocks again on display failure", async () => {

@@ -4,6 +4,7 @@ import { TriangleAlert } from "lucide-react";
 import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
 import { createMapDocumentSource, type MapDocumentSource } from "../../api/map-document";
 import { Button, FeedbackState } from "../../components/ui";
+import { MapLoadingOverlay } from "../../components/ui/MapLoadingOverlay";
 import { MapSceneCanvas } from "../map-scene/MapSceneCanvas";
 import { useMapDocumentReadScope } from "./editor-monitoring-cache";
 import type { CadImportReviewState } from "./editor-types";
@@ -86,6 +87,7 @@ export function CadImportSceneCanvas({ floorId, jobId, manifest, pan, zoom, view
   }), [pan.x, pan.y, zoom, viewport.width, viewport.height]);
   useEffect(() => { onDisplayStateChange?.(displayState); }, [displayState, onDisplayStateChange]);
   return <>
+    <MapLoadingOverlay loading={authorized && !measured && !failed} />
     {authorized && measured && !failed ? <MapSceneCanvas key={key}
       source={source} documentRef={documentRef} readOnly platform="mobile"
       camera={camera}

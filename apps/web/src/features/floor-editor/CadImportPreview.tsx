@@ -1,7 +1,8 @@
 import { TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Image as KonvaImage, Layer, Stage } from "react-konva";
-import { Button, FeedbackState, Text } from "../../components/ui";
+import { Button, FeedbackState } from "../../components/ui";
+import { MapLoadingOverlay, useMapPaintLoading } from "../../components/ui/MapLoadingOverlay";
 import { fitMapTransform } from "../floor-map/map-camera-geometry";
 import { CadCandidateLayer } from "./CadCandidateLayer";
 import { CadImportSceneCanvas, useCadImportScene } from "./CadImportSceneCanvas";
@@ -19,18 +20,29 @@ interface CadImportPreviewProps {
 export function CadImportPreview({ floorId, review, onReadyChange }: CadImportPreviewProps) {
   const container = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
-  const [nativeDisplay, setNativeDisplay] = useState<"loading" | "ready" | "error">("loading");
+  const [attempt, setAttempt] = useState(0);
   const native = review.scene?.kind !== "legacy";
   const scene = useCadImportScene(floorId, native ? review : null);
   const image = useFloorPlanImage(native ? "" : review.job.renderedAssetPath ?? "");
+  const identity = JSON.stringify([floorId, review.job.jobId, review.job.updatedAt,
+    scene.data?.generationId, scene.data?.revision, review.job.renderedAssetPath, attempt]);
+  const token = useMemo(() => ({ identity }), [identity]);
+  const current = useRef(token); current.current = token;
+  const [nativeDisplay, setNativeDisplay] = useState<{ token: typeof token; state: "loading" | "ready" | "error" } | null>(null);
+  const legacyPaint = useMapPaintLoading(identity);
   const bounds = native ? scene.data : review.job.renderedViewport;
   const transform = useMemo(() => bounds ? fitMapTransform({
     bounds: { left: 0, top: 0, width: bounds.width, height: bounds.height }, viewport,
     padding: FIT_VIEWPORT_PADDING, minZoom: 0.000001, maxZoom: 4
   }) : null, [bounds?.width, bounds?.height, viewport]);
   const acceptedIds = useMemo(() => new Set(review.candidates.map(candidate => candidate.id)), [review.candidates]);
-  const displayChange = useCallback((state: "loading" | "ready" | "error") => setNativeDisplay(state), []);
-  const ready = Boolean(transform && (native ? scene.data && !scene.isError && nativeDisplay === "ready" : image.status === "ready"));
+  const displayChange = useCallback((state: "loading" | "ready" | "error") => {
+    if (current.current === token) setNativeDisplay({ token, state });
+  }, [token]);
+  const displayState = nativeDisplay?.token === token ? nativeDisplay.state : "loading";
+  const failed = native ? scene.isError : image.status === "error" || !review.job.renderedAssetPath || !review.job.renderedViewport;
+  const ready = Boolean(transform && (native ? scene.data && !scene.isError && displayState === "ready"
+    : image.status === "ready" && !legacyPaint.loading));
   useEffect(() => { onReadyChange(ready); }, [ready, onReadyChange]);
   useLayoutEffect(() => {
     const element = container.current;
@@ -53,22 +65,23 @@ export function CadImportPreview({ floorId, review, onReadyChange }: CadImportPr
       manifest={scene.data} pan={transform.pan} zoom={transform.zoom} viewport={viewport}
       onDisplayStateChange={displayChange} /> : null}
     {transform && bounds ? <Stage width={viewport.width} height={viewport.height} style={{ position: "absolute", inset: 0 }}>
-      {!native && image.image ? <Layer listening={false} x={transform.pan.x} y={transform.pan.y} scaleX={transform.zoom} scaleY={transform.zoom}>
+      {!native && image.image ? <Layer listening={false} onDraw={() => legacyPaint.onPaintReady(true)}
+        x={transform.pan.x} y={transform.pan.y} scaleX={transform.zoom} scaleY={transform.zoom}>
         <KonvaImage image={image.image} width={bounds.width} height={bounds.height} />
       </Layer> : null}
       <CadCandidateLayer candidates={native && !ready ? [] : review.candidates} acceptedCandidateIds={acceptedIds} disabled
         transform={{ x: transform.pan.x, y: transform.pan.y, scaleX: transform.zoom, scaleY: transform.zoom }}
         zoom={transform.zoom} viewportBounds={{ x: 0, y: 0, width: bounds.width, height: bounds.height }} />
     </Stage> : null}
-    {(native ? scene.isError : image.status === "error" || !review.job.renderedAssetPath || !bounds) ? <div className="absolute inset-x-3 top-3">
+    {failed ? <div className="absolute inset-x-3 top-3">
       <FeedbackState tone="danger" icon={TriangleAlert} title="선택한 CAD 도면을 표시하지 못했습니다."
         action={<Button variant="secondary" onClick={() => {
-          setNativeDisplay("loading");
+          setAttempt(value => value + 1);
           if (native) void scene.refetch();
           else image.retry();
         }}>도면 다시 불러오기</Button>} />
-    </div> : !ready && nativeDisplay !== "error" ? <Text role="status" className="absolute left-3 top-3">
-      CAD 도면을 준비하는 중
-    </Text> : null}
+    </div> : null}
+    {/* Once mounted, the native canvas owns its first-paint overlay. */}
+    <MapLoadingOverlay loading={!failed && (native ? !scene.data || !transform : legacyPaint.loading)} />
   </div>;
 }
