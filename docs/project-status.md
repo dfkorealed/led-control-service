@@ -2,6 +2,20 @@
 
 기준일: 2026-10-13
 
+## 2026-10-13 공통 맵 로딩 — 구현·검증·로컬 메인 반영 완료
+
+- 승인한 공통 loading overlay를 설정 맵 편집·모니터링·제어 대상 선택·설정 맵 목록·CAD 미리보기의 실제 첫 paint 완료까지 표시한다. 동일 맵의 이동/줌은 반복 차단하지 않고 층·문서 변경/오류/stale 완료를 구분한다. [기존 맵 계획 L1–L3](superpowers/plans/2026-09-18-cad-native-map-rendering.md)에 순차 작업을 기록한다.
+- `5ce9d347` 기반 `.worktrees/map-loading-20261013` / `codex/map-loading-20261013`에서 한 Web 담당자가 공통 UI와 결합된 소비자를 구현한다. 총괄은 문서·검증·머지를 관리하며 현재 사용자 AGENTS/landing와 다른 센서 작업의 dirty 문서를 보존한다. API·DB·장비·인증·remote 변경은 하지 않는다. 사용자 요청의 로컬 메인 머지는 검증/리뷰 뒤 진행한다.
+- 제품 소유 변경을 공통 UI `816a3898`, 공통 canvas `b530242a`, CAD 데이터/기존 표시 `d452cb09`, 소비자 조회 대기 `ab738212`로 나눴다. 전체 테스트/빌드/한정 Chromium과 별도 읽기 전용 QA는 진행 중이며 아직 메인에 머지하지 않았다.
+- 중간 QA의 `ab738212`/추가 `0cac71ac` 검토는 승인 No다. readonly legacy CAD의 mount와 실제 paint 차이, SVG image 대기, native lazy fallback, hidden/inert 아래의 loading 접근성, legacy renderer degraded의 오류 전달을 보완 중이다. FloorScene 후속은 아직 작성 중인 상태였으며 최종 제품 검증은 소비자 구현 완료 뒤 수행한다. 판단: 페이지 자체의 지연 로드는 기존 공통 `RouteLoadingState`를 유지한다. 맵 viewport 생성 전의 페이지 전환까지 맵 전용 overlay로 바꾸면 불필요하게 Shell을 수정하므로 이번 범위에서 제외하며, 사용자가 페이지 전환까지 맵 전용 문구를 요구하면 후속 UI 수정이 필요하다.
+- 소비자/오류 보완 뒤 `e9ac9cfd`로 제품을 고정했다. 총괄 fresh 전체 Web은249파일PASS/1파일기존FAIL/1SKIP·3,697PASS/동일 Control5FAIL/3SKIP(exit1,50.92s), 타입 포함 build exit0·UI 정책0/0이다. 별도15192 Chromium에서는 느린 query+image paint·pan/zoom 비재표시·CAD 확인/실패 복구·lease 보호·native WebGL/legacy SVG 적용→배치→저장→reload→monitoring의10개가 모두PASS(exit0,26.7s). HTTP503 console은 실패 복구 시나리오의 의도된 fixture이며 실제 API/HIL이 아니다. 초기 CLI 인수 오류는 시작 전 실패로 원 로그를 보존했다. 최종 독립 리뷰와 메인 머지는 아직이다.
+- `e9ac9cfd` 최종 QA는 기존4개 addressed이나 추가P2 두 건으로 ReadyNo다. legacy 편집의 version-only 변경에서 static Layer redraw가 없으면 spinner가 끝나지 않는 경로와 배경 없는 readonly legacy 도형의 first-paint gate 누락만 좁게 수정한다. version 전환 테스트에서 직접 draw를 호출해 결함을 감추지 않는다. 최종 수정 source의 검증/관련 scoped re-review 전까지 머지하지 않는다. A→B→A 추가 회귀는 source-scope/renderer 교체 범위이며 같은 renderer의 모든 camera/generation 왕복 검증으로 확대하지 않는다.
+- `6e71fe1f`·`b0035710`의 두 P2 수리와 실제 브라우저 회귀 `3797d37a`를 추가했다. 같은 QA의 이 최종 HEAD scoped 검토는 두 건 addressed/open0·추가P1/P2없음·ReadyYes다. 기존4개 해결을 유지하며 최종 source의 테스트/빌드/브라우저 gate는 아직 확인 중이다.
+- 새 source의 focused172/172·타입 포함 build0·UI0·Chromium10/10을 담당자가 확인했으나 전체 Web은3,694PASS/12FAIL/3SKIP다. 기존Control5 외 Monitoring6·SpatialTargetSelector1의 기존 단일 status 조회가 새 loading+기존 안내의 공존과 충돌한다. 원 실패를 보존하며 두 테스트 파일의 조회만 대상 메시지/범위로 정합화한다. 기존 role/텍스트/행동 assertion을 유지하고 제품 변경·skip·timeout 완화로 우회하지 않는다. 새 전체 결과 전에는 완료로 표시하지 않는다.
+- 최종 `3b43b988`은 지정된 두 테스트의 알림/선택 요약 조회 범위만 바꾸며 `3797d37a` 대비 제품 diff0이다. 담당 fresh 관련144/144·전체 Web3,701PASS/동일 Control5FAIL/3SKIP·타입 포함 build0/UI0/Chromium10/10, 마지막 QA는 기존 assertions/role/hidden/testcount/timeout/skip 유지와 ReadyYes를 확인했다. 총괄도 마지막 source의 별도15192 Chromium12/12(exit0,27.4s)로 query/image 대기와 새 자동 legacy draw 두 회귀·native/legacy 적용→저장→모니터링을 확인했다.
+- 사용자 승인 범위대로 `5ce9d347`→`3b43b988`을 로컬 메인에 ff-only 머지했다. 관련12파일/378테스트PASS(exit0,13.85s)·타입 포함 빌드/UI0을 새로 확인했고 검증 브랜치와 Web 소스의 차이는 보존한 사용자 LandingPage4줄뿐이다. AGENTS·LandingPage SHA는 시작과 동일하며 기존 다른 dirty 문서와 작업을 임의 커밋/복구하지 않는다. 기존 Control5 기준선 실패는 신규 실패와 구분하며 원격 push·API/Pi 재시작·DB/장비/인증 변경0이다. Web5173 PID3528을 유지한다.
+- ROOT `.local/map-loading-20261013`에 최종 로그/화면을, 기존 worktree에도 원 검증을 보존한다. 테스트 조합의 의도된503·시작 전 CLI 오류·12FAIL 중간 결과는 성공 결과와 구분한다. 새 라이브러리는 없고 이전 완료 범위를 새 HIL/실기기 WebView 검증으로 확대하지 않는다. 위 미완료/No 문장은 실행 당시 이력이다.
+
 ## 2026-10-13 BIO 보정의 현재 메인 통합·로컬 API 반영 — 완료, 현장 연결 확인은 남음
 
 - 사용자 승인으로 현재 작업 메인 `codex/mvp1-cloud-web`에 수정 커밋 `92d5b83d`만 정상 cherry-pick한다. 원 센서 브랜치의 이전 별도 의존성/배포 커밋36개 전체를 병합하지 않는다. 기존 사용자 AGENTS 변경·지도/CAD/인증 작업·패키지/lock/schema를 보존한다. 문서 충돌은 양쪽 추가 기록을 모두 보존한다.

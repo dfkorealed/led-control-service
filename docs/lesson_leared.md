@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-13 / 공통 맵 로딩은 데이터 준비가 아닌 실제 첫 paint를 기다린다
+
+- **문제**: query/manifest/renderer mount는 화면 표시 완료가 아니다. 같은 맵의 이동마다 로딩을 재표시하면 작업을 막으며 hidden/inert 아래의 status는 보조기술에 전달되지 않는다.
+- **예방**: 문서 방문별 첫 paint latch와 접근 가능한 외부 host를 공통화한다. 이미지 load/error·native lazy/degraded·legacy Layer draw를 구분하고 source/문서 교체와 stale 완료/오류를 회귀로 보호한다. 기존 route-level 공통 로딩은 그대로 유지한다.
+- **draw 예약**: version만 바뀌고 snap/grid/slot이 없는 지도도 gate를 초기화했다면 draw를 명시적으로 예약해야 한다. 테스트에서 직접 draw를 호출하면 무한 spinner가 가려지므로 실제 자동 예약→onDraw와 배경 없는/빈 맵의 첫 draw를 검증한다.
+- **테스트 조회**: 지도 loading status와 기존 알림·선택 요약은 공존한다. 단일 전역 status/live-region 조회 대신 기존 의미 영역으로 범위를 좁히고 assertions·role·중복/hidden 확인을 유지한다. 기준선 실패를 신규 실패와 분리하며 skip·timeout 확대·제품 표시 제거로 숨기지 않는다.
+
 ## 2026-10-12 / 서버 저장 완료와 버튼 활성화를 혼동하지 않는다
 
 - **발생한 문제**: CAD 적용은 서버 저장까지 완료하지만 비활성 `저장` 버튼이 미저장처럼 보였다. 자료/배치 탭을 기능별로 중복 작성하면 키보드·ARIA·좁은 화면 정책도 달라진다.

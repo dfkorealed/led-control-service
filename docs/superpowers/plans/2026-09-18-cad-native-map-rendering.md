@@ -10,6 +10,16 @@
 
 **설계:** [공통 맵 요소 설계](../specs/2026-09-18-cad-native-map-rendering-design.md)
 
+## 2026-10-13 공통 맵 로딩 L1–L3
+
+사용자 승인: 공통 로딩 overlay를 모든 실제 맵 사용처에 적용하며 별도 브랜치 검증 후 메인 작업 브랜치에 머지한다. 현재 화면의 실제 첫 paint 완료가 종료 기준이다. 초기 로드·층/문서 교체는 표시하고 같은 맵의 pan/zoom은 반복 차단하지 않는다. 오류에서는 로딩을 종료하고 기존 오류 안내를 유지한다. API·DB·장비·렌더링 기술은 변경하지 않는다.
+
+- [x] L1 공통 UI/상태: `MapLoadingOverlay`·`MapLoadingHost`·문서 방문별 `useMapPaintLoading`을 공통 UI에 추가했다. 동일 맵의 후속 camera paint는 재차 차단하지 않으며 문서 교체/stale/error를 회귀로 보호한다. 공통 UI/캔버스/CAD/소비자/legacy/read-only/오류 경로를 작은 커밋으로 나눴고 담당 RED 관측28회와 단계별 GREEN은 중복 집계임을 구분한다.
+- [x] L2 소비자: native/legacy 편집·readonly `FloorScene`·조회 대기·CAD 미리보기에 연결했다. 접근 가능한 host와 image load/error·lazy·degraded/stale를 처리했다. 최종 QA 두P2를 자동 Layer draw와 배경 없는 도형/empty paint로 보완했고 직접 draw를 호출하지 않는 회귀를 추가했다. `3797d37a`는 코드 QA ReadyYes다. source/renderer 교체 ABA와 기존 동일 renderer guard의 범위를 구분한다.
+- [x] L3 검증/통합: 마지막 두 테스트 조회만 보완한 `3b43b988`은 제품diff0/검증약화0/QA ReadyYes다. 전체 Web3,701PASS/동일 Control5FAIL/3SKIP·타입 포함 build0/UI0, 총괄 Chromium12/12·메인 관련378/378·타입 포함build/UI0을 확인했다. 사용자 승인대로 로컬 메인에 ff-only 반영하고 설정/모니터링/제어/교훈/상태를 갱신했다. 기존 AGENTS/landing·센서 dirty 문서와 Web5173을 보존했고 API/DB/장비/remote는 변경하지 않았다. raw logs와 중간12FAIL/CLI실패는 `.local/map-loading-20261013`에 보존한다.
+
+기반 `5ce9d347`, worktree `.worktrees/map-loading-20261013`. native 생성 도구는 현재 앱의 과거 경로가 Git이 아니어서 실패했고, 확인된 실제 repository의 ignored worktree로 생성했다. 한 Web 담당자가 결합된 제품 경로를 순차 소유하고 총괄은 문서/검증/통합만 관리한다. 현재 root의 기존 dirty 문서는 임의 커밋·복구하지 않는다.
+
 ## 2026-10-12 추가 주석·반복 렌더링 후속 F1–F4
 
 ### 2026-10-13 실행 반영 재개

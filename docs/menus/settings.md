@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-13 공통 맵 로딩
+
+### 구현 완료
+
+- 맵 편집·층별 맵 미리보기·CAD 가져오기 미리보기는 공통 `MapLoadingOverlay`를 사용한다. 데이터 조회와 renderer 생성뿐 아니라 현재 viewport의 첫 실제 paint까지 표시한다. native 맵·기존 CAD·이미지·배경 없는 도형/빈 맵을 구분한다.
+- 층/문서 교체는 다시 대기하며 같은 맵의 이동·줌은 재차 차단하지 않는다. 기존 버전만 바뀐 편집 맵도 필요한 첫 draw를 예약한다. 오류/degraded에서는 spinner를 종료하고 기존 오류 안내를 유지하며 오래된 표시/오류는 새 맵 상태를 덮지 않는다.
+- 접근 가능한 외부 loading host를 재사용해 decorative/inert 미리보기의 status가 숨겨지지 않으며 absolute overlay로 레이아웃 밀림을 막는다.
+
+### 미구현
+
+- 실제 하드웨어·다른 브라우저 엔진·모바일 WebView 실기기 검증은 이번 UI 변경에 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 별도 브랜치 검증 후 로컬 `codex/mvp1-cloud-web`에 `3b43b988`까지 머지했다. 최종 전체 Web3,701PASS/기존 Control5FAIL/3SKIP와 타입 포함 build/UI0, 총괄 Chromium12/12 및 머지 후 관련378/378·build/UI0을 확인했다. 기존 실패를 전체 GREEN으로 표현하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/MapLoadingOverlay.tsx`, `features/floor-editor/{FloorEditorCanvas,CadSceneCanvas,CadImportPreview,CadImportSceneCanvas}.tsx`, `features/settings/floor-plans/{FloorEditorRoute,FloorPlanPreview}.tsx`, 공통 `FloorScene`·`MapSceneCanvas`와 직접 unit/Chromium 회귀.
+
+### 갱신 규칙
+
+- 맵 loading 변경은 설정·모니터링·제어 문서에 함께 기록하고 query/manifest/handle 준비와 실제 paint 완료를 구분한다. 정상 이동·줌에서 spinner 재표시 및 stale/error 처리를 함께 검증한다.
+
 ## 2026-10-13 이벤트 보정의 메인·서비스 반영 후속
 
 - 구현 완료: BIO 이벤트 활성화/유지시간/동기화 보정을 메인 `e243110c`와 실행 중 로컬 API/Web에 반영했다. 정상 기존 관리자 세션과 ready200/5서비스 up을 확인했다. 설정 UI·프로파일/정책·인증·DB schema/lock/환경값은 바꾸지 않았다.

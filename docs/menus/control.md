@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-13 공통 맵 로딩
+
+### 구현 완료
+
+- 수동·스케줄·이벤트 제어의 공통 지도 대상 선택은 데이터 조회와 맵의 실제 첫 paint까지 공통 loading overlay를 사용한다. 층/문서 교체는 다시 대기하고 같은 맵의 이동·줌은 반복 차단하지 않는다.
+- native/legacy/이미지/배경 없는 맵은 공통 `FloorScene`의 paint·오류 처리와 접근 가능한 loading host를 재사용한다. 대상 선택 계약·제어 명령·MQTT·센서 자격은 변경하지 않는다.
+
+### 미구현
+
+- 실제 조명 제어/센서/HIL은 이번 UI 변경에서 수행하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 별도 브랜치 검증 후 로컬 `codex/mvp1-cloud-web`에 `3b43b988`까지 머지했다. 최종 전체 Web3,701PASS/기존 Control5FAIL/3SKIP와 타입 포함 build/UI0, 총괄 Chromium12/12 및 머지 후 관련378/378·build/UI0을 확인했다. 기존 실패를 전체 GREEN으로 표현하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx`, 공통 `features/floor-map/{FloorScene,FloorMapViewport}.tsx`, `features/map-scene/MapSceneCanvas.tsx`, `components/ui/MapLoadingOverlay.tsx` 및 직접 unit 회귀.
+
+### 갱신 규칙
+
+- 공통 지도 UI 변경은 설정·모니터링 문서를 함께 갱신하고 지도 표시 검증을 실제 명령/장비 검증과 구분한다.
+
 ## 2026-10-13 BIO 보정 메인·현재 서비스 반영
 
 - 구현 완료: 현재 메인에 이번 보정만 `e243110c`로 통합했다. Web103·API71·mock Chromium7/7·양쪽 타입/빌드를 새로 확인하고 같은 개발 watcher/환경으로 API를 재기동했다. 정상 로그인 UI에서 비활성 A→B100%/60초 시험 규칙의 Gateway 동기화가 `적용됨`이다. 기존 지도/공통 목록·사용자 AGENTS 변경·패키지/lock/schema와 원 센서 작업 공간을 보존했다.

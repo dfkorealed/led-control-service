@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-13 공통 맵 로딩
+
+### 구현 완료
+
+- 층 맵 데이터 조회와 native/legacy 맵의 실제 첫 paint까지 공통 loading overlay를 표시한다. 이미지 로드/실패와 배경 없는 도형/빈 맵의 첫 Layer draw도 구분한다. 층 전환/문서 교체는 다시 대기하고 같은 맵의 이동·줌에서는 재표시하지 않는다.
+- 접근 가능한 loading host와 absolute overlay를 사용하고 실패는 spinner가 아닌 기존 오류 상태로 전환한다. 조명 상태 조회·수동 갱신·장비 계약은 변경하지 않는다.
+
+### 미구현
+
+- 이번 UI 검증은 실제 장비/HIL·모바일 WebView 실기기 검증을 대체하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 별도 브랜치 검증 후 로컬 `codex/mvp1-cloud-web`에 `3b43b988`까지 머지했다. 최종 전체 Web3,701PASS/기존 Control5FAIL/3SKIP와 타입 포함 build/UI0, 총괄 Chromium12/12 및 머지 후 관련378/378·build/UI0을 확인했다. 기존 실패를 전체 GREEN으로 표현하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/monitoring/MonitoringView.tsx`, `features/floor-map/{FloorScene,FloorMapViewport}.tsx`, `features/map-scene/MapSceneCanvas.tsx`, `components/ui/MapLoadingOverlay.tsx` 및 unit/Chromium 회귀.
+
+### 갱신 규칙
+
+- 공통 맵 loading 변경은 설정·제어 문서와 함께 갱신하고 실제 렌더링 완료/전환/실패 검증과 장비 검증 범위를 구분한다.
+
 ## 2026-10-13 BIO 이벤트 보정 서비스 반영 후 관찰
 
 - 구현 완료: 최신 지도 작업을 보존한 채 BIO 이벤트 보정만 메인/로컬 API에 반영했다. 정상 기존 로그인 UI와 서버 ready200/5서비스 up을 확인했다. 모니터링 제품 소스/도면/배치는 변경하지 않았다.
