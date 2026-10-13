@@ -249,11 +249,16 @@ describe("prepared import canvas", () => {
   it("uses a read-only common renderer and the candidate pan/zoom frame", async () => {
     const { wrapper } = setup(); const value = props(); const view = render(<CadImportSceneCanvas {...value} />, { wrapper });
     await screen.findByTestId("common-preview");
-    expect(canvas.props).toMatchObject({ readOnly: true, platform: "mobile", documentRef: ref,
+    expect(canvas.props).toMatchObject({ readOnly: true, platform: "desktop", documentRef: ref,
       camera: { centerX: 760, centerY: 520, zoom: 0.5, viewportWidth: 800, viewportHeight: 600 } });
     view.rerender(<CadImportSceneCanvas {...value} pan={{ x: 100, y: 150 }} zoom={2} />);
     expect(canvas.props?.source).toBe(value.manifest.source);
     expect(canvas.props?.camera).toEqual({ centerX: 150, centerY: 75, zoom: 2, viewportWidth: 800, viewportHeight: 600 });
+  });
+  it.each([[767, "mobile"], [768, "desktop"]] as const)("uses the editor resolution policy at viewport width %s", (width, platform) => {
+    const { wrapper } = setup();
+    render(<CadImportSceneCanvas {...props()} viewport={{ width, height: 600 }} />, { wrapper });
+    expect(canvas.props?.platform).toBe(platform);
   });
   it("refuses another job's source and a zero-sized viewport", () => {
     const { wrapper } = setup(); const value = props();

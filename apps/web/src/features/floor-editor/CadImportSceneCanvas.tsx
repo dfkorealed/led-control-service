@@ -89,7 +89,7 @@ export function CadImportSceneCanvas({ floorId, jobId, manifest, pan, zoom, view
   return <>
     <MapLoadingOverlay loading={authorized && !measured && !failed} />
     {authorized && measured && !failed ? <MapSceneCanvas key={key}
-      source={source} documentRef={documentRef} readOnly platform="mobile"
+      source={source} documentRef={documentRef} readOnly platform={viewport.width < 768 ? "mobile" : "desktop"}
       camera={camera}
       onReady={handle => {
         // Document adoption is not visible paint. Only disposal can clear the
