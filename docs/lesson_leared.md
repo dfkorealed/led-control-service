@@ -4,6 +4,7 @@
 
 - **문제**: legacy 맵은 mapScope가 없으므로 CAD의 공통 맵 문서만 baseline으로 채택하면 늦은 조회 echo가 초기화를 반복한다. 이미 맞춘 카메라가 풀려 미리보기와 다른 위치의 맵처럼 보인다. 미리보기의 강제 mobile renderer 정책도 desktop 편집기와 해상도가 달랐다.
 - **예방**: 새 공통 맵 ACK를 현재 draftScope로 초기화하고 query echo에서 같은 scope/리비전을 재초기화하지 않음을 검증한다. legacy ACK 경로와 기존 principal/현장/층 검증은 유지한다. 미리보기도 편집기의 viewport 플랫폼 정책을 따른다.
+- **응답 폐기**: 서버 scope가 응답과 맞더라도 요청자가 이미 다른 층/세션으로 이동했을 수 있다. authoritative GET 뒤 부작용 전, invalidation 뒤, callback 뒤에 기존 저장 lifecycle/generation guard를 재검사한다. toast만 늦게 검사하면 store/cache 오염을 막지 못한다.
 - **회귀**: 첫 legacy→공통 맵과 공통→공통 교체에서 선·문자·치수·숨김 레이어를 preview→apply→reload로 검사하고 fit 카메라·첫 paint를 함께 확인한다. 해상도 숫자 하나만을 도면 전체 동일성 근거로 삼지 않는다. Fonts.ready 및 완료된 import poll 응답을 가진 fixture로 검증하고 초기 실패 원 로그를 보존한다.
 
 ## 2026-10-13 / 공통 맵 로딩은 데이터 준비가 아닌 실제 첫 paint를 기다린다

@@ -6,6 +6,7 @@
 
 - 공통 맵 CAD 적용 응답을 현재 사용자·현장·층의 draftScope에 연결한다. 적용 후 조회 결과가 다시 도착해도 편집기를 재초기화해 첫 전체 맞춤 카메라를 지우지 않는다. 기존 legacy 맵 응답의 baseline 채택은 유지한다.
 - CAD 미리보기는 편집기와 같은 viewport 너비 768 기준 mobile/desktop 렌더링 정책을 사용한다. desktop에서도 미리보기를 무조건 저해상도 mobile로 그리던 차이를 제거한다. 공통 요소와 서버 준비/적용 문서 계약은 그대로다.
+- CAD 적용 후 지연된 GET/invalidation/callback 경계마다 기존 저장 lifecycle guard를 검사한다. 층 전환·세션/tenant cache 폐기 뒤 도착한 이전 ACK는 현재 store·draft·cache·callback·toast를 갱신하지 않는다.
 
 ### 미구현
 
@@ -13,7 +14,7 @@
 
 ### 부족하거나 개선이 필요한 기능
 
-- 정책/적용 scope RED→GREEN과 총괄 관련199/199를 확인했다. 선·문자·치수·숨김 레이어의 좌표/픽셀을 미리보기→적용→새로고침으로 비교하는 신규 회귀와 기존 CAD 흐름은 Chromium21/21이다. 전체 Web3,704PASS/기존 Control5FAIL/3SKIP·타입/빌드/UI0이며 독립 QA와 로컬 머지는 아직 진행 중이다.
+- 정책/적용 scope RED→GREEN과 총괄 관련199/199를 확인했다. 선·문자·치수·숨김 레이어의 미리보기→적용→새로고침과 기존 CAD 흐름은 보완 전 Chromium21/21이다. 마지막 stale ACK 보완은 RED7→GREEN9/9·관련182/182·타입/빌드·parity3/3·독립QA ReadyYes다. 다른 메인 화면 수정을 보존한 통합 소스의 fresh 전체Web3,711PASS/기존Control5FAIL/3SKIP·타입 포함build0이며 마지막 browser/로컬 머지는 진행 중이다.
 - 팝업과 편집기의 화면 크기에 따른 fit 배율, 격자·선택·조명 후보 overlay는 서로 다를 수 있다. 도면의 내용·논리 좌표와 편집용 overlay를 구분한다. 초기 검증 fixture의 잘못된 geometry/폰트 준비/누락 GET 응답 실패 로그를 숨기지 않고 보존한다.
 
 ### 관련 파일
