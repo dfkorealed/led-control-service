@@ -176,9 +176,11 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 
 사용자 승인: 직전 미리보기 버튼/설명 제거에 이어 627px 로컬의 CTA·그림 간격 수정과 배포. 기존 후보와 실행 중 MAIN의 소스 차이를 유지하면서 각 홈의 모바일 gap을64px로 맞춘다. MAIN 음수 그림 margin만 제거하고 API/CAD/외부 AGENTS는 보존한다.
 
-- [x] 개발 담당: 후보 `LandingPage.tsx` gap16, MAIN 같은 gap과 음수 margin 제거, 기존 `public-mobile-polish.spec.ts` 6케이스 내 reported627px 포함 간격48px·footer32px·overflow·motion 회귀와 랜딩 메뉴 문서를 갱신한다.
+- [x] 개발 담당: 후보 `LandingPage.tsx` gap16, MAIN 같은 gap과 음수 margin 제거, 기존 `public-mobile-polish.spec.ts` 6케이스 내 reported627px 포함 그림 여유56px·footer32px·overflow·motion 회귀와 랜딩 메뉴 문서를 갱신한다.
 - [ ] 총괄: source diff/검증 결과를 확인하고 정확 SHA의 Public Landing Release SUCCESS와 CI proof·fresh build 동일성을 확인한다. 기존 미리보기 제거 소스도 함께 포함한다.
 - [ ] 기존 공식 MCP adapter에 새 immutable release ID만 적용하고 기존 Sydney/private S3/OAC/CloudFront·lock·source/artifact guard·전체 전파/invalidaton 계약으로 게시한다.
 - [ ] 실제 회사/CloudFront HTTPS route·header와 모바일 CTA 간격·제거된 두 요소를 확인하고 메뉴/상태판/체크리스트를 완료한다.
 
 - 개발 검증: actual MAIN627 CTA/art gap0→64px, 320/390/504/627/720/721/768 비겹침·overflow0. 후보 정적504 gap48<56 RED1→gap64 GREEN Chromium6/6(no skip/flaky), unit37/37·전체Webtypecheck/publicbuild exit0. 기존기능/축소모션/상담포커스는 유지하며 MAIN API/서버재시작0이다.
+
+- 독립 검토: Critical/Important 코드 결함0. 720px 이하gap64/721px이상두열, 미리보기state/import제거와motion/depth/재진입보존, existing6case coverage를확인했다. 배포후627px실제동작의간격과삭제요소0개를추가확인한다.
