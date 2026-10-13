@@ -1,5 +1,5 @@
 import { createRef, StrictMode } from "react";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
 import type { MapDisplayTile } from "@led-control/shared/map-display-contracts";
@@ -32,6 +32,48 @@ function harness() {
 afterEach(cleanup);
 
 describe("common map Canvas lifecycle", () => {
+  it("keeps the overlay after handle creation until actual viewport paint and ignores subsequent pan/zoom waits", async () => {
+    const h = harness(), options: MapSceneRendererOptions[] = [];
+    const createRenderer = (value: MapSceneRendererOptions) => { options.push(value); return h.props.createRenderer(value); };
+    const view = render(<MapSceneCanvas {...h.props} createRenderer={createRenderer} />);
+    await waitFor(() => expect(h.props.onReady).toHaveBeenCalledWith(expect.any(Object)));
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    act(() => options[0].onPaintReady?.(true));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer} camera={{ ...camera, centerX: 700, zoom: 0.5 }} />);
+    act(() => options[0].onPaintReady?.(false));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("loads replacement generations and floors without letting stale paints or errors settle them", async () => {
+    const h = harness(), options: MapSceneRendererOptions[] = [];
+    const createRenderer = (value: MapSceneRendererOptions) => { options.push(value); return h.props.createRenderer(value); };
+    const view = render(<MapSceneCanvas {...h.props} createRenderer={createRenderer} />);
+    await waitFor(() => expect(h.props.onReady).toHaveBeenCalledWith(expect.any(Object)));
+    act(() => options[0].onPaintReady?.(true));
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer} documentRef={{ ...documentRef, generationId: "gen-b" }} />);
+    act(() => options[0].onPaintReady?.(true));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    await waitFor(() => expect(h.props.onManifest).toHaveBeenCalledWith(expect.objectContaining({ generationId: "gen-b" })));
+    act(() => options[0].onPaintReady?.(true));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    view.rerender(<MapSceneCanvas {...h.props} createRenderer={createRenderer} source={{ ...h.source, scopeKey: "floor-2" }} />);
+    act(() => { options[0].onPaintReady?.(true); options[0].onError?.(new Error("old")); });
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(h.props.onError).not.toHaveBeenCalled();
+  });
+
+  it("stops the spinner on a renderer error while preserving the host error", async () => {
+    const h = harness(), options: MapSceneRendererOptions[] = [];
+    const createRenderer = (value: MapSceneRendererOptions) => { options.push(value); return h.props.createRenderer(value); };
+    render(<MapSceneCanvas {...h.props} createRenderer={createRenderer} />);
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    const error = new Error("tile failed");
+    act(() => options[0].onError?.(error));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(h.props.onError).toHaveBeenLastCalledWith(error);
+  });
+
   it.each(["desktop", "mobile"] as const)("replays unchanged document, camera and promotion on a %s platform transition", async platform => {
     const h = harness(), promotedElementIds = ["selected"];
     const cameras: Array<MockInstance<MapSceneRenderer["setCamera"]>> = [];

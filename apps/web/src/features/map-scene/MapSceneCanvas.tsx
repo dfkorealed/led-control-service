@@ -4,6 +4,7 @@ import type { CadSceneCamera, CadRendererPlatform } from "../cad-scene/cad-scene
 import type { CadSceneDegradation } from "../cad-scene/CadSceneRenderer";
 import { MapSceneRenderer, type MapScenePickResult, type MapSceneRendererOptions } from "./MapSceneRenderer";
 import type { MapSceneManifest, MapSceneSource } from "./map-scene-source";
+import { MapLoadingOverlay, useMapPaintLoading } from "../../components/ui/MapLoadingOverlay";
 
 export interface MapSceneCanvasHandle {
   /** Applies a transient camera transform without waiting for React props. */
@@ -42,6 +43,8 @@ interface Session { renderer: MapSceneRenderer; mounted: Promise<void>; active: 
 export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasProps>(function MapSceneCanvas(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const latest = useRef(props); latest.current = props;
+  const paint = useMapPaintLoading(JSON.stringify([props.source.scopeKey, props.documentRef.generationId]));
+  const latestPaint = useRef(paint); latestPaint.current = paint;
   // Data providers are regularly recreated by React Query consumers. Keep the
   // renderer bound to one authenticated scope and delegate each request to the
   // current provider instead of treating a callback refresh as a new WebGL map.
@@ -90,18 +93,21 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
     let current: Session | undefined;
     const alive = () => current?.active && session.current === current;
     const renderer = (latest.current.createRenderer ?? (options => new MapSceneRenderer(options)))({ source: sourceFacade.current!, platform,
-      onError: error => { if (alive()) { latest.current.onPaintReady?.(false); latest.current.onError?.(error); } },
+      onError: error => { if (alive()) { latestPaint.current.onError(); latest.current.onPaintReady?.(false); latest.current.onError?.(error); } },
       onDegraded: result => { if (alive()) latest.current.onDegraded?.(result); },
       onManifest: manifest => { if (alive()) latest.current.onManifest?.(manifest); },
       onPaintReady: ready => {
-        if (alive() && (!ready || current!.documentKey === JSON.stringify(latest.current.documentRef))) latest.current.onPaintReady?.(ready);
+        if (alive() && (!ready || current!.documentKey === JSON.stringify(latest.current.documentRef))) {
+          latestPaint.current.onPaintReady(ready);
+          latest.current.onPaintReady?.(ready);
+        }
       }
     });
     current = { renderer, mounted: renderer.mount(canvas), active: true, documentEpoch: 0, documentKey: null };
     session.current = current;
     latest.current.onPaintReady?.(false);
     // Mount errors also reach the host when the document effect is superseded.
-    void current.mounted.catch(error => { if (alive()) latest.current.onError?.(asError(error)); });
+    void current.mounted.catch(error => { if (alive()) { latestPaint.current.onError(); latest.current.onError?.(asError(error)); } });
     return () => {
       current!.active = false;
       renderer.dispose();
@@ -130,7 +136,7 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
         if (!alive()) return;
         current.renderer.setPromotedElementIds(latest.current.promotedElementIds ?? []);
         latest.current.onReady?.(handle);
-      } catch (error) { if (alive()) { latest.current.onPaintReady?.(false); latest.current.onError?.(asError(error)); } }
+      } catch (error) { if (alive()) { latestPaint.current.onError(); latest.current.onPaintReady?.(false); latest.current.onError?.(asError(error)); } }
     }, () => undefined);
     return () => { current.documentEpoch++; };
   }, [documentKey, scopeKey, platform, handle]);
@@ -139,16 +145,19 @@ export const MapSceneCanvas = forwardRef<MapSceneCanvasHandle, MapSceneCanvasPro
     const current = session.current;
     if (!current) return;
     try { current.renderer.setCamera(props.camera); }
-    catch (error) { latest.current.onError?.(asError(error)); }
+    catch (error) { latestPaint.current.onError(); latest.current.onError?.(asError(error)); }
   }, [props.camera, scopeKey, platform]);
 
   useEffect(() => {
     try { session.current?.renderer.setPromotedElementIds(props.promotedElementIds ?? []); }
-    catch (error) { latest.current.onError?.(asError(error)); }
+    catch (error) { latestPaint.current.onError(); latest.current.onError?.(asError(error)); }
   }, [props.promotedElementIds, scopeKey, platform]);
 
-  return <div ref={host} className={props.className} role="img" aria-label="맵 도형"
-    style={{ width: "100%", height: "100%", minWidth: 0, minHeight: 0, ...props.style }} />;
+  return <div className={props.className} aria-busy={paint.loading}
+    style={{ position: "relative", width: "100%", height: "100%", minWidth: 0, minHeight: 0, ...props.style }}>
+    <div ref={host} role="img" aria-label="맵 도형" style={{ width: "100%", height: "100%" }} />
+    <MapLoadingOverlay loading={paint.loading} />
+  </div>;
 });
 
 function asError(error: unknown): Error { return error instanceof Error ? error : new Error("Map Canvas failed"); }
