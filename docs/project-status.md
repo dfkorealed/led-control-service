@@ -2,11 +2,13 @@
 
 기준일: 2026-10-13
 
-## 2026-10-13 CAD 미리보기·적용 일치 — 원인 조사 중
+## 2026-10-13 CAD 미리보기·적용 일치 — 원인 재현, 수정 검증 중
 
 - 사용자 보고: CAD 미리보기의 맵과 실제 적용 후 맵이 다르다. 기존 공통 맵 계획의 P1–P3에 재현→최소 수정→단위/브라우저/빌드/QA/로컬 머지를 기록한다.
 - `036cd24a` 기반 `codex/cad-preview-parity-20261013` / `.worktrees/cad-preview-parity-20261013`에서 Web 담당자가 결합된 제품 경로를 소유하고 총괄은 문서·증거·통합을 관리한다. API/공유 계약 변경은 근거 확인 후 순차 배정한다.
-- 현재 맵/DB/장비/인증·실행 서버와 다른 작업의 dirty 파일을 보존한다. 아직 원인 확정·수정·검증·머지 완료를 주장하지 않는다.
+- 현재 맵/DB/장비/인증·실행 서버와 다른 작업의 dirty 파일을 보존한다. 미리보기의 고정 mobile 해상도와 첫 native 적용의 scope 누락→query echo 재초기화→fit 풀림을 별도 RED로 확인했다. API/정본 변경 없이 Web 두 경로를 최소 보완한다.
+- `85983e90`·`166566ad`·`c784d4ff`의 구현/브라우저 회귀를 고정했다. 담당/총괄 관련199/199·전체Web3,704PASS/기존 Control5FAIL/3SKIP·타입/빌드/UI0·Chromium21/21을 확인했다. 선/문자/치수/숨김 레이어의 다지점 preview→apply→reload·legacy/native 교체를 검증했다. 독립 QA 및 로컬 머지는 아직이며 실제 사용자 도면 전체 동일성/장비 검증으로 확대하지 않는다. 원 로그는 worktree `.local/cad-preview-parity-20261013`에 보존한다.
+- 독립 QA `c784d4ff`는 P1없음/P2한건으로 ReadyNo다. 늦은 authoritative GET 뒤 폐기된 principal/층의 ACK가 store/cache/onSaved를 갱신할 수 있는 기존 guard 누락을 담당자가 먼저 실행 재현하고 최소 보완한다. 정상 save와 같은 lifecycle/generation 보호를 적용하며 보완/재리뷰 전에는 머지하지 않는다. 기존 RED와 fixture 보완이 테스트 약화가 아님은 QA가 확인했다.
 
 ## 2026-10-13 공통 맵 로딩 — 구현·검증·로컬 메인 반영 완료
 

@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-13 CAD 미리보기·적용 표시 일치
+
+### 구현 완료
+
+- 공통 맵 CAD 적용 응답을 현재 사용자·현장·층의 draftScope에 연결한다. 적용 후 조회 결과가 다시 도착해도 편집기를 재초기화해 첫 전체 맞춤 카메라를 지우지 않는다. 기존 legacy 맵 응답의 baseline 채택은 유지한다.
+- CAD 미리보기는 편집기와 같은 viewport 너비 768 기준 mobile/desktop 렌더링 정책을 사용한다. desktop에서도 미리보기를 무조건 저해상도 mobile로 그리던 차이를 제거한다. 공통 요소와 서버 준비/적용 문서 계약은 그대로다.
+
+### 미구현
+
+- 새 CAD 변환기·AI·renderer 교체는 범위에 포함하지 않는다. 실제 사용자 도면 전체와 모든 모바일 WebView의 시각적 동일성을 이번 합성 브라우저 증거만으로 보장하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 정책/적용 scope RED→GREEN과 총괄 관련199/199를 확인했다. 선·문자·치수·숨김 레이어의 좌표/픽셀을 미리보기→적용→새로고침으로 비교하는 신규 회귀와 기존 CAD 흐름은 Chromium21/21이다. 전체 Web3,704PASS/기존 Control5FAIL/3SKIP·타입/빌드/UI0이며 독립 QA와 로컬 머지는 아직 진행 중이다.
+- 팝업과 편집기의 화면 크기에 따른 fit 배율, 격자·선택·조명 후보 overlay는 서로 다를 수 있다. 도면의 내용·논리 좌표와 편집용 overlay를 구분한다. 초기 검증 fixture의 잘못된 geometry/폰트 준비/누락 GET 응답 실패 로그를 숨기지 않고 보존한다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-editor/{FloorEditorView,CadImportSceneCanvas}.tsx`와 직접 unit, `apps/web/e2e/cad-import-journey.spec.ts`, `apps/web/playwright.cad-preview-parity.config.ts`.
+
+### 갱신 규칙
+
+- 미리보기/적용 표시 변경은 draftScope와 늦은 조회 echo, native/legacy 맵 교체, 논리 좌표/레이어/문자 및 첫 실제 paint를 함께 확인한다. 사용자 맵 초기화로 표시 결함을 우회하지 않는다.
+
 ## 2026-10-13 공통 맵 로딩
 
 ### 구현 완료

@@ -14,9 +14,11 @@
 
 **목표:** CAD 확인 팝업과 적용 후 편집기가 같은 도면 내용·좌표·스타일을 표시한다. 공통 맵 요소와 기존 renderer를 유지하며 사용자 맵/장비/DB를 초기화하지 않는다. 별도 `codex/cad-preview-parity-20261013`에서 검증 후 로컬 메인에 통합한다.
 
-- [ ] P1 원인 재현: Web 담당자가 `CadImportPreview.tsx`, `CadImportSceneCanvas.tsx`, `FloorEditorCanvas.tsx`와 prepared/active document reader 경계를 비교한다. 영역·좌표 정규화·스타일·레이어·카메라 중 실제 차이를 실패 회귀로 고정한다. API/공유 계약 변경이 필요하면 근거와 최소 범위를 먼저 총괄에게 보고한다.
-- [ ] P2 최소 수정: 소유 경로의 RED→GREEN 후 단일 공통 표시 계약을 재사용한다. 같은 요소의 편집/삭제·paint loading·pan/zoom과 영역 변경·오류 복구를 유지한다. 선택/조명 슬롯 같은 편집 전용 overlay는 도면 차이와 구분한다.
+- [x] P1 원인 재현: 기존 CAD unit95/95는 통과했으나 새 회귀에서 preview의 강제 mobile 해상도와 legacy→공통 맵 적용 후 principal scope 누락을 확인했다. 늦은 query echo의 재initialize가 첫 fit을 지워 적용 직후 도형이 화면 밖으로 보이는 browser RED를 관측했다. 정책 unit2FAIL과 적용 scope unit1FAIL, browser camera/해상도 각각 실패를 별도로 보존했다. API/정본 데이터 변경은 필요하지 않다.
+- [x] P2 최소 수정: `85983e90`·`166566ad`에서 공통 맵 적용 ACK를 현재 draftScope로 초기화하고 preview의 viewport768 플랫폼 정책을 편집기와 맞췄다. legacy ACK는 기존 adoptBaseline을 유지한다. `c784d4ff`에서 선/문자/치수/숨김 레이어의 여러 좌표를 preview→apply→reload로 비교하고 legacy/native 교체·완료 poll 응답 fixture를 보완했다. 관련199/199·전체Web3,704PASS/기존Control5FAIL/3SKIP·타입/빌드/UI0·Chromium21/21을 확인했다. 초기 geometry/폰트/fixture 오류와 제품 RED를 별도 보존한다. 선택/조명 슬롯·격자는 편집 전용 overlay다.
 - [ ] P3 검증/통합: 관련 단위 회귀, 전체 Web 테스트·타입 포함 빌드, Chromium 미리보기→적용→저장/새로고침의 내용/좌표/표시 비교와 독립 QA를 수행한다. 기존 Control 5 실패는 별도 기록한다. 설정/교훈/상태 문서 갱신과 작은 커밋 후 승인된 로컬 머지를 진행한다.
+
+P3 리뷰: `c784d4ff`는 P2 1건/ReadyNo. apply 후 authoritative GET 지연 중 purge/층 전환이 발생하면 이전 ACK를 다시 채택할 수 있다. ACK 부작용 전과 invalidation 후 onSaved 전 lifecycle/generation guard의 실행 회귀를 추가하고 같은 담당자가 한정 보완한다. 기존21/21·전체Web는 이 보완 전 cohort이며 최종 근거로 혼용하지 않는다.
 
 기반 `036cd24a`, ignored worktree `.worktrees/cad-preview-parity-20261013`. 실제 고객 맵에 테스트 CAD를 적용하거나 현재 API/Pi를 재시작하지 않는다. 기존 dirty AGENTS/landing·문서는 보존한다. 검증 fixture와 실제 원본 도면 증거를 구분하며 단순 fit/화면 크기 차이를 데이터 동일성으로 오인하지 않는다.
 

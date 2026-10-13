@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-13 / CAD 적용 ACK는 문서뿐 아니라 편집 scope를 함께 채택한다
+
+- **문제**: legacy 맵은 mapScope가 없으므로 CAD의 공통 맵 문서만 baseline으로 채택하면 늦은 조회 echo가 초기화를 반복한다. 이미 맞춘 카메라가 풀려 미리보기와 다른 위치의 맵처럼 보인다. 미리보기의 강제 mobile renderer 정책도 desktop 편집기와 해상도가 달랐다.
+- **예방**: 새 공통 맵 ACK를 현재 draftScope로 초기화하고 query echo에서 같은 scope/리비전을 재초기화하지 않음을 검증한다. legacy ACK 경로와 기존 principal/현장/층 검증은 유지한다. 미리보기도 편집기의 viewport 플랫폼 정책을 따른다.
+- **회귀**: 첫 legacy→공통 맵과 공통→공통 교체에서 선·문자·치수·숨김 레이어를 preview→apply→reload로 검사하고 fit 카메라·첫 paint를 함께 확인한다. 해상도 숫자 하나만을 도면 전체 동일성 근거로 삼지 않는다. Fonts.ready 및 완료된 import poll 응답을 가진 fixture로 검증하고 초기 실패 원 로그를 보존한다.
+
 ## 2026-10-13 / 공통 맵 로딩은 데이터 준비가 아닌 실제 첫 paint를 기다린다
 
 - **문제**: query/manifest/renderer mount는 화면 표시 완료가 아니다. 같은 맵의 이동마다 로딩을 재표시하면 작업을 막으며 hidden/inert 아래의 status는 보조기술에 전달되지 않는다.
