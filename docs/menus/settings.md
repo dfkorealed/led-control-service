@@ -14,7 +14,7 @@
 
 ### 부족하거나 개선이 필요한 기능
 
-- 정책/적용 scope RED→GREEN과 총괄 관련199/199를 확인했다. 선·문자·치수·숨김 레이어의 미리보기→적용→새로고침과 기존 CAD 흐름은 보완 전 Chromium21/21이다. 마지막 stale ACK 보완은 RED7→GREEN9/9·관련182/182·타입/빌드·parity3/3·독립QA ReadyYes다. 다른 메인 화면 수정을 보존한 통합 소스의 fresh 전체Web3,711PASS/기존Control5FAIL/3SKIP·타입 포함build0이며 마지막 browser/로컬 머지는 진행 중이다.
+- 정책/적용 scope RED→GREEN과 stale ACK RED7→GREEN9/9를 확인했다. 마지막 scoped QA ReadyYes 뒤 다른 메인 화면 수정을 보존한 통합 소스의 전체Web3,711PASS/기존Control5FAIL/3SKIP·타입 포함build0·Chromium21/21을 확인했다. 선·문자·치수·숨김 레이어의 preview→apply→reload, legacy/native 교체·실패 복구·모바일/PC 흐름을 포함한다. 별도 브랜치를 로컬 메인에 머지한 뒤 관련206/206·타입 포함build0을 확인했다. 기존 실패는 신규 CAD 결함 및 전체 GREEN과 구분한다.
 - 팝업과 편집기의 화면 크기에 따른 fit 배율, 격자·선택·조명 후보 overlay는 서로 다를 수 있다. 도면의 내용·논리 좌표와 편집용 overlay를 구분한다. 초기 검증 fixture의 잘못된 geometry/폰트 준비/누락 GET 응답 실패 로그를 숨기지 않고 보존한다.
 
 ### 관련 파일

@@ -2,7 +2,7 @@
 
 기준일: 2026-10-13
 
-## 2026-10-13 CAD 미리보기·적용 일치 — 원인 재현, 수정 검증 중
+## 2026-10-13 CAD 미리보기·적용 일치 — 구현·검증·로컬 메인 반영 완료
 
 - 사용자 보고: CAD 미리보기의 맵과 실제 적용 후 맵이 다르다. 기존 공통 맵 계획의 P1–P3에 재현→최소 수정→단위/브라우저/빌드/QA/로컬 머지를 기록한다.
 - `036cd24a` 기반 `codex/cad-preview-parity-20261013` / `.worktrees/cad-preview-parity-20261013`에서 Web 담당자가 결합된 제품 경로를 소유하고 총괄은 문서·증거·통합을 관리한다. API/공유 계약 변경은 근거 확인 후 순차 배정한다.
@@ -10,6 +10,8 @@
 - `85983e90`·`166566ad`·`c784d4ff`의 구현/브라우저 회귀를 고정했다. 담당/총괄 관련199/199·전체Web3,704PASS/기존 Control5FAIL/3SKIP·타입/빌드/UI0·Chromium21/21을 확인했다. 선/문자/치수/숨김 레이어의 다지점 preview→apply→reload·legacy/native 교체를 검증했다. 독립 QA 및 로컬 머지는 아직이며 실제 사용자 도면 전체 동일성/장비 검증으로 확대하지 않는다. 원 로그는 worktree `.local/cad-preview-parity-20261013`에 보존한다.
 - 독립 QA `c784d4ff`는 P1없음/P2한건으로 ReadyNo다. 늦은 authoritative GET 뒤 폐기된 principal/층의 ACK가 store/cache/onSaved를 갱신할 수 있는 기존 guard 누락을 담당자가 먼저 실행 재현하고 최소 보완한다. 정상 save와 같은 lifecycle/generation 보호를 적용하며 보완/재리뷰 전에는 머지하지 않는다. 기존 RED와 fixture 보완이 테스트 약화가 아님은 QA가 확인했다.
 - `e3485e9d`에서 P2를 RED7FAIL/정상2PASS→GREEN9/9로 보완했다. 담당 focused182/182·type/build·parity Chromium3/3, 지정 두 파일의 scoped 재리뷰 ReadyYes/추가P1/P2없음을 확인했다. `669ce026`에 메인의 별도 이벤트 상태 UI/문서 변경을 함께 보존했고 문서 충돌은 양쪽 내용을 유지했다. 총괄 fresh 전체Web3,711PASS/동일Control5FAIL/3SKIP(exit1,51.84s)·타입 포함 build0을 확인했다. 마지막 Chromium과 로컬 메인 반영은 아직이다.
+- 최종 통합 소스의 총괄 Chromium21/21(exit0,1.3분)을 확인한 뒤 `01a86af6`→`51dd6a11`을 로컬 `codex/mvp1-cloud-web`에 ff-only 반영했다. 머지 후 관련5파일206/206(exit0,9.12s)·타입 포함 Web build0을 새로 확인했다. 검증 브랜치와 제품 소스의 차이는 보존한 LandingPage의 기존 변경뿐이다. AGENTS/LandingPage/landing 문서의 기존 dirty 변경을 보존했고 API/DB/장비/인증/remote 변경0이다. 위 No/진행 중 문장은 중간 실행 이력이며 최종 scoped QA는 ReadyYes다.
+- ROOT `.local/cad-preview-parity-20261013`와 기존 feature worktree에 원 RED/중간 fixture 실패/최종 검증 로그를 보존한다. 합성 WebGL 브라우저 결과를 실제 고객 DWG 전체 동일성이나 실기기 보장으로 표현하지 않는다. 팝업/편집기의 화면 크기·격자·선택 overlay 차이는 도면 내용/논리 좌표 차이와 구분한다.
 
 ## 2026-10-13 이벤트 사용자 화면 기술 진단 정리
 
