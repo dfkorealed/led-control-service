@@ -29,6 +29,33 @@ function Canvas({ readOnly = false }: { readOnly?: boolean } = {}) { const map =
   return <><input aria-label="Outside text" /><FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} mapEditor={map} readOnly={readOnly} />
     <ConfirmDialog isOpen={map.removeRequested} title="선택 전체 삭제" confirmLabel="전체 삭제" onClose={map.cancelRemove} onConfirm={() => { void map.confirmRemove(); }} /></>; }
 describe("actual common editor Canvas", () => {
+  it.each([10, 20])("automatically paints a version-only legacy restore or hidden grid save (gridSize=%s)", async gridSize => {
+    const initial = structuredClone(base);
+    initial.floor.mapDocument = null;
+    initial.floor.floorPlan = { imageUrl: "/legacy.svg", sourceType: "image", width: 1200, height: 800, gridSize: 10, version: 1 };
+    store().initialize(initial, "user");
+    store().setSnap(false);
+    planImage.image.mockReturnValue({ image: new Image(), status: "ready", retry: vi.fn() });
+    render(<FloorEditorCanvas rowRegistry={createFixturePlacementRowRegistry()} />);
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    // Let the mount/fit batches finish: only the version transition may request
+    // the next paint. The test never draws the layer itself.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
+    const stage = Konva.stages.at(-1)!, layer = stage.findOne<Konva.Layer>(".editor-static-layer")!;
+    const draw = vi.spyOn(layer, "draw"), camera = { pan: store().pan, zoom: store().zoom };
+    let loadingAtDraw = false;
+    layer.on("beforeDraw.version-loading", () => { loadingAtDraw = Boolean(screen.queryByRole("status")); });
+    act(() => store().updateFloorPlan({ ...store().state!.floor.floorPlan!, version: 2, gridSize }));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect({ pan: store().pan, zoom: store().zoom }).toEqual(camera);
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(draw).toHaveBeenCalled();
+    expect(loadingAtDraw).toBe(true);
+    expect(stage.findOne(".editor-static-layer")).toBe(layer);
+    act(() => store().setPan({ x: 100, y: 20 }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("waits for legacy layer draw after image decode, keeps pan/zoom unblocked, and preserves image errors", async () => {
     const initial = structuredClone(base);
     initial.floor.mapDocument = null;

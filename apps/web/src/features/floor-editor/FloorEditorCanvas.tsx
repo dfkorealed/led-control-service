@@ -230,6 +230,12 @@ export function FloorEditorCanvas({
   const [backgroundAttempt, setBackgroundAttempt] = useState(0);
   const legacyPaint = useMapPaintLoading(JSON.stringify([state?.floor.id, floorPlan?.version, backgroundUrl, backgroundAttempt]));
   const legacySurface = !mapEditor?.document && !cadSceneDescriptor && !cadImportScene;
+  useEffect(() => {
+    if (!legacySurface || !measured || !legacyPaint.loading || backgroundUrl && backgroundStatus !== "ready") return;
+    // A version-only save/restore can leave every Konva prop unchanged. Queue
+    // that visit's paint explicitly; only the actual layer onDraw settles it.
+    stage.current?.findOne<Konva.Layer>(".editor-static-layer")?.batchDraw();
+  }, [legacySurface, measured, legacyPaint.loading, legacyPaint.onPaintReady, backgroundUrl, backgroundStatus]);
   const bounds = cadImportScene?.manifest ?? mapEditor?.mapBounds ?? (cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 });
