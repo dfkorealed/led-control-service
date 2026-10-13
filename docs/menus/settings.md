@@ -492,6 +492,25 @@
 ### 갱신 규칙
 
 - 테마 경계 변경 시 저장 읽기/쓰기 실패·cross-tab clear·root cleanup·열린 portal·draft와 route/query identity 및 추가 명령0 회귀를 함께 확인한다. 공유 palette 소비자의 후속 적용과 실장비 한계는 실제 검증 범위에 맞춰 별도로 기록한다.
+## 2026-10-13 운영자 센서 호환 프로파일 현장 등록·준비 후속
+
+- 구현 완료(최신 14:01–14:09 KST): 사용자 승인대로 혼자 진행했다. Pi hosts/동일 이미지 Gateway의 기존 서버 별칭2개 주소만 교정했고 MQTT·heartbeat·BIO transport/protocol/mapping·단일 USB 소유를 확인했다. 정상 현장 관리자 UI의 A=B1-L001 `센서 사용 설정` 새 요청1개가 ready이며 실제 결과/ACK 발행과 현재 `사용 가능` 표시를 확인했다. catalog5 exact ACK·기존 등록/설정밝기 보존도 재확인했다.
+- 미구현(최신): B/나머지 조명의 감지 센서 준비와 전체 장비군 호환 인증, 정식 이벤트 움직임·유지·복귀 및 장애 시험은 수행하지 않았다.
+- 부족하거나 개선이 필요한 기능(최신): 초기 준비와 현재 감지 회로/광학 출력은 다른 증거다. 개발 환경의 정적 주소는 네트워크 이동 시 다시 점검해야 한다. 현재 localhost API 경로는 정상이라 Mac hosts는 변경하지 않았다. 이벤트 화면의 BIO 활성화/고정 OFF 및 API 동기화 보정은 별도 브랜치의 Web103·API71·mock Chromium7/7과 타입/빌드로 확인했으나 실행 중 서비스 반영·새 실장비 시험은 아직 하지 않았다. 설정 메뉴/정책/프로파일 계약은 변경하지 않았다.
+- 관련 파일(최신): `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx`, `apps/web/src/features/control/automation/{BioSensorPreparationPanel,VehicleEventControlPanel}.tsx`, `apps/api/src/automation/vehicle-event-rules.service.ts`, `docs/superpowers/plans/2026-10-08-bio-sensor-operational-enablement.md`.
+- 갱신 규칙(최신): 아래 오전/10월12일 상태는 당시 기록이다. 새 장비 요청·현재 sourceEligible·규칙 활성화·실제 시험을 구분하며, 준비 성공을 모든 조명의 지원 인증으로 확대하지 않는다.
+
+아래는 최신 복구 전의 역사적 상태다.
+
+- 구현 완료(이번 설정 재읽기): 현재 native MQTT broker의 준비3권한은 이미 파일에 있어 중복 추가하지 않았다.09:16 KST SIGHUP1회로 재읽기를 요청하고 API/broker/ACL/config/TLS 보존·재시작0·정상 Web proxy ready200/5개 up을 확인했다. 실제 준비 결과/ACK·sensor mode·sourceEligible는 Gateway 연결 확인 후 별도 검증한다.
+- 부족하거나 개선이 필요한 기능(현재 현장 연결):09:17 KST 실제 assignment/hosts 읽기에서 MQTT hostname은 유지되지만 Mac/Pi/container/ExtraHosts의 별칭 모두 현재 서버 Mac LAN IP와 달랐다. 동일440 Gateway는 running/재시작0이다. 주소 교정 및 필요 시 같은 image/state의 container 재구성은 새 승인 전 실행하지 않으며 UI 준비 요청·sensor 사용 가능은 미완료다.
+
+- 구현 완료(현장 적용): 정상 로그인한 `/operator/sensor-profiles`에서 실제 완전 fingerprint·accepted pulse 근거·재현 가능한 evidence digest·제한된 reuseScope를 가진 최초 revision1을 단1회 등록했다. API의 current catalog4 profile 계약과 실제 exact Gateway 적용 ACK를 확인했다. 기존 ID·설정밝기를 변경하는 등록 작업은 아니다.
+- 구현 완료(후속 정책 저장): 사용자가 승인한 시험용60초 대응·담당자의 이벤트 비활성화/연결 점검 기준을 정상 현장 관리자 UI로 ON 저장했다. 새 catalog5에 승인 profile r1과 정확한 현재 정책이 포함됐으며 실제 적용 ACK를 확인했다. A의 센서 사용 설정은 단1회 접수했다.
+- 미구현: A의 10월12일 단1회 준비 요청은 발행 완료 전 timed_out이며 결과/ACK가 없다. API 준비 command WRITE/result READ/result ACK WRITE3권한 및 재시작 없는 반영은10월13일 승인됐다. 실제09:05 읽기에서3권한은 이미 현재 ACL에 있지만 기존 Docker broker stopped/이전 private API 부재·Gateway heartbeat 오래됨을 확인했다. 담당 조율로 별도의 새 native broker/API/Web 실행을 확인했으며 현재 대상 접속 경계를 대조한다. 정상 현장 관리자 UI/정책은 유지되며 Gateway0/1 연결·조명4대 오프라인이다. 중복 write/reload/새 준비 요청0이며 실제 모드 변경·현재 사용 가능과 이벤트 규칙·감지/유지/복귀 시험은 미완료다.
+- 부족하거나 개선이 필요한 기능: 현재 실제 mode GET은 force-off이며 저장 성공이나 catalog ACK만으로 준비 완료를 표시하지 않는다. 10초 독립 GET/30초 maxAge는 fail-closed 공학 제안이지 실측 장기 신뢰성/존재·부재 증거가 아니다. 정확 fingerprint 일치도 모든 조명 호환 인증을 뜻하지 않는다.
+- 관련 파일: `apps/web/src/features/operator/SensorProfilesView.tsx`, `apps/api/src/automation/bio-sensor-profiles.service.ts`, `docs/superpowers/plans/2026-10-08-bio-sensor-operational-enablement.md`.
+- 갱신 규칙: 정상 운영자 승인·현장 준비·현재 사용 가능·정책 적용을 분리하며, 아래 과거 기록을 이번 실제 적용 완료로 소급 변경하지 않는다.
 
 ## 2026-10-08 공통 센서 준비·현장 운영 정책 UI (Task 5)
 

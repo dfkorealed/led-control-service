@@ -86,6 +86,46 @@ describe("VehicleEventControlPanel", () => {
     expect(detail).toHaveTextContent(/실행·복원 상태 미확인/);
   });
 
+  it("allows an explicit activation only with current matching BIO source eligibility", async () => {
+    const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
+    renderPanel("admin", { dashboard: readyBioDashboard() });
+    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    expect(detail).toHaveTextContent("센서 준비 완료 · 규칙 비활성");
+    expect(detail).not.toHaveTextContent("제품 지원 OFF");
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+    const activate = screen.getByRole("button", { name: /활성화$/ });
+    expect(activate).toBeEnabled();
+    fireEvent.click(activate);
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, draft.id, { status: "enabled" }));
+  });
+
+  it.each(["ineligible", "missing", "wrong-gateway", "wrong-protocol", "wrong-site", "missing-second-source"])(
+    "blocks activation when current BIO evidence is %s", async reason => {
+      const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled",
+        ...(reason === "missing-second-source" ? { sourceFixtureIds: [sensorFixtureId, "missing-source"] } : {}) });
+      mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
+      const changed = readyBioDashboard();
+      if (reason === "wrong-site") changed.site.id = "another-site";
+      changed.floors[0].fixtures = changed.floors[0].fixtures.flatMap(item => {
+        if (item.id !== sensorFixtureId) return [item];
+        if (reason === "missing") return [];
+        return [{ ...item,
+          ...(reason === "wrong-gateway" ? { gateway: { ...item.gateway!, id: "another-gateway" } } : {}),
+          vehicleEventSource: { ...item.vehicleEventSource!,
+            ...(reason === "ineligible" ? { sourceEligible: false } : {}),
+            ...(reason === "wrong-protocol" ? { sensorProtocol: "bluez-stateful" as const } : {}) }
+        }];
+      });
+      const { rerender, queryClient } = renderPanel("admin", { dashboard: readyBioDashboard() });
+      await screen.findByRole("region", { name: /BIO 운영 상태/ });
+      rerender(panelElement("admin", queryClient, siteId, siteId, changed));
+      const activate = screen.getByRole("button", { name: /활성화$/ });
+      expect(activate).toBeDisabled();
+      fireEvent.click(activate);
+      expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+    });
+
   it("keeps a degraded source warning visible and permits an explicit operator disable request", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "enabled" })], total: 1, nextCursor: null });
     const degraded: Dashboard = { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor, fixtures: floor.fixtures.map(item => item.id !== sensorFixtureId ? item : {
@@ -1193,6 +1233,16 @@ function renderPanel(
 
 function testQueryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+}
+
+function readyBioDashboard(): Dashboard {
+  const ready = structuredClone(dashboard);
+  ready.floors[0].fixtures[0].vehicleEventSource = {
+    sensorProtocol: "bio-usb-pulse", readiness: "ready", capabilityEvidence: "ready", sourceEligible: true,
+    targetEligible: false, blockReasons: [],
+    modeVerification: { commandId: "synthetic-preparation", status: "verified", modeVerified: true, verifiedAt: ready.generatedAt }
+  };
+  return ready;
 }
 
 function telemetryDashboard(overrides: Record<string, unknown> | null = {}): Dashboard {

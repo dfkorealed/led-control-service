@@ -98,7 +98,7 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }
 for (const width of [320, 390, 1440]) {
   test(`BIO authoring ${width}px preserves source-only selection, hold warning and touch layout`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
-    await installControlMapRoutes(page, { bioReadiness: "ready" });
+    const api = await installControlMapRoutes(page, { bioReadiness: "ready" });
     await page.goto(`/control?siteId=${ids.site}&mode=event`);
     await page.getByRole("button", { name: "이벤트 추가" }).click();
     await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
@@ -116,6 +116,50 @@ for (const width of [320, 390, 1440]) {
     await expectNoHorizontalOverflow(page);
     await expect(dialog.getByRole("textbox", { name: "유지 시간", exact: true })).toHaveValue("10");
     await expect(dialog.getByText(/자체 밝기 동작은 현장 검증 전/)).toBeVisible();
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.eventRequests).toHaveLength(1);
+    expect(api.eventRequests[0]).toMatchObject({ status: "disabled", holdSeconds: 10 });
+  });
+}
+
+for (const width of [320, 1440]) {
+  test(`BIO ready activation ${width}px is explicit and enabled hold editing preserves activation`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installControlMapRoutes(page, { bioReadiness: "ready" });
+    let current = eventResponse({ name: "BIO 시험 규칙", sensorProtocol: "bio-usb-pulse", status: "disabled",
+      sourceFixtureIds: [ids.sensor], targetFixtureIds: [ids.fixture], holdSeconds: 60,
+      action: { dimmingEnabled: true, brightnessPercent: 100 } });
+    const patches: Record<string, unknown>[] = [];
+    await page.route(`**/api/sites/${ids.site}/automation/vehicle-event-rules**`, async route => {
+      if (route.request().method() === "GET") return route.fulfill({ json: { items: [current], total: 1, nextCursor: null } });
+      if (route.request().method() === "PATCH") {
+        const input = route.request().postDataJSON() as Record<string, unknown>;
+        patches.push(input);
+        current = { ...current, ...input };
+        return route.fulfill({ json: current });
+      }
+      return route.fallback();
+    });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    const region = page.getByRole("region", { name: "BIO 시험 규칙 BIO 운영 상태" });
+    await expect(region).toContainText("센서 준비 완료 · 규칙 비활성");
+    await expect(region).not.toContainText("제품 지원 OFF");
+    expect(patches).toEqual([]);
+    await page.getByRole("button", { name: "BIO 시험 규칙 활성화", exact: true }).click();
+    await expect(region).toContainText("센서 준비 완료 · 규칙 활성");
+    expect(patches).toEqual([{ status: "enabled" }]);
+    await page.getByRole("button", { name: "BIO 시험 규칙 작업", exact: true }).click();
+    await page.getByRole("menuitem", { name: "수정", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "이벤트 수정", exact: true });
+    await dialog.getByRole("button", { name: "직접 입력", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "유지 시간", exact: true }).fill("10");
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(patches).toHaveLength(2);
+    expect(patches[1]).toMatchObject({ status: "enabled", holdSeconds: 10 });
+    await expect(region).toContainText("규칙 활성");
+    await expectNoHorizontalOverflow(page);
   });
 }
 
@@ -871,7 +915,7 @@ async function installControlMapRoutes(page: Page, options: {
     })) : options.boundaryFixtures ? fixtures.map((item, index) => ({ ...item, x: index === 0 ? 0 : 1200, y: index === 0 ? 0 : 800 })) : fixtures.map(item => options.bioReadiness && item.id === ids.sensor ? {
       ...item, vehicleSensorCapabilityStatus: "unknown" as const, vehicleSensorCapabilityVerifiedAt: null,
       bioSensorPreparation: { preparationCandidate: true, status: "unverified", commandId: null, profileKey: null, observedAt: null, blockedReasons: options.bioReadiness === "off" ? ["profile_unverified" as const, "mode_unverified" as const] : [] },
-      // Synthetic future-ready view exercises UI only; the product API remains OFF.
+      // Synthetic current eligibility exercises UI only, not real hardware readiness.
       vehicleEventSource: { sensorProtocol: "bio-usb-pulse" as const, readiness: options.bioReadiness, capabilityEvidence: options.bioReadiness,
         sourceEligible: options.bioReadiness === "ready", targetEligible: true,
         blockReasons: options.bioReadiness === "off" ? ["product_gate_off" as const, "mode_unverified" as const] : [],

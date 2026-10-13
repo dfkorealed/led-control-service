@@ -773,6 +773,35 @@
 ### 갱신 규칙
 
 - 테마 경계 변경 시 저장 읽기/쓰기 실패·cross-tab clear·root cleanup·열린 portal·draft와 route/query identity 및 추가 명령0 회귀를 함께 확인한다. 공유 palette 소비자의 후속 적용과 실장비 한계는 실제 검증 범위에 맞춰 별도로 기록한다.
+## 2026-10-13 BIO 이벤트 활성화·유지시간·동기화 표시 보정
+
+- 구현 완료(소프트웨어): 현재 현장·Gateway·감지 센서 프로토콜이 일치하고 모든 저장된 감지 센서의 서버 `sourceEligible`이 true일 때만 관리자에게 BIO 활성화를 제공한다. 렌더링만으로 활성화하지 않으며 준비 상실·센서 누락/재매핑은 차단한다. 활성 규칙의 명시적 비활성화는 준비 상실 후에도 가능하다. 공통 목록 작업 UI·모바일 터치 영역·권한/요청 세대 보호를 재사용한다.
+- 구현 완료(소프트웨어): 고정 OFF 문구 대신 현재 센서 준비와 규칙 활성 상태를 구분한다. 과거 운영 보고·실행/복원 미확인은 별도 표시한다. 새 BIO 규칙은 비활성 초안이고 기존 활성 규칙의 유지시간 60→10초 편집은 활성 상태를 보존한다. 서버의 현재 자격·대상 충돌 검증은 유지한다.
+- 구현 완료(소프트웨어): API 응답·목록 필터·현장 집계가 같은 Gateway 구성 판정을 사용한다. BIO APPLIED는 양수 desiredRevision과 같은 해당 규칙의 appliedRevision이 추가로 필요하다. 이는 현재 V2 ACK에서만 쓰이는 근거이며 BIO를 포함하지 않는 V1 ACK/이전 revision/0은 PENDING이다. REJECTED는 Gateway 구성 거절이지 센서 건강·규칙 실행 성공이 아니다.
+- 미구현: 메인 통합·실행 중 서비스 반영·규칙 실제 활성화·새 움직임/유지/복귀 및 실제 UI10초 변경 시험은 수행하지 않았다. 기존 실제 A 준비/비활성 초안 증거와 이번 합성 테스트를 구분한다.
+- 부족하거나 개선이 필요한 기능: 사용자 단독 진행 지시에 따라 자체 검토만 수행했다. 독립 리뷰·실제 DB 목록 필터 통합·실장비 동작은 이번 검증에 포함하지 않는다. Web 빌드의 기존 500kB chunk 경고는 남지만 빌드는 성공했다.
+- 관련 파일: `apps/web/src/features/control/automation/{VehicleEventControlPanel,VehicleEventDialog}.tsx` 및 관련 테스트, `apps/web/e2e/control-map-target-selection.spec.ts`, `apps/api/src/automation/vehicle-event-rules.service{,.spec}.ts`.
+- 갱신 규칙: RED에서 UI 활성화/활성 편집/API 상태·필터 실패를 확인한 뒤 Web103/103·API71/71·Chromium7/7(320/390/1440px, mock API), 양쪽 타입/빌드·diff 검증으로 GREEN을 확인했다. 정상 운영 서비스 적용·현재 센서 자격·사용자 RF/광학 관찰은 별도 기록한다.
+
+## 2026-10-13 테스트 현장 호환 프로파일 등록·전달·준비 후속
+
+- 구현 완료(최신 14:01–14:09 KST): 기존 서버 별칭2개만 교정한 동일 이미지 Gateway가 MQTT·heartbeat·BIO transport/protocol/mapping 준비와 단독 USB 소유를 통과했다. 정상 UI로 A=B1-L001의 새 준비1개가 ready·결과/ACK 발행·현재 사용 가능을 확인했다. 지도에서 A→B=B1-L004, 밝기100%·유지60초인 `A → B 센서 연동 시험`을 비활성 초안1개로 저장했고 서버의 exact membership·설정 및 현재 configuration APPLIED를 확인했다. 실제 등록/설정밝기는 보존됐다.
+- 미구현(최신): 규칙 활성화와 새 현장 움직임·재감지 연장·만료 복귀·UI10초 변경·장애/해제 시험은 하지 않았다. 활성 규칙0·준비 pending0이다.
+- 부족하거나 개선이 필요한 기능(운영 적용): 당시 Web의 BIO 일괄 활성화 차단/고정 OFF와 API 고정 PENDING은 위 후속 소프트웨어에서 수정했다. 실행 중 서비스에는 아직 반영하지 않았으며 현재 장비 준비 실패나 MQTT 실패와 구분한다. 주소/권한 복구 시점에는 우회·서버 재시작·제품 코드 변경을 하지 않았다.
+- 관련 파일(최신): `apps/web/src/features/control/automation/{VehicleEventControlPanel,VehicleEventDialog,BioSensorPreparationPanel}.tsx`, `apps/api/src/automation/vehicle-event-rules.service.ts`, `docs/superpowers/plans/2026-10-08-bio-sensor-operational-enablement.md`.
+- 갱신 규칙(최신): 사용 가능·초안 저장·current snapshot ACK·규칙 활성화·RF/광학 관찰을 별도로 기록한다. 아래 오전/과거 실패는 당시 상태로 보존한다.
+
+아래는 최신 복구 전의 역사적 상태다.
+
+- 구현 완료(이번 전달 권한 재읽기): 준비3권한이 이미 있는 현재 native MQTT broker에09:16 KST SIGHUP1회만 보냈다. API/broker/ACL/config/TLS 보존·재시작0·현재 ready200/5개 up을 확인했다. Gateway SSH/기존440 container는 running이지만 실제 연결·준비 결과/ACK/sourceEligible·규칙 활성화는 아직 별도 확인이다.
+- 부족하거나 개선이 필요한 기능(현재 연결):09:17 KST 실제 assignment의 MQTT hostname/해당 hosts·ExtraHosts가 현재 서버 Mac LAN IP와 불일치함을 확인했다. 기존 image/배정/신뢰/ID/밝기/state를 유지하는 주소 교정·필요한 container 재구성은 새 승인 대상이다. 준비 요청·규칙 활성화·점등 시험은 아직 하지 않는다.
+
+- 구현 완료(현장 적용): 공통 센서 Gateway/API 호환 runtime을 적용하고 정상 operator UI에서 관측 장비의 profile revision1을 등록했다. current catalog4의 exact 귀속·revision/hash 적용 ACK는 실제 MQTT 경로로 확인했다. 제어 UI를 새로 만들거나 이벤트를 자동 활성화하지 않았다.
+- 구현 완료(후속 정책 전달): 정상 현장 관리자 UI의 승인된 시험용 정책 ON과 새 catalog5 exact 적용 ACK를 확인했다. A=B1-L001 공통 센서 준비 요청은 단1회 접수했으며 중복 설정하지 않는다.
+- 미구현: 10월12일 단1회 준비 요청은 발행 완료 전 timed_out·결과/ACK 없음이다. API 준비용 MQTT3권한 및 재시작 없는 반영은 10월13일 승인됐다. 실제09:05 읽기에서3권한은 이미 현재 파일에 있으나 기존 broker stopped/이전 private API 부재·Gateway heartbeat 오래됨을 확인했다. 현재 화면은 Gateway0/1 연결·조명4대 오프라인이다. 중복 write/reload/새 준비 요청 없이 현재 서비스 대상을 조율한다. 실제 sensor 모드·현재 sourceEligible와 이벤트 규칙 활성화·정식 감지/유지/복귀 확인은 남아 있다.
+- 부족하거나 개선이 필요한 기능: 실제 GET3회는 force-off였다. 프로파일/카탈로그 적용은 sensor 모드·sourceEligible·현재 건강 증명이 아니다. 재사용은 관측 근거 범위의 설명이며 기술적 장치 allowlist가 아니고 다른 장치/회로의 실증을 대체하지 않는다. 유지시간10~1,800초와 source/target 분리 규칙은 그대로다.
+- 관련 파일: `apps/web/src/features/control/automation/BioSensorPreparationPanel.tsx`, `apps/api/src/automation/bio-sensor-profiles.service.ts`, `apps/gateway/src/bio/bio-sensor-profile-catalog.ts`, `docs/project-status.md`.
+- 갱신 규칙: 프로파일 저장·exact catalog ACK·장비 준비·정책/규칙 활성화·실제 점등 확인을 별도 단계로 기록한다. 아래 10월8일 기록은 당시 로컬 통합 상태다.
 
 ## 2026-10-08 BIO와 최신 모바일 제어 UI 로컬 통합
 

@@ -193,8 +193,9 @@ export function VehicleEventDialog({
       setPendingFocus(firstError);
       return;
     }
-    // BIO authoring remains a disabled draft; server rollout policy is authoritative.
-    const status: AutomationRuleStatus = isBio ? "disabled" : rule?.status ?? "enabled";
+    // Only new BIO rules start disabled. Editing the hold of an active rule
+    // must not silently turn it off; the server still rechecks admission.
+    const status: AutomationRuleStatus = rule?.status ?? (isBio ? "disabled" : "enabled");
     onSubmit(vehicleEventFormToInput(values, status, sourceProtocol));
   }
 
@@ -337,7 +338,7 @@ export function VehicleEventDialog({
                 {customHoldOpen ? (
                   <TextField ref={holdSecondsInputRef} label="유지 시간" description={`${isBio ? "10" : "5"}~1,800초, 기본 60초. 초 단위로 입력하세요.`} inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
                 ) : null}
-                {isBio ? <Text tone="secondary">마지막 유효 펄스부터 유지 시간을 계산합니다. BIO 규칙은 비활성 초안으로 저장되며 서버의 활성화 정책을 따릅니다.</Text> : null}
+                {isBio ? <Text tone="secondary">마지막 유효 펄스부터 유지 시간을 계산합니다. {rule ? "수정 시 규칙의 활성 상태는 유지되며 서버가 센서 준비 상태를 다시 확인합니다." : "새 BIO 규칙은 비활성 초안으로 저장됩니다. 센서 준비 확인 후 목록에서 활성화하세요."}</Text> : null}
                 {isBio && Number(values.holdSeconds) === 10 ? <Text role="note" tone="warning">10초 설정에서는 움직임이 이어져도 신호 간격이 길면 B가 꺼졌다 다시 켜질 수 있습니다.</Text> : null}
               </fieldset>
             </section>

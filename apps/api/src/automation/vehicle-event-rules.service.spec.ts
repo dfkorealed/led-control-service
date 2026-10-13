@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import { PrismaClient } from "@prisma/client";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { VehicleEventRulesService } from "./vehicle-event-rules.service";
 
@@ -7,6 +8,8 @@ const GATEWAY_ID = "00000000-0000-4000-8000-000000000002";
 const SOURCE_ID = "00000000-0000-4000-8000-000000000003";
 const TARGET_ID = "00000000-0000-4000-8000-000000000004";
 const RULE_ID = "00000000-0000-4000-8000-000000000005";
+// Field references are generated query metadata; this client never connects.
+const ruleFields = new PrismaClient().vehicleEventRule.fields;
 
 const admin = {
   id: "00000000-0000-4000-8000-000000000006",
@@ -33,7 +36,7 @@ function ruleInput(overrides: Record<string, unknown> = {}) {
 
 describe("VehicleEventRulesService", () => {
   it("returns filtered vehicle-rule counts and site-wide Gateway sync counts in one read transaction", async () => {
-    const tx = { vehicleEventRule: { count: jest.fn().mockResolvedValueOnce(4).mockResolvedValueOnce(1)
+    const tx = { vehicleEventRule: { fields: ruleFields, count: jest.fn().mockResolvedValueOnce(4).mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1).mockResolvedValueOnce(2).mockResolvedValueOnce(1),
       findMany: jest.fn().mockResolvedValue([]) } };
     const prisma = { $transaction: jest.fn((callback, _options) => callback(tx)) };
@@ -48,6 +51,43 @@ describe("VehicleEventRulesService", () => {
     expect(tx.vehicleEventRule.findMany.mock.calls[0][0].where).toMatchObject({ siteId: SITE_ID,
       name: { contains: "차고\\%\\_", mode: "insensitive" }, status: "disabled" });
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
+  });
+
+  it.each([
+    ["APPLIED", 3, 3, "APPLIED"],
+    ["APPLIED", 3, 0, "PENDING"],
+    ["APPLIED", 3, 2, "PENDING"],
+    ["APPLIED", 0, 0, "PENDING"],
+    ["PENDING", 3, 2, "PENDING"],
+    ["REJECTED", 3, 0, "REJECTED"]
+  ] as const)("reports Gateway %s with BIO desired %s / applied %s as %s", async (syncStatus, desiredRevision, appliedRevision, expected) => {
+    const now = new Date("2026-10-13T00:00:00Z");
+    const row = { id: RULE_ID, siteId: SITE_ID, gatewayId: GATEWAY_ID, name: "BIO draft", status: "disabled",
+      sensorProtocol: "bio_usb_pulse", dimmingEnabled: true, brightnessPercent: 100, holdSeconds: 60,
+      desiredRevision, appliedRevision, createdById: admin.id, updatedById: admin.id, createdAt: now, updatedAt: now,
+      sources: [{ fixtureId: SOURCE_ID }], targets: [{ fixtureId: TARGET_ID }],
+      gateway: { automationConfiguration: { desiredRevision, appliedRevision: syncStatus === "APPLIED" ? desiredRevision : 0, syncStatus } } };
+    const tx = { vehicleEventRule: { fields: ruleFields, count: jest.fn().mockResolvedValue(1), findMany: jest.fn().mockResolvedValue([row]) },
+      $queryRaw: jest.fn().mockResolvedValue([]) };
+    const service = new VehicleEventRulesService({ $transaction: (callback: (tx: unknown) => unknown) => callback(tx) } as never,
+      { assertReadInTransaction: jest.fn().mockResolvedValue({ id: SITE_ID }) } as never, {} as never, {} as never);
+    const result = await service.list(SITE_ID, admin, {});
+    expect(result.items[0]).toMatchObject({ status: "disabled", syncStatus: expected, desiredRevision, appliedRevision });
+  });
+
+  it("uses the same revision-qualified BIO predicate for filtered pages and site-wide counts", async () => {
+    const tx = { vehicleEventRule: { fields: ruleFields, count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) } };
+    const service = new VehicleEventRulesService({ $transaction: (callback: (tx: unknown) => unknown) => callback(tx) } as never,
+      { assertReadInTransaction: jest.fn().mockResolvedValue({ id: SITE_ID }) } as never, {} as never, {} as never);
+    await service.list(SITE_ID, admin, { syncStatus: "APPLIED" });
+    const appliedWhere = { siteId: SITE_ID, OR: [
+      { sensorProtocol: "bluez_stateful", gateway: { automationConfiguration: { is: { syncStatus: "APPLIED" } } } },
+      { sensorProtocol: "bio_usb_pulse", gateway: { automationConfiguration: { is: { syncStatus: "APPLIED" } } },
+        desiredRevision: { gt: 0 }, appliedRevision: { equals: ruleFields.desiredRevision } }
+    ] };
+    expect(tx.vehicleEventRule.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: appliedWhere }));
+    expect(tx.vehicleEventRule.count.mock.calls[1][0].where).toEqual(appliedWhere);
+    expect(tx.vehicleEventRule.count.mock.calls[2][0].where).toEqual(appliedWhere);
   });
 
   it("rejects an invalid hold duration before opening a write transaction", async () => {

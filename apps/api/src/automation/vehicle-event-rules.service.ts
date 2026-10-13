@@ -78,7 +78,7 @@ export class VehicleEventRulesService {
       const filteredWhere: Prisma.VehicleEventRuleWhereInput = { siteId,
         ...(query.query ? { name: literalAutomationName(query.query) } : {}),
         ...(query.status ? { status: query.status } : {}),
-        ...(query.syncStatus ? vehicleRuleSyncWhere(query.syncStatus) : {}) };
+        ...(query.syncStatus ? vehicleRuleSyncWhere(query.syncStatus, tx.vehicleEventRule.fields) : {}) };
       const anchorWhere: Prisma.VehicleEventRuleWhereInput | null = query.cursor
         ? {
           OR: [
@@ -93,7 +93,7 @@ export class VehicleEventRulesService {
       const total = await tx.vehicleEventRule.count({ where: { siteId } });
       const filteredTotal = query.hasFilters ? await tx.vehicleEventRule.count({ where: filteredWhere }) : total;
       const [applied, pending, rejected] = await Promise.all(["APPLIED", "PENDING", "REJECTED"].map(syncStatus =>
-        tx.vehicleEventRule.count({ where: { siteId, ...vehicleRuleSyncWhere(syncStatus as "APPLIED" | "PENDING" | "REJECTED") } })));
+        tx.vehicleEventRule.count({ where: { siteId, ...vehicleRuleSyncWhere(syncStatus as "APPLIED" | "PENDING" | "REJECTED", tx.vehicleEventRule.fields) } })));
       const rows = await tx.vehicleEventRule.findMany({
         where: pageWhere,
         orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -339,7 +339,11 @@ export class VehicleEventRulesService {
       targetCount: rule.targets.length,
       desiredRevision: rule.desiredRevision,
       appliedRevision: rule.appliedRevision,
-      syncStatus: rule.sensorProtocol === "bio_usb_pulse" ? "PENDING" : configuration?.syncStatus ?? "PENDING",
+      // Only a current V2 ACK writes a BIO rule's appliedRevision. Gateway-wide
+      // APPLIED alone (e.g. a V1 snapshot excluding BIO) is not rule evidence.
+      syncStatus: rule.sensorProtocol === "bio_usb_pulse" && configuration?.syncStatus === "APPLIED"
+        && !(rule.desiredRevision > 0 && rule.appliedRevision === rule.desiredRevision)
+        ? "PENDING" : configuration?.syncStatus ?? "PENDING",
       lastDetection: toExecutionResponse(executions.detectionByRuleId.get(rule.id)),
       lastExecution: toExecutionResponse(executions.latestByRuleId.get(rule.id)),
       createdById: rule.createdById,
@@ -354,11 +358,20 @@ function normalizeCreateInput(input: CreateVehicleEventRuleInput): CreateVehicle
   return { ...input, action: normalizeAutomationAction(input.action) };
 }
 
-function vehicleRuleSyncWhere(syncStatus: "APPLIED" | "PENDING" | "REJECTED"): Prisma.VehicleEventRuleWhereInput {
+function vehicleRuleSyncWhere(syncStatus: "APPLIED" | "PENDING" | "REJECTED", fields: Prisma.VehicleEventRuleFieldRefs): Prisma.VehicleEventRuleWhereInput {
   const bluez = { sensorProtocol: "bluez_stateful" as const, ...automationSyncWhere(syncStatus) };
-  // BIO drafts are absent from V1 snapshots. Gateway-wide V1 ACK state must not
-  // leak into their rows, filters, or site-wide counts while V2 is unavailable.
-  return syncStatus === "PENDING" ? { OR: [{ sensorProtocol: "bio_usb_pulse" }, bluez] } : bluez;
+  const currentBioAck = { desiredRevision: { gt: 0 }, appliedRevision: { equals: fields.desiredRevision } };
+  // Snapshot writes update all rule desired revisions under the membership
+  // lock. V1 fallback resets BIO appliedRevision to zero; only a current V2 ACK
+  // can satisfy this predicate. Keep page filters/counts aligned with responses.
+  const bio: Prisma.VehicleEventRuleWhereInput = { sensorProtocol: "bio_usb_pulse",
+    ...(syncStatus === "PENDING" ? { OR: [
+      automationSyncWhere("PENDING"),
+      { ...automationSyncWhere("APPLIED"), NOT: currentBioAck }
+    ] } : { ...automationSyncWhere(syncStatus), ...(syncStatus === "APPLIED" ? currentBioAck : {}) }) };
+  // REJECTED describes the current Gateway configuration, not sensor readiness
+  // or a successful per-rule application. It never qualifies BIO activation.
+  return { OR: [bluez, bio] };
 }
 
 function normalizeUpdateInput(input: UpdateVehicleEventRuleInput): UpdateVehicleEventRuleInput {

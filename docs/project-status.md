@@ -2,6 +2,50 @@
 
 기준일: 2026-10-13
 
+## 2026-10-13 BIO 보정의 현재 메인 통합·로컬 API 반영 — 진행 중
+
+- 사용자 승인으로 현재 작업 메인 `codex/mvp1-cloud-web`에 수정 커밋 `92d5b83d`만 정상 cherry-pick한다. 원 센서 브랜치의 이전 별도 의존성/배포 커밋36개 전체를 병합하지 않는다. 기존 사용자 AGENTS 변경·지도/CAD/인증 작업·패키지/lock/schema를 보존한다. 문서 충돌은 양쪽 추가 기록을 모두 보존한다.
+- 기존 Nest watcher만 일시 정지해 검증되지 않은 코드의 자동 재기동을 막고, 기존 API는 계속 응답한다. 메인 통합 결과의 관련 회귀·타입/빌드 확인 뒤 같은 watcher/상속 환경을 재개해 반영한다. 인증·DB·MQTT·PKI·장비 설정은 변경하지 않으며 새 규칙 활성화/움직임 시험은 하지 않는다. 원 센서 worktree/비밀 자료·상태 백업은 정리하지 않는다.
+
+## 2026-10-13 BIO 이벤트 UI·동기화 코드 보정 — 소프트웨어 완료, 서비스 반영 전
+
+- 사용자가 후속 코드 수정을 승인했다. 기존 격리 worktree에서 직접 작업하며 다른 에이전트/총괄 채팅에 공유하지 않는다. 현재 서버의 sourceEligible로 명시적 활성화를 허용하고, 준비 상태와 규칙 ON/OFF를 구분하며, 활성 BIO 규칙의 유지시간 편집은 활성 상태를 보존한다.
+- API 응답·필터·집계는 실제 Gateway 구성 상태를 따르되 BIO APPLIED에는 양수 desiredRevision과 같은 해당 규칙의 현재 V2 appliedRevision 근거가 필요하다. V1 Gateway ACK/이전 revision/0은 적용 완료로 승격하지 않는다. REJECTED는 Gateway 구성 거절이지 센서 건강이나 실행 성공이 아니다.
+- fresh RED→GREEN: UI 명시 활성화·활성 규칙60→10초 편집·API 상태/필터의 원래 실패를 확인했고 Web103/103·API4 suites71/71·Chromium7/7(320/390/1440px mock API), 양쪽 타입/빌드가 통과했다. diff 자체 검토·문서 갱신을 수행했다. 독립 리뷰/실제 DB 필터 통합/실장비 시험은 하지 않았고 Web의 기존 chunk 경고는 남는다. 메인 통합/실행 중 서비스 반영·API 재시작·규칙 활성화·새 움직임 START는 별도 확인 전 수행하지 않는다.
+
+## 2026-10-13 정식 센서 준비·이벤트 활성화 후속 — 연결·A 준비 완료, 비활성 초안 저장
+
+- 최신14:01–14:09 KST: 다른 에이전트 위임/프로젝트 총괄 책임자 채팅 공유 없이 직접 수행했다. 기존 Pi hosts/ExtraHosts의 서버 별칭2개 주소만 교정하고 동일440 이미지의 Gateway를 재구성했다. TERM1·create1·start1·hosts write1, broker/API 재시작·새 image·PKI 변경·원본 삭제0이다. 마운트는 모든 필드의 순서 독립 비교, Docker OomKillDisable null→false 기본값 표현 차이만 허용했다. 이전 원본과 fresh3root 암호화 백업을 보존하고 off-Pi 스트리밍 복호화51항목/67,575,729bytes 전체 hash를 확인했다. 최초 guard 실패는 중단 전, 이후 생성 후 기본값 차이는 시작 전에 멈췄으며 추가 TERM/생성 없이 해당 exact 생성본을 이어서 시작했다.
+- 최신 실제 MQTT·heartbeat·BIO transport/protocol/mapping 모두true·단독 USB·assignment/mapping 보존, UI조명4online을 확인했다. 정상 UI A ensure_sensor 새1개는 ready·result/ACK 발행·current 사용 가능이며 catalog5 exact ACK와 기존 등록/설정밝기를 재확인했다. A→B(B1-L001→B1-L004)/100%/60초 초안1개는 실제 비활성 저장·정확 membership·configuration APPLIED다. 활성 규칙/준비 pending0·새 움직임 시험0이다.
+- 남은 실제 제한: 당시 Web의 BIO 일괄 차단/고정 OFF·API 고정PENDING은 위 후속 코드에서 수정했으나 실행 중 서비스 반영은 아직 하지 않았다. 장비 준비와 실제 configuration 적용 성공을 실제 활성화·감지/유지/복귀·10초 변경 완료로 확대하지 않는다. 현장 재시험 전 새 준비/시작 신호가 필요하다. Mac hosts는 현행 localhost 서비스에 불필요해 변경하지 않았다.
+
+아래 오전/과거 기록은 당시 증거이며 최신 완료를 소급 적용하지 않는다.
+
+- 사용자가 주소 교정·필요한 Gateway container 재구성/제어 일시 중단을 승인하고 다른 에이전트 위임 및 프로젝트 총괄 책임자 채팅 공유 없이 직접 진행하도록 지시했다. 기존 이미지·hostname·신뢰·배정·ID·설정밝기·state를 유지하고 fresh 안전 확인→주소만 교정→동일 이미지 재구성→MQTT/준비 확인 순으로 진행한다. 브로커/API 재시작·장비 재등록·새 움직임 시험은 포함하지 않는다.
+
+- 최신 실제09:16 KST: 승인된3권한이 이미 존재하는 현재 native broker에 SIGHUP1회만 보냈다. API/broker 신원·ACL/config bytes/metadata·공개 TLS hash를 전후 대조했고 기존 파일 쓰기0·재시작0·PKI/DB 변경0이었다. 현재 정상 Web proxy ready200/의존성5개 up·내구 ACL 백업을 확인했다. 실제 준비 결과/ACK로 권한 기능을 증명하거나 Gateway online을 주장하지 않는다.09:15 최소SSH 읽기에서는 기존440 이미지의 exact Gateway container running/재시작0을 확인했으며 effective endpoint는 환경변수 아닌 assignment.mqttUrl 계약이므로 해당 경계만 추가 읽기를 준비한다.
+- 실제09:17 KST assignment 경계 읽기: 기존 assignment hash와 MQTT hostname/mqtts8883은 유지되지만 Mac/Pi/현재 container/ExtraHosts의 해당 별칭은 각각1개이며 모두 현재 Mac의 유일 LAN IP와 다르다. 현재 Gateway는 동일440 이미지로 running/재시작0이다. 주소 설정 불일치를 확인했으며 현재 loaded client/TCP/auth는 별도 미조회다. 센서 준비 요청은 보내지 않았다. 기존 hostname·인증·assignment·ID/밝기/image/state 보존의 정확 주소 교정 및 필요한 Gateway container 재구성/잠깐 제어 중단은 준비3권한+broker reload 승인에 포함하지 않고 새 승인을 요청한다. broker/API 재시작·자동 old runtime 재기동·RF 시험은 하지 않는다.
+
+- 10월13일 사용자가 기존 API 계정의 장비 준비 command WRITE/result READ/result ACK WRITE3개만 추가하고 브로커 재시작 없이 반영하도록 명시 승인했다. 현재 broker/API 신원과 mounted ACL을 최소 재확인한 뒤 원본 백업·기존 권한 보존·SIGHUP1회로 적용한다. 어제 timed_out 요청은 재사용하지 않으며 적용 확인 뒤 정상 현장 관리자 UI에서 새 준비 작업을 단1회 요청한다. 신규 움직임 시험/규칙 활성화는 아직 시작하지 않는다.
+- 실제09:05 KST 단1회 읽기: 기존 exact 브로커는 stopped이고 이전 private API 프로세스는 부재다. ACL 파일의 신원/크기/hash는 어제와 달라졌고 승인된 준비3권한은 현재 API block에 이미 모두 존재한다. config·공개 인증서·principal·renderer는 동일하다. Gateway1개 귀속은 유지하나 heartbeat 약15시간 경과·현재 준비 여부 미확인이다. 정상 현장 관리자 UI/저장 정책은 유지되지만 조명4대 오프라인이다. 중복 grant/ACL write/SIGHUP/새 준비 요청은0이며 현재 서비스 대상과 변경 경위를 두 승인된 담당 채팅과 조율한다. 중단된 브로커 기동/서비스 재시작은 이번 reload 승인에 임의 포함하지 않는다.
+- 실제09:08 KST 추가 최소 읽기는 API4000의 새 listener1개와 기존 Docker broker exited255/OOMfalse·Docker TLS broker 실행0을 확인했다. 이는 native 브로커 부재 증거가 아니다. Shell 담당 조율에서 사용자 승인된 「설정 페이지 담당자」의 새 로컬 `pnpm dev`와 native Mosquitto8883/API/Web·ready200을 확인했다. 기존 Docker/privateAPI를 재기동하지 않고 현재 native process/config/ACL/접속 주소 경계만 새로 대조한다. 브로커 부재라는 최초 사용자 안내는 Docker 범위였음을 즉시 정정했다.
+
+- 사용자가 등록/카탈로그 적용 완료 안내 뒤 `진행해줘`로 센서 사용 설정→현장 정책/규칙 활성화→최소 현장 확인의 후속 진행을 요청했다. 앞서 완료한 조회·등록·전달 검증은 반복하지 않는다. 새 움직임 시험은 대상/밝기/유지시간과 새 시작 신호 확인 후 진행한다.
+- 정상 브라우저에서 `/settings/site` 접근은 현재 operator 계정을 `/operator/site-admins`로 이동시켰다. 서버 계약도 active customer admin·현재 site.adminUserId·동일 조직을 재검증한다. 운영자 권한을 현장 관리자 권한으로 우회하지 않으며 해당 현장 관리자 정상 로그인을 요청했다.
+- 후속으로 사용자가 현장 관리자 로그인을 완료했고 실제 UI에서 테스트현장1의 현장 관리자 권한과 설정 화면을 확인했다. 사용자는 시험용 최대 대응시간60초·담당자의 이벤트 비활성화/연결 점검 조치 및 A→B 밝기100%·유지60초 뒤 UI10초 변경 순서를 승인했다. 정상 UI로 정책 ON을 단1회 저장하고 저장 성공을 확인했다. 규칙 ON·A 모드 SET·움직임 시험은 아직 시작하지 않았다.
+- 보호된 실제 A 근거의 native 식별과 현재 UI 시리얼을 로컬에서 대조해 A=B1-L001을 유일하게 확인했다. 조명 선택 후 공통 준비 버튼은 활성이고 현재 binding/mode/fingerprint/profile/link 확인 사유를 표시한다. 정책 저장이 global catalog를 바꾸므로 최신 exact ACK→새 준비 작업→현재 sourceEligible→시험 규칙 순으로 진행하며 기존 준비 증거를 재사용하지 않는다.
+- 후속 최소 읽기에서 실제 catalog5·승인 profile r1·정책 ON/현재 담당자/60초/승인 조치와 exact 적용 ACK를 확인했다. strict ready200/서비스5개 정상·활성 이벤트 규칙0·위험 pending0·등록/설정밝기 보존이었다. 이후 정상 UI로 A의 `센서 사용 설정`을 단1회 요청했다. 기존 요청 결과 조회는 아직 pending이며 actual SET 성공·sensor 모드·현재 사용 가능은 주장하지 않는다. 중복 POST 없이 전달/결과 경계를 진단 중이고 B 점등/움직임 시험은 미시작이다.
+- 17:44 KST 해당 단1회 요청의 실제 terminal은 timed_out이며 유효 현재 catalog5/배정/canonical node/요청자 귀속이었다. 발행 완료 false·attempts40·결과/ACK 없음·현재 준비/직접모드 pending0이었다. 기존 변경 후 hash와 동일한 mounted ACL source에는 API의 preparation command WRITE·result READ·result ACK WRITE가 모두 없다. API 발행 완료 전 경계와 일치하는 원인 근거이며 broker loaded ACL 직접 조회/실제 SET 성공은 주장하지 않는다. UI에도 실패 결과를 확인했다. 기존 승인 카탈로그 권한2개는 보존하고 준비용 권한3개와 SIGHUP1회 추가 승인 전에는 수정/재요청하지 않는다.
+- 보호된 accepted trial의 실제 역할 귀속으로 B=B1-L004도 대조했다. 과거 배열 순서로 선택하지 않았고 현재 UI 이름은 일치하지만 B의 최신 DB 대상 적격성/실제 시험은 아직 별도 확인이다.
+
+## 2026-10-12 장비 조회·운영자 프로파일 등록 후속 — 등록·카탈로그 적용 확인 완료
+
+- 아래 이전 시점의 조회0/프로파일0 기록을 대체하는 최신 실제 결과다. 17:05 KST 완전 fingerprint(상위6개·firmware4개)와 독립 mode GET3회가 성공했고 모두 force-off였다. 단일 조회 연결을 닫고 동일 exact Gateway/image를 재개했다. 센서 모드 SET·밝기 쓰기는0이며 GET 성공을 센서 준비 완료로 승격하지 않는다.
+- 과거 canonical MeshNode ID와 durable mapping의 DiscoveredMeshNode ID는 서로 다른 식별 도메인이다. 현재 DB의 두 관계 및 동일 물리 장비/등록 귀속을 각각 검증한 뒤 조회 도구의 잘못된 동일-ID 가정만 고쳤다. 등록·mapping을 수복하거나 ID를 바꾸지 않았다.
+- 사용자 승인 범위의 기존 API 카탈로그 WRITE·ACK READ 토픽 권한2개만 추가하고 17:14 KST 브로커 SIGHUP1회로 재읽기를 요청했다. 원래 ACL bytes·파일 신원/권한·설정·브로커 lifetime과 내구 백업을 보존했고 브로커 재시작·PKI 변경0이다. 첫 preflight의 mount 배열 순서 차이는 전체 mount 의미를 보존한 Destination 정렬로 교정했으며 실패 기록도 보존한다.
+- 정상 로그인한 operator 화면에서 실제 조회/기존 accepted pulse5개의 근거와 재현 가능한 evidence digest를 가진 revision1을 단1회 등록했다. 저장 성공은 화면에서 확인했다. 17:17 KST 실제 current catalog4/profile1 계약과 exact Gateway 적용 ACK를 서버에서 확인했고, 17:18 KST Gateway의 실제 catalog4/profile1·revision/hash 일치도 대조했다. MQTT/heartbeat/transport/protocol/mapping 모두 정상·USB1/현재 owner1·restart0·mapping/assignment 보존이었다. 최종 서버 검사에서 strict ready200/서비스5개 정상·기존 등록/설정밝기 보존·정책/규칙OFF·위험 pending0을 확인했다. 세션/암호 추출·등록 POST 우회·추가 움직임 시험은 하지 않았다.
+- 재사용 문구는 관측 A의 근거 범위이며 기술적인 현장/장치 allowlist는 아니다. 정확한 전체 fingerprint 일치도 다른 장치·모델·회로의 실증을 대체하지 않는다. 10초 GET/30초 maxAge는 fail-closed 공학 제안이며 실측30초 신뢰성이나 존재/부재 증거가 아니다. 현장 정책·이벤트 규칙은 OFF를 유지하며 센서 준비/활성화는 별도 후속이다.
+
 ## 2026-10-13 맵 편집 후속 재개: 승인된 로컬 실행 반영 완료
 
 - 로컬 `codex/mvp1-cloud-web`의 `313f046f`까지 구현·검증·문서 커밋을 확인했다. 기존 사용자 `AGENTS.md` 변경은 보존한다.
@@ -12,6 +56,12 @@
 - 시작 당시 Docker/기존 MinIO가 종료되어 준비 점검의 objectStorage만 down이었다. Docker Desktop과 기존 `led-control-service-object-storage-1`만 시작해 영속 `led-control-service_object-storage-data`를 재사용했다. 다른 Docker DB/Redis/MQTT/Vault 컨테이너는 시작하지 않았다. 후속 same-origin `/api/health/live`·`ready`는 HTTP200이고 postgres/redis/mqtt/objectStorage/cadConverter 모두 up이다. 비로그인 `/api/auth/me`는 정상401이며 인증 검증을 우회하지 않았다.
 - 기동 전후 구조 비교의 7개 count/digest가 일치한다: 현장2·층3·조명6·게이트웨이1·맵 문서3·legacy 도형0·맵 설정3. 조명의 등록 귀속/이름/좌표/배치와 현재 맵 revision/document를 포함한다. 실시간 장비 상태·lease·session 등 정상 런타임 갱신은 이 보존 비교에 포함하지 않는다. 현재 층별 기록은13/1/1개로 이미30개 이하이므로 실제 맵 이력 삭제0이며 제한 검증을 위해 사용자 데이터에 가짜 이력을 추가하지 않는다.
 - 실제 브라우저의 기존 세션으로 모니터링→B1 맵 편집→기록→새로고침을 확인했다. revision31·CAD 표시·저장됨·공통 탭·기록 조회가 유지되며 새로고침 직후 잠깐 읽기 전용이었다가 기존 lease 재시도로 편집 가능 상태를 회복했다. 관측한 browser error 로그0, 게이트웨이0/1 경고는 별개다. 실제 맵 수정/저장/새 CAD 적용·장비 명령은 실행하지 않았다. 로그·구조 증거·화면은 ROOT `.local/editor-followup-20261013`에 보존하며 서버를 유지한다. 이전 전체 테스트/빌드 cohort는 재실행하지 않았다.
+- 사용자가 필요한 버전 반영까지 계속 진행하도록 승인했다. 기존 현장 Gateway의 검토된 공통 센서 버전을 준비·적용하고, 필요 시 서버 계약 호환 적용을 순차 검토한 뒤 장비정보 조회→근거를 충족한 프로파일 등록→exact catalog 수신/적용을 확인한다. 기존 ID·설정 밝기·인증·mapping·원장을 보존하며 현재 active exact 대상을 사용한다.
+- 불필요한 전체 suite·움직임 재시험은 반복하지 않는다. 실제 교체에 필요한 표적 호환/기동·artifact·안전 검사는 생략하지 않으며, 기존 미완료 보안/release 조건을 임의 통과 처리하지 않는다. 정책/이벤트 활성화·센서 모드/밝기 쓰기·PKI/ACL 변경·강제 DB reset·양산 배포는 포함하지 않는다. 기존 보류 기록은 아래 시점 기록으로 보존한다.
+- Gateway fresh 타입/빌드·영향 계약35/35와 `440ead0c`의 normal LinuxARM64 이미지 빌드/default bundle 검증을 통과했다. 이미지 설치 context의 누락 `.pnpmfile.cjs`를 최소 COPY 변경과 표적 RED→GREEN으로 보완했으며 lock/버전은 바꾸지 않았다. Gateway graph gated 항목0이나 기존 mobile High2로 전체 production 보안 관문은 미통과다. 실제 Gateway 교체/장비 GET/프로파일 등록은 아직0이다.
+- 14:33:57 KST 기존 Gateway는 MQTT/heartbeat/transport/protocol/mapping 정상·동일 USB1/단일 owner·등록/설정 밝기 보존이었다. 당시 BIO migration12개 미적용·과거 floor checksum 차이는 authentic 적용 이력을 복원해 분리했고, 복제본 업그레이드에서 기존 17개 테이블 보존을 확인했다. 이후 사용자 승인으로 총괄/Shell 채팅과 조율해 해당 채팅의 실제 적용을 재사용한다. 직접 재조회한 현재 DB는 finished138·historical rolledback1·pending/mismatch0, BIO feature5개 존재·catalog3·프로파일/정책/규칙OFF·위험 pending0이다. 중복 migration/reset/이력 위조는 하지 않는다. 기존 schedule1/manual66을 유지한다.
+- 현재 main의 최신 CAD 수정과 iconv 의존성을 보존하고 기존 보안 보완(proxy-addr2.0.8/sharp0.35.5 등)을 유지한 격리 API 배포본의 정상 prepare/typecheck/build가 통과했다. 총괄/Shell 모두 추가 API·DB 변경 없이 대기를 확인했다. 15:53 KST 검토된 API runtime-only 교체1회는 exit0·ready200·의존 서비스5개 정상이며 17개 테이블 행 수와 비 telemetry 전체 설정, 기존 ID·설정밝기를 보존했다. migration·DB 쓰기 명령·강제 종료0이다. Gateway snapshot/GET-only/버전 교체는 승인된 단1회 진행 중이며 완료·readiness를 주장하지 않는다. 사용자는 admin 이름 계정으로 로그인했고 실제 operator 역할 여부는 기존 프로파일 UI 접근으로 확인 중이다. 계정 이름을 권한으로 단정하거나 세션/비밀번호를 추출하지 않는다.
+- 최신 실제 결과: Gateway 새 normal ARM64 버전은 15:55 KST 기동했다. 전체 3개 상태 root의 암호화 백업과 단1회 스트리밍 복호화 검증을 통과했다(47개 항목·67,169,104 bytes, 평문 파일/실제 복원0). 16:32 KST 최소 postflight에서 exact 새 ID/image·restart0·MQTT/heartbeat/transport/protocol/mapping 정상·USB1/owner1·mapping/assignment 보존을 확인했다. 서버도 ready200·기존 등록/설정밝기 보존·정책/규칙OFF·위험 pending0·새 기동 이후 heartbeat를 확인했다. 장비 조회는 client 생성 전 과거 A nodeId와 현재 mapping nodeId 불일치로 중단됐으며 실제 RF/모드 GET0·센서 SET/밝기 쓰기0이다. 물리 장비 UUID·주소·조명 ID는 동일한 confirmed row1과 일치한다. 현재 catalog3의 ACK는 아직 없고 프로파일0으로 등록 완료를 주장하지 않는다. 운영자 UI 제목/입력칸은 사용자 확인 완료다. 현재 노드 관계와 catalog 전달 원인을 필요한 최소 읽기로 확인 중이다.
 
 ## 2026-10-12 맵 편집 추가 주석·반복 렌더링 후속: 로컬 반영 완료 / API 정책 반영 대기
 

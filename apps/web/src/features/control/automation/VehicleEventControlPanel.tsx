@@ -380,9 +380,28 @@ export function VehicleEventControlPanel({
     });
   }
 
+  function bioSourcesReady(rule: VehicleEventRuleResponse) {
+    if (dashboard?.site.id !== siteId || !rule.sourceFixtureIds.length) return false;
+    const fixtures = dashboard.floors.flatMap(floor => floor.fixtures);
+    // Readiness belongs to the current server binding, not an old pulse or a
+    // saved rule. Missing/remapped sources must fail closed until refreshed.
+    return rule.sourceFixtureIds.every(id => {
+      const source = fixtures.find(fixture => fixture.id === id);
+      return source?.gateway?.id === rule.gatewayId
+        && source.vehicleEventSource?.sensorProtocol === "bio-usb-pulse"
+        && source.vehicleEventSource.sourceEligible === true;
+    });
+  }
+
+  function canToggle(rule: VehicleEventRuleResponse) {
+    // Explicit disable remains available even after readiness is lost. The
+    // server revalidates admission when the operator requests activation.
+    return rule.status === "enabled" || rule.sensorProtocol !== "bio-usb-pulse" || bioSourcesReady(rule);
+  }
+
   function toggle(rule: VehicleEventRuleResponse) {
     if (authBlockedRef.current) return;
-    if (rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled") return;
+    if (!canToggle(rule)) return;
     const operationScope = operationScopeKey;
     const operationGeneration = scopeGeneration;
     const status = rule.status === "enabled" ? "disabled" : "enabled";
@@ -431,7 +450,7 @@ export function VehicleEventControlPanel({
 
   function renderActions(rule: VehicleEventRuleResponse) {
     if (!canManage) return null;
-    return <AutomationRuleActions name={rule.name} enabled={rule.status === "enabled"} disabled={isMutating || isAuthBlocked} toggleDisabled={rule.sensorProtocol === "bio-usb-pulse" && rule.status !== "enabled"}
+    return <AutomationRuleActions name={rule.name} enabled={rule.status === "enabled"} disabled={isMutating || isAuthBlocked} toggleDisabled={!canToggle(rule)}
       touchClassName={rule.sensorProtocol === "bio-usb-pulse" ? "max-compact:size-13" : undefined}
       onToggle={() => toggle(rule)} onEdit={opener => beginEdit(rule, opener)}
       onDelete={opener => { deleteReturnFocusRef.current = opener; setDeleteCandidate(rule); setMutationError(""); }} />;
@@ -471,7 +490,7 @@ export function VehicleEventControlPanel({
         return <section key={rule.id} tabIndex={0} aria-label={`${rule.name} BIO 운영 상태`} className="grid min-w-0 gap-2 border-b border-border-default p-4 focus-visible:shadow-focus">
           <Text weight="semibold">{rule.name} · BIO 운영 상태</Text>
           {degraded ? <Text role="alert" tone="danger">센서 장애 보고 · 재검증이 필요합니다. 신호가 없다는 이유만으로 실행 조명의 복원을 판단하지 않습니다.</Text> : null}
-          <Text>제품 지원 OFF{sources.some(source => source.bioPulseTelemetry) ? " · 과거 운영 보고" : " · 실행·복원 상태 미확인"}</Text>
+          <Text>{bioSourcesReady(rule) ? "센서 준비 완료" : "센서 준비 확인 필요"} · 규칙 {rule.status === "enabled" ? "활성" : "비활성"}{sources.some(source => source.bioPulseTelemetry) ? " · 과거 운영 보고" : " · 실행·복원 상태 미확인"}</Text>
           <Text>이 규칙의 실행 조명: {rule.targetCount}개</Text>
           {(sources.length ? sources : [undefined]).map((source, index) => <BioPulseTelemetryStatus key={source?.id ?? index} source={source} fixtures={dashboard?.floors.flatMap(floor => floor.fixtures) ?? []} timeZone={dashboard?.site.timeZone ?? "UTC"} />)}
           <Text>운영자는 현장을 확인하고 규칙의 비활성화로 명시적 해제를 요청할 수 있습니다. 적용·복원 결과를 확인하기 전에는 해제 완료가 아닙니다.</Text>

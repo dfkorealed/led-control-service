@@ -530,6 +530,13 @@
 ### 갱신 규칙
 
 - 테마 경계 변경 시 저장 읽기/쓰기 실패·cross-tab clear·root cleanup·열린 portal·draft와 route/query identity 및 추가 명령0 회귀를 함께 확인한다. 공유 palette 소비자의 후속 적용과 실장비 한계는 실제 검증 범위에 맞춰 별도로 기록한다.
+## 2026-10-13 실제 Gateway 연결 복구 관찰
+
+- 구현 완료(현장 관찰): 승인된 기존 서버 별칭2개 교정과 동일 이미지 Gateway 재구성 후 MQTT·fresh heartbeat·BIO transport/protocol/mapping·단일 USB 소유를 확인했고 정상 서비스 UI에서 조명4대 온라인/오프라인0으로 표시됐다. assignment/mapping·등록/설정밝기는 보존했다. 모니터링 제품 소스 변경은 없다.
+- 미구현: 광학 출력·전력·감지 회로 건강·신규 장애 알림·재부팅 지속성·전체 장비군 검증은 이번 관찰 범위가 아니다.
+- 부족하거나 개선이 필요한 기능: A의 센서 `사용 가능`은 현재 준비/독립 링크 판정이다. 다른 조명의 센서 호환이나 현재 광학 밝기를 대신 증명하지 않는다. 개발 서버 주소가 다시 바뀌면 정적 별칭 점검이 필요하다.
+- 관련 파일: `apps/gateway/src/index.ts`, `apps/web/src/features/monitoring/MonitoringView.tsx`, `docs/menus/{settings,control}.md`.
+- 갱신 규칙: 연결 복구·현재 서버 상태와 초기 센서 준비·이벤트 동작·사용자 광학 관찰을 분리한다. 아래 기록은 당시 단계의 증거다.
 
 ## 2026-10-08 등록 조명의 공통 준비 상태 Web 소비 (Task 5)
 
