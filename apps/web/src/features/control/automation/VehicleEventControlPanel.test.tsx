@@ -73,25 +73,24 @@ describe("VehicleEventControlPanel", () => {
     vi.unstubAllEnvs();
   });
 
-  it("keeps BIO operational uncertainty accessible and blocks activation", async () => {
+  it("keeps a compact sensor status inside the rule list without exposing diagnostic details", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
     renderPanel("admin");
-    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
-    detail.focus();
-    expect(detail).toHaveFocus();
-    expect(detail).toHaveTextContent("마지막 유효 펄스: 미확인");
-    expect(detail).toHaveTextContent("장애 시작 시각: 미확인");
-    expect(detail).toHaveTextContent(/운영자.*비활성화/);
+    const detail = await screen.findByRole("group", { name: /센서 상태/ });
+    expect(detail).toHaveTextContent("준비 확인 필요");
+    expect(screen.getByRole("table", { name: "차량 이벤트 목록" })).toContainElement(detail);
+    expect(screen.queryByRole("region", { name: /BIO 운영 상태/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/마지막 유효 펄스/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/현재 광학 출력/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /활성화$/ })).toBeDisabled();
-    expect(detail).toHaveTextContent(/실행·복원 상태 미확인/);
   });
 
   it("allows an explicit activation only with current matching BIO source eligibility", async () => {
     const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
     mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
     renderPanel("admin", { dashboard: readyBioDashboard() });
-    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
-    expect(detail).toHaveTextContent("센서 준비 완료 · 규칙 비활성");
+    const detail = await screen.findByRole("group", { name: /센서 상태/ });
+    expect(detail).toHaveTextContent("센서 준비 완료");
     expect(detail).not.toHaveTextContent("제품 지원 OFF");
     expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
     const activate = screen.getByRole("button", { name: /활성화$/ });
@@ -118,7 +117,7 @@ describe("VehicleEventControlPanel", () => {
         }];
       });
       const { rerender, queryClient } = renderPanel("admin", { dashboard: readyBioDashboard() });
-      await screen.findByRole("region", { name: /BIO 운영 상태/ });
+      await screen.findByRole("group", { name: /센서 상태/ });
       rerender(panelElement("admin", queryClient, siteId, siteId, changed));
       const activate = screen.getByRole("button", { name: /활성화$/ });
       expect(activate).toBeDisabled();
@@ -133,50 +132,43 @@ describe("VehicleEventControlPanel", () => {
         blockReasons: ["product_gate_off"], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
     }) })) };
     renderPanel("admin", { dashboard: degraded });
-    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
-    expect(within(detail).getByRole("alert")).toHaveTextContent("센서 장애 보고");
+    const detail = await screen.findByRole("group", { name: /센서 상태/ });
+    expect(within(detail).getByRole("alert")).toHaveTextContent("센서 점검 필요");
     fireEvent.click(screen.getByRole("button", { name: /비활성화$/ }));
     await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id, { status: "disabled" }));
-    expect(detail).toHaveTextContent(/해제 완료가 아닙니다/);
   });
 
-  it("renders server pulse, health and pending restoration as historical evidence without enabling BIO", async () => {
+  it("retains concise reported fault and restoration warnings without promoting historical evidence to readiness", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
     renderPanel("admin", { dashboard: telemetryDashboard() });
-    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
-    expect(detail).toHaveTextContent("마지막 유효 펄스: 2026. 10. 1. 오후 12:04:05");
-    expect(detail).toHaveTextContent("센서 건강 보고: 장애");
-    expect(detail).toHaveTextContent("장애 시작 시각: 2026. 10. 1. 오후 12:05:00");
-    expect(detail).toHaveTextContent("복원 대기: 대기 중");
-    expect(detail).toHaveTextContent("복원 사유: USB 연결 끊김");
-    expect(detail).toHaveTextContent("센서를 사용하는 전체 규칙의 운영 보고");
-    expect(detail).toHaveTextContent("Asia/Seoul");
-    expect(detail.querySelector('time[datetime="2026-10-01T03:04:05.000Z"]')).not.toBeNull();
+    const detail = await screen.findByRole("group", { name: /센서 상태/ });
+    expect(detail).toHaveTextContent("센서 점검 필요");
+    expect(detail).toHaveTextContent("센서 보고: 복귀 확인 필요");
+    expect(detail).not.toHaveTextContent("USB");
+    expect(detail.querySelector("time")).toBeNull();
     expect(screen.getByRole("button", { name: /활성화$/ })).toBeDisabled();
   });
 
-  it("labels read-back as configured values and retains pending restoration even after a successful restore read-back", async () => {
+  it("does not erase a reported restoration warning after successful read-back or expose diagnostic configured values", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse" })], total: 1, nextCursor: null });
     renderPanel("viewer", { dashboard: telemetryDashboard() });
-    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
-    expect(detail).toHaveTextContent("B1-L001 · 복원 설정 확인: 성공");
-    expect(detail).toHaveTextContent("설정 밝기: 35% · 설정 모드: 센서");
-    expect(detail).toHaveTextContent("현재 광학 출력·전력·에너지 또는 센서 준비 상태의 증거가 아닙니다");
-    expect(detail).toHaveTextContent("복원 대기: 대기 중");
+    const detail = await screen.findByRole("group", { name: /센서 상태/ });
+    expect(detail).toHaveTextContent("센서 보고: 복귀 확인 필요");
+    expect(detail).not.toHaveTextContent("35%");
+    expect(screen.queryByText(/설정 밝기:/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /비활성화$/ })).not.toBeInTheDocument();
   });
 
   it("uses new dashboard evidence on recovery and clears old source evidence on server remap", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
     const { rerender, queryClient } = renderPanel("admin", { dashboard: telemetryDashboard() });
-    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
+    const detail = await screen.findByRole("group", { name: /센서 상태/ });
     rerender(panelElement("admin", queryClient, siteId, siteId, telemetryDashboard({ health: "healthy", degradedSince: null, healthReason: "qualified" })));
-    expect(detail).toHaveTextContent("센서 건강 보고: 정상 보고");
-    expect(detail).toHaveTextContent("복원 대기: 대기 중");
-    expect(detail).toHaveTextContent("장애 시작 시각: 미확인");
+    expect(detail).not.toHaveTextContent("센서 점검 필요");
+    expect(detail).toHaveTextContent("센서 보고: 복귀 확인 필요");
     rerender(panelElement("admin", queryClient, siteId, siteId, telemetryDashboard(null)));
-    expect(detail).toHaveTextContent("마지막 유효 펄스: 미확인");
-    expect(detail).toHaveTextContent("복원 대기: 미확인");
+    expect(detail).toHaveTextContent("준비 확인 필요");
+    expect(detail).not.toHaveTextContent("센서 보고: 복귀 확인 필요");
     expect(detail).not.toHaveTextContent("35%");
     expect(detail.querySelector("time")).toBeNull();
   });
@@ -185,11 +177,10 @@ describe("VehicleEventControlPanel", () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse" })], total: 1, nextCursor: null });
     renderPanel("admin", { dashboard: telemetryDashboard({ health: "unverified", healthReason: null, degradedSince: null,
       restorationPending: false, restorationReason: null, configurationReadback: null }) });
-    const detail = await screen.findByRole("region", { name: /BIO 운영 상태/ });
-    expect(detail).toHaveTextContent("센서 건강 보고: 미확인");
-    expect(detail).toHaveTextContent("복원 대기: 대기 없음 보고");
-    expect(detail).toHaveTextContent("복원 사유: 미확인");
-    expect(detail).toHaveTextContent("설정 확인: 미확인");
+    const detail = await screen.findByRole("group", { name: /센서 상태/ });
+    expect(detail).toHaveTextContent("준비 확인 필요");
+    expect(detail).not.toHaveTextContent("센서 준비 완료");
+    expect(detail).not.toHaveTextContent("센서 보고: 복귀 확인 필요");
     expect(within(detail).queryByText("복원 성공", { exact: true })).not.toBeInTheDocument();
   });
 

@@ -53,7 +53,7 @@ test("Task6 unmodified wheel zoom preserves the pointer anchor without a control
   await expect(marker(page, "B2-L001")).toHaveAttribute("aria-pressed", "false");
   expect(api.postRequests).toEqual([]);
 });
-for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }]) {
+for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 1440, height: 900 }]) {
   test(`BIO server telemetry ${viewport.width}px stays accessible and clears on source remap without promoting readiness`, async ({ page }) => {
     await page.setViewportSize(viewport);
     let telemetry: BioPulseTelemetryView | null = {
@@ -72,25 +72,29 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }
     };
     await installControlMapRoutes(page, { bioReadiness: "off", bioTelemetry: () => telemetry });
     await page.goto(`/control?siteId=${ids.site}&mode=event`);
-    const region = page.getByRole("region", { name: "BIO 시험 규칙 BIO 운영 상태" });
-    await expect(region).toContainText("센서를 사용하는 전체 규칙의 운영 보고");
-    await expect(region).toContainText("마지막 유효 펄스: 2026. 10. 1. 오후 12:04:05");
-    await expect(region).toContainText("복원 대기: 대기 중");
-    await expect(region).toContainText("복원 사유: USB 연결 끊김");
-    await expect(region).toContainText("B2-L002 · 복원 설정 확인: 실패");
-    await expect(region).toContainText("설정 밝기: 35% · 설정 모드: 센서");
-    await expect(region).toContainText("현재 광학 출력·전력·에너지 또는 센서 준비 상태의 증거가 아닙니다");
-    await region.focus();
-    await expect(region).toBeFocused();
+    const status = page.getByRole("group", { name: "BIO 시험 규칙 센서 상태" });
+    await expect(status).toBeVisible();
+    await expect(status).toContainText("준비 확인 필요");
+    await expect(status).toContainText("센서 점검 필요");
+    await expect(status).toContainText("센서 보고: 복귀 확인 필요");
+    await expect(page.getByRole("region", { name: /BIO 운영 상태/ })).toHaveCount(0);
+    await expect(page.getByText(/마지막 유효 펄스|복원 설정 확인|설정 밝기: 35%/)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "BIO 시험 규칙 활성화", exact: true })).toBeDisabled();
-    await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+    // Mobile keeps the existing full 44×44 reachable-area contract. Desktop
+    // uses the existing rounded row buttons; audit viewport bounds instead.
+    if (viewport.width < 1024) await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+    else {
+      const metrics = await page.evaluate(() => ({ height: document.documentElement.clientHeight, scroll: document.documentElement.scrollHeight }));
+      expect(metrics.scroll).toBeLessThanOrEqual(metrics.height + 1);
+    }
     await expectNoHorizontalOverflow(page);
     // API null after physical source remapping must erase all previous evidence.
     telemetry = null;
-    await expect(region).toContainText("마지막 유효 펄스: 미확인", { timeout: 10_000 });
-    await expect(region).toContainText("복원 대기: 미확인");
-    await expect(region).not.toContainText("35%");
-    await expect(region.locator("time")).toHaveCount(0);
+    await expect(status).not.toContainText("복귀 확인 필요", { timeout: 10_000 });
+    await expect(status).toContainText("준비 확인 필요");
+    await expect(status).not.toContainText("35%");
+    await expect(status.locator("time")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "BIO 시험 규칙 활성화", exact: true })).toBeDisabled();
     await expectNoHorizontalOverflow(page);
   });
 }
@@ -142,12 +146,13 @@ for (const width of [320, 1440]) {
       return route.fallback();
     });
     await page.goto(`/control?siteId=${ids.site}&mode=event`);
-    const region = page.getByRole("region", { name: "BIO 시험 규칙 BIO 운영 상태" });
-    await expect(region).toContainText("센서 준비 완료 · 규칙 비활성");
-    await expect(region).not.toContainText("제품 지원 OFF");
+    const status = page.getByRole("group", { name: "BIO 시험 규칙 센서 상태" });
+    await expect(status).toContainText("센서 준비 완료");
+    await expect(page.getByRole("button", { name: "BIO 시험 규칙 활성화", exact: true })).toBeEnabled();
     expect(patches).toEqual([]);
     await page.getByRole("button", { name: "BIO 시험 규칙 활성화", exact: true }).click();
-    await expect(region).toContainText("센서 준비 완료 · 규칙 활성");
+    await expect(status).toContainText("센서 준비 완료");
+    await expect(page.getByRole("button", { name: "BIO 시험 규칙 비활성화", exact: true })).toBeEnabled();
     expect(patches).toEqual([{ status: "enabled" }]);
     await page.getByRole("button", { name: "BIO 시험 규칙 작업", exact: true }).click();
     await page.getByRole("menuitem", { name: "수정", exact: true }).click();
@@ -158,7 +163,7 @@ for (const width of [320, 1440]) {
     await expect(dialog).toHaveCount(0);
     expect(patches).toHaveLength(2);
     expect(patches[1]).toMatchObject({ status: "enabled", holdSeconds: 10 });
-    await expect(region).toContainText("규칙 활성");
+    await expect(page.getByRole("button", { name: "BIO 시험 규칙 비활성화", exact: true })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
   });
 }
