@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CAD_SCENE_TILE_SIZE, normalizeCadMapSize, type CadSceneTile, type FloorMapSnapshot } from "@led-control/shared";
 import type Konva from "konva";
 import { Layer, Stage } from "react-konva";
@@ -7,6 +7,8 @@ import { FloorMapObjectNode, FloorScene } from "./FloorScene";
 import { FloorMapViewport } from "./FloorMapViewport";
 
 const cadRenderer = vi.hoisted(() => {
+  const paints: Array<() => void> = [];
+  let deferPaint = false;
   const instances: Array<{
     options: Record<string, unknown>;
     mount: ReturnType<typeof vi.fn>;
@@ -16,7 +18,7 @@ const cadRenderer = vi.hoisted(() => {
   }> = [];
   class MockCadSceneRenderer {
     mount = vi.fn(async (_canvas: HTMLCanvasElement) => undefined);
-    setCamera = vi.fn(async () => undefined);
+    setCamera = vi.fn(() => deferPaint ? new Promise<void>(resolve => paints.push(resolve)) : Promise.resolve());
     setLayerStates = vi.fn();
     destroy = vi.fn();
 
@@ -24,7 +26,7 @@ const cadRenderer = vi.hoisted(() => {
       instances.push(this);
     }
   }
-  return { instances, MockCadSceneRenderer };
+  return { instances, MockCadSceneRenderer, paints, defer(value: boolean) { deferPaint = value; } };
 });
 
 const cadOverrideRuntime = vi.hoisted(() => ({
@@ -93,6 +95,41 @@ it("keeps filtered pins selectable and exposes only unknown state for unobserved
 });
 
 describe("FloorScene", () => {
+  it("waits for current viewport CAD paint after mount and never reloads the overlay during later zoom", async () => {
+    const value = createCadSnapshot();
+    cadRenderer.defer(true);
+    vi.stubGlobal("fetch", createSuccessfulCadFetch(value));
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect(0, 0, 800, 500));
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(500);
+    render(<FloorMapViewport snapshot={value} ariaLabel="CAD 지도"><FloorScene snapshot={value} fixtures={[]} interactive={false} /></FloorMapViewport>);
+    await waitFor(() => expect(cadRenderer.paints).toHaveLength(1));
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+    await waitFor(() => expect(cadRenderer.paints).toHaveLength(2));
+    await act(async () => cadRenderer.paints[0]());
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    await act(async () => cadRenderer.paints[1]());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("uses first-paint loading for legacy images and fences replaced image events", () => {
+    const value = { ...snapshot, floorPlan: { sourceType: "image" as const, imageUrl: "/plan-a.svg",
+      width: 1200, height: 800, gridSize: 10 } };
+    const scene = (data: FloorMapSnapshot) => <FloorMapViewport snapshot={data} ariaLabel="legacy map"><FloorScene snapshot={data} fixtures={[]} interactive={false} /></FloorMapViewport>;
+    const view = render(scene(value));
+    expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    const old = screen.getByRole("img", { name: "층 도면" });
+    fireEvent.load(old);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    view.rerender(scene({ ...value, floorPlan: { ...value.floorPlan, imageUrl: "/plan-b.svg" } }));
+    fireEvent.load(old);
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    fireEvent.error(screen.getByRole("img", { name: "층 도면" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
   it("resolves a native pointer received by an overlapping disabled neighbour to the current intended anchor", () => {
     const { center, disabled, onPress } = renderOverlappingMarkers();
     dispatchScenePointer(disabled, "pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, clientX: 100, clientY: 100 });
@@ -181,6 +218,9 @@ describe("FloorScene", () => {
 
   afterEach(() => {
     cleanup();
+    cadRenderer.defer(false);
+    cadRenderer.paints.length = 0;
+    vi.restoreAllMocks();
     cadRenderer.instances.length = 0;
     cadOverrideRuntime.overrideMaps.length = 0;
     cadOverrideRuntime.createCadSceneWorkerClient.mockClear();

@@ -12,8 +12,9 @@ import Konva from "konva";
 import { CustomerThemeContext } from "../../components/ui/theme/CustomerThemeProvider";
 import { readThemePalette } from "../../components/ui/theme/customer-theme";
 
-const scene = vi.hoisted(() => ({ props: null as MapSceneCanvasProps | null }));
+const scene = vi.hoisted(() => ({ props: null as MapSceneCanvasProps | null, modulePending: null as Promise<void> | null }));
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: (props: MapSceneCanvasProps) => {
+  if (scene.modulePending) throw scene.modulePending;
   scene.props = props;
   return <canvas data-testid="common-canvas" />;
 } }));
@@ -43,12 +44,22 @@ function setup() {
   return { client, ui, press };
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); scene.props = null;
+afterEach(() => { cleanup(); vi.restoreAllMocks(); scene.props = null; scene.modulePending = null;
   delete document.documentElement.dataset.ledControlNativeAppState;
   delete document.documentElement.dataset.ledControlMobileWebview;
 });
 
 describe("common monitoring host", () => {
+  it("covers the lazy module wait and hands loading ownership to the actual common canvas", async () => {
+    const { ui } = setup();
+    let release!: () => void;
+    scene.modulePending = new Promise<void>(resolve => { release = resolve; });
+    render(ui());
+    expect(await screen.findByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
+    await act(async () => { scene.modulePending = null; release(); });
+    await screen.findByTestId("common-canvas");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
   it("repaints selected legacy chrome without altering the saved object color", () => {
     const object = { id: "object", type: "rectangle" as const, x: 10, y: 20, width: 40, height: 30,
       rotation: 0, strokeColor: "#111111", fillColor: "#222222", strokeWidth: 1, visible: true, locked: false, zIndex: 0 };

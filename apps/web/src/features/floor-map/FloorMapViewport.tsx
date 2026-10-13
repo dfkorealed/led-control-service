@@ -17,6 +17,7 @@ import {
   type ReactNode
 } from "react";
 import { Button, IconButton, cn } from "../../components/ui";
+import { MapLoadingHost } from "../../components/ui/MapLoadingOverlay";
 import {
   MAP_DRAG_THRESHOLD_PX, MAP_LONG_PRESS_MS,
   type MapInteractionPolicy,
@@ -156,6 +157,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [selection, setSelection] = useState<MapSelectionRect | null>(null);
   const [overlayRoot, setOverlayRoot] = useState<HTMLDivElement | null>(null);
+  const [loadingRoot, setLoadingRoot] = useState<HTMLDivElement | null>(null);
   onZoomChangeRef.current = onZoomChange;
   const padding = 24;
   const hasViewportSize = viewportSize.width > 0 && viewportSize.height > 0;
@@ -725,6 +727,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
   ) : null;
 
   return (
+    <MapLoadingHost container={loadingRoot}>
     <FloorMapViewportOverlayContext.Provider value={overlayContext}>
     <div className={cn("relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset", controlsPlacement === "footer" && `flex ${compactChrome ? "min-h-0" : "min-h-min"} flex-col`)}>
       <div
@@ -762,7 +765,7 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
       >
         <div ref={stageRef} className="grid min-h-full min-w-full place-items-center p-6" style={stageStyle}>
           <div ref={surfaceRef} className="relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none" style={surfaceStyle} data-floor-map-surface="">
-            <div ref={setOverlayRoot} className="pointer-events-none absolute inset-0 z-0 overflow-hidden" data-floor-map-webgl-overlay="" aria-hidden="true" />
+            <div ref={setOverlayRoot} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden" data-floor-map-webgl-overlay="" />
             {children}
             {selection ? (
               <div
@@ -779,11 +782,13 @@ export const FloorMapViewport = forwardRef<FloorMapViewportHandle, FloorMapViewp
           </div>
         </div>
       </div>
+      <div ref={setLoadingRoot} className="pointer-events-none absolute inset-0 z-20" />
       {combinedFooter ? <div data-floor-map-footer="" className={cn("flex min-w-0 shrink-0 items-center justify-between border-t border-border-default bg-surface-panel", compactChrome ? "gap-1 px-1 py-1" : "flex-wrap gap-2 px-3.5 py-2.5")}>
         <div className="min-w-0">{footerStart}</div>{cameraControls}
       </div> : cameraControls}
     </div>
     </FloorMapViewportOverlayContext.Provider>
+    </MapLoadingHost>
   );
 });
 

@@ -22,6 +22,7 @@ import type {
   FloorMapSnapshot
 } from "@led-control/shared";
 import { Button, Text as UiText, cn, useThemeColors } from "../../components/ui";
+import { MapLoadingOverlay, useMapPaintLoading } from "../../components/ui/MapLoadingOverlay";
 import {
   CAD_SCENE_MAX_MANIFEST_BYTES,
   CAD_SCENE_MAX_TILE_BYTE_SIZE,
@@ -138,6 +139,7 @@ export function FloorScene({
   const commonMap = snapshot.mapDocument;
   const nativeCad = !commonMap && snapshot.floorPlan?.sourceType === "cad" && snapshot.cadScene;
   const backgroundUrl = commonMap || nativeCad ? null : snapshot.floorPlan?.renderedImageUrl ?? snapshot.floorPlan?.imageUrl;
+  const imagePaint = useMapPaintLoading(JSON.stringify([snapshot.floorId, backgroundUrl]));
   const objectCanvasHost = useRef<HTMLDivElement>(null);
   const [objectCanvasSize, setObjectCanvasSize] = useState({ width: 1, height: 1 });
   useLayoutEffect(() => {
@@ -293,7 +295,14 @@ export function FloorScene({
       {nativeCad && snapshot.cadScene
         ? <CadSceneReadOnlyLayer descriptor={snapshot.cadScene} mapRevision={snapshot.revision} />
         : null}
-      {backgroundUrl ? <img className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain" src={backgroundUrl} alt={`${floorName ?? "층"} 도면`} draggable={false} /> : null}
+      {backgroundUrl ? <img key={`${snapshot.floorId}:${backgroundUrl}`} className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain"
+        src={backgroundUrl} alt={`${floorName ?? "층"} 도면`} draggable={false}
+        onLoad={event => {
+          const image = event.currentTarget;
+          if (image.decode) void image.decode().then(() => imagePaint.onPaintReady(true), imagePaint.onError);
+          else imagePaint.onPaintReady(true);
+        }} onError={imagePaint.onError} /> : null}
+      {backgroundUrl ? <ViewportMapLoading loading={imagePaint.loading} /> : null}
       {/* Konva owns generated child canvas dimensions; the stable hook is the documented library geometry exception. */}
       {!commonMap ? <div ref={objectCanvasHost} className="floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden" aria-hidden="true">
         {/* Logical CAD maps can be 32768 units wide. Rasterizing that extent
@@ -422,12 +431,15 @@ function CommonMapReadOnlyLayer({ snapshot }: { snapshot: FloorMapSnapshot }) {
   useLayoutEffect(() => overlay?.subscribe(setFrame), [overlay]);
   const failed = failedKey === key;
   return <>
-    {active && overlay?.overlayRoot && frame && source && !failed ? createPortal(<Suspense fallback={null}><MapSceneCanvas
+    {active && overlay?.overlayRoot && frame && source && !failed ? createPortal(<Suspense fallback={
+      <div style={{ position: "absolute", left: frame.left, top: frame.top, width: frame.width, height: frame.height }}><MapLoadingOverlay loading /></div>
+    }><MapSceneCanvas
       source={source} documentRef={document} camera={frame.camera} readOnly
       platform={isMobileWebView() ? "mobile" : "desktop"}
       onError={() => setFailedKey(key)}
       style={{ position: "absolute", left: frame.left, top: frame.top, width: frame.width, height: frame.height }}
     /></Suspense>, overlay.overlayRoot) : null}
+    <ViewportMapLoading loading={active && Boolean(authScope) && !failed && (!frame || !overlay?.overlayRoot)} />
     {failed || !authScope ? <div className="absolute inset-x-3 top-3 z-5" role="alert">
       <UiText>맵을 표시하지 못했습니다.</UiText>
       <Button variant="secondary" onClick={() => {
@@ -436,6 +448,10 @@ function CommonMapReadOnlyLayer({ snapshot }: { snapshot: FloorMapSnapshot }) {
       }}>맵 다시 불러오기</Button>
     </div> : null}
   </>;
+}
+
+function ViewportMapLoading({ loading }: { loading: boolean }) {
+  return <MapLoadingOverlay loading={loading} />;
 }
 
 function CadSceneReadOnlyLayer({ descriptor, mapRevision }: { descriptor: CadSceneDescriptor; mapRevision: number }) {
@@ -455,6 +471,7 @@ function CadSceneReadOnlyLayer({ descriptor, mapRevision }: { descriptor: CadSce
     let renderer: ReadOnlyCadSceneRenderer | null = null;
     let unsubscribeCamera: (() => void) | null = null;
     let running = false;
+    let cameraEpoch = 0;
     let nativeAppState = initialNativeAppState();
     let pageVisible = document.visibilityState !== "hidden";
 
@@ -536,16 +553,20 @@ function CadSceneReadOnlyLayer({ descriptor, mapRevision }: { descriptor: CadSce
         nextRenderer.setLayerStates(new Map(
           state.layers.map((layer) => [layer.layerName, { visible: layer.visible }])
         ));
-        setLoadState("ready");
         canvas.style.visibility = "visible";
         unsubscribeCamera = overlay.subscribe((frame) => {
+          const cameraRun = ++cameraEpoch;
           if (!frame || renderer !== nextRenderer) {
             canvas.style.visibility = "hidden";
             return;
           }
           canvas.style.visibility = "visible";
           applyCameraFrame(canvas, frame);
-          void nextRenderer.setCamera(frame.camera).catch(() => fail(run));
+          // setCamera resolves after visible tile paint, unlike mount. Ignore
+          // superseded viewports before the first paint, then keep camera input open.
+          void nextRenderer.setCamera(frame.camera).then(() => {
+            if (!disposed && run === generation && cameraRun === cameraEpoch && renderer === nextRenderer) setLoadState("ready");
+          }).catch(() => fail(run));
         });
       } catch (error: unknown) {
         if (!signal.aborted) fail(run);
@@ -593,11 +614,7 @@ function CadSceneReadOnlyLayer({ descriptor, mapRevision }: { descriptor: CadSce
         />,
         overlay.overlayRoot
       )}
-      {loadState === "loading" ? (
-        <div role="status" className="pointer-events-none absolute inset-0 z-5 grid place-items-center">
-          <UiText variant="body-sm" weight="bold" tone="secondary">CAD 도면을 불러오는 중입니다.</UiText>
-        </div>
-      ) : null}
+      <ViewportMapLoading loading={loadState === "loading"} />
       {loadState === "error" ? (
         <div role="alert" className="absolute inset-0 z-5 grid place-items-center bg-surface-panel/95 p-4 text-center">
           <div className="space-y-3">

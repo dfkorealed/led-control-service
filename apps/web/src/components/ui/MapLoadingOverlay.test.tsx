@@ -9,6 +9,7 @@ it("announces loading without taking layout space and removes the spinner when i
   expect(screen.getByRole("status")).toHaveTextContent("맵을 불러오는 중입니다.");
   expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");
   expect(screen.getByRole("status")).toHaveClass("absolute", "inset-0");
+  expect(screen.getByRole("status").querySelector("svg")).toHaveClass("text-content-secondary");
   view.rerender(<MapLoadingOverlay loading={false} />);
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });

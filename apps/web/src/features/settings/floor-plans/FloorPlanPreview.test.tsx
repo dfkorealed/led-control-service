@@ -9,6 +9,17 @@ vi.mock("../../../api/queries", () => ({ useFloorMapSnapshot }));
 const snapshot: FloorMapSnapshot = { floorId: "floor-1", revision: 0, width: 1200, height: 800, floorPlan: null, objects: [], fixtures: [{ id: "fixture-1", name: "실제 조명", x: 200, y: 300, size: 20 }] };
 function preview(active: boolean) { return <QueryClientProvider client={new QueryClient()}><FloorPlanPreview floorId="floor-1" siteId="site-1" floorName="B1" active={active} /></QueryClientProvider>; }
 describe("FloorPlanPreview", () => {
+  it("announces first image paint outside the inert readonly map", () => {
+    useFloorMapSnapshot.mockReturnValue({ data: { ...snapshot, floorPlan: {
+      sourceType: "image", imageUrl: "/preview.svg", version: 1, width: 1200, height: 800
+    } }, error: null, refetch });
+    const view = render(preview(true));
+    const status = screen.getByRole("status");
+    expect(status.closest('[inert], [aria-hidden="true"], [role="img"]')).toBeNull();
+    expect(view.container.querySelector('[data-floor-map-webgl-overlay]')).toHaveAttribute("aria-hidden", "true");
+    fireEvent.load(view.container.querySelector('img[src="/preview.svg"]')!);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
   it("uses the shared map overlay during snapshot fetch and stops it on error", () => {
     useFloorMapSnapshot.mockReturnValue({ data: undefined, error: null, refetch });
     const view = render(preview(true));
