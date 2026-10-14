@@ -96,8 +96,10 @@ export function useTemporaryControlSession(options: TemporaryControlSessionOptio
       accept(owner, result, marker.sessionId);
     } catch (error) {
       if (!owns(owner)) return;
-      // A transport/5xx reply may follow durable acceptance. Only a conclusive start rejection clears its marker.
-      const rejected = kind === "start" && error instanceof ApiError && error.status >= 400 && error.status < 500;
+      // A first-attempt 4xx can reject admission. During explicit recovery even
+      // 401/403/404 cannot disprove earlier durable acceptance after a lost reply;
+      // keep that exact request and lock until its original result is recovered.
+      const rejected = kind === "start" && !explicitRetry && error instanceof ApiError && error.status >= 400 && error.status < 500;
       const cleared = rejected && preserve(owner, null);
       setState(previous => ({ ...previous, busy: false, marker: cleared ? null : marker, error: temporaryControlErrorMessage(error),
         session: error instanceof ApiError && [401,403,404].includes(error.status) ? null : previous.session }));

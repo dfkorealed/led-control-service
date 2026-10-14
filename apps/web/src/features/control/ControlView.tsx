@@ -99,6 +99,7 @@ export function ControlView({
   const { data, isLoading, error } = useControlDashboard(siteId);
   const capabilities = data?.capabilities;
   const canControl = capabilities?.control === true;
+  const temporaryPrincipalKey = JSON.stringify([userId, userRole, canControl]);
   const canManage = capabilities?.manage === true;
   const mode: ControlPageMode = isControlPageMode(requestedMode)
     && (requestedMode === "manual" || (requestedMode === "group" ? canControl : canManage))
@@ -110,7 +111,7 @@ export function ControlView({
   const [brightness, setBrightness] = useState(70);
   const [executionMode, setExecutionMode] = useState<"basic" | "temporary">("basic");
   const [durationMinutes, setDurationMinutes] = useState(30);
-  const [temporaryPreview, setTemporaryPreview] = useState<{ siteId: string; userId: string; fixtureIds: string[]; names: string[]; brightness: number; durationMinutes: number } | null>(null);
+  const [temporaryPreview, setTemporaryPreview] = useState<{ siteId: string; principalKey: string; fixtureIds: string[]; names: string[]; brightness: number; durationMinutes: number } | null>(null);
   const [message, setMessage] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -188,8 +189,13 @@ export function ControlView({
     [data, selection]
   );
   const selectedFixtures = resolvedSelection?.fixtures ?? [];
-  const temporaryController = useTemporaryControlSession({ siteId: activeSiteId && (!siteId || siteId === activeSiteId) ? activeSiteId : "", principalKey: JSON.stringify([userId, userRole, canControl]), fixtureIds: selectedFixtures.map(fixture => fixture.id) });
-  useEffect(() => { setTemporaryPreview(null); setExecutionMode("basic"); setDurationMinutes(30); }, [userId, activeSiteId]);
+  const temporarySiteId = activeSiteId && (!siteId || siteId === activeSiteId) ? activeSiteId : "";
+  const temporaryController = useTemporaryControlSession({ siteId: temporarySiteId, principalKey: temporaryPrincipalKey, fixtureIds: selectedFixtures.map(fixture => fixture.id) });
+  // Hide and reject the old preview during render, before the reset effect runs.
+  // A same-user role/capability change is a new scope just like a site switch.
+  const temporaryPreviewScopeMatches = Boolean(temporaryPreview && temporarySiteId
+    && temporaryPreview.siteId === temporarySiteId && temporaryPreview.principalKey === temporaryPrincipalKey);
+  useEffect(() => { setTemporaryPreview(null); setExecutionMode("basic"); setDurationMinutes(30); }, [temporaryPrincipalKey, temporarySiteId]);
   const blockMessage = resolvedSelection?.unavailableReason ?? null;
   const readOnly = !canControl;
   const target = resolvedSelection?.available ? controlSelectionToDimmingTarget(selection) : null;
@@ -395,13 +401,13 @@ export function ControlView({
 
   function requestSubmit() {
     if (executionMode === "basic") { void submitCommand(); return; }
-    if (!canSubmit || !activeSiteId) return;
-    setTemporaryPreview({ siteId: activeSiteId, userId, fixtureIds: selectedFixtures.map(fixture => fixture.id).sort(),
+    if (!canSubmit || !temporarySiteId) return;
+    setTemporaryPreview({ siteId: temporarySiteId, principalKey: temporaryPrincipalKey, fixtureIds: selectedFixtures.map(fixture => fixture.id).sort(),
       names: selectedFixtures.map(fixture => fixture.name), brightness, durationMinutes });
   }
   async function confirmTemporary() {
     const draft = temporaryPreview;
-    if (!draft || draft.siteId !== activeSiteId || draft.userId !== userId || readOnly || commandSessionBlocked || commandInProgress || isSubmitting || temporaryController.controlsLocked) return;
+    if (!draft || !temporaryPreviewScopeMatches || readOnly || commandSessionBlocked || commandInProgress || isSubmitting || temporaryController.controlsLocked) return;
     setTemporaryPreview(null);
     await temporaryController.start({ clientRequestId: crypto.randomUUID(), target: { type: "fixtures", fixtureIds: draft.fixtureIds }, brightness: draft.brightness, durationMinutes: draft.durationMinutes });
   }
@@ -712,9 +718,9 @@ export function ControlView({
   // pass the finite remainder through explicit rows in manual mobile only.
   return (
     <>
-    <ModalDialog isOpen={Boolean(temporaryPreview)} title="시간제 적용 미리보기" onClose={() => setTemporaryPreview(null)} actions={<>
+    <ModalDialog isOpen={temporaryPreviewScopeMatches} title="시간제 적용 미리보기" onClose={() => setTemporaryPreview(null)} actions={<>
       <Button type="button" variant="secondary" onClick={() => setTemporaryPreview(null)}>취소</Button>
-      <Button type="button" variant="primary" disabled={readOnly || commandSessionBlocked || temporaryController.controlsLocked} onClick={() => void confirmTemporary()}>시간제 적용</Button>
+      <Button type="button" variant="primary" disabled={!temporaryPreviewScopeMatches || readOnly || commandSessionBlocked || temporaryController.controlsLocked} onClick={() => void confirmTemporary()}>시간제 적용</Button>
     </>}>
       <Text>{temporaryPreview?.durationMinutes}분 유지 후 자동 운전 복귀</Text>
       <Text>{temporaryPreview?.names.join(", ")} → {temporaryPreview?.brightness}%</Text>

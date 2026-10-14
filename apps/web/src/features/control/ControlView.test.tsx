@@ -170,6 +170,25 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
+  it.each(["capability", "role"] as const)("discards the temporary preview across a same-user %s scope change and recovery", async change => {
+    const bioDashboard = { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor,
+      fixtures: floor.fixtures.map(fixture => ({ ...fixture, bioControlMode: "force-on" as const })) })) };
+    mocks.useControlDashboard.mockReturnValue({ data: bioDashboard, isLoading: false, error: null });
+    const view = renderControl();
+    selectFixture("B2-L001");
+    fireEvent.click(screen.getByRole("button", { name: "시간제 제어" }));
+    fireEvent.click(applyButton());
+    expect(screen.getByRole("dialog", { name: "시간제 적용 미리보기" })).toBeInTheDocument();
+    if (change === "capability") mocks.useControlDashboard.mockReturnValue({ data: { ...bioDashboard,
+      capabilities: { ...bioDashboard.capabilities, control: false } }, isLoading: false, error: null });
+    view.rerender(controlElement(dashboard.site.id, change === "role" ? "operator" : "admin"));
+    expect(screen.queryByRole("dialog", { name: "시간제 적용 미리보기" })).not.toBeInTheDocument();
+    mocks.useControlDashboard.mockReturnValue({ data: bioDashboard, isLoading: false, error: null });
+    view.rerender(controlElement(dashboard.site.id));
+    expect(screen.queryByRole("button", { name: "시간제 적용" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();

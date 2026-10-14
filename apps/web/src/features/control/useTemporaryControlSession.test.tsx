@@ -95,6 +95,24 @@ describe("temporary session owner", () => {
     expect(api.startTemporaryControl).not.toHaveBeenCalled(); expect(hook.result.current.controlsLocked).toBe(true);
     expect(hook.result.current.error).toMatch(/복구/);
   });
+  it.each([401, 403, 404])("preserves an uncertain start through recovery HTTP %s and reuses it after access returns", async status => {
+    api.startTemporaryControl.mockRejectedValueOnce(new Error("response lost"));
+    const hook = renderHook(() => useTemporaryControlSession(options));
+    await act(async () => { await hook.result.current.start(input); });
+    api.startTemporaryControl.mockRejectedValueOnce(new ApiError("access changed", status, { code: "temporary_control_access_unavailable" }));
+    await act(async () => { await hook.result.current.refresh(); });
+    expect(hook.result.current.controlsLocked).toBe(true);
+    expect(hook.result.current.error).toBeTruthy();
+    hook.unmount();
+    const recovered = renderHook(() => useTemporaryControlSession(options));
+    expect(recovered.result.current.controlsLocked).toBe(true);
+    api.startTemporaryControl.mockResolvedValueOnce(session("holding"));
+    api.getTemporaryControl.mockResolvedValue(session("holding"));
+    await act(async () => { await recovered.result.current.refresh(); });
+    expect(recovered.result.current.session?.state).toBe("holding");
+    expect(api.startTemporaryControl).toHaveBeenCalledTimes(3);
+    expect(api.startTemporaryControl.mock.calls[2]).toEqual([siteId, input]);
+  });
   it.each([401,403,409,503])("keeps HTTP %s explicit without a permanent-control fallback", async status => {
     api.startTemporaryControl.mockRejectedValue(new ApiError("blocked", status, { code: "temporary_control_configuration_unapplied" }));
     const hook = renderHook(() => useTemporaryControlSession(options));
