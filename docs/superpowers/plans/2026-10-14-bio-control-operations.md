@@ -236,6 +236,8 @@ git commit -m "feat(api): deliver and reconcile BIO temporary sessions"
 
 ## Task 5: 동일 발생일 평가기·서버 달력/next/overlap·제외 저장 — engine/backend 순차
 
+**소유 범위 보완:** apps/api/src/automation/automation.controller.spec.ts의 직접 생성 fixture 1건도 Modify/commit/최소 covering 검증에 포함한다. 새 달력 service는 production에서 필수 의존성을 유지하며 오래된 test 인수 누락을 피하려고 optional 기능 의존성을 만들지 않는다. 다른 API suite로 검증을 확대하지 않는다.
+
 **Files:** Create packages/automation-engine/src/schedule-exclusions.ts, schedule-calendar.ts 및 .test.ts; Modify packages/automation-engine/src/{recurrence.ts,recurrence.test.ts,overlap.ts,overlap.test.ts,index.ts}; Create apps/api/src/automation/schedule-calendar.service.ts, schedule-calendar.service.spec.ts; Modify apps/api/src/automation/{dto/schedule.dto.ts,dto/schedule.dto.spec.ts,schedules.service.ts,schedules.service.spec.ts,automation-snapshot.service.ts,automation-snapshot.service.spec.ts,automation.controller.ts,automation.module.ts}, docs/menus/control.md.
 **Consumes:** Tasks1–4 V3 schedule/HolidayDatasetSnapshot/validated coverage. **Produces:** evaluateScheduleStartDate(rule:LightingScheduleSnapshot,date:string,timeZone:string,datasets:readonly HolidayDatasetSnapshot[]):{allowed:boolean;reason:"weekend"|"holiday"|"coverage_unknown"|null}; getOccurrences/getActiveOccurrence/getNextOccurrence/schedulesOverlap은 기존 인수를 유지하고 마지막에 optional datasets를 추가한다; projectScheduleCalendar(input:{rules:readonly LightingScheduleSnapshot[];from:string;to:string;timeZone:string;datasets:readonly HolidayDatasetSnapshot[]}):ScheduleCalendarOccurrence[]; ScheduleCalendarService.get(siteId:string,actor:AuthenticatedUser,range:{from:string;to:string}):Promise<ScheduleCalendarResponse>.
 ~~~ts
@@ -263,6 +265,7 @@ it("late_holiday_revision_and_complete_calendar", async () => {
 git add packages/automation-engine/src/schedule-exclusions.ts packages/automation-engine/src/schedule-exclusions.test.ts packages/automation-engine/src/schedule-calendar.ts packages/automation-engine/src/schedule-calendar.test.ts packages/automation-engine/src/recurrence.ts packages/automation-engine/src/recurrence.test.ts packages/automation-engine/src/overlap.ts packages/automation-engine/src/overlap.test.ts packages/automation-engine/src/index.ts docs/menus/control.md
 git commit -m "feat(engine): evaluate BIO schedule exclusions consistently"
 git add apps/api/src/automation/schedule-calendar.service.ts apps/api/src/automation/schedule-calendar.service.spec.ts apps/api/src/automation/dto/schedule.dto.ts apps/api/src/automation/dto/schedule.dto.spec.ts apps/api/src/automation/schedules.service.ts apps/api/src/automation/schedules.service.spec.ts apps/api/src/automation/automation-snapshot.service.ts apps/api/src/automation/automation-snapshot.service.spec.ts apps/api/src/automation/automation.controller.ts apps/api/src/automation/automation.module.ts docs/menus/control.md
+git add apps/api/src/automation/automation.controller.spec.ts
 git commit -m "feat(api): persist exclusions and project complete calendars"
 ~~~
 
@@ -305,6 +308,8 @@ git commit -m "feat(gateway): persist BIO temporary ownership and partial writes
 
 ## Task 7: 최신 자동 운전 release·V3/holiday 적용·durable 결과 ACK — gateway
 
+**소유 범위 보완:** apps/gateway/src/automation/automation-config-store.ts도 Modify/commit에 포함한다. 기존 parseAutomationSnapshot 경계에서 V3 holiday의 검증된 내용/hash를 확인한 뒤 공통 evaluator가 소비하도록 연결하는 데 필요한 파일이다. 별도 recurrence/hash 구현이나 새 운영 설정은 추가하지 않는다.
+
 **Files:** Create apps/gateway/src/automation/bio-temporary-release.ts, bio-temporary-release.test.ts, temporary-control-mqtt.ts, temporary-control-mqtt.test.ts, temporary-control-result-outbox.ts, temporary-control-result-outbox.test.ts; Modify automation/{bio-temporary-control-runtime.ts,bio-product-pulse-controller.ts,bio-pulse-scheduler.ts,bio-source-target-guard.ts,vehicle-event-runtime.ts,schedule-runtime.ts,automation-runtime.ts,automation-current-config-requester.ts}, apps/gateway/src/index.ts, docs/menus/control.md. Test(existing) automation/{production-bio-pulse-integration.test.ts,bio-source-target-guard.test.ts,automation-runtime.test.ts,automation-current-config-requester.test.ts,automation-config-store.test.ts,automation-config-ack-outbox.test.ts,vehicle-event-runtime.test.ts}; 새 release test의 file-store로 restart/ACK replay를 검증한다.
 **Consumes:** Tasks1/5/6 contract/evaluator/lease, 기존 product BIO authority/current activation/정상 configuration 증거. **Produces:** bio-temporary-release.ts의 BioAutomaticTarget={configuration:BioConfigurationState,restorationRevision:number,restorationPayloadHash:string,sourceIdentity:string|null}; resolveLatestBioAutomaticTarget(input:{fixtureId:string;snapshot:AutomationSnapshot;state:PersistedAutomationStateV10;now:Date}):BioAutomaticTarget|{reason:string}; runtime.release(command:EndTemporaryControlCommand):Promise<void>, expire(now:Date):Promise<void>, stopAndDrain():Promise<void>; temporary-control-result-outbox.ts의 TemporaryControlResultOutbox.persist(result:TemporaryControlResult):Promise<void>, confirm(receipt:TemporaryControlIngestedReceipt):Promise<boolean>.
 - [ ] **Step 1 / RED test:** partialMutation+applyConfirmed 대상은 관측·재평가 후 복귀하고 unchanged를 증명한 대상만 제외한다. GET/fsync 사이 snapshot/health/lease 변경을 주입한다.
@@ -327,6 +332,7 @@ it("offline_expiry_uses_reserved_release_fence", async () => {
 - [ ] **Step 5 / 소유 commit:**
 ~~~bash
 git add apps/gateway/src/automation/bio-temporary-release.ts apps/gateway/src/automation/bio-temporary-release.test.ts apps/gateway/src/automation/temporary-control-mqtt.ts apps/gateway/src/automation/temporary-control-mqtt.test.ts apps/gateway/src/automation/temporary-control-result-outbox.ts apps/gateway/src/automation/temporary-control-result-outbox.test.ts apps/gateway/src/automation/bio-temporary-control-runtime.ts apps/gateway/src/automation/bio-product-pulse-controller.ts apps/gateway/src/automation/bio-pulse-scheduler.ts apps/gateway/src/automation/bio-source-target-guard.ts apps/gateway/src/automation/bio-source-target-guard.test.ts apps/gateway/src/automation/vehicle-event-runtime.ts apps/gateway/src/automation/vehicle-event-runtime.test.ts apps/gateway/src/automation/schedule-runtime.ts apps/gateway/src/automation/automation-runtime.ts apps/gateway/src/automation/automation-runtime.test.ts apps/gateway/src/automation/automation-current-config-requester.ts apps/gateway/src/automation/automation-current-config-requester.test.ts apps/gateway/src/automation/automation-config-store.test.ts apps/gateway/src/automation/automation-config-ack-outbox.test.ts apps/gateway/src/automation/production-bio-pulse-integration.test.ts apps/gateway/src/index.ts docs/menus/control.md
+git add apps/gateway/src/automation/automation-config-store.ts
 git commit -m "feat(gateway): verify latest BIO automatic restoration and V3"
 ~~~
 
