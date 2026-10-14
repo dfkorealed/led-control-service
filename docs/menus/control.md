@@ -1,5 +1,33 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 Web 서버 달력·일정별 제외·공통 추가 행
+
+### 구현 완료
+
+- 스케줄 목록/달력의 왼쪽 보기 전환과 오른쪽 추가 버튼, 이벤트의 오른쪽 추가 버튼을 같은 공통 상단행으로 연결한다. 화면별 추가 버튼은 한 개이며 권한·로딩·변경 잠금과 원본 Dialog 포커스 복귀를 유지한다. 검색/필터/페이지 이동은 목록에서만 보이고 스케줄 필터 초기화만 제거한다. 이벤트 필터 초기화는 유지한다.
+- 달력은 전용 서버 API의 `complete:true`·revision·전체 schedules·occurrences를 소비하며 목록 검색/페이지에서 합성하지 않는다. 현장 시간대의 표시 월과 앞뒤 월 spill을 포함한 1~42일을 조회한다. 서버 발생 시작일만 정렬·중복 제거하고 빈 날짜/주 경계에서 띠를 분할하며 이름·반복·시간/야간 +1일을 표시한다. 띠 클릭은 서버 snapshot으로 기존 ScheduleDialog를 연다.
+- 조회 요청은 현장/사용자 scope·generation·기간별 key와 AbortSignal로 분리한다. incomplete/범위·시간대 불일치/권한·coverage·저장 오류는 빈 달력 성공으로 바꾸지 않는다. 권한 상실 시 캐시와 편집/삭제를 차단하며 목록 복구에서도 달력 권한을 다시 조회한다. 일정 저장/활성/삭제 후 목록·달력·다음 실행을 함께 재조회한다.
+- 원본 시간 입력 helper 아래 공통 주말 제외/휴일 제외 Switch를 추가한다. 신규/옛 응답 기본 false, 저장값 재열기·취소/Escape·다른 일정/신규 draft 격리를 유지하고 저장 시 두 값을 명시 전달한다. 휴일 제외는 Asia/Seoul 조건을 표시하고 서버 BIO/V3/coverage 거절 이유를 폼에서 안내한다. visible Switch label 포커스는 Dialog 내부에서 노출한다.
+
+### 미구현
+
+- 시간제 세션 UI·수동 이력 footer·저장구역 위치 연결 및 지정 4개 브라우저 E2E는 후속 Task9다. 기존 영구 제어는 유지한다.
+- 운영 API/Gateway 배포·실제 DB migration·provider 연결·실장비 USB/RF/HIL은 이번 Web 작업에 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 검증은 제품 React/API 소비 함수와 격리된 HTTP/Query 응답의 지정 unit 경계다. 실제 장비 성공 또는 모바일의 실제 렌더링/스크롤 측정을 뜻하지 않는다. 실제 320×600/390×844 배치·지도 identity·띠/모달 스크롤 검증은 Task9의 승인된 최소 E2E에 남긴다.
+- 실행일 제외의 BIO/V3 자격과 완전 공휴일 coverage는 서버가 검증한다. 미지원·불명확 정보에서 제외값을 false로 바꾸거나 영구 제어로 우회하지 않는다. 브라우저는 반복/공휴일 평가기를 새로 구현하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/api/automation.ts`, `features/control/automation/{ScheduleControlPanel,VehicleEventControlPanel,ScheduleDialog,schedule-form,automation-presenters}`, `automation/components/{AutomationRuleHeader,ScheduleCalendar,calendar-segments,AutomationRuleControls}`와 직접 관련 8개 테스트 파일.
+
+### 갱신 규칙
+
+- 공통 추가 위치·서버 완전성·scope/권한·제외 draft·API flags를 바꾸면 같은 소유 unit 검증과 이 문서를 갱신한다. 시간제/브라우저/운영/HIL 완료는 해당 후속 증거가 있을 때 별도로 기록한다.
+
+
 ## 2026-10-15 Gateway 최신 BIO 자동 복귀·V3·durable 결과 수신 확인
 
 ### 구현 완료
@@ -13,7 +41,7 @@
 
 ### 미구현
 
-- 기존 Web 화면의 임시 제어·달력·센서 준비 연결은 후속 Task8 범위다. 운영 배포, 실제 브로커/USB/RF/HIL, 공휴일 provider 실호출은 수행하지 않았다.
+- Web 달력·제외 설정은 위 Task8에 연결했으며 임시 제어 UI·센서 준비 연결은 후속 범위다. 운영 배포, 실제 브로커/USB/RF/HIL, 공휴일 provider 실호출은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
 

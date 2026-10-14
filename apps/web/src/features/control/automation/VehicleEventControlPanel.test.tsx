@@ -329,10 +329,12 @@ describe("VehicleEventControlPanel", () => {
   });
 
   it("opens vehicle event creation without a duplicate panel heading", async () => {
+    // The creation target belongs to the same shared action row as schedules.
     renderPanel("admin");
 
     await screen.findByText("입구 차량 감지");
     expect(screen.queryByRole("heading", { name: "이벤트 제어" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "자동화 작업" })).toContainElement(screen.getByRole("button", { name: "이벤트 추가" }));
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
     expect(screen.getByRole("dialog", { name: "이벤트 추가" })).toBeInTheDocument();
   });

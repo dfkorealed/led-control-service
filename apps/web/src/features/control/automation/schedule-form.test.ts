@@ -24,6 +24,18 @@ function validForm(overrides: Partial<ScheduleFormValues> = {}): ScheduleFormVal
   };
 }
 
+describe("schedule form exclusions", () => {
+  it("defaults both flags false and preserves explicit values through reopen and save", () => {
+    expect(createEmptyScheduleForm("Asia/Seoul")).toMatchObject({ excludeWeekends: false, excludeHolidays: false });
+    const input = scheduleFormToInput(validForm({ excludeWeekends: true, excludeHolidays: true }), "Asia/Seoul", "enabled");
+    expect(input).toMatchObject({ excludeWeekends: true, excludeHolidays: true });
+    expect(scheduleFormToInput(validForm({ excludeWeekends: false, excludeHolidays: false }), "Asia/Seoul", "enabled"))
+      .toMatchObject({ excludeWeekends: false, excludeHolidays: false });
+    expect(scheduleToFormValues({ ...input, id: "00000000-0000-4000-8000-000000000011", fixtureIds: [fixtureId] }, "Asia/Seoul"))
+      .toMatchObject({ excludeWeekends: true, excludeHolidays: true });
+  });
+});
+
 describe("schedule form validation", () => {
   it("새 스케줄은 고급 설정을 열지 않아도 저장 가능한 기본 이름을 갖는다", () => {
     expect(createEmptyScheduleForm("Asia/Seoul", new Date("2026-08-31T12:00:00.000Z")).name)

@@ -23,6 +23,7 @@ import { Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStat
 import { formatControlTimestamp } from "../control-time";
 import { VehicleEventDialog } from "./VehicleEventDialog";
 import { EventSensorStatus } from "./components/EventSensorStatus";
+import { AutomationRuleHeader } from "./components/AutomationRuleHeader";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
 import { AutomationRuleWorkspace } from "./components/AutomationWorkspaceSurface";
 import { automationListRequest, useAutomationListState } from "./components/useAutomationListState";
@@ -475,10 +476,10 @@ export function VehicleEventControlPanel({
 
   return (
     <div id="control-mode-panel-event" className="grid min-w-0 content-start gap-4 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden" role="tabpanel" aria-labelledby="control-mode-event" data-control-automation-panel="event">
-      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+      <AutomationRuleHeader addAction={<>
         {!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : null}
         {canManage && !isAuthBlocked ? <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : null}
-      </div>
+      </>} />
       {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="이벤트" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : rules.length}

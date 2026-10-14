@@ -78,6 +78,41 @@ describe("ScheduleDialog spatial targets", () => {
 
   afterEach(cleanup);
 
+  it("isolates exclusion drafts across cancel, another schedule and new creation", () => {
+    const close = vi.fn(); const submit = vi.fn();
+    const view = renderScheduleDialog({ schedule: { ...persistedSchedule, excludeWeekends: true, excludeHolidays: false }, onClose: close, onSubmit: submit });
+    expect(screen.getByRole("switch", { name: "주말 제외" })).toBeChecked();
+    fireEvent.click(screen.getByRole("switch", { name: "휴일 제외" }));
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(submit).not.toHaveBeenCalled();
+    view.rerender(scheduleDialogElement({ schedule: { ...persistedSchedule, id: "00000000-0000-4000-8000-000000000012", excludeWeekends: false, excludeHolidays: true } }));
+    expect(screen.getByRole("switch", { name: "주말 제외" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "휴일 제외" })).toBeChecked();
+    view.rerender(scheduleDialogElement());
+    expect(screen.getByRole("switch", { name: "주말 제외" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "휴일 제외" })).not.toBeChecked();
+  });
+
+  it("keeps both visible switch labels in the dialog scroll owner on keyboard focus and Escape cancels", async () => {
+    const close = vi.fn(); const submit = vi.fn();
+    renderScheduleDialog({ onClose: close, onSubmit: submit });
+    const weekend = screen.getByRole("switch", { name: "주말 제외" });
+    const holiday = screen.getByRole("switch", { name: "휴일 제외" });
+    const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    const reveal = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: reveal });
+    weekend.focus(); fireEvent.keyDown(weekend, { key: " " });
+    holiday.focus();
+    await waitFor(() => expect(reveal).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" }));
+    expect(reveal.mock.contexts).toContain(holiday);
+    expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toContainElement(holiday);
+    fireEvent.keyDown(holiday, { key: "Escape" });
+    expect(submit).not.toHaveBeenCalled();
+    await waitFor(() => expect(close).toHaveBeenCalled());
+    if (originalScroll) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScroll);
+    else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
   it("shows the default one-day date range and its limit before advanced settings are opened", () => {
     renderScheduleDialog();
     const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });

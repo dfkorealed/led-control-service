@@ -128,7 +128,7 @@ export function scheduleSummary(values: ScheduleFormValues, dashboard: Dashboard
     ? `${values.activeFromDate} 하루만 적용`
     : `${values.activeFromDate}–${values.activeUntilDate}`;
   const brightness = values.dimmingEnabled ? values.brightnessPercent : "100";
-  return `${recurrenceLabel(values)} ${values.localStartTime}–${values.localEndTime} · ${period} · ${target.count > 0 ? target.title : "대상 선택 필요"} · 밝기 ${brightness}%`;
+  return `${recurrenceLabel(values)} ${values.localStartTime}–${values.localEndTime} · ${period} · ${target.count > 0 ? target.title : "대상 선택 필요"} · 밝기 ${brightness}%${values.excludeWeekends ? " · 주말 제외" : ""}${values.excludeHolidays ? " · 휴일 제외" : ""}`;
 }
 
 export function vehicleEventSummary(values: VehicleEventFormValues, dashboard: Dashboard) {

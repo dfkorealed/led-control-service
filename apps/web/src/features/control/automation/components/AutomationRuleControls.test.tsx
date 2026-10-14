@@ -9,12 +9,12 @@ describe("AutomationRuleControls", () => {
 
   it("resets detail filters while preserving search and never changes filters on open or close", () => {
     const onFilterChange = vi.fn();
-    render(<AutomationRuleControls label="스케줄" filter={{ query: "입구_%", status: "disabled", syncStatus: "REJECTED", limit: 50 }}
+    render(<AutomationRuleControls label="이벤트" filter={{ query: "입구_%", status: "disabled", syncStatus: "REJECTED", limit: 50 }}
       filteredTotal={35} pageIndex={1} currentPageCount={10} hasNextPage onFilterChange={onFilterChange} onPrevious={vi.fn()} onNext={vi.fn()} />);
-    expect(screen.getByRole("searchbox", { name: "스케줄 검색" })).toHaveValue("입구_%");
+    expect(screen.getByRole("searchbox", { name: "이벤트 검색" })).toHaveValue("입구_%");
     expect(screen.queryByRole("button", { name: "활성 상태" })).not.toBeInTheDocument();
     expect(onFilterChange).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: /스케줄 필터 상세 필터/ }));
+    fireEvent.click(screen.getByRole("button", { name: /이벤트 필터 상세 필터/ }));
     expect(screen.getByRole("button", { name: "활성 상태" })).toHaveTextContent("비활성");
     expect(onFilterChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
@@ -23,6 +23,13 @@ describe("AutomationRuleControls", () => {
     fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
     expect(onFilterChange).toHaveBeenCalledOnce();
     expect(onFilterChange).toHaveBeenCalledWith({ query: "입구_%", status: "all", syncStatus: "all", limit: 10 });
+  });
+
+  it("keeps schedule filters but removes only their reset action", () => {
+    render(<AutomationRuleControls label="스케줄" filter={filter} pageIndex={0} currentPageCount={0}
+      hasNextPage={false} onFilterChange={vi.fn()} onPrevious={vi.fn()} onNext={vi.fn()} />);
+    expect(screen.getByRole("searchbox", { name: "스케줄 검색" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "필터 초기화" })).not.toBeInTheDocument();
   });
 
   it("shows server-wide filtered count without inventing a total page count", () => {
