@@ -15,6 +15,15 @@ export class FloorEditorController {
     private readonly mapDocumentResetService: MapDocumentResetService
   ) {}
 
+  @Post("floors/:floorId/editor-clear")
+  clearEditorState(
+    @Param("floorId") floorId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.mapDocumentResetService.clear(floorId, user, body);
+  }
+
   @Post("floors/:floorId/editor-reset")
   resetEditorState(
     @Param("floorId") floorId: string,

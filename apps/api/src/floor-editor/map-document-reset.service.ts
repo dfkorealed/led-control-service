@@ -11,7 +11,7 @@ import { MapDocumentStore } from "./map-document-store";
 import { pruneLockedFloorMapRevisions } from "./floor-map-revision-retention";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
-import { buildMapDocumentSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
+import { buildMapDocumentSnapshot, hashFloorEditorSnapshot, parseMapDocumentSnapshot } from "./floor-editor-snapshot";
 
 const resetInputSchema = z.object({
   requestId: z.string().min(1).max(128).refine(value => value.trim() === value && value.length > 0),
@@ -20,9 +20,12 @@ const resetInputSchema = z.object({
   leaseFence: z.number().int().min(1).max(2_147_483_647)
 }).strict();
 export type MapDocumentResetInput = z.infer<typeof resetInputSchema>;
+const clearInputSchema = resetInputSchema.extend({ mode: z.enum(["elements_only", "elements_and_placement"]) });
+export type MapDocumentClearInput = z.infer<typeof clearInputSchema>;
 const EMPTY_MAP = { width: 1200, height: 800, gridSize: 10, groups: [],
   layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }] };
 const ACTION = "floor_editor.reset";
+const CLEAR_ACTION = "floor_editor.clear";
 const TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 15_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted };
 type LockedFloor = { siteId: string; status: string; mapRevision: number; editorLeaseFence: number;
   editorLeaseHolderId: string | null; editorLeaseTokenHash: string | null; editorLeaseExpiresAt: Date | null };
@@ -34,6 +37,117 @@ export class MapDocumentResetService {
   private readonly logger = new Logger(MapDocumentResetService.name);
   constructor(private readonly prisma: PrismaService, private readonly access: SiteAccessService,
     private readonly audit: AuditService, private readonly store: MapDocumentStore) {}
+
+  async clear(floorId: string, user: AuthenticatedUser, rawInput: unknown): Promise<MapDocumentRef> {
+    const parsed = clearInputSchema.safeParse(rawInput);
+    if (!parsed.success) throw new BadRequestException("invalid map clear payload");
+    const input = parsed.data;
+    const payloadHash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const floor = await this.prisma.floor.findUnique({ where: { id: floorId }, select: { siteId: true } });
+    if (!floor) throw new NotFoundException("floor not found");
+    await this.access.assert(user, floor.siteId, "manage");
+    const authorize = (tx: Prisma.TransactionClient) =>
+      this.authorizeLocked(tx, floorId, floor.siteId, user, input, payloadHash, CLEAR_ACTION);
+    const preflight = await this.prisma.$transaction(async tx => {
+      const authority = await authorize(tx);
+      return { ...authority, source: authority.replay ? null : await this.clearSource(tx, floorId, input.baseRevision) };
+    }, TRANSACTION_OPTIONS);
+    if (preflight.replay) return preflight.replay;
+    const { width, height, gridSize } = preflight.source!.snapshot.document;
+
+    let prepared: MapDocumentRef;
+    try {
+      prepared = await this.store.prepareGeneration(floorId, emptyElements(), { ...EMPTY_MAP, width, height, gridSize });
+    } catch (error) {
+      const authority = await this.prisma.$transaction(authorize, TRANSACTION_OPTIONS);
+      if (authority.replay) return authority.replay;
+      throw error;
+    }
+    let published = false;
+    try {
+      const result = await this.prisma.$transaction(async tx => {
+        const authority = await authorize(tx);
+        if (authority.replay) return authority.replay;
+        const source = await this.clearSource(tx, floorId, input.baseRevision);
+        await this.assertEmptyPreparation(tx, floorId, prepared, input.baseRevision + 1, authority.now);
+        if (prepared.width !== source.snapshot.document.width || prepared.height !== source.snapshot.document.height ||
+          prepared.gridSize !== source.snapshot.document.gridSize) throw new ConflictException("map clear dimensions conflict");
+
+        // Keep history generations, changesets and import sources. Validate/pin
+        // the old snapshot before removing live references, so ordinary cleanup
+        // cannot make a history restore depend on the new, empty head.
+        await this.store.pinRevision(tx, floorId, source.row.id, source.snapshot.document);
+        const cancelled = await tx.floorImportJob.updateMany({
+          where: { floorId, status: { in: ["queued", "processing", "region_selection_required", "review_required", "applying"] } },
+          data: { status: "cancelled", stage: "cancelled", leaseOwner: null, leaseExpiresAt: null,
+            failureCode: null, failureMessage: null, cancelledAt: authority.now }
+        });
+        // Retain committed receipts. Pending workers lose their claims and
+        // preparation pointers; old generations remain history-owned, while
+        // normal stage cleanup can reclaim abandoned parts after expiry.
+        const stages = await tx.floorMapStage.updateMany({
+          where: { floorId, status: { in: ["preparing", "ready", "queued", "processing", "failed"] } },
+          data: { status: "cancelled", workerToken: null, workerExpiresAt: null, preparedGenerationId: null }
+        });
+        // Slot binding is stored on FloorLightSlot, not Fixture. Deleting it
+        // must not rewrite placement or verification in elements_only mode.
+        await tx.floorLightSlot.deleteMany({ where: { floorId } });
+        await tx.floorCadScene.deleteMany({ where: { floorId } });
+        await tx.floorMapObject.deleteMany({ where: { floorId } });
+        const fixtures = input.mode === "elements_and_placement" ? await tx.fixture.updateMany({ where: { floorId },
+          data: { x: 0, y: 0, placementStatus: "unplaced", positionVerifiedAt: null } }) : { count: 0 };
+        const plan = { imageUrl: "", sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
+          width, height, gridSize };
+        await tx.floorPlan.upsert({ where: { floorId }, create: { floorId, ...plan }, update: { ...plan, version: { increment: 1 } } });
+        const rows = await tx.fixture.findMany({ where: { floorId }, orderBy: { id: "asc" },
+          select: { id: true, name: true, ratedWatt: true, x: true, y: true, size: true, placementStatus: true, positionVerifiedAt: true } });
+        const snapshot = buildMapDocumentSnapshot({ document: prepared, lightSlots: [],
+          fixtures: rows.map(row => ({ ...row, ratedWatt: row.ratedWatt.toString(), positionVerifiedAt: row.positionVerifiedAt?.toISOString() ?? null })) });
+        const snapshotSha256 = hashFloorEditorSnapshot(snapshot);
+        const changeSummary = { clear: true, mode: input.mode, unplacedFixtures: fixtures.count,
+          cancelledImports: cancelled.count, cancelledStages: stages.count };
+        const revision = await tx.floorMapRevision.create({ data: { floorId, revision: prepared.revision,
+          snapshot: snapshot as Prisma.InputJsonValue, snapshotSha256, changeSummary, changedBy: user.id } });
+        await this.store.pinRevision(tx, floorId, revision.id, prepared);
+        await tx.floorMapDocument.update({ where: { floorId }, data: { activeGenerationId: prepared.generationId,
+          revision: prepared.revision, changesSinceCheckpoint: 0, deltaDecodedBytes: 0 } });
+        await tx.floorMapGeneration.update({ where: { id: prepared.generationId }, data: { status: "active" } });
+        await tx.floor.update({ where: { id: floorId }, data: { mapRevision: prepared.revision } });
+        await pruneLockedFloorMapRevisions(tx, floorId);
+        await this.audit.record({ organizationId: authority.organizationId, siteId: floor.siteId, actorId: user.id,
+          action: CLEAR_ACTION, targetType: "floor", targetId: floorId, outcome: "success", transaction: tx,
+          metadata: { requestId: input.requestId, payloadHash, result: prepared, snapshotSha256, changeSummary } });
+        return prepared;
+      }, TRANSACTION_OPTIONS);
+      published = result.generationId === prepared.generationId;
+      return result;
+    } finally {
+      if (!published) {
+        try { await this.store.discardPreparedGeneration(floorId, prepared.generationId); }
+        catch { this.logger.warn("map clear preparation cleanup deferred"); }
+      }
+    }
+  }
+
+  private async clearSource(tx: Prisma.TransactionClient, floorId: string, revision: number) {
+    const head = await tx.floorMapDocument.findUnique({ where: { floorId } });
+    // Legacy V1/V2 histories cannot be restored by the existing common-document
+    // restore path. Refuse that transition instead of silently discarding its
+    // recoverability or invoking the destructive bootstrap reset.
+    if (!head) throw new ConflictException({ code: "map_document_required", message: "reversible clear requires a common map document" });
+    const row = await tx.floorMapRevision.findUnique({ where: { floorId_revision: { floorId, revision } } });
+    if (!row || head.revision !== revision) throw new ConflictException("map clear source revision conflict");
+    const snapshot = parseMapDocumentSnapshot(row.snapshot);
+    const generation = await tx.floorMapGeneration.findFirst({ where: { floorId, id: head.activeGenerationId, status: "active" } });
+    const plan = await tx.floorPlan.findUnique({ where: { floorId } });
+    const document = snapshot.document;
+    if (document.revision !== revision || row.snapshotSha256 !== hashFloorEditorSnapshot(snapshot) || !generation ||
+      generation.width !== document.width || generation.height !== document.height || generation.gridSize !== document.gridSize ||
+      !plan || plan.width !== document.width || plan.height !== document.height || plan.gridSize !== document.gridSize) {
+      throw new ConflictException("map clear source integrity conflict");
+    }
+    return { row, snapshot };
+  }
 
   async reset(floorId: string, user: AuthenticatedUser, rawInput: unknown): Promise<MapDocumentRef> {
     const parsed = resetInputSchema.safeParse(rawInput);
@@ -138,7 +252,7 @@ export class MapDocumentResetService {
   }
 
   private async authorizeLocked(tx: Prisma.TransactionClient, floorId: string, siteId: string,
-    user: AuthenticatedUser, input: MapDocumentResetInput, payloadHash: string) {
+    user: AuthenticatedUser, input: MapDocumentResetInput, payloadHash: string, action = ACTION) {
     const site = await this.access.assertManageInTransaction(tx, user, siteId);
     const [floor] = await tx.$queryRaw<LockedFloor[]>(Prisma.sql`
       SELECT "siteId", "status"::text, "mapRevision", "editorLeaseFence", "editorLeaseHolderId",
@@ -147,10 +261,11 @@ export class MapDocumentResetService {
     assertActiveFloorStatus(floor.status);
     const [clock] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`;
     const existing = await tx.auditLog.findFirst({ where: { siteId, targetType: "floor", targetId: floorId,
-      action: ACTION, outcome: "success", metadata: { path: ["requestId"], equals: input.requestId } } });
+      action, outcome: "success", metadata: { path: ["requestId"], equals: input.requestId } } });
     if (existing) {
       const metadata = existing.metadata as Record<string, unknown>;
-      if (existing.actorId !== user.id || metadata.payloadHash !== payloadHash) throw new ConflictException("map reset request ID conflict");
+      if (existing.actorId !== user.id || metadata.payloadHash !== payloadHash) throw new ConflictException(
+        action === CLEAR_ACTION ? "map clear request ID conflict" : "map reset request ID conflict");
       return { organizationId: site.organizationId, now: clock.now, replay: mapDocumentRefSchema.parse(metadata.result) };
     }
     if (floor.editorLeaseHolderId !== user.id || floor.editorLeaseFence !== input.leaseFence ||
