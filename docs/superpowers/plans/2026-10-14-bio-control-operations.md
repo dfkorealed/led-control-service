@@ -25,7 +25,8 @@
 | Task5 발생일 평가기·달력 API | 완료, 차단 지적0·문서 Minor1 최종 리뷰 추적 |
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
 | Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
-| Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | handoff 준비 |
+| Task8 지정 Web 공통 추가·달력·제외 UI | 지정 담당 handoff 준비 |
+| Task9 시간제 UI·최소 QA·로컬 머지 | Task8 리뷰 후 |
 
 ## Global Constraints
 

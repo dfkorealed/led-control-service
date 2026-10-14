@@ -40,6 +40,8 @@
 - 후속명시승인으로exact기존Vault만기동/unseal하고 기존issuer가자동재서명한CRL을보호백업/서명/Root원본/폐기2→2/fresh검증 후17:55:25KST 원자교체·samebroker3349 SIGHUP했다. 새nextUpdate10월17일17:55:21KST, Root10월27일14:37:20KST다. 실제수동rotate0/CA관리token사용0·새인증서발급/폐기/ACL/DB변경0·API/broker/Gateway재시작0이다. 초기VaultMounts전체비교guard실패·stale공개본/서비스token거부는보존하며 후속exactinspect로동일ID/image/기존mount·initialized/unsealed를확인했다.
 - openssl client verify0·API ready200/5up·17:55:53 Gateway MQTT/heartbeat/transport/protocol/mapping true와singleUSBowner/restart0을확인했다. 후속18:59 API ready는정상이나 조명4offline이다. 실제UI등록확인POST1회500의별도원인은 등록서비스 `CommandDbClockHealth`의증거provider가실제미등록이라는안전관문이다. 가짜시각증거/관문완화/DB강제등록·센서SET/규칙활성화0이며 전체UI시험완료는아니다. 시각provider연결은CRL과구분해후속구현한다.
 
+- Feature-only merge `b2dfec34`로 메인에 이미 커밋된 공통 BIO등록확인 UI/문서3commit을 보존했다. 충돌은 control 현황문서 한 곳이며 양쪽 기록을 유지하고 incoming 제품 소스의 main 일치·feature clean을 확인했다. 메인의 별도 미커밋 loading UI와 실제 서비스/DB/장비는 그대로다. 지정 Web 담당자의 Task8 시작 기준이며 main으로 이번 기능을 병합한 것은 아니다.
+
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 
 - 사용자 승인으로 저장 옆 초기화 명령에 요소만/조명도 미배치 두 mode와 서버 즉시 저장·현재층 한정·크기/격자/등록/제어 보존·기록복구를 구현한다. CAD는 일반 도형만 적용하고 조명 후보 슬롯 기능을 제거한다. 실제 조명 심볼 도형은 보존한다.
