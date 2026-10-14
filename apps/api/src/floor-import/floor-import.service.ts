@@ -264,13 +264,9 @@ export class FloorImportService {
     await this.authorizeFloor(user, floorId, "read");
     const job = await this.prisma.floorImportJob.findFirst({ where: { id: jobId, floorId }, select: { id: true } });
     if (!job) throw new NotFoundException("floor import job not found");
-    const candidates = await this.prisma.floorImportCandidate.findMany({
-      where: { jobId },
-      orderBy: [{ confidence: "desc" }, { id: "asc" }],
-      take: CAD_IMPORT_MAX_CANDIDATES,
-      select: candidateSelect
-    });
-    return floorImportCandidateListResponseSchema.parse({ jobId, candidates });
+    // Retain the authorized endpoint without exposing a removed placement flow.
+    // Historical completed overlays keep their independent read-only query.
+    return floorImportCandidateListResponseSchema.parse({ jobId, candidates: [] });
   }
 
   async listRegions(user: AuthenticatedUser, floorId: string, jobId: string) {
@@ -489,10 +485,13 @@ export class FloorImportService {
 
   async apply(user: AuthenticatedUser, floorId: string, jobId: string, rawInput: unknown) {
     const floor = await this.authorizeFloor(user, floorId, "manage");
+    const input = this.parse(floorImportApplyInputSchema, rawInput, "invalid floor import apply request");
+    if (input.candidateIds.length > 0) {
+      throw new BadRequestException("CAD imports are geometry-only; candidateIds must be empty");
+    }
     if (this.mapPreparation && this.mapStore) {
       const job = await this.prisma.floorImportJob.findFirst({ where: { id: jobId, floorId }, select: { preparedMapGenerationId: true } });
       if (job?.preparedMapGenerationId) {
-        const input = this.parse(floorImportApplyInputSchema, rawInput, "invalid floor import apply request");
         return this.applyPreparedMap(user, floor.siteId, floorId, jobId, input);
       }
       if (await this.prisma.floorMapDocument.findUnique({ where: { floorId } })) {
@@ -538,7 +537,6 @@ export class FloorImportService {
       where: { jobId, job: { floorId }, selectedAt: { not: null } }, select: { id: true }
     });
     const cadDraft = selectedRegion ? await this.loadCadSceneDraft(floorId, jobId) : null;
-    const input = this.parse(floorImportApplyInputSchema, rawInput, "invalid floor import apply request");
     try {
       return await this.prisma.$transaction(async tx => {
         const authorizedSite = await this.access.assertManageInTransaction(tx, user, floor.siteId);
@@ -563,11 +561,10 @@ export class FloorImportService {
         }
 
         const candidates = await tx.floorImportCandidate.findMany({
-          where: { jobId }, select: { id: true, x: true, y: true, rotation: true }, orderBy: { id: "asc" }
+          where: { jobId }, select: { id: true }, take: 1
         });
-        const allIds = new Set(candidates.map(candidate => candidate.id));
-        if (input.candidateIds.some(candidateId => !allIds.has(candidateId))) {
-          throw new BadRequestException("accepted candidates must belong to the requested import job");
+        if (candidates.length > 0) {
+          throw new ConflictException("legacy CAD candidates cannot be applied; cancel this import and re-import");
         }
 
         const applying = await tx.floorImportJob.updateMany({
@@ -575,21 +572,6 @@ export class FloorImportService {
           data: { status: "applying", stage: "applying" }
         });
         if (applying.count !== 1) throw new ConflictException("floor import job changed concurrently");
-
-        const accepted = new Set(input.candidateIds);
-        const rejectedIds = candidates.map(candidate => candidate.id).filter(candidateId => !accepted.has(candidateId));
-        if (input.candidateIds.length > 0) {
-          await tx.floorImportCandidate.updateMany({
-            where: { jobId, id: { in: input.candidateIds } },
-            data: { reviewStatus: "accepted", reviewedAt: locked.dbNow }
-          });
-        }
-        if (rejectedIds.length > 0) {
-          await tx.floorImportCandidate.updateMany({
-            where: { jobId, id: { in: rejectedIds } },
-            data: { reviewStatus: "rejected", reviewedAt: locked.dbNow }
-          });
-        }
 
         if (cadDraft) await this.assertCadSceneDraftLocked(tx, floorId, jobId, cadDraft);
 
@@ -599,19 +581,7 @@ export class FloorImportService {
           data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 }
         });
         const deletedSlots = await tx.floorLightSlot.deleteMany({ where: { floorId } });
-        const acceptedCandidates = candidates.filter(candidate => accepted.has(candidate.id));
-        const createdSlots = acceptedCandidates.length === 0
-          ? { count: 0 }
-          : await tx.floorLightSlot.createMany({
-              data: acceptedCandidates.map(candidate => ({
-                floorId,
-                sourceImportJobId: jobId,
-                sourceCandidateId: candidate.id,
-                x: candidate.x,
-                y: candidate.y,
-                rotation: candidate.rotation
-              }))
-            });
+        const createdSlots = { count: 0 };
 
         const existingPlan = await tx.floorPlan.findUnique({
           where: { floorId }, select: { width: true, height: true, gridSize: true }
@@ -701,7 +671,7 @@ export class FloorImportService {
           floorImportJobId: jobId,
           floorPlanChanged: true,
           acceptedCandidates: input.candidateIds.length,
-          rejectedCandidates: rejectedIds.length,
+          rejectedCandidates: 0,
           deletedObjectCount: deletedObjects.count,
           unplacedFixtureCount: unplacedFixtures.count,
           deletedSlotCount: deletedSlots.count,
@@ -914,23 +884,16 @@ export class FloorImportService {
       }
       const old = await tx.floorMapDocument.findUnique({ where: { floorId } });
       if (old && old.revision !== input.expectedRevision) throw new ConflictException("common map revision conflict");
-      const candidates = await tx.floorImportCandidate.findMany({ where: { jobId }, select: { id: true, x: true, y: true } });
-      const accepted = new Set(input.candidateIds);
-      if (input.candidateIds.some(id => !candidates.some(c => c.id === id))) throw new BadRequestException("candidate belongs to another job");
-      if (candidates.some(c => accepted.has(c.id) && (c.x < 0 || c.y < 0 || c.x > ref.width || c.y > ref.height))) {
-        throw new BadRequestException("candidate exceeds floor bounds");
+      const candidates = await tx.floorImportCandidate.findMany({ where: { jobId }, select: { id: true }, take: 1 });
+      // Never reinterpret or rewrite a legacy pending candidate ledger under
+      // the geometry-only policy. The caller must cancel and import again.
+      if (candidates.length > 0) {
+        throw new ConflictException("legacy CAD candidates cannot be applied; cancel this import and re-import");
       }
       await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "applying", stage: "applying" } });
-      await tx.floorImportCandidate.updateMany({ where: { jobId }, data: { reviewStatus: "rejected", reviewedAt: now } });
-      await tx.floorImportCandidate.updateMany({ where: { jobId, id: { in: input.candidateIds } }, data: { reviewStatus: "accepted", reviewedAt: now } });
       const deletedObjects = await tx.floorMapObject.deleteMany({ where: { floorId } });
       const unplacedFixtures = await tx.fixture.updateMany({ where: { floorId }, data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 } });
       const deletedSlots = await tx.floorLightSlot.deleteMany({ where: { floorId } });
-      // Copy DB float8 coordinates directly, avoiding Prisma JSON's one-ULP loss.
-      if (input.candidateIds.length) await tx.$executeRaw(Prisma.sql`
-        INSERT INTO "FloorLightSlot" ("id", "floorId", "sourceImportJobId", "sourceCandidateId", "x", "y", "rotation", "updatedAt")
-        SELECT gen_random_uuid()::text, ${floorId}, ${jobId}, "id", "x", "y", "rotation", CURRENT_TIMESTAMP
-        FROM "FloorImportCandidate" WHERE "jobId" = ${jobId} AND "id" IN (${Prisma.join(input.candidateIds)})`);
       const plan = { imageUrl: "" as const, sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
         width: ref.width, height: ref.height, gridSize: ref.gridSize };
       await tx.floorPlan.upsert({ where: { floorId }, create: { floorId, ...plan }, update: { ...plan, version: { increment: 1 } } });
@@ -939,8 +902,8 @@ export class FloorImportService {
         floorPlan: true, fixtures: { orderBy: { id: "asc" } }, mapObjects: true, lightSlots: { orderBy: { id: "asc" } } } });
       const legacy = buildFloorEditorSnapshot(snapshotFloor);
       const snapshot = buildMapDocumentSnapshot({ document: ref, fixtures: legacy.fixtures, lightSlots: "lightSlots" in legacy ? legacy.lightSlots ?? [] : [] });
-      const changeSummary = { floorImportJobId: jobId, acceptedCandidates: accepted.size, deletedObjectCount: deletedObjects.count,
-        unplacedFixtureCount: unplacedFixtures.count, deletedSlotCount: deletedSlots.count, createdSlotCount: accepted.size };
+      const changeSummary = { floorImportJobId: jobId, acceptedCandidates: 0, deletedObjectCount: deletedObjects.count,
+        unplacedFixtureCount: unplacedFixtures.count, deletedSlotCount: deletedSlots.count, createdSlotCount: 0 };
       const revision = await tx.floorMapRevision.create({ data: { floorId, revision: ref.revision, snapshot: snapshot as Prisma.InputJsonValue,
         snapshotSha256: hashFloorEditorSnapshot(snapshot), changedBy: user.id, changeSummary } });
       await this.mapStore!.pinRevision(tx, floorId, revision.id, ref);
@@ -957,9 +920,9 @@ export class FloorImportService {
         targetType: "floor_import_job", targetId: jobId, outcome: "success", metadata: { ...changeSummary, generationId: ref.generationId }, transaction: tx });
       await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "completed", stage: "completed", appliedAt: now,
         completedAt: now, progressPercent: 100, preparedMapGenerationId: null } });
-      return { jobId, status: "completed" as const, revision: ref.revision, acceptedCandidateIds: [...accepted].sort(),
+      return { jobId, status: "completed" as const, revision: ref.revision, acceptedCandidateIds: [],
         renderedAssetId: job.renderedAssetId, deletedObjectCount: deletedObjects.count,
-        unplacedFixtureCount: unplacedFixtures.count, deletedSlotCount: deletedSlots.count, createdSlotCount: accepted.size,
+        unplacedFixtureCount: unplacedFixtures.count, deletedSlotCount: deletedSlots.count, createdSlotCount: 0,
         floorPlan: plan, mapDocument: ref } satisfies FloorImportApplyResult;
     }, { ...EDITOR_TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }

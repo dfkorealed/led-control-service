@@ -120,15 +120,12 @@ describe("FloorImportWorkerService", () => {
     await worker.onModuleDestroy();
   });
 
-  it.each(["success", "compressed", "dwg", "verification failure", "invalid metadata", "core timeout", "pin failure", "canonical only"])("runs the verified native persistence path: %s", async mode => {
+  it.each(["success", "compressed", "dwg", "verification failure", "invalid metadata", "core timeout", "pin failure", "canonical only", "candidate output", "legacy candidate ledger", "legacy region digest"])("runs the verified native persistence path: %s", async mode => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-test-"));
     const row = claimedJob({ detectorProfileId: null, sourceFormat: mode === "dwg" ? "dwg" : "dxf" });
     const source = { objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: BigInt(1024), sha256: "a".repeat(64),
       mimeType: "application/dxf", floor: { siteId: randomUUID() } };
-    const candidates = Array.from({ length: 2_000 }, (_, index) => ({
-      sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED", x: 3, y: 8,
-      rotation: -30, confidence: 0.95, method: "rule"
-    }));
+    const candidates: never[] = [];
     const dxf = "0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1\n8\n0\n10\n0\n20\n0\n11\n10\n21\n10\n0\nENDSEC\n0\nEOF\n";
     const attempt = { jobId: row.id, floorId: row.floorId, attemptCount: row.attemptCount,
       assetId: randomUUID(), objectKey: `floors/${row.floorId}/${row.id}-attempt-${row.attemptCount}.svg` };
@@ -140,7 +137,9 @@ describe("FloorImportWorkerService", () => {
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{ id: row.id }])
         .mockResolvedValueOnce([row]),
-      floorImportRegion: { findMany: jest.fn().mockResolvedValue([]) },
+      floorImportRegion: { findMany: jest.fn().mockResolvedValue(mode === "legacy region digest" ? [{
+        regionId: "region-0123456789abcdef01234567", selectedAt: new Date(), candidateIdentityDigest: "c".repeat(64)
+      }] : []) },
       floorAsset: {
         findUniqueOrThrow: jest.fn().mockResolvedValue(source),
         findUnique: jest.fn().mockResolvedValue(null),
@@ -160,7 +159,7 @@ describe("FloorImportWorkerService", () => {
             findMany: jest.fn().mockResolvedValue([]),
             createMany: jest.fn().mockResolvedValue({ count: 1 })
           },
-          floorImportCandidate: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          floorImportCandidate: { findMany: jest.fn().mockResolvedValue(mode === "legacy candidate ledger" ? [{ id: randomUUID() }] : []), deleteMany: jest.fn().mockResolvedValue({ count: 0 }), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
           $executeRaw: jest.fn().mockResolvedValue(1)
         };
         const result = await run(tx); finalTransactions.push(tx); return result;
@@ -196,16 +195,15 @@ describe("FloorImportWorkerService", () => {
       if (mode === "invalid metadata") artifacts.region.textCount = artifacts.region.primitiveCount + 1;
       return {
         profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
-        modelEntityCount: 1, blockCount: 0, candidates, selectedCandidates: candidates,
-        candidateRegionAssignments: candidates.map(candidate => ({
-          sourceEntityId: candidate.sourceEntityId,
-          regionId: artifacts.region.regionId
-        })),
+        modelEntityCount: 1, blockCount: 0, candidates: mode === "candidate output" ? [{
+          sourceEntityId: "I1", layerName: "LIGHT", blockName: "LED", x: 3, y: 8, rotation: 0, confidence: 0.95, method: "rule"
+        }] : candidates, selectedCandidates: candidates,
+        candidateRegionAssignments: [],
         excludedRegionPrimitiveCount: 17, regions: [artifacts.region],
         regionPreviews: artifacts.regionPreviews, scene: artifacts.scene, canonical: artifacts.canonical,
         candidateTransformMatch: {
           candidateCount: candidates.length, matchedCount: candidates.length,
-          matchRate: 1, tolerancePx: 0.01, maxDeltaPx: 0
+          matchRate: null, tolerancePx: 0.01, maxDeltaPx: 0
         },
         rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "c".repeat(64), viewport: { width: 12, height: 12 },
           renderedOccurrences: 1, contentEncoding: "gzip" }
@@ -235,6 +233,14 @@ describe("FloorImportWorkerService", () => {
     if (mode === "core timeout") core.execute.mockRejectedValue(new Error("CAD core child process wall time limit exceeded"));
     try {
       await expect(worker.runOnce()).resolves.toBe(true);
+      if (["candidate output", "legacy candidate ledger", "legacy region digest"].includes(mode)) {
+        const failure = prisma.$executeRaw.mock.calls.find(([query]: any[]) => query.strings?.join(" ").includes('"failureMessage" = CASE'))[0];
+        expect(failure.values).toContain("CAD candidate policy changed; cancel this import and re-import");
+        expect(prisma.$transaction.mock.results).toHaveLength(mode === "legacy candidate ledger" ? 1 : 0);
+        if (mode === "legacy region digest") expect(core.execute).not.toHaveBeenCalled();
+        expect(pinned).toBeNull();
+        return;
+      }
       if (mode === "canonical only") {
         expect(persisted).toHaveLength(1);
         expect(pinned).toBe(preparedId);
@@ -279,19 +285,13 @@ describe("FloorImportWorkerService", () => {
       );
       const finalTx = finalTransactions.at(-1);
       expect(finalTx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain("FOR UPDATE OF floor, asset, cleanup");
-      expect(finalTx.floorImportCandidate.createMany).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.arrayContaining([expect.objectContaining({
-          detectionMethod: "rule_based", provider: null, model: null, inputDigest: null,
-          x: 3, y: 8, rotation: -30, profileVersion: "test/1", profileDigest: "b".repeat(64)
-        })])
-      }));
-      expect(finalTx.floorImportCandidate.createMany).toHaveBeenCalledTimes(8);
-      expect(finalTx.floorImportCandidate.createMany.mock.calls.every(([input]: any[]) => input.data.length <= 250)).toBe(true);
+      expect(finalTx.floorImportCandidate.createMany).not.toHaveBeenCalled();
+      expect(finalTx.floorImportCandidate.deleteMany).not.toHaveBeenCalled();
       expect(finalTx).not.toHaveProperty("fixture");
       expect(finalTx).not.toHaveProperty("meshNode");
       const regionInsert = finalTx.$executeRaw.mock.calls.find(([query]: any[]) =>
         query.strings.join(" ").includes('INSERT INTO "FloorImportRegion"'))[0];
-      expect(regionInsert.values.slice(3, 12)).toEqual(["0", "0", "10", "10", 2_000, 0, 2_000, 1_200, 1_200]);
+      expect(regionInsert.values.slice(3, 12)).toEqual(["0", "0", "10", "10", 1, 0, 0, 1_200, 1_200]);
       expect(regionInsert.values[12]).toMatch(/^[a-f0-9]{64}$/);
       const completionSql = finalTx.$executeRaw.mock.calls.at(-1)[0];
       expect(completionSql.strings.join(" ")).toContain("review_required");

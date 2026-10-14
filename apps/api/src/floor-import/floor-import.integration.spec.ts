@@ -32,6 +32,7 @@ import { buildCanonicalCadScene } from "./cad-canonical-spool";
 import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
 import { FloorImportModule } from "./floor-import.module";
 import { FixedLightingDetectorRegistry, PROVIDED_SAMPLE_DWG_SHA256 } from "./lighting-detector-registry";
+import { MapDocumentRevisionData } from "../floor-editor/map-document-revision-data";
 
 const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
 const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringify([]), "utf8").digest("hex");
@@ -39,6 +40,9 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
 // canonical storage real through Prisma/codec with a separate byte fixture; the
 // cad-map-preparation integration suite exercises both against actual MinIO.
 class FloorImportWorkerService extends ProductionFloorImportWorkerService {
+  readonly fixtureStore: MapDocumentStore;
+  readonly fixturePreparation: CadMapPreparationService;
+  readonly fixtureStorage: ObjectStorageService;
   constructor(...args: ConstructorParameters<typeof ProductionFloorImportWorkerService>) {
     const objects = new Map<string, Buffer>();
     const storage = {
@@ -49,8 +53,12 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         await writeFile(path, bytes, { flag: "wx" });
       }
     } as unknown as ObjectStorageService;
-    args[7] ??= new CadMapPreparationService(args[0], storage, new MapDocumentStore(args[0], storage));
+    const store = new MapDocumentStore(args[0], storage);
+    args[7] ??= new CadMapPreparationService(args[0], storage, store);
     super(...args);
+    this.fixtureStore = store;
+    this.fixturePreparation = args[7];
+    this.fixtureStorage = storage;
   }
 }
 (enabled ? describe : describe.skip)("floor import PostgreSQL lifecycle", () => {
@@ -95,6 +103,9 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     await prisma.floorImportAttemptCleanup.deleteMany();
     await prisma.floorImportJob.deleteMany({ where: { floorId } });
     await prisma.floorMapRevision.deleteMany({ where: { floorId } });
+    // Prepared-map cases now activate a generation. Release only this disposable
+    // fixture's document reference before removing its generation between tests.
+    await prisma.floorMapDocument.deleteMany({ where: { floorId } });
     await prisma.floorMapGeneration.deleteMany({ where: { floorId } });
     await prisma.floorMapObject.deleteMany({ where: { floorId } });
     await prisma.lightingSchedule.deleteMany({ where: { siteId } });
@@ -283,7 +294,8 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       });
       const presignGet = jest.fn().mockResolvedValue("https://private.invalid/preview");
       const realStorage = new ObjectStorageService({ send } as never, { bucket: "isolated", publicBaseUrl: "", presignGet });
-      const imports = new FloorImportService(prisma as never, access as never, new AuditService(prisma as never), realStorage);
+      const imports = new FloorImportService(prisma as never, access as never, new AuditService(prisma as never), realStorage,
+        undefined, undefined, worker.fixturePreparation, worker.fixtureStore);
       const listed = await imports.listRegions(user, floorId, job.id);
       expect(listed.regions).toHaveLength(1817);
       expect(listed.excludedRegionPrimitiveCount).toBe(7);
@@ -334,33 +346,29 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       } });
       await expect(imports.apply(user, floorId, job.id, {
         expectedRevision: 0, leaseToken, leaseFence: 1, candidateIds: [], confirmMapReset: true
-      })).resolves.toMatchObject({ status: "completed", revision: 1 });
+      })).resolves.toMatchObject({ status: "completed", revision: 1, createdSlotCount: 0 });
       const persisted = await prisma.$queryRawUnsafe<Array<{
-        minX: string; minY: string; maxX: string; maxY: string; equal: boolean;
-      }>>(`SELECT scene."sourceMinX"::text AS "minX", scene."sourceMinY"::text AS "minY",
-        scene."sourceMaxX"::text AS "maxX", scene."sourceMaxY"::text AS "maxY",
-        (scene."sourceMinX" = region."minX" AND scene."sourceMinY" = region."minY"
-          AND scene."sourceMaxX" = region."maxX" AND scene."sourceMaxY" = region."maxY") AS equal
-        FROM "FloorCadScene" scene JOIN "FloorImportRegion" region ON region.id = scene."sourceRegionId"
-        WHERE scene.id = $1`, scene.sceneId);
-      expect(persisted[0].equal).toBe(true);
+        minX: string; minY: string; maxX: string; maxY: string;
+      }>>(`SELECT "minX"::text, "minY"::text, "maxX"::text, "maxY"::text
+        FROM "FloorImportRegion" WHERE "jobId" = $1 AND "selectedAt" IS NOT NULL`, job.id);
       expect(Object.fromEntries(["minX", "minY", "maxX", "maxY"].map(key =>
         [key, Number(persisted[0][key as "minX"])]))).toEqual(scene.sourceBounds);
-      const editor = new FloorEditorService(prisma as never, access as never, new AuditService(prisma as never));
-      const maps = new FloorMapService(prisma as never, access as never);
+      const generation = await prisma.floorMapDocument.findUniqueOrThrow({ where: { floorId } });
+      const revisionData = new MapDocumentRevisionData(prisma as never, worker.fixtureStorage, worker.fixtureStore);
+      const editor = new FloorEditorService(prisma as never, access as never, new AuditService(prisma as never),
+        undefined, undefined, undefined, revisionData);
+      const maps = new FloorMapService(prisma as never, access as never, undefined, undefined, revisionData);
       const editorState = await editor.getEditorState(floorId, user);
       const snapshot = await maps.getSnapshot(user, siteId, floorId);
-      const sceneState = await maps.getCadSceneState(user, siteId, floorId);
+      await expect(maps.getCadSceneState(user, siteId, floorId)).rejects.toBeInstanceOf(NotFoundException);
       expect(editorState.floor.cadScene).toEqual(snapshot.cadScene);
-      expect(sceneState.scene).toEqual(snapshot.cadScene);
-      expect(snapshot.cadScene).toMatchObject({ id: scene.sceneId, sourceImportJobId: job.id,
-        width: scene.width, height: scene.height,
-        manifestContentPath: `/floors/${floorId}/import-jobs/${job.id}/scene/manifest/content` });
-      const manifestReads = jest.spyOn(realStorage, "readCadSceneManifest");
-      await imports.getSceneManifestContent(user, floorId, job.id);
-      const readManifest = await manifestReads.mock.results[0].value;
-      expect(readManifest.sourceBounds).toEqual(scene.sourceBounds);
-      expect(readManifest.transform).toEqual(scene.transform);
+      expect(snapshot.cadScene).toBeNull();
+      expect(editorState.floor.mapDocument).toEqual(snapshot.mapDocument);
+      expect(snapshot.mapDocument).toMatchObject({ generationId: generation.activeGenerationId, width: scene.width, height: scene.height });
+      const readManifest = await worker.fixturePreparation.readDisplayManifest(floorId, snapshot.mapDocument!);
+      expect(readManifest.scene.sourceBounds).toEqual(scene.sourceBounds);
+      expect(readManifest.scene.transform).toEqual(scene.transform);
+      expect(await prisma.floorLightSlot.count({ where: { floorId } })).toBe(0);
       const headsBeforeLegacyReads = send.mock.calls.length;
       await prisma.floorImportRegion.updateMany({ where: { jobId: job.id }, data: {
         textCount: null, lightCandidateCount: null, previewWidth: null, previewHeight: null
@@ -437,7 +445,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
 
     const imports = service();
     await expect(imports.apply(user, floorId, job.id, {
-      expectedRevision: 0, leaseToken: "unused", leaseFence: 0,
+      expectedRevision: 0, leaseToken: "unused", leaseFence: 1,
       candidateIds: [], confirmMapReset: true
     })).rejects.toBeInstanceOf(ConflictException);
     await expect(imports.listRegions(user, floorId, job.id)).resolves.toMatchObject({
@@ -840,10 +848,9 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
   });
 
   it.each([
-    { changedRegion: false, selectedCandidates: 2 },
-    { changedRegion: true, selectedCandidates: 0 },
-    { changedRegion: true, selectedCandidates: 2 }
-  ])("replaces an applied native scene while preserving its manifest format version: %j", async ({ changedRegion, selectedCandidates }) => {
+    { changedRegion: false },
+    { changedRegion: true }
+  ])("replaces geometry-only native scenes while preserving their manifest format version: %j", async ({ changedRegion }) => {
     const imports = service();
     const gateway = await prisma.gateway.create({ data: {
       siteId, name: "Native replacement", serialNumber: randomUUID(), firmwareVersion: "test"
@@ -891,7 +898,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         : { minX: 0, minY: 0, maxX: 1_000, maxY: 1_000 };
       const region = {
         regionId: revision === 1 && changedRegion ? "region-444444444444444444444444" : "region-333333333333333333333333", bounds,
-        primitiveCount: 1, textCount: 0, lightCandidateCount: 2,
+        primitiveCount: 1, textCount: 0, lightCandidateCount: 0,
         area: (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)
       };
       await prisma.floorImportRegion.create({ data: {
@@ -918,17 +925,10 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
           sizeBytes: BigInt(tile.descriptor.byteSize), sha256: tile.descriptor.sha256, readyAt: new Date()
         }))
       ] });
-      const candidates = [{ id: randomUUID(), x: 100, y: 200 }, { id: randomUUID(), x: 300, y: 400 }];
-      await prisma.floorImportCandidate.createMany({ data: candidates.map((candidate, index) => ({
-        ...candidate, jobId: job.id, sourceEntityId: `native-light-${index}`, layerName: "LIGHT", blockName: "LED",
-        rotation: 0, confidence: 0.95, detectionMethod: "rule_based" as const,
-        profileVersion: "test/1", profileDigest: "b".repeat(64)
-      })) });
       storage.readCadSceneManifest = jest.fn().mockResolvedValue(built.manifest);
-      const accepted = candidates.slice(0, revision === 0 ? 2 : selectedCandidates);
       const input = {
         expectedRevision: revision, leaseToken: "replacement-lease", leaseFence: 4,
-        candidateIds: accepted.map(candidate => candidate.id), confirmMapReset: true
+        candidateIds: [], confirmMapReset: true
       };
       if (revision === 1) {
         const before = await persistedState();
@@ -944,8 +944,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         if (changedRegion) expect({ width: built.manifest.width, height: built.manifest.height }).not.toEqual(previousDimensions);
       }
       await expect(imports.apply(user, floorId, job.id, input)).resolves.toMatchObject({
-        status: "completed", revision: revision + 1, createdSlotCount: accepted.length,
-        deletedSlotCount: revision === 0 ? 0 : 2
+        status: "completed", revision: revision + 1, createdSlotCount: 0, deletedSlotCount: 0
       });
       await expect(prisma.floorCadScene.findUniqueOrThrow({ where: { floorId } })).resolves.toMatchObject({
         id: built.manifest.sceneId, version: built.manifest.version, sourceImportJobId: job.id,
@@ -959,15 +958,9 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       expect(snapshot.cadScene).toMatchObject({ id: built.manifest.sceneId, version: built.manifest.version,
         width: built.manifest.width, height: built.manifest.height });
       expect(snapshot.revision).toBe(revision + 1);
-      expect(editorState.lightSlots).toHaveLength(accepted.length);
-      for (const candidate of accepted) expect(editorState.lightSlots).toEqual(expect.arrayContaining([
-        expect.objectContaining({ x: candidate.x, y: candidate.y, assignedFixtureId: null })
-      ]));
+      expect(editorState.lightSlots).toEqual([]);
       const slots = await prisma.floorLightSlot.findMany({ where: { floorId } });
-      expect(slots).toHaveLength(accepted.length);
-      for (const candidate of accepted) expect(slots).toEqual(expect.arrayContaining([expect.objectContaining({
-        sourceCandidateId: candidate.id, sourceImportJobId: job.id, x: candidate.x, y: candidate.y, assignedFixtureId: null
-      })]));
+      expect(slots).toEqual([]);
       expect(await prisma.floorPlan.findUniqueOrThrow({ where: { floorId } })).toMatchObject({
         version: revision + 1, width: built.manifest.width, height: built.manifest.height
       });
@@ -980,7 +973,6 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         await prisma.floorCadElementOverride.create({ data: { sceneId: built.manifest.sceneId, elementId: "line:native-line", hidden: true } });
         await prisma.floorCadLayerState.create({ data: { sceneId: built.manifest.sceneId, layerName: "WALL", visible: false, locked: true } });
         await prisma.fixture.update({ where: { id: fixture.id }, data: { placementStatus: "placed", x: 100, y: 200, positionVerifiedAt: new Date() } });
-        await prisma.floorLightSlot.update({ where: { id: slots[0].id }, data: { assignedFixtureId: fixture.id } });
         await prisma.floorMapObject.create({ data: { floorId, type: "rectangle", x: 1, y: 2, width: 3, height: 4 } });
       } else {
         expect(await prisma.floorCadScene.count({ where: { id: previousSceneId } })).toBe(0);
@@ -1337,15 +1329,13 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         .resolves.toBe(draftAssetIds.length);
 
       const imports = new FloorImportService(
-        prisma as never, access as never, new AuditService(prisma as never), workerStorage as never
+        prisma as never, access as never, new AuditService(prisma as never), workerStorage as never,
+        undefined, undefined, importWorker.fixturePreparation, importWorker.fixtureStore
       );
-      await expect(imports.getSceneManifestContent(user, floorId, job.id)).resolves.toEqual(built.manifest);
-      const tile = built.manifest.tiles[0];
-      await expect(imports.getSceneTileContent(user, floorId, job.id, {
-        tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part
-      })).resolves.toEqual({
-        url: `https://private.invalid/${identity.tileObjectKey(floorId, tile)}`
-      });
+      const prepared = await importWorker.fixturePreparation.readPrepared(floorId, job.id);
+      const display = await importWorker.fixturePreparation.readDisplayManifest(floorId, prepared);
+      expect(display.scene).toMatchObject({ sourceBounds: built.manifest.sourceBounds, transform: built.manifest.transform });
+      expect(display.scene.tiles).toHaveLength(built.manifest.tiles.length);
       await prisma.floor.update({ where: { id: floorId }, data: {
         editorLeaseFence: 3,
         editorLeaseTokenHash: hashEditorLeaseToken("delayed-draft-lease"),
@@ -1360,7 +1350,8 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         leaseFence: 3,
         candidateIds: [],
         confirmMapReset: true
-      })).resolves.toMatchObject({ status: "completed", floorPlan: { sourceType: "cad" } });
+      })).resolves.toMatchObject({ status: "completed", createdSlotCount: 0, mapDocument: prepared, floorPlan: { sourceType: "none" } });
+      expect(await prisma.floorLightSlot.count({ where: { floorId } })).toBe(0);
       assetCleanup.onModuleDestroy();
     } finally {
       await importWorker.onModuleDestroy();
@@ -1492,7 +1483,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     }
   }, 30_000);
 
-  it("rolls back a failed middle candidate chunk, retries, persists 2,000 rows and cleans the failed attempt", async () => {
+  it("prepares geometry without any candidate insert even when all candidate inserts would fail", async () => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-worker-pg-"));
     const source = await sourceAsset();
     const job = await prisma.floorImportJob.create({ data: {
@@ -1518,14 +1509,10 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     }) };
     const registry = new FixedLightingDetectorRegistry();
     const profile = registry.get("generic-lighting-v1");
-    const candidates = Array.from({ length: 2_000 }, (_, index) => ({
-      sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED",
-      x: index, y: 0, rotation: 0, confidence: 0.9, method: "rule" as const
-    }));
     const chunkRegion = {
       regionId: "region-0123456789abcdef01234567",
       bounds: { minX: 0, minY: 0, maxX: 2_002, maxY: 2_002 },
-      primitiveCount: 2_000, textCount: 0, lightCandidateCount: 2_000, area: 4_008_004
+      primitiveCount: 2_000, textCount: 0, lightCandidateCount: 0, area: 4_008_004
     };
     const core = { execute: jest.fn(async ({ renderedPath, artifactDirectory }: {
       renderedPath: string; artifactDirectory: string;
@@ -1535,16 +1522,12 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       return {
         profileId: "generic-lighting-v1" as const,
         profileVersion: profile.profileVersion!, profileDigest: profile.profileDigest!,
-        modelEntityCount: 1, blockCount: 0, candidates,
+        modelEntityCount: 1, blockCount: 0, candidates: [],
         excludedRegionPrimitiveCount: 0,
-        selectedCandidates: candidates,
-        candidateRegionAssignments: candidates.map(candidate => ({
-          sourceEntityId: candidate.sourceEntityId,
-          regionId: chunkRegion.regionId
-        })),
+        selectedCandidates: [], candidateRegionAssignments: [],
         regions: [chunkRegion],
         ...artifacts,
-        candidateTransformMatch: { candidateCount: 2_000, matchedCount: 2_000, matchRate: 1, tolerancePx: 0.01, maxDeltaPx: 0 },
+        candidateTransformMatch: { candidateCount: 0, matchedCount: 0, matchRate: null, tolerancePx: 0.01, maxDeltaPx: 0 },
         rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "d".repeat(64), viewport: { width: 2_002, height: 1_600 },
           renderedOccurrences: 2_000, contentEncoding: "gzip" as const }
       };
@@ -1561,8 +1544,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       await prisma.$executeRawUnsafe(`
         CREATE OR REPLACE FUNCTION fail_cad_candidate_chunk() RETURNS trigger AS $$
         BEGIN
-          IF NEW."sourceEntityId" = 'insert-750' THEN RAISE EXCEPTION 'forced middle chunk failure'; END IF;
-          RETURN NEW;
+          RAISE EXCEPTION 'candidate inserts are forbidden';
         END; $$ LANGUAGE plpgsql
       `);
       await prisma.$executeRawUnsafe(`CREATE TRIGGER fail_cad_candidate_chunk BEFORE INSERT ON "FloorImportCandidate"
@@ -1573,24 +1555,17 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       await expect(prisma.floorImportCandidate.count({ where: { jobId: job.id } })).resolves.toBe(0);
       await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } }))
         .resolves.toMatchObject({
-          status: "queued", stage: "queued", progressPercent: 90, attemptCount: 1,
-          leaseOwner: null, leaseExpiresAt: null, startedAt: null,
+          status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
+          leaseOwner: null, leaseExpiresAt: null,
           failureCode: null, failureMessage: null
         });
 
       await prisma.$executeRawUnsafe(`DROP TRIGGER fail_cad_candidate_chunk ON "FloorImportCandidate"`);
       await prisma.$executeRawUnsafe(`DROP FUNCTION fail_cad_candidate_chunk()`);
-      const retry = makeWorker();
-      await expect(retry.runOnce()).resolves.toBe(true);
-      await retry.onModuleDestroy();
-      await expect(prisma.floorImportCandidate.count({ where: { jobId: job.id } })).resolves.toBe(2_000);
-      await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } }))
-        .resolves.toMatchObject({ status: "review_required", progressPercent: 100, attemptCount: 2 });
-
       await cleanup.sweepAttempts(new Date(Date.now() + 10 * 60_000));
-      expect(storageForWorker.deleteObject).toHaveBeenCalledWith(`floors/${floorId}/${job.id}-attempt-1.svg`);
+      expect(storageForWorker.deleteObject).not.toHaveBeenCalled();
       await expect(prisma.floorAsset.findFirst({ where: { objectKey: `floors/${floorId}/${job.id}-attempt-1.svg` } }))
-        .resolves.toBeNull();
+        .resolves.toMatchObject({ status: "ready" });
     } finally {
       await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS fail_cad_candidate_chunk ON "FloorImportCandidate"`).catch(() => undefined);
       await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS fail_cad_candidate_chunk()`).catch(() => undefined);
@@ -1725,26 +1700,33 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
 
   it("atomically replaces map objects and slots while preserving registered fixture relationships", async () => {
     const source = await sourceAsset(); const renderedId = randomUUID(); const jobId = randomUUID();
+    const historicalJobId = randomUUID();
+    const historicalRendered = await renderedAsset();
     await prisma.floorAsset.create({ data: {
       id: renderedId, floorId, kind: "rendered", status: "ready", objectKey: `floors/${floorId}/${renderedId}.svg`,
       mimeType: "image/svg+xml", contentEncoding: null, sizeBytes: 256n, sha256: "b".repeat(64), readyAt: new Date()
     } });
     await prisma.floorImportJob.create({ data: {
-      id: jobId, floorId, sourceAssetId: source.id, renderedAssetId: renderedId, sourceFormat: "dxf",
-      status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
+      id: historicalJobId, floorId, sourceAssetId: source.id, renderedAssetId: historicalRendered.id, sourceFormat: "dxf",
+      status: "completed", stage: "completed", progressPercent: 100, attemptCount: 1,
       startedAt: new Date(), reviewRequiredAt: new Date(), parserVersion: "ascii-dxf-v1", detectorVersion: "rule-v1",
+      appliedAt: new Date(), completedAt: new Date(),
       excludedRegionPrimitiveCount: 0, ...terminalProfile
     } });
     const candidateIds = Array.from({ length: 2_000 }, () => randomUUID());
-    const acceptedIds = candidateIds;
-    const acceptedId = acceptedIds[0]; const previousSlotCandidateId = candidateIds.at(-1)!;
+    const previousSlotCandidateId = candidateIds.at(-1)!;
     await prisma.floorImportCandidate.createMany({ data: candidateIds.map((id, index) => ({
-      id, jobId, sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED",
+      id, jobId: historicalJobId, sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED",
       x: 10 + index, y: 20 + index, rotation: 0, confidence: 0.95, detectionMethod: "rule_based" as const,
-      profileVersion: "test/1", profileDigest: "b".repeat(64)
+      profileVersion: "test/1", profileDigest: "b".repeat(64), reviewStatus: "accepted" as const, reviewedAt: new Date()
     })) });
-    await expect(service().listCandidates(user, floorId, jobId)).resolves.toMatchObject({ candidates: expect.any(Array) });
-    expect((await service().listCandidates(user, floorId, jobId)).candidates).toHaveLength(2_000);
+    const historicalCandidates = await prisma.floorImportCandidate.findMany({ where: { jobId: historicalJobId }, orderBy: { id: "asc" } });
+    await prisma.floorImportJob.create({ data: {
+      id: jobId, floorId, sourceAssetId: source.id, renderedAssetId: renderedId, sourceFormat: "dxf",
+      status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
+      startedAt: new Date(), reviewRequiredAt: new Date(), excludedRegionPrimitiveCount: 0, ...terminalProfile
+    } });
+    expect((await service().listCandidates(user, floorId, jobId)).candidates).toEqual([]);
     const gateway = await prisma.gateway.create({ data: {
       siteId, name: "CAD reset preservation", serialNumber: randomUUID(), firmwareVersion: "test"
     } });
@@ -1783,7 +1765,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       id, floorId, type: "rectangle", x: index + 1, y: index + 2, width: 3, height: 4
     })) });
     await prisma.floorLightSlot.create({ data: {
-      floorId, sourceImportJobId: jobId, sourceCandidateId: previousSlotCandidateId,
+      floorId, sourceImportJobId: historicalJobId, sourceCandidateId: previousSlotCandidateId,
       assignedFixtureId: fixtureIds[0], x: 99, y: 88, rotation: 45
     } });
     await prisma.floor.update({ where: { id: floorId }, data: {
@@ -1794,24 +1776,22 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
 
     const applied = await service().apply(user, floorId, jobId, {
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
-      candidateIds: acceptedIds, confirmMapReset: true
+      candidateIds: [], confirmMapReset: true
     });
     expect(applied).toMatchObject({
       status: "completed", revision: 5,
-      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 2_000
+      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 0
     });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ contentEncoding: null }));
-    expect(applied.acceptedCandidateIds).toHaveLength(2_000);
-    expect(new Set(applied.acceptedCandidateIds)).toEqual(new Set(acceptedIds));
+    expect(applied.acceptedCandidateIds).toEqual([]);
 
     await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
       status: "completed", appliedAt: expect.any(Date), completedAt: expect.any(Date)
     });
     const reviewedCandidates = await prisma.floorImportCandidate.findMany({
-      where: { jobId }, orderBy: { id: "asc" }, select: { id: true, reviewStatus: true, reviewedAt: true }
+      where: { jobId: historicalJobId }, orderBy: { id: "asc" }
     });
-    expect(reviewedCandidates).toHaveLength(2_000);
-    expect(reviewedCandidates.every(candidate => candidate.reviewStatus === "accepted" && candidate.reviewedAt instanceof Date)).toBe(true);
+    expect(reviewedCandidates).toEqual(historicalCandidates);
     expect(await prisma.fixture.findMany({ where: { floorId }, orderBy: { id: "asc" } })).toEqual(
       expect.arrayContaining(fixtureIds.map(id => expect.objectContaining({
         id, placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0
@@ -1819,9 +1799,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     );
     expect(await prisma.floorMapObject.count({ where: { floorId } })).toBe(0);
     const slots = await prisma.floorLightSlot.findMany({ where: { floorId }, orderBy: { sourceCandidateId: "asc" } });
-    expect(slots).toHaveLength(2_000);
-    expect(slots.map(slot => slot.sourceCandidateId).sort()).toEqual([...acceptedIds].sort());
-    expect(slots.every(slot => slot.assignedFixtureId === null)).toBe(true);
+    expect(slots).toEqual([]);
     expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: node.id } })).toEqual(relationshipEvidence.node);
     expect(await prisma.groupFixture.findMany({ where: { groupId: group.id } })).toEqual(relationshipEvidence.membership);
     expect(await prisma.lightingScheduleFixture.findMany({ where: { scheduleId: schedule.id } })).toEqual(relationshipEvidence.schedule);
@@ -1833,12 +1811,12 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     const expectedChangeSummary = {
       floorImportJobId: jobId,
       floorPlanChanged: true,
-      acceptedCandidates: 2_000,
+      acceptedCandidates: 0,
       rejectedCandidates: 0,
       deletedObjectCount: 2,
       unplacedFixtureCount: 4,
       deletedSlotCount: 1,
-      createdSlotCount: 2_000,
+      createdSlotCount: 0,
       fixtureUpdates: 4,
       objectCreates: 0,
       objectUpdates: 0,
@@ -1848,9 +1826,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     expect(revision).toMatchObject({
         changedBy: userId,
         changeSummary: expectedChangeSummary,
-        snapshot: expect.objectContaining({ lightSlots: expect.arrayContaining([
-          expect.objectContaining({ x: 10, y: 20, assignedFixtureId: null })
-        ]) })
+        snapshot: expect.objectContaining({ lightSlots: [] })
       });
     await expect(prisma.auditLog.findFirstOrThrow({ where: { targetId: jobId, action: "floor_import.applied" } }))
       .resolves.toMatchObject({
@@ -1859,7 +1835,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         metadata: {
           floorId,
           revision: 5,
-          acceptedCandidateIds: [...acceptedIds].sort(),
+          acceptedCandidateIds: [],
           snapshotSha256: revision.snapshotSha256,
           changeSummary: expectedChangeSummary
         }
@@ -1876,10 +1852,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         candidates: expect.any(Array)
       }
     });
-    expect(overlay.overlay?.candidates).toHaveLength(2_000);
-    expect(overlay.overlay?.candidates.every(candidate => candidate.reviewStatus === "accepted")).toBe(true);
-    expect(overlay.overlay?.candidates[0]).not.toHaveProperty("fixtureId");
-    expect(overlay.overlay?.candidates[0]).not.toHaveProperty("meshNodeId");
+    expect(overlay.overlay?.candidates).toEqual([]);
 
     const replacementSource = await sourceAsset();
     const replacementRendered = await renderedAsset();
@@ -2025,12 +1998,12 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     });
   });
 
-  it("rolls back the plan, objects, fixtures, slots, revision, audit and job when slot creation trigger fails", async () => {
+  it("fails closed without altering legacy pending candidates or any existing map data", async () => {
     const source = await sourceAsset(); const rendered = await renderedAsset(); const jobId = randomUUID();
     await prisma.floorImportJob.create({ data: {
       id: jobId, floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
       status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
-      startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
+      startedAt: new Date(), reviewRequiredAt: new Date(), excludedRegionPrimitiveCount: 0, ...terminalProfile
     } });
     const candidateIds = [randomUUID(), randomUUID()];
     await prisma.floorImportCandidate.createMany({ data: candidateIds.map((id, index) => ({
@@ -2074,29 +2047,11 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       floor: await prisma.floor.findUniqueOrThrow({ where: { id: floorId } })
     });
     const before = await readState();
-    await prisma.$executeRawUnsafe(`
-      CREATE FUNCTION "task5_force_floor_light_slot_failure"() RETURNS trigger
-      LANGUAGE plpgsql AS $function$
-      BEGIN
-        RAISE EXCEPTION 'task5 forced slot trigger failure' USING ERRCODE = '23514';
-      END;
-      $function$
-    `);
-    await prisma.$executeRawUnsafe(`
-      CREATE TRIGGER "task5_force_floor_light_slot_failure"
-      BEFORE INSERT ON "FloorLightSlot"
-      FOR EACH ROW EXECUTE FUNCTION "task5_force_floor_light_slot_failure"()
-    `);
-    try {
-      await expect(service().apply(user, floorId, jobId, {
-        expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
-        candidateIds: [candidateIds[0]], confirmMapReset: true
-      })).rejects.toBeDefined();
-      expect(await readState()).toEqual(before);
-    } finally {
-      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "task5_force_floor_light_slot_failure" ON "FloorLightSlot"`);
-      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "task5_force_floor_light_slot_failure"()`);
-    }
+    await expect(service().apply(user, floorId, jobId, {
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+      candidateIds: [], confirmMapReset: true
+    })).rejects.toThrow(/cancel.*re-import/i);
+    expect(await readState()).toEqual(before);
   });
 
   it("allows an existing rendered SVG to retain an identity ledger", async () => {

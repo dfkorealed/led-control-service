@@ -40,7 +40,8 @@ export {
 
 const MAX_ATTEMPTS = 3;
 const PARSER_VERSION = "ascii-dxf-stream-v2";
-const CANDIDATE_WRITE_CHUNK = 250;
+const REGION_WRITE_CHUNK = 250;
+const REIMPORT_REQUIRED_MESSAGE = "CAD candidate policy changed; cancel this import and re-import";
 export const CAD_IMPORT_MAX_CONCURRENT_JOBS = 1;
 
 @Injectable()
@@ -250,6 +251,12 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         expectedCandidateRegionDigests = Object.fromEntries(
           persistedRegions.map(region => [region.regionId, region.candidateIdentityDigest!])
         );
+        // Preserve the exact persisted digest fence. A legacy nonempty digest
+        // cannot be silently rewritten to the new empty candidate contract.
+        if (!candidateRegionDigestsEqual(expectedCandidateRegionDigests,
+          computeCandidateRegionDigests(persistedRegions.map(region => region.regionId), [], []))) {
+          throw new Error(REIMPORT_REQUIRED_MESSAGE);
+        }
       }
       const core = await this.core.execute({
         dxfPath,
@@ -277,6 +284,10 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       if (!Array.isArray(core.candidateRegionAssignments)) {
         throw new Error("CAD core candidate region assignments are unavailable");
       }
+      if (core.candidates.length > 0 || (core.selectedCandidates?.length ?? 0) > 0 ||
+          core.candidateRegionAssignments.length > 0 || regions.some(region => region.lightCandidateCount !== 0)) {
+        throw new Error(REIMPORT_REQUIRED_MESSAGE);
+      }
       const candidateRegionDigests = computeCandidateRegionDigests(
         regions.map(region => region.regionId),
         core.candidateRegionAssignments,
@@ -284,7 +295,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       );
       if (expectedCandidateRegionDigests &&
           !candidateRegionDigestsEqual(candidateRegionDigests, expectedCandidateRegionDigests)) {
-        throw new Error("CAD core candidate region assignments changed after selection");
+        throw new Error("CAD core candidate region assignments changed after selection; cancel this import and re-import");
       }
       const selectedRegionId = selectedRegion?.regionId ?? (regions.length === 1 ? regions[0].regionId : null);
       if (selectedRegionId && !regionsById.has(selectedRegionId)) {
@@ -314,7 +325,6 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           })
         });
       }
-      const candidates = core.selectedCandidates ?? core.candidates;
       const rendered = core.rendered;
       await pulse(70, "rendering");
 
@@ -513,8 +523,8 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         if (existingRegions.length === 0) {
           // Prisma's numeric JSON parameters can round CAD float8 bounds by one
           // ULP. Decimal-string casts preserve the exact verified object identity.
-          for (let offset = 0; offset < regions.length; offset += CANDIDATE_WRITE_CHUNK) {
-            const values = regions.slice(offset, offset + CANDIDATE_WRITE_CHUNK).map(region => {
+          for (let offset = 0; offset < regions.length; offset += REGION_WRITE_CHUNK) {
+            const values = regions.slice(offset, offset + REGION_WRITE_CHUNK).map(region => {
               const preview = previewsById.get(region.regionId)!;
               return Prisma.sql`(${randomUUID()}, ${job.id}, ${region.regionId},
                 ${String(region.bounds.minX)}::double precision, ${String(region.bounds.minY)}::double precision,
@@ -544,22 +554,11 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
               stored.previewHeight !== previewsById.get(region.regionId)!.viewport.height)) ||
             stored.candidateIdentityDigest !== candidateRegionDigests[region.regionId];
         })) throw new Error("CAD import region changed between selection and scene build");
-        await tx.floorImportCandidate.deleteMany({ where: { jobId: job.id } });
-        const candidateRows = candidates.map(candidate => {
-          const method = candidate.method === "ai" ? "ai_assisted" as const : "rule_based" as const;
-          return {
-              jobId: job.id, sourceEntityId: candidate.sourceEntityId,
-              layerName: candidate.layerName, blockName: candidate.blockName,
-              x: candidate.x, y: candidate.y, rotation: candidate.rotation,
-              confidence: candidate.confidence, detectionMethod: method,
-              provider: method === "ai_assisted" ? candidate.provider ?? null : null,
-              model: method === "ai_assisted" ? candidate.model ?? null : null,
-              inputDigest: method === "ai_assisted" ? candidate.inputDigest ?? null : null,
-              profileVersion: core.profileVersion, profileDigest: core.profileDigest
-          };
-        });
-        for (let offset = 0; offset < candidateRows.length; offset += CANDIDATE_WRITE_CHUNK) {
-          await tx.floorImportCandidate.createMany({ data: candidateRows.slice(offset, offset + CANDIDATE_WRITE_CHUNK) });
+        // A resumed legacy attempt must not erase its candidate ledger to make
+        // the new contract pass. Keep it intact and require an explicit re-import.
+        const legacyCandidates = await tx.floorImportCandidate.findMany({ where: { jobId: job.id }, select: { id: true }, take: 1 });
+        if (legacyCandidates.length > 0) {
+          throw new Error(REIMPORT_REQUIRED_MESSAGE);
         }
         if (prepared) await this.mapPreparation!.pinPrepared(tx,
           { id: job.id, floorId: job.floorId, attemptCount: job.attemptCount, leaseOwner: this.owner }, prepared);
@@ -567,7 +566,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           UPDATE "FloorImportJob" SET "status" = 'review_required', "stage" = 'review_required',
             "progressPercent" = 100, "renderedAssetId" = ${attempt.assetId}, "parserVersion" = ${PARSER_VERSION},
             "excludedRegionPrimitiveCount" = ${core.excludedRegionPrimitiveCount},
-            "detectorVersion" = ${`${core.profileVersion}:${core.profileDigest}+ai-disabled-v1`},
+            "detectorVersion" = ${`${core.profileVersion}:${core.profileDigest}+geometry-only-v1`},
             "detectorProfileVersion" = ${core.profileVersion}, "detectorProfileDigest" = ${core.profileDigest},
             "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),
             "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
@@ -604,17 +603,21 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       const failureCode = CAD_IMPORT_PHASE_FAILURE_CODES[phase];
+      const reimportRequired = error instanceof Error &&
+        (error.message === REIMPORT_REQUIRED_MESSAGE || error.message === "CAD_IMPORT_REGION_DIGEST_MISSING_REIMPORT_REQUIRED");
+      const terminal = reimportRequired || job.attemptCount >= MAX_ATTEMPTS;
+      const failureMessage = reimportRequired ? REIMPORT_REQUIRED_MESSAGE : "CAD import processing failed";
       this.logger.error({ operation: "background_job", diagnosticCode: classifyCadImportFailure(error, phase),
         phase, jobId: job.id, attemptCount: job.attemptCount });
       const changed = await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "FloorImportJob" SET
-          "status" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS}
+          "status" = CASE WHEN ${terminal}
             THEN 'failed'::"FloorImportJobStatus" ELSE 'queued'::"FloorImportJobStatus" END,
-          "stage" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'queued' END,
-          "startedAt" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN "startedAt" ELSE NULL END,
-          "failureCode" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN ${failureCode} ELSE NULL END,
-          "failureMessage" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN 'CAD import processing failed' ELSE NULL END,
-          "failedAt" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS}
+          "stage" = CASE WHEN ${terminal} THEN 'failed' ELSE 'queued' END,
+          "startedAt" = CASE WHEN ${terminal} THEN "startedAt" ELSE NULL END,
+          "failureCode" = CASE WHEN ${terminal} THEN ${failureCode} ELSE NULL END,
+          "failureMessage" = CASE WHEN ${terminal} THEN ${failureMessage} ELSE NULL END,
+          "failedAt" = CASE WHEN ${terminal}
             THEN (clock_timestamp() AT TIME ZONE 'UTC') ELSE NULL END,
           "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
           "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')

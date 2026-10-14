@@ -225,7 +225,7 @@ describe("FloorImportService", () => {
     await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf" })).rejects.toThrow("an active floor import already exists");
   });
 
-  it("uses read access and returns a candidate-only read model without fixture identity", async () => {
+  it("uses read access and returns empty candidates without reading or rewriting historical rows", async () => {
     const floorId = randomUUID(); const jobId = randomUUID(); const candidateId = randomUUID();
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
@@ -239,11 +239,28 @@ describe("FloorImportService", () => {
     const access: any = { assert: jest.fn() };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
     const result = await service.listCandidates(user, floorId, jobId);
-    expect(result).toEqual({ jobId, candidates: [expect.objectContaining({ id: candidateId, sourceEntityId: "insert-1" })] });
-    expect(result.candidates[0]).not.toHaveProperty("fixtureId");
-    expect(result.candidates[0]).not.toHaveProperty("meshNodeId");
-    expect(prisma.floorImportCandidate.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 2_000 }));
+    expect(result).toEqual({ jobId, candidates: [] });
+    expect(prisma.floorImportCandidate.findMany).not.toHaveBeenCalled();
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
+  });
+
+  it.each([false, true])("rejects nonempty candidateIds before legacy/prepared work (prepared=%s)", async prepared => {
+    const floorId = randomUUID(); const jobId = randomUUID();
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue({ preparedMapGenerationId: randomUUID() }) },
+      $transaction: jest.fn()
+    };
+    const preparation: any = { readPrepared: jest.fn() };
+    const service = new (FloorImportService as any)(prisma, { assert: jest.fn() }, { record: jest.fn() },
+      undefined, undefined, undefined, prepared ? preparation : undefined, prepared ? {} : undefined);
+    await expect(service.apply(user, floorId, jobId, {
+      expectedRevision: 0, leaseToken: "lease-token", leaseFence: 1,
+      confirmMapReset: true, candidateIds: [randomUUID()]
+    })).rejects.toThrow(BadRequestException);
+    expect(prisma.floorImportJob.findFirst).not.toHaveBeenCalled();
+    expect(preparation.readPrepared).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("returns the accepted candidates from the completed import backing the current floor background", async () => {
@@ -500,7 +517,7 @@ describe("FloorImportService", () => {
     }));
   });
 
-  it("atomically resets the map and creates slots only for accepted candidates", async () => {
+  it.each(["geometry", "historical candidates"])("applies geometry without candidate writes or fails closed: %s", async mode => {
     const floorId = randomUUID(); const jobId = randomUUID(); const sourceAssetId = randomUUID();
     const renderedAssetId = randomUUID(); const acceptedId = randomUUID(); const rejectedId = randomUUID();
     const floor = {
@@ -527,7 +544,7 @@ describe("FloorImportService", () => {
           renderedSha256: "b".repeat(64)
         }]),
       floorImportCandidate: {
-        findMany: jest.fn().mockResolvedValue([
+        findMany: jest.fn().mockResolvedValue(mode === "geometry" ? [] : [
           { id: acceptedId, x: 12, y: 34, rotation: 15 },
           { id: rejectedId, x: 56, y: 78, rotation: 0 }
         ]),
@@ -572,14 +589,22 @@ describe("FloorImportService", () => {
     const storage = { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 480 }) };
     const service = new (FloorImportService as any)(prisma, access, audit, storage);
 
-    const result = await service.apply(user, floorId, jobId, {
+    const applying = service.apply(user, floorId, jobId, {
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
-      confirmMapReset: true, candidateIds: [acceptedId]
+      confirmMapReset: true, candidateIds: []
     });
+    if (mode === "historical candidates") {
+      await expect(applying).rejects.toThrow(/cancel.*re-import/i);
+      expect(tx.floorImportCandidate.updateMany).not.toHaveBeenCalled();
+      expect(tx.floorLightSlot.deleteMany).not.toHaveBeenCalled();
+      expect(tx.floorImportJob.updateMany).not.toHaveBeenCalled();
+      return;
+    }
+    const result = await applying;
 
     expect(result).toMatchObject({
-      jobId, status: "completed", revision: 5, acceptedCandidateIds: [acceptedId],
-      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 1
+      jobId, status: "completed", revision: 5, acceptedCandidateIds: [],
+      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 0
     });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(`floors/${floorId}/${renderedAssetId}.svg`, {
       sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml", contentEncoding: "gzip"
@@ -589,7 +614,7 @@ describe("FloorImportService", () => {
       where: { floorId },
       create: expect.objectContaining({ floorId, sourceType: "image", width: 640, height: 480 })
     }));
-    expect(tx.floorImportCandidate.updateMany).toHaveBeenCalledTimes(2);
+    expect(tx.floorImportCandidate.updateMany).not.toHaveBeenCalled();
     expect(tx.floorMapObject.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
     expect(tx.fixture.updateMany).toHaveBeenCalledWith({
       where: { floorId },
@@ -597,10 +622,7 @@ describe("FloorImportService", () => {
     });
     expect(tx.floorLightSlot.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
     expect(tx.floorCadScene.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
-    expect(tx.floorLightSlot.createMany).toHaveBeenCalledWith({ data: [{
-      floorId, sourceImportJobId: jobId, sourceCandidateId: acceptedId,
-      x: 12, y: 34, rotation: 15
-    }] });
+    expect(tx.floorLightSlot.createMany).not.toHaveBeenCalled();
     expect(tx.floorMapRevision.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
       floorId, revision: 5, snapshot: expect.objectContaining({
         fixtures: expect.arrayContaining([

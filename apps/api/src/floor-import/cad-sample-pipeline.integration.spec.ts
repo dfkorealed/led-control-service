@@ -221,8 +221,8 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       metrics.previews = previews;
       if (regions.selectionStatus === "selection_required") {
         expect(job.status).toBe("region_selection_required");
-        // Prefer the most populated lighting region with deterministic, filename-independent ties.
-        const selected = [...regions.regions].sort((a, b) => b.lightCandidateCount - a.lightCandidateCount ||
+        // Geometry-only imports prefer primitive count with filename-independent ties.
+        const selected = [...regions.regions].sort((a, b) =>
           b.primitiveCount - a.primitiveCount || a.regionId.localeCompare(b.regionId))[0];
         metrics.selectedRegionId = selected.regionId;
         await imports.selectRegion(user, floorId, created.jobId, { regionId: selected.regionId });
@@ -233,9 +233,12 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       expect(finalCore.canonical).toBeDefined();
       expect(expectedMetadata).toBeDefined();
       const candidates = await imports.listCandidates(user, floorId, created.jobId);
-      expect(candidates.candidates).toHaveLength(finalCore.selectedCandidates!.length);
+      expect(candidates.candidates).toEqual([]);
+      expect(finalCore.candidates).toEqual([]);
+      expect(finalCore.selectedCandidates).toEqual([]);
+      expect(finalCore.regions.every(region => region.lightCandidateCount === 0)).toBe(true);
+      expect(await prisma.floorImportCandidate.count({ where: { jobId: created.jobId } })).toBe(0);
       const acceptedCandidateIds = candidates.candidates.map(candidate => candidate.id);
-      const candidatesById = new Map(candidates.candidates.map(candidate => [candidate.id, candidate]));
       expect(finalCore.candidateTransformMatch.matchedCount).toBe(finalCore.candidates.length);
       expect(finalCore.candidateTransformMatch.maxDeltaPx).toBeLessThanOrEqual(0.01);
       const prepared = await preparation.readPrepared(floorId, created.jobId);
@@ -302,7 +305,7 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       const applied = await imports.apply(user, floorId, created.jobId, {
         expectedRevision: 0, leaseToken, leaseFence: 1, candidateIds: acceptedCandidateIds, confirmMapReset: true
       });
-      expect(applied).toMatchObject({ status: "completed", revision: 1 });
+      expect(applied).toMatchObject({ status: "completed", revision: 1, acceptedCandidateIds: [], createdSlotCount: 0 });
       expect(await prisma.floorMapDocument.findUniqueOrThrow({ where: { floorId } })).toMatchObject({
         activeGenerationId: prepared.generationId, revision: prepared.revision
       });
@@ -330,13 +333,7 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       expect(snapshot.cadScene).toBeNull();
       expect(snapshot.revision).toBe(1);
       const slots = await prisma.floorLightSlot.findMany({ where: { floorId }, orderBy: { id: "asc" } });
-      expect(slots).toHaveLength(acceptedCandidateIds.length);
-      expect(slots.map(slot => slot.sourceCandidateId).sort()).toEqual([...acceptedCandidateIds].sort());
-      for (const slot of slots) {
-        const candidate = candidatesById.get(slot.sourceCandidateId)!;
-        expect(slot).toMatchObject({ sourceImportJobId: created.jobId, assignedFixtureId: null,
-          x: candidate.x, y: candidate.y, rotation: candidate.rotation });
-      }
+      expect(slots).toEqual([]);
       const publicSlots = slots.map(({ id, x, y, rotation, assignedFixtureId }) =>
         ({ id, x, y, rotation, assignedFixtureId }));
       expect(editorState.lightSlots).toEqual(publicSlots);
@@ -358,7 +355,7 @@ if (!Array.isArray(samples) || samples.some(value => typeof value !== "string" |
       // Read-only maps expose placed hardware, never unassigned CAD slots.
       expect(snapshot.fixtures).toEqual([]);
       const reviewed = await imports.listCandidates(user, floorId, created.jobId);
-      expect(reviewed.candidates.every(candidate => candidate.reviewStatus === "accepted")).toBe(true);
+      expect(reviewed.candidates).toEqual([]);
       Object.assign(metrics, { acceptedCandidateCount: acceptedCandidateIds.length, lightSlotCount: slots.length,
         editorSlotPositionsVerified: true, revisionSlotPositionsVerified: true,
         hardwareBefore, hardwareAfter, readonlyMapFixtureCount: snapshot.fixtures!.length });
