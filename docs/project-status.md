@@ -2,6 +2,17 @@
 
 기준일: 2026-10-14
 
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 서면 설계 검토 대기
+
+- 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성했다. 제품/API/DB/MQTT 변경은 아직 미구현이다.
+- 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 문서만 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing dirty 변경을 보존한다.
+- 신규 기능은 BIO 센서 조명만 지원하고 기존 native 코드·등록·데이터를 자동 삭제/변환하지 않는다.12개 UI 합의와 스케줄/달력/이벤트 추가 위치 통일을 유지한다.
+- 제안은 독립 TemporaryControlSession·Gateway durable single-owner·최신 자동 운전 복귀다. legacy 영구 명령 TTL 재사용/과거 밝기 단순 복원은 제외한다.
+- 달력은 발생일 대체 보기·일정별 주말/휴일 제외 기본false다. 서버/Gateway가 검증 dataset/coverage를 공유하며 목업6날짜를 제품화하지 않는다.
+- 현재 서면 설계 검토 대기이며 detailed writing-plans는 아직 없다. 설계 승인→계획 검토/실행 방식 승인→backend 공유 계약·Prisma→engine/Gateway→기존 UI 담당→최소 QA 순서다.
+- 이번 제품 테스트·설치·빌드·DB/provider 호출·실장비/운영 변경은0이다. 문서 diff/실경로만 검증한다.
+- 로컬 소프트웨어 병합과 운영 migration/Pi 배포/HIL/PKI/재시작/remote 승인은 별개다. 총괄이 최종 검토/커밋한다.
+
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 
 - 사용자 승인으로 저장 옆 초기화 명령에 요소만/조명도 미배치 두 mode와 서버 즉시 저장·현재층 한정·크기/격자/등록/제어 보존·기록복구를 구현한다. CAD는 일반 도형만 적용하고 조명 후보 슬롯 기능을 제거한다. 실제 조명 심볼 도형은 보존한다.
