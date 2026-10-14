@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-14 / 사용자 맵 초기화와 bootstrap·후보 슬롯을 구분한다
+
+- **이력 보존**: 기존 bootstrap reset은 역사적 호환을 위해 이력/정본을 제거한다. 사용자용 clear는 별도 명령으로 권한/lease/revision/replay를 재사용하되 이전 snapshot pin과 최근30개 이력을 보존하고 복구를 실제 임시PG로 검증한다. 위치 유지 옵션에서 조명 좌표나 검증 시각을 부수적으로 초기화하지 않는다.
+- **CAD 도형과 후보**: 후보 슬롯 기능을 없앨 때 조명 심볼인 INSERT 등 원본 geometry를 함께 필터링하면 도면이 달라진다. 제품 경로의 detector/provider·후보 저장/적용 호출만 제거하고 좌표/문자/도형·영역 선택은 유지한다.
+- **업데이트 경계**: 이전 worker가 선택 영역의 후보만 저장하면 후보row0이어도 미선택 영역에는 과거 nonempty digest가 남을 수 있다. 새 worker뿐 아니라 legacy/native apply의 잠금 후 첫 변경 전에도 모든 저장 지역의 빈 digest를 검사해409/무변경을 보장한다. 완료 기록 조회와 replay를 임의로 폐기하지 않는다.
+- **증거 구분**: 임시fixture 스키마/자산 중복 오류와 제품 RED를 구분한다. 환경 skip과 API 테스트 통과는 실제 고객 맵/실기기 또는 브라우저 첫 paint 검증을 대체하지 않는다.
+
 ## 2026-10-13 / CAD 적용 ACK는 문서뿐 아니라 편집 scope를 함께 채택한다
 
 - **문제**: legacy 맵은 mapScope가 없으므로 CAD의 공통 맵 문서만 baseline으로 채택하면 늦은 조회 echo가 초기화를 반복한다. 이미 맞춘 카메라가 풀려 미리보기와 다른 위치의 맵처럼 보인다. 미리보기의 강제 mobile renderer 정책도 desktop 편집기와 해상도가 달랐다.

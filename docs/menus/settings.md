@@ -1,5 +1,31 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-14 선택형 맵 초기화·CAD 후보 슬롯 제거
+
+### 구현 완료
+
+- 서버의 `editor-clear`는 현재 층의 요소만 제거하거나 조명도 미배치로 전환하는 두 옵션을 지원한다. 맵 크기/격자와 조명 등록/정보/제어 설정을 보존하고, 요소만 제거할 때 배치 좌표·크기·검증 시각을 유지한다. 후보 슬롯 연결은 제거한다.
+- 초기화는 새 리비전을 즉시 저장하며 기존 정본/자산 pin과 최신30개 기록을 유지해 복구할 수 있다. 권한·편집 lease·기준 리비전·재전송·rollback·기존 worker 경합을 검사한다. 기존 파괴적 bootstrap reset과 구분한다.
+- 신규 CAD는 일반 맵 요소만 만든다. 조명 심볼 도형은 유지하지만 후보 검출/provider/후보 저장/슬롯 생성은 하지 않는다. apply는 `candidateIds: []`만 허용하고 과거 pending의 모든 지역 digest를 검사한다. 기존 완료 작업/원장은 임의 삭제하지 않는다.
+
+### 미구현
+
+- 웹 최종 검증·독립 전체 리뷰·로컬 메인 머지는 진행 중이다. 실제 고객 맵 초기화나 장비/HIL 테스트는 하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 초기화는 현재 지원하는 공통 맵을 대상으로 한다. 복구할 수 없는 구형 legacy 기록은409로 보존하며 destructive reset으로 자동 우회하지 않는다. 빈 맵의 기존 자동 bootstrap 호환은 유지한다.
+- 서버 관련57/57·CAD 임시PG25/25·최종 전체API3,302PASS/1,247환경SKIP/FAIL0과 독립 backend 재리뷰 ReadyYes를 확인했다. 새 웹/브라우저 증거는 아직이며 API 통과를 사용자 전체 흐름 통과로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/api/src/floor-editor/{floor-editor.controller,map-document-reset.service}.ts`, `apps/api/src/floor-import/{cad-core-child,floor-import-worker.service,floor-import.service}.ts`와 직접 unit/임시PG 회귀.
+- `apps/web/src/api/floor-editor-reset.ts`, `features/floor-editor/{FloorEditorView,MapClearDialog,CadImportPanel,CadImportPreview,MapDocumentInitialization}.tsx`와 직접 unit/Chromium(구현 검증 중).
+
+### 갱신 규칙
+
+- 새 사용자 초기화의 이력/위치 보존과 파괴적 bootstrap을 혼동하지 않는다. CAD 심볼 도형과 조명 후보 슬롯을 구분하고, 슬롯 기능 제거가 실제 조명 등록/제어 삭제로 이어지지 않도록 검증한다.
+
 ## 2026-10-13 CAD 미리보기·적용 표시 일치
 
 ### 구현 완료

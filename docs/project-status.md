@@ -10,6 +10,7 @@
 - 안전 경계: 새 clear는 복구 가능한 공통 맵을 대상으로 한다. 현행 common.restore에서 구형 legacy 기록을 복구할 수 없어 common 문서 없는 상태는409로 거부하고 이력을 영구 삭제하는 bootstrap reset으로 자동 우회하지 않는다. 빈 맵 bootstrap 호환은 유지하며 이 경계와 안내를 Web에 반영한다.
 - backend QA의 `97f25cf7` 판정은 R1추가결함없음/R2 P2한건으로 ReadyNo다. 선택 영역의 후보row가0이어도 다른 영역의 과거nonemptydigest가 남은 pending 작업을 apply가 허용하는 경계를 실서비스 메모리 재현으로 확인했다. 같은 CAD 담당자가 worker와같은digest관문을legacy/native apply에도추가한다. 현재 API 전체 실행은 이 보완 전 중간 cohort이며 최종 검증과 구분한다.
 - R1은 소유커밋dc04e649·임시PG57/57·APItype/build0·독립리뷰 추가P1/P2없음으로 체크를 완료했다. 보완 전API 전체는265suites/3,297PASS/1,247환경SKIP/FAIL0(exit0,181.824s)이며 원 로그를 보존한다. R2 digest 수리·Web 선택 팝업/CAD 후보UI 제거·최종 전체gate/QA/머지는 진행 중이다.
+- R2 P2는 `7a2f6e7f`에서 두 apply의 잠금 후 첫 변경 전에 모든 지역의 빈 digest를 검사하도록 보완했다. REDunit5/PG3→집중59/59·freshPG25/25, 독립 scoped QA ReadyYes/추가P1/P2없음이다. 총괄 최종 전체API는265suites/3,302PASS/1,247환경SKIP/FAIL0(exit0,134.186s)이다. Web 및 전체브라우저/최종메인반영은 아직이다.
 
 ## 2026-10-13 CAD 미리보기·적용 일치 — 구현·검증·로컬 메인 반영 완료
 

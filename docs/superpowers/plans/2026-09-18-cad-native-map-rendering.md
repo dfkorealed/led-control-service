@@ -23,7 +23,7 @@ R1/R2 중간 관문: `dc04e649`·`5e7ee0ea`·`97f25cf7` 계약 고정, R1 임시
 backend QA 중간결과: R1은추가P1/P2없음, R2는 과거pending의선택밖영역nonemptydigest를apply에서검사하지않는P2한건이다. 후보row0만검사하면worker의관문을우회하므로동일CAD담당자가두apply경로에digest검증을추가하고409/맵·원장불변과정상빈digest의회귀를수리한다. 보완전API전체run을최종GREEN으로표현하지않는다.
 
 - [x] R1 서버 초기화: `dc04e649`에 새 editor-clear와 두 mode·크기/격자/조명정보·위치 보존·슬롯 해제·기록 복구·권한/lease/revision/replay/rollback을 구현했다. 자기 소유 임시PG 포함57/57·API타입/빌드exit0·독립R1리뷰 추가P1/P2없음이다. 기존 bootstrap reset과 별개로 현재 포함30개 이력/정본pin을 유지한다. 현행 공통 기록 복구가 없는 legacy 상태는409로 보존한다.
-- [ ] R2 CAD 서버: `apps/api/src/floor-import/{cad-core-child,floor-import-worker.service,floor-import.service}.ts`와 관련 회귀. 신규 작업은 후보 검출/저장·슬롯 생성 없이 일반 도형을 준비하고 적용한다. apply의 기존 wire 필드 candidateIds는 빈 배열만 받으며 비어 있지 않으면 명시적으로 거부한다. 이전 완료 작업/원장은 조회 호환성을 보존한다. 기존 pending 작업의 후보계약이 충돌하면 취소/재가져오기 안내를 사용하고 서버 guard를 완화하지 않는다.
+- [x] R2 CAD 서버: `5e7ee0ea`·`97f25cf7`에서 신규 검출/provider/후보 저장/슬롯 생성0과 일반 geometry 보존을 구현했다. candidateIds는[]만 허용한다. `7a2f6e7f`의 두 apply 전체지역digest 관문으로 이전 pending 계약을 fail-closed 처리하며 완료 조회/replay는 보존한다. REDunit5/PG3→집중59/59·freshPG25/25·scoped QA ReadyYes/추가P1/P2없음이다. 최종 전체API3,302PASS/1,247환경SKIP/FAIL0을 총괄이 확인했다.
 - [ ] R3 웹: R1/R2 검증 후 `apps/web/src/api/floor-editor-reset.ts`, `features/floor-editor/{FloorEditorView,CadImportPanel,CadImportPreview}.tsx`, 새 소규모 초기화 dialog와 직접 unit/Chromium. 공통 Button/Radio/Modal을 사용해 저장 옆 명령·두 선택·초기화 실행/취소·진행/오류 toast를 연결한다. 미저장 초안 폐기 안내와 저장/복구/CAD/lease 상호잠금, 늦은 세션/층 응답 guard를 유지한다. CAD는 후보 UI/마커/슬롯 적용 payload를 제거하며 도면 미리보기/영역선택/교체 확인/첫 paint는 유지한다.
 - [ ] R4 통합: 독립 QA, 전체 API/Web 테스트·타입/빌드와 private Chromium에서 두 초기화→reload→기록복구 및 CAD 가져오기→적용→요소수정/저장·슬롯0을 검증한다. 기존 Control5 실패/환경skip은 구분한다. 설정·모니터링·교훈·상태 문서 갱신, 작은 작업 커밋 후 로컬 메인 머지/재검증한다. 실제 고객 맵 초기화·DB변경·장비·자격·remote 작업은0이다.
 
