@@ -2,8 +2,20 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { renderMosquittoAcl } from "../scripts/dev-runtime.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
+
+test("temporary control production template stays disabled until explicit site binding", async () => {
+  const template = await readFile(path.join(repositoryRoot, "infra/mosquitto.acl.example"), "utf8");
+  const grants = template.split("\n").filter(line => /^(topic|pattern) /.test(line));
+  assert.equal(grants.some(line => line.includes("temporary-control/")), false);
+  const gatewayId = "00000000-0000-4000-8000-000000000004", siteId = "00000000-0000-4000-8000-000000000003";
+  const bound = renderMosquittoAcl([gatewayId], { temporaryControlScopes: [{ gatewayId, siteId }] });
+  const api = bound.split(`user ${gatewayId}`)[0];
+  assert.match(api, new RegExp(`topic read sites/${siteId}/gateways/${gatewayId}/temporary-control/result`));
+  assert.doesNotMatch(api, /topic write .*temporary-control\/result/);
+});
 
 test("production Mosquitto persists MQTT sessions in a writable broker data volume", async () => {
   const [config, compose] = await Promise.all([

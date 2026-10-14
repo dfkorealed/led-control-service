@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import {
   parseEnvFile,
   commandSetAclOptions,
+  temporaryControlAclOptions,
   renderMosquittoAcl,
   publishMosquittoAcl,
   renderDockerMosquittoConfig,
@@ -35,7 +36,7 @@ export function prepareDevelopmentRuntime(
   { run = defaultRun, findExecutable = defaultFindExecutable } = {}
 ) {
   const env = resolveDevelopmentCadEnvironment(resolveDevEnvironment(root, sourceEnv), { findExecutable });
-  const setAclOptions = commandSetAclOptions(env);
+  const setAclOptions = { ...commandSetAclOptions(env), ...temporaryControlAclOptions(env) };
   const gatewayIds = env.DEV_GATEWAY_IDS ? env.DEV_GATEWAY_IDS.split(",") : [];
   // Validate cutover/census before PKI helpers or runtime filesystem writes.
   renderMosquittoAcl(gatewayIds, setAclOptions);

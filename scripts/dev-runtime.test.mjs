@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
+import * as runtime from "./dev-runtime.mjs";
 import {
   parseEnvFile,
   commandSetAclOptions,
@@ -1037,6 +1038,28 @@ test("BIO registration revalidation ACL permits only API producer/ACK and own Ga
       assert.equal(allowed(source, other, gw, prefix + suffix), false);
     }
   }
+});
+
+test("temporary control ACL requires explicit exact site binding and rejects invalid census", () => {
+  const siteId = "00000000-0000-4000-8000-000000000003";
+  const gatewayId = "00000000-0000-4000-8000-000000000004";
+  const acl = renderMosquittoAcl([gatewayId], { temporaryControlScopes: [{ siteId, gatewayId }] });
+  assert.match(acl, new RegExp(`topic write sites/${siteId}/gateways/${gatewayId}/temporary-control/command`));
+  assert.match(acl, new RegExp(`topic write sites/${siteId}/gateways/${gatewayId}/temporary-control/result`));
+  assert.doesNotMatch(renderMosquittoAcl([gatewayId]), /temporary-control\//);
+  for (const temporaryControlScopes of [[{ siteId: "site", gatewayId }], [{ siteId, gatewayId: siteId }],
+    [{ siteId, gatewayId, extra: true }], [{ siteId, gatewayId }, { siteId, gatewayId }]]) {
+    assert.throws(() => renderMosquittoAcl([gatewayId], { temporaryControlScopes }), /temporary control/i);
+  }
+});
+
+test("temporary control mapping parser preserves explicit input and defaults to disabled", () => {
+  const parser = runtime.temporaryControlAclOptions;
+  assert.equal(typeof parser, "function");
+  assert.deepEqual(parser({}), { temporaryControlScopes: [] });
+  const scopes = [{ siteId: "00000000-0000-4000-8000-000000000003", gatewayId: "00000000-0000-4000-8000-000000000004" }];
+  assert.deepEqual(parser({ DEV_TEMPORARY_CONTROL_SCOPES: JSON.stringify(scopes) }), { temporaryControlScopes: scopes });
+  assert.throws(() => parser({ DEV_TEMPORARY_CONTROL_SCOPES: "bad" }), /temporary control/i);
 });
 
 test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행하지 않는다", () => {

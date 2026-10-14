@@ -130,6 +130,71 @@ test("stock broker restart with restored ACL/CRL revives retired publish and pre
   }
 });
 
+test("temporary control exact site and Gateway delivery uses a disposable mTLS broker", {
+  skip: process.env.DEV_MQTT_ACL_INTEGRATION === "1" ? false : "set DEV_MQTT_ACL_INTEGRATION=1 for disposable mTLS broker",
+  timeout: 30000
+}, async () => {
+  const root = mkdtempSync(join(tmpdir(), "led-temporary-acl-")), pki = join(root, "pki"), acl = join(root, "acl"), config = join(root, "mosquitto.conf");
+  const site = "33333333-3333-4333-8333-333333333333", otherSite = "44444444-4444-4444-8444-444444444444";
+  const port = await freePort(), clients = [];
+  let broker;
+  const close = value => new Promise(resolve => value.end(true, {}, resolve));
+  const connected = value => new Promise((resolve, reject) => { value.once("connect", resolve); value.once("error", reject); });
+  const topic = (kind, siteId = site, gateway = ALLOWED_ID) => `sites/${siteId}/gateways/${gateway}/temporary-control/${kind}`;
+  const send = (value, target) => value.publishAsync(target, "{}", { qos: 1 });
+  const client = name => {
+    const value = connect(`mqtts://127.0.0.1:${port}`, { ca: readFileSync(join(pki, "ca.crt")),
+      ...(name ? { cert: readFileSync(join(pki, `${name}.crt`)), key: readFileSync(join(pki, `${name}.key`)) } : {}),
+      protocolVersion: 5, clean: true, reconnectPeriod: 0, connectTimeout: 1000 });
+    value.on("error", () => {}); clients.push(value); return value;
+  };
+  try {
+    chmodSync(root, 0o755); mkdirSync(pki); createCertificates(pki); issue(pki, "probe", "acl-read-probe");
+    publishMosquittoAcl(acl, [ALLOWED_ID, REMOVED_ID], { temporaryControlScopes: [{ siteId: site, gatewayId: ALLOWED_ID }] });
+    // The disposable probe can only publish the two foreign scopes. This proves
+    // actual read denial even though no production identity can publish there.
+    const foreignTopics = ["command", "result", "ingested"].flatMap(suffix => [topic(suffix, otherSite), topic(suffix, site, REMOVED_ID)]);
+    writeFileSync(acl, readFileSync(acl, "utf8") + "\nuser acl-read-probe\n" + foreignTopics.map(target => `topic write ${target}`).join("\n") + "\n");
+    writeFileSync(config, [`listener ${port} 127.0.0.1`, "allow_anonymous false", `cafile ${join(pki, "ca.crt")}`,
+      `certfile ${join(pki, "broker.crt")}`, `keyfile ${join(pki, "broker.key")}`, "require_certificate true",
+      "use_identity_as_username true", `acl_file ${acl}`, "persistence false", ""].join("\n"));
+    broker = spawn(commandPath("mosquitto"), ["-c", config], { stdio: ["ignore", "pipe", "pipe"] });
+    await waitForPort(port);
+    const api = client("api"), gateway = client("allowed"), noMap = client("removed"), probe = client("probe");
+    await Promise.all([connected(api), connected(gateway), connected(noMap), connected(probe)]);
+    const apiReceived = [], gatewayReceived = [], otherReceived = [];
+    api.on("message", target => apiReceived.push(target)); gateway.on("message", target => gatewayReceived.push(target));
+    noMap.on("message", target => otherReceived.push(target));
+    await api.subscribeAsync(topic("result"), { qos: 1 });
+    await gateway.subscribeAsync([topic("command"), topic("ingested"), topic("result"), ...foreignTopics], { qos: 1 });
+    await noMap.subscribeAsync([topic("command"), topic("result"), topic("ingested"), ...foreignTopics], { qos: 1 });
+    await send(api, topic("command")); await send(api, topic("ingested")); await send(gateway, topic("result"));
+    for (const suffix of ["command", "result", "ingested"]) {
+      await assert.rejects(send(noMap, topic(suffix)), /not authorized/i);
+      await assert.rejects(send(noMap, topic(suffix, site, REMOVED_ID)), /not authorized/i);
+      await assert.rejects(send(gateway, topic(suffix, otherSite)), /not authorized/i);
+      await assert.rejects(send(gateway, topic(suffix, site, REMOVED_ID)), /not authorized/i);
+    }
+    await assert.rejects(send(gateway, topic("command")), /not authorized/i);
+    await assert.rejects(send(gateway, topic("ingested")), /not authorized/i);
+    await assert.rejects(send(api, topic("result")), /not authorized/i);
+    await assert.rejects(send(api, topic("command", otherSite)), /not authorized/i);
+    await assert.rejects(connected(client(null)));
+    for (const target of foreignTopics) await send(probe, target);
+    const deadline = Date.now() + 2000;
+    while ((apiReceived.length < 1 || gatewayReceived.length < 2) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+    // PUBACK is emitted after broker routing. Allow the subscribers to drain
+    // their separate TCP connections before asserting the negative delivery set.
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.deepEqual(apiReceived, [topic("result")]); assert.deepEqual(gatewayReceived, [topic("command"), topic("ingested")]);
+    assert.deepEqual(otherReceived, []);
+  } finally {
+    await Promise.all(clients.map(close));
+    if (broker?.exitCode === null) { const ended = new Promise(resolve => broker.once("exit", resolve)); broker.kill("SIGTERM"); await ended; }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // Independent inventory from API publish producers and MqttService subscriptions.
 const REVALIDATION_COMMAND = "commands/bio-registration-revalidation";
 const REVALIDATION_RESULT = "events/bio-registration-revalidation-result";

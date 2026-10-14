@@ -6,6 +6,17 @@
 # removes both legacy Set writes, replaces patterns with explicit Gateway users,
 # and gives command-set-N only dimming write. Stock ACL rollback is not prevented.
 # Production cutover, purge and recovery POST remain OFF.
+# Temporary BIO control is disabled in this compatibility template. At approved
+# deployment generate the ACL with explicit temporaryControlScopes site/Gateway
+# bindings. No pattern or sites/+ permission may be added for this namespace.
+# Under user api-service, for each exact SITE_UUID/GATEWAY_UUID binding add:
+# topic write sites/SITE_UUID/gateways/GATEWAY_UUID/temporary-control/command
+# topic read sites/SITE_UUID/gateways/GATEWAY_UUID/temporary-control/result
+# topic write sites/SITE_UUID/gateways/GATEWAY_UUID/temporary-control/ingested
+# Under user GATEWAY_UUID, only for its assigned SITE_UUID add:
+# topic read sites/SITE_UUID/gateways/GATEWAY_UUID/temporary-control/command
+# topic write sites/SITE_UUID/gateways/GATEWAY_UUID/temporary-control/result
+# topic read sites/SITE_UUID/gateways/GATEWAY_UUID/temporary-control/ingested
 # This file is rollbackable configuration, not BrokerGenerationFence evidence.
 # Revoking its publisher ACL does not erase subscriber persistent sessions/queues.
 # Restoring old ACL + CRL can revive an old credential after broker restart.

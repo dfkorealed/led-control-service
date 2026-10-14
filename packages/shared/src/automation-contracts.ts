@@ -1,14 +1,15 @@
 import { z } from "zod";
-import { automationExecutionActionResultPayloadV1Schema } from "./automation-action-result-contracts";
+import { automationExecutionActionResultPayloadV1Schema } from "./automation-action-result-contracts.js";
+import { holidayDatasetSnapshotSchema, type HolidayDatasetSnapshot } from "./holiday-calendar-contracts.js";
 
 export {
   automationExecutionActionResultPayloadV1Schema,
   automationExecutionFixtureResultV1Schema
-} from "./automation-action-result-contracts";
+} from "./automation-action-result-contracts.js";
 export type {
   AutomationExecutionActionResultPayloadV1,
   AutomationExecutionFixtureResultV1
-} from "./automation-action-result-contracts";
+} from "./automation-action-result-contracts.js";
 
 export type AutomationRuleStatus = "enabled" | "disabled";
 export type ScheduleRecurrenceKind = "once" | "daily" | "weekly" | "monthly" | "yearly";
@@ -132,11 +133,24 @@ export interface AutomationConfigAppliedReceiptV2 extends AutomationConfigApplie
   ingestedAt: string;
 }
 
-export type AutomationSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
-export type AutomationConfigApplied = AutomationConfigAppliedV1 | AutomationConfigAppliedV2;
-export type AutomationConfigAppliedDelivery = AutomationConfigAppliedDeliveryV1 | AutomationConfigAppliedDeliveryV2;
-export type AutomationConfigAppliedReceipt = AutomationConfigAppliedReceiptV1 | AutomationConfigAppliedReceiptV2;
-export type AutomationCurrentConfigRequest = AutomationCurrentConfigRequestV1 | AutomationCurrentConfigRequestV2;
+export type LightingScheduleSnapshotV3 = LightingScheduleSnapshotV1 & { excludeWeekends: boolean; excludeHolidays: boolean };
+export type LightingScheduleSnapshot = LightingScheduleSnapshotV1 | LightingScheduleSnapshotV3;
+export type AutomationSnapshotV3 = Omit<AutomationSnapshotV2, "schemaVersion" | "schedules"> & {
+  schemaVersion: 3; schedules: LightingScheduleSnapshotV3[]; holidayDatasets: HolidayDatasetSnapshot[];
+};
+export type AutomationCurrentConfigRequestV3 = Omit<AutomationCurrentConfigRequestV2, "schemaVersion" | "maxSnapshotVersion"> & {
+  schemaVersion: 3; maxSnapshotVersion: 3; temporaryControlVersion: 1; bioConfigurationReadback: true; durableFixtureLease: true;
+};
+export type AutomationConfigAppliedV3 = Omit<AutomationConfigAppliedV2, "schemaVersion"> & { schemaVersion: 3 };
+export type AutomationConfigAppliedDeliveryV3 = Omit<AutomationConfigAppliedDeliveryV2, "schemaVersion" | "acknowledgement"> & {
+  schemaVersion: 3; acknowledgement: AutomationConfigAppliedV3;
+};
+export type AutomationConfigAppliedReceiptV3 = AutomationConfigAppliedDeliveryV3 & { ingestedAt: string };
+export type AutomationSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2 | AutomationSnapshotV3;
+export type AutomationConfigApplied = AutomationConfigAppliedV1 | AutomationConfigAppliedV2 | AutomationConfigAppliedV3;
+export type AutomationConfigAppliedDelivery = AutomationConfigAppliedDeliveryV1 | AutomationConfigAppliedDeliveryV2 | AutomationConfigAppliedDeliveryV3;
+export type AutomationConfigAppliedReceipt = AutomationConfigAppliedReceiptV1 | AutomationConfigAppliedReceiptV2 | AutomationConfigAppliedReceiptV3;
+export type AutomationCurrentConfigRequest = AutomationCurrentConfigRequestV1 | AutomationCurrentConfigRequestV2 | AutomationCurrentConfigRequestV3;
 
 export interface AutomationExecutionEventV1 {
   schemaVersion: 1;
@@ -310,6 +324,15 @@ export const lightingScheduleSnapshotV1Schema = z.object({
   }
 });
 
+export const lightingScheduleSnapshotV3Schema = lightingScheduleSnapshotV1Schema.innerType().extend({
+  excludeWeekends: z.boolean(), excludeHolidays: z.boolean()
+}).strict().superRefine((schedule, context) => {
+  // Preserve V1 time/recurrence checks while requiring both explicit exclusion flags.
+  const { excludeWeekends: _weekends, excludeHolidays: _holidays, ...legacy } = schedule;
+  const parsed = lightingScheduleSnapshotV1Schema.safeParse(legacy);
+  if (!parsed.success) for (const issue of parsed.error.issues) context.addIssue(issue);
+});
+
 export const vehicleEventRuleSnapshotV1Schema = z.object({
   id: identifierSchema,
   name: z.string().trim().min(1),
@@ -360,6 +383,20 @@ export const automationSnapshotV2Schema = z.object({
   payloadHash: payloadHashSchema
 }).strict();
 
+export const automationSnapshotV3Schema = automationSnapshotV2Schema.extend({
+  schemaVersion: z.literal(3), revision: z.number().int().nonnegative().safe(),
+  // Both public browser entrypoints can initialize first; resolve the cross-module
+  // dataset schema at parse time rather than during ESM module evaluation.
+  schedules: z.array(lightingScheduleSnapshotV3Schema), holidayDatasets: z.array(z.lazy(() => holidayDatasetSnapshotSchema))
+}).strict().superRefine((snapshot, context) => {
+  if (new Set(snapshot.holidayDatasets.map(dataset => dataset.year)).size !== snapshot.holidayDatasets.length) {
+    addIssue(context, "holidayDatasets", "one complete revision per holiday year required");
+  }
+  if (snapshot.timeZone !== "Asia/Seoul" && snapshot.schedules.some(schedule => schedule.excludeHolidays)) {
+    addIssue(context, "timeZone", "Korean holiday exclusion requires Asia/Seoul");
+  }
+});
+
 const automationConfigAppliedFields = {
   gatewayId: identifierSchema,
   revision: z.number().int().nonnegative(),
@@ -406,6 +443,13 @@ export const automationCurrentConfigRequestV2Schema = automationCurrentConfigReq
   maxSnapshotVersion: z.union([z.literal(1), z.literal(2)])
 }).strict();
 
+export const automationCurrentConfigRequestV3Schema = automationCurrentConfigRequestV2Schema.extend({
+  schemaVersion: z.literal(3), maxSnapshotVersion: z.literal(3), temporaryControlVersion: z.literal(1),
+  bioConfigurationReadback: z.literal(true), durableFixtureLease: z.literal(true)
+}).strict();
+export const automationConfigAppliedV3Schema = z.object({ schemaVersion: z.literal(3), ...automationConfigAppliedFields,
+  revision: z.number().int().nonnegative().safe() }).strict().superRefine(validateAutomationConfigApplied);
+
 const automationConfigAppliedDeliveryShape = {
   schemaVersion: z.literal(1),
   acknowledgementId: identifierSchema,
@@ -451,11 +495,32 @@ export const automationConfigAppliedDeliveryV2Schema = z.object(automationConfig
 export const automationConfigAppliedReceiptV2Schema = z.object({
   ...automationConfigAppliedDeliveryV2Shape, ingestedAt: timestampSchema
 }).strict().superRefine(validateConfigDeliveryScope);
-export const automationSnapshotSchema = z.union([automationSnapshotV1Schema, automationSnapshotV2Schema]);
-export const automationConfigAppliedSchema = z.union([automationConfigAppliedV1Schema, automationConfigAppliedV2Schema]);
-export const automationConfigAppliedDeliverySchema = z.union([automationConfigAppliedDeliveryV1Schema, automationConfigAppliedDeliveryV2Schema]);
-export const automationConfigAppliedReceiptSchema = z.union([automationConfigAppliedReceiptV1Schema, automationConfigAppliedReceiptV2Schema]);
-export const automationCurrentConfigRequestSchema = z.union([automationCurrentConfigRequestV1Schema, automationCurrentConfigRequestV2Schema]);
+const automationConfigAppliedDeliveryV3Shape = { ...automationConfigAppliedDeliveryShape,
+  schemaVersion: z.literal(3), acknowledgement: automationConfigAppliedV3Schema };
+export const automationConfigAppliedDeliveryV3Schema = z.object(automationConfigAppliedDeliveryV3Shape)
+  .strict().superRefine(validateConfigDeliveryScope);
+export const automationConfigAppliedReceiptV3Schema = z.object({ ...automationConfigAppliedDeliveryV3Shape,
+  ingestedAt: timestampSchema }).strict().superRefine(validateConfigDeliveryScope);
+export const automationSnapshotSchema = z.union([automationSnapshotV1Schema, automationSnapshotV2Schema, automationSnapshotV3Schema]);
+export const automationConfigAppliedSchema = z.union([automationConfigAppliedV1Schema, automationConfigAppliedV2Schema, automationConfigAppliedV3Schema]);
+export const automationConfigAppliedDeliverySchema = z.union([automationConfigAppliedDeliveryV1Schema, automationConfigAppliedDeliveryV2Schema, automationConfigAppliedDeliveryV3Schema]);
+export const automationConfigAppliedReceiptSchema = z.union([automationConfigAppliedReceiptV1Schema, automationConfigAppliedReceiptV2Schema, automationConfigAppliedReceiptV3Schema]);
+export const automationCurrentConfigRequestSchema = z.union([automationCurrentConfigRequestV1Schema, automationCurrentConfigRequestV2Schema, automationCurrentConfigRequestV3Schema]);
+
+/** Attribution only: a matched rejected receipt never proves configuration was applied. */
+export function matchesAutomationConfigAppliedReceiptV3(delivery: AutomationConfigAppliedDeliveryV3, receipt: AutomationConfigAppliedReceiptV3): boolean {
+  const expected = automationConfigAppliedDeliveryV3Schema.safeParse(delivery);
+  const actual = automationConfigAppliedReceiptV3Schema.safeParse(receipt);
+  if (!expected.success || !actual.success) return false;
+  const left = expected.data, right = actual.data;
+  return left.siteId === right.siteId && left.gatewayId === right.gatewayId
+    && left.acknowledgementId === right.acknowledgementId
+    && left.acknowledgement.revision === right.acknowledgement.revision
+    && left.acknowledgement.payloadHash === right.acknowledgement.payloadHash
+    && left.acknowledgement.status === right.acknowledgement.status
+    && left.acknowledgement.errorCode === right.acknowledgement.errorCode
+    && left.acknowledgement.appliedAt === right.acknowledgement.appliedAt;
+}
 
 export const automationExecutionEventV1Schema = z.object({
   schemaVersion: z.literal(1),

@@ -1,5 +1,33 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-14 BIO 시간제 제어·달력 공유 계약
+
+### 구현 완료
+
+- 시간제 시작·종료·start/end wire·대상별 결과·수신 확인·조회·목록의 strict 공유 schema를 추가했다. 밝기 정수0~100%, 기간 정수1~1440분, unique1~1000대, 예약 apply/release generation 쌍과 원 시작 귀속을 검증하며 legacy `overrideUntil`을 허용하지 않는다. BIO native UUID는12자리 소문자hex, logicalAddress는 기존0x unicast 형식이다.
+- 알려진V2/V3 자동 운전 지원 helper와 V3의 두 제외 flag·전체연도 휴일 dataset·최대42일 완전 달력 계약을 추가했다. V3 임시 제어 선언에는 readback/durable lease capability가 필수이며 수신 확인은 동일 현장·게이트웨이·ACK id·revision·hash만 일치로 판정한다. 적용/복귀 결과를 전송 성공으로 합성하지 않는다.
+- 새 MQTT 경로는 `sites/{siteId}/gateways/{gatewayId}/temporary-control/{command,result,ingested}`다. 기존 `commands/#` 권한을 상속하지 않으며 ACL renderer/publisher의 명시적 `temporaryControlScopes` 매핑에만 API write/read/write와 Gateway read/write/read를 부여한다. 매핑 없는 기본값과 production 예제에는 새 권한이 없다.
+
+### 미구현
+
+- API/DB session·lease·outbox·휴일 provider 갱신·실제 달력 평가기·Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
+- 운영 환경의 실제 현장/Gateway 매핑, ACL 반영·reload, 서버/장비 배포·재시작·HIL·ServiceKey/provider 연결은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공유 parser는 hash 형식과 결과 귀속을 검증한다. payload의 canonical hash 계산·DB immutable snapshot/현재 lease·최신 복귀 revision 검증과 완전12개월 provider proof는 후속 소비자가 담당한다. readback은 조명 설정 증거이며 실제 광출력 증거가 아니다.
+- 개발 준비는 명시적 `DEV_TEMPORARY_CONTROL_SCOPES` JSON 매핑을 검증·전달하는 소프트웨어만 제공한다. 환경 값을 설정하거나 현재 브로커 권한을 변경하지 않았다. 미설정 상태에서 신규 임시 제어 메시지는 거부된다.
+- 지정 공유5파일70/70와 새 disposable mTLS·ACL/매핑/production 계약4/4(fail/skip0), 기존 직접 ACL·준비 경로6/6을 확인했다. CJS/ESM 두 신규 subpath 로딩·shared 타입 검사·shared→engine 준비가 통과했다. 전체 서비스 테스트·운영 장비 검증 완료로 확대하지 않는다.
+
+### 관련 파일
+
+- `packages/shared/src/{temporary-control-contracts,holiday-calendar-contracts,bio-automation-version,automation-contracts,mqtt}.ts`, 각 직접 테스트, shared exports/ESM 설정.
+- `scripts/dev-runtime.mjs`, `scripts/dev-prepare.mjs`, disposable MQTT ACL 테스트, `infra/mosquitto.acl.example`, `tests/mqtt-production-config.node.mjs`.
+
+### 갱신 규칙
+
+- 공유 계약 제공과 후속 API/DB/Gateway/UI 사용 가능 상태를 구분하고, 운영 매핑·ACL 적용·RF/HIL 결과는 별도 승인·증거가 있을 때만 기록한다.
+
 - 2026-10-14 모든조명 UI시험 후속: 일반 이벤트추가/전체조명목록에서 모든조명의 준비상태를 볼 수 있다. 현재B1-L006은 approved fingerprint일치지만needs_setup, B1-L002는 완료등록의 발견상태가discovered로낮아져binding_changed/후보false다. 공통준비패널의 정상등록연결확인 UI 보완과 센서모드설정 승인을대기한다. 오프라인조명/미검증센서를강제허용하지 않고 실제시험완료로표시하지 않는다.
 
 - 2026-10-14 후속09:14KST: 새 승인으로 동일image/등록/밝기/인증/센서 설정과 fresh 암호화 백업을 보존해 주소 교정/약27초 중단 뒤 MQTT·USB 통신을 복구했다. A의 정상 UI query1개는 식별 응답 없이unverified이며 현재online은B1-L002/B1-L006이다. 기존A(B1-L001)/B(B1-L004)는오프라인이므로 전원/연결 확인 또는 새 대상의 사용자 선택 전 시험은 불가하다. 규칙100%/60초/비활성/적용됨·활성화 차단을 유지하며 임의 조명 교체·SET·추가query·시험은 하지 않았다.

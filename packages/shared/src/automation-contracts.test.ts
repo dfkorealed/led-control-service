@@ -13,6 +13,8 @@ import {
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
   automationSnapshotV2Schema,
+  automationSnapshotSchema,
+  automationConfigAppliedDeliverySchema,
   vehicleEventRuleSnapshotV2Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV2Schema,
@@ -76,6 +78,20 @@ const snapshot = {
 };
 
 describe("automation shared contracts", () => {
+  it("admits V3 schedules with explicit exclusion flags without downgrading V2", () => {
+    const v3 = { ...snapshot, schemaVersion: 3, vehicleEventRules: [],
+      schedules: snapshot.schedules.map(schedule => ({ ...schedule, excludeWeekends: true, excludeHolidays: true })), holidayDatasets: [] };
+    expect(automationSnapshotSchema.safeParse(v3).success).toBe(true);
+    expect(automationSnapshotV2Schema.safeParse({ ...v3, schemaVersion: 2 }).success).toBe(false);
+    expect(automationSnapshotSchema.safeParse({ ...v3, schemaVersion: 4 }).success).toBe(false);
+  });
+  it("v3_exact_ack_cannot_wrap_v2_or_other_gateway", () => {
+    const acknowledgement = { schemaVersion: 3, gatewayId, revision: 3, payloadHash, status: "applied", errorCode: null, appliedAt: occurredAt };
+    const delivery = { schemaVersion: 3, acknowledgementId, siteId, gatewayId, acknowledgement };
+    expect(automationConfigAppliedDeliverySchema.safeParse(delivery).success).toBe(true);
+    expect(automationConfigAppliedDeliverySchema.safeParse({ ...delivery, acknowledgement: { ...acknowledgement, schemaVersion: 2 } }).success).toBe(false);
+    expect(automationConfigAppliedDeliverySchema.safeParse({ ...delivery, acknowledgement: { ...acknowledgement, gatewayId: fixtureId } }).success).toBe(false);
+  });
   it("requires explicit ordered assignment-bound support independently of snapshot ACK", () => {
     const request = { schemaVersion: 2, requestId, siteId, gatewayId, requestedAt: occurredAt,
       assignmentVersion: 1, declarationRevision: 1, maxSnapshotVersion: 2 };
