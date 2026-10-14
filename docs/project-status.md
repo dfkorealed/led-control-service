@@ -4,6 +4,9 @@
 
 ## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 태스크별 완료·최종 잔여1건/통합 대기
 
+- 2026-10-15 후속 명시 승인: 잔여 NB1 추가 수리·관련 회귀/한정 재검토, 메인의 공통 로딩 변경 별도 보존·통합, 로컬 DB 백업 후 migration·API 재시작까지 진행한다. 기존 AGENTS/랜딩 수정과 감사 기록을 보존하며 Gateway/Pi 배포·실장비 제어/HIL·공휴일 키/PKI·ACL/remote는 제외한다. 원 Gateway writer는 동일 격리 브랜치의 NB1만 수리하고 총괄은 통합/운영 경계를 준비한다. Step5는 검토·반영 결과 전 완료로 표시하지 않는다.
+- 추가 수리 `1119a048`는 actual parser RED2→지정2files96PASS/타입0·4소유hash일치이며 단일 scoped 재검토 NB1 ADDRESSED/새C/I/M0이다. 원 최종 지적3건과NB1의 소프트웨어 관문은 해결됐다. 현재는 로딩 변경69개를 기존 사용자변경과 분리 보존하고, 지정 UI 담당자의 최소통합/검증 및 로컬DB/API반영을 준비한다. 운영조사는PG138완료/새migration1/ready200·5up을확인했으나 실행0이다. 기존Minor6/Web5실패·물리/HIL한계는유지하며 전체완료/머지/운영반영은 아직이다.
+
 - 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장·API/Gateway/UI 소프트웨어 연결과 태스크별 리뷰를 완료했다. 전체 브랜치 최종 검토·안전한 로컬 병합 및 실제 DB/서버/장비 반영은 아직이다.
 - 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing 및 후속 공통 로딩 미커밋 변경을 보존한다.
 - 신규 기능은 BIO 센서 조명만 지원하고 기존 native 코드·등록·데이터를 자동 삭제/변환하지 않는다.12개 UI 합의와 스케줄/달력/이벤트 추가 위치 통일을 유지한다.

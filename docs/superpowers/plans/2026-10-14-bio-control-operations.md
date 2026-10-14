@@ -26,7 +26,7 @@
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
 | Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
 | Task8 지정 Web 공통 추가·달력·제외 UI | 완료, C/I0·Minor2 최종 추적 |
-| Task9 시간제 UI·최소 QA·로컬 머지 | 태스크별 완료; 최종 I3 해결/NB1 미수리·추가 방향/안전한 병합 대기 |
+| Task9 시간제 UI·최소 QA·로컬 머지 | 최종 NB1 재검토 지적0; loading 보존/최소 UI 통합검증·안전 머지/승인 DB백업·migration·API재시작 진행 |
 
 ## Global Constraints
 
