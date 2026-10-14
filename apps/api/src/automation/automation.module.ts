@@ -5,6 +5,7 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { AutomationController, VehicleEventRulesController } from "./automation.controller";
 import { AutomationRuntimeModule } from "./automation-runtime.module";
 import { SchedulesService } from "./schedules.service";
+import { ScheduleCalendarService } from "./schedule-calendar.service";
 import { TargetSnapshotService } from "./target-snapshot.service";
 import { VehicleEventRulesService } from "./vehicle-event-rules.service";
 import { BioSensorProfilesController, BioSensorSitePolicyController } from "./bio-sensor-profiles.controller";
@@ -15,12 +16,14 @@ import { BioSensorPreparationController } from "./bio-sensor-preparation.control
   controllers: [AutomationController, VehicleEventRulesController, BioSensorProfilesController, BioSensorSitePolicyController, BioSensorPreparationController],
   providers: [
     SchedulesService,
+    ScheduleCalendarService,
     TargetSnapshotService,
     VehicleEventRulesService
   ],
   exports: [
     AutomationRuntimeModule,
     SchedulesService,
+    ScheduleCalendarService,
     TargetSnapshotService,
     VehicleEventRulesService
   ]

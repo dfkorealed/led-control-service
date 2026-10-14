@@ -16,7 +16,7 @@ describe("AutomationController", () => {
   it("passes the raw schedule list query to the service for authorization-first parsing", async () => {
     const rawQuery = { limit: "not-valid", cursor: "also-not-valid" };
     const schedules = { list: jest.fn().mockResolvedValue({ items: [], total: 0, nextCursor: null }) };
-    const controller = new AutomationController(schedules as never);
+    const controller = new AutomationController(schedules as never, { get: jest.fn() } as never);
 
     await expect(controller.list("00000000-0000-4000-8000-000000000003", rawQuery, actor))
       .resolves.toMatchObject({ total: 0 });

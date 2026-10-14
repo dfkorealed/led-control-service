@@ -6,7 +6,7 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import { getNextOccurrence, schedulesOverlap } from "@led-control/automation-engine";
-import { type LightingScheduleSnapshotV1, lightingScheduleSnapshotV1Schema } from "@led-control/shared";
+import { type HolidayDatasetSnapshot, type LightingScheduleSnapshotV3, lightingScheduleSnapshotV3Schema } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
@@ -17,6 +17,7 @@ import {
   AutomationSnapshotService,
   compareAutomationIds,
   normalizeAutomationAction,
+  loadScheduleHolidayDatasets,
   toLightingScheduleSnapshot
 } from "./automation-snapshot.service";
 import {
@@ -30,6 +31,7 @@ import {
 import { TargetSnapshotService } from "./target-snapshot.service";
 import { automationSyncWhere, literalAutomationName } from "./automation-list-filters";
 import { encodeAutomationListCursor } from "./dto/automation-list.dto";
+import { loadAutomationProtocolSupport } from "./automation-protocol-support";
 
 const responseInclude = {
   fixtures: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" as const } },
@@ -106,8 +108,9 @@ export class SchedulesService {
       const schedules = rows.slice(0, query.limit);
       const now = this.clock.now();
       const lastSchedule = schedules[schedules.length - 1];
+      const datasets = await loadScheduleHolidayDatasets(tx, schedules.filter(row => row.status === "enabled").map(row => toLightingScheduleSnapshot(row)), site.timeZone);
       return {
-        items: schedules.map((schedule) => this.toResponse(schedule, site.timeZone, now)),
+        items: schedules.map((schedule) => this.toResponse(schedule, site.timeZone, now, datasets)),
         total,
         filteredTotal,
         siteSummary: { ruleCount: total, syncRuleCounts: { APPLIED: applied, PENDING: pending, REJECTED: rejected } },
@@ -134,6 +137,7 @@ export class SchedulesService {
       await assertNoActiveBioSourceTarget(tx, siteId, fixtureIds, "schedule");
       const scheduleId = randomUUID();
       const candidate = toCandidate(scheduleId, input, fixtureIds);
+      await this.assertExclusionSupport(tx, siteId, gatewayId, fixtureIds, candidate, site.timeZone);
       await this.assertNoOverlap(tx, siteId, gatewayId, fixtureIds, candidate);
 
       await tx.lightingSchedule.create({
@@ -154,7 +158,8 @@ export class SchedulesService {
       await this.automationSnapshot.incrementDesiredRevision(tx, gatewayId);
 
       const created = await this.findResponseRow(tx, siteId, scheduleId);
-      return this.toResponse(created, site.timeZone, this.clock.now());
+      const datasets = await loadScheduleHolidayDatasets(tx, [candidate], site.timeZone);
+      return this.toResponse(created, site.timeZone, this.clock.now(), datasets);
     });
   }
 
@@ -180,6 +185,7 @@ export class SchedulesService {
         : existing.gatewayId;
       const candidate = validateCandidate(mergeCandidate(existing, input, fixtureIds));
       await assertNoActiveBioSourceTarget(tx, siteId, fixtureIds, "schedule");
+      await this.assertExclusionSupport(tx, siteId, gatewayId, fixtureIds, candidate, site.timeZone);
       await this.assertNoOverlap(tx, siteId, gatewayId, fixtureIds, candidate, scheduleId);
 
       if (input.target) {
@@ -205,7 +211,8 @@ export class SchedulesService {
       }
 
       const updated = await this.findResponseRow(tx, siteId, scheduleId);
-      return this.toResponse(updated, site.timeZone, this.clock.now());
+      const datasets = await loadScheduleHolidayDatasets(tx, [candidate], site.timeZone);
+      return this.toResponse(updated, site.timeZone, this.clock.now(), datasets);
     });
   }
 
@@ -232,7 +239,7 @@ export class SchedulesService {
     siteId: string,
     gatewayId: string,
     fixtureIds: string[],
-    candidate: LightingScheduleSnapshotV1,
+    candidate: LightingScheduleSnapshotV3,
     excludedScheduleId?: string
   ) {
     if (candidate.status === "disabled") return;
@@ -247,9 +254,28 @@ export class SchedulesService {
       },
       include: overlapInclude
     });
-    if (schedules.some((schedule) => schedulesOverlap(candidate, toLightingScheduleSnapshot(schedule), site.timeZone))) {
+    const rules = schedules.map(schedule => toLightingScheduleSnapshot(schedule));
+    const datasets = await loadScheduleHolidayDatasets(tx, [candidate, ...rules], site.timeZone);
+    if (rules.some(rule => schedulesOverlap(candidate, rule, site.timeZone, datasets))) {
       throw new ConflictException({ code: "schedule_overlap" });
     }
+  }
+
+  private async assertExclusionSupport(tx: Prisma.TransactionClient, siteId: string, gatewayId: string,
+    fixtureIds: string[], candidate: LightingScheduleSnapshotV3, timeZone: string) {
+    if (!candidate.excludeWeekends && !candidate.excludeHolidays) return;
+    // Exclusion policy needs a current V3 declaration, not the stronger current
+    // APPLIED V3/clock admission reserved for immediate temporary starts.
+    if (await loadAutomationProtocolSupport(tx, { siteId, gatewayId }) !== 3) {
+      throw new ConflictException({ code: "schedule_exclusions_unsupported" });
+    }
+    const fixtures = await tx.fixture.findMany({ where: { id: { in: fixtureIds }, siteId, gatewayId },
+      select: { id: true, meshNode: { select: { gatewayId: true, vehicleSensorProtocol: true } } } });
+    if (fixtures.length !== fixtureIds.length || fixtures.some(fixture => fixture.meshNode?.gatewayId !== gatewayId
+      || fixture.meshNode.vehicleSensorProtocol !== "bio_usb_pulse")) {
+      throw new ConflictException({ code: "schedule_exclusions_bio_required" });
+    }
+    await loadScheduleHolidayDatasets(tx, [candidate], timeZone);
   }
 
   private async requireSiteTimeZone(tx: Prisma.TransactionClient, siteId: string) {
@@ -267,9 +293,9 @@ export class SchedulesService {
     return schedule;
   }
 
-  private toResponse(schedule: ScheduleResponseRow, timeZone: string, now: Date) {
+  private toResponse(schedule: ScheduleResponseRow, timeZone: string, now: Date, datasets: readonly HolidayDatasetSnapshot[] = []) {
     const snapshot = toLightingScheduleSnapshot(schedule);
-    const occurrence = getNextOccurrence(snapshot, now.getTime(), timeZone);
+    const occurrence = getNextOccurrence(snapshot, now.getTime(), timeZone, datasets);
     const configuration = schedule.gateway.automationConfiguration;
     const execution = schedule.executions[0] ?? null;
     return {
@@ -318,7 +344,7 @@ function toCandidate(
   id: string,
   input: CreateScheduleInput,
   fixtureIds: string[]
-): LightingScheduleSnapshotV1 {
+): LightingScheduleSnapshotV3 {
   const { target: _target, ...schedule } = input;
   return { id, ...schedule, fixtureIds };
 }
@@ -327,7 +353,7 @@ function mergeCandidate(
   existing: ScheduleOverlapRow,
   input: UpdateScheduleInput,
   fixtureIds: string[]
-): LightingScheduleSnapshotV1 {
+): LightingScheduleSnapshotV3 {
   const current = toLightingScheduleSnapshot(existing);
   return {
     ...current,
@@ -339,17 +365,19 @@ function mergeCandidate(
     ...(input.localEndTime === undefined ? {} : { localEndTime: input.localEndTime }),
     ...(input.recurrence === undefined ? {} : { recurrence: input.recurrence }),
     ...(input.action === undefined ? {} : { action: input.action }),
+    ...(input.excludeWeekends === undefined ? {} : { excludeWeekends: input.excludeWeekends }),
+    ...(input.excludeHolidays === undefined ? {} : { excludeHolidays: input.excludeHolidays }),
     fixtureIds
   };
 }
 
-function validateCandidate(candidate: LightingScheduleSnapshotV1) {
-  const parsed = lightingScheduleSnapshotV1Schema.safeParse(candidate);
+function validateCandidate(candidate: LightingScheduleSnapshotV3) {
+  const parsed = lightingScheduleSnapshotV3Schema.safeParse(candidate);
   if (!parsed.success) throw new BadRequestException("invalid automation schedule update");
   return parsed.data;
 }
 
-function scheduleData(schedule: LightingScheduleSnapshotV1) {
+function scheduleData(schedule: LightingScheduleSnapshotV3) {
   return {
     name: schedule.name,
     status: schedule.status,
@@ -363,6 +391,8 @@ function scheduleData(schedule: LightingScheduleSnapshotV1) {
     yearlyMonth: schedule.recurrence.yearlyMonth,
     yearlyDay: schedule.recurrence.yearlyDay,
     dimmingEnabled: schedule.action.dimmingEnabled,
-    brightnessPercent: schedule.action.brightnessPercent
+    brightnessPercent: schedule.action.brightnessPercent,
+    excludeWeekends: schedule.excludeWeekends,
+    excludeHolidays: schedule.excludeHolidays
   };
 }
