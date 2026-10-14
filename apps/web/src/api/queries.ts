@@ -109,7 +109,7 @@ export interface Dashboard {
       hopCount: number | null;
       commandSuccessRate: number | null;
       lastSeenAt: string | null;
-      gateway: { id: string; name: string; connectionStatus: "online" | "offline" } | null;
+      gateway: { id: string; name: string; connectionStatus: "online" | "offline"; assignmentVersion?: number } | null;
       vehicleEventSource?: import("./automation").VehicleEventSourceView;
       // Nullable only for a concurrently removed projection; absent in older API fixtures.
       bioSensorPreparation?: import("./automation").BioSensorPreparationView | null;

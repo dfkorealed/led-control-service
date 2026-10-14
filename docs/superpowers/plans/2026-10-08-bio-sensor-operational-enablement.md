@@ -8,6 +8,21 @@
 
 **Tech Stack:** React, NestJS/Prisma/PostgreSQL, MQTT, Raspberry Pi BIO Gateway.
 
+## 10월14일 모든 조명 공통 준비 UI 보완
+
+- [x] 사용자 `진행해줘`로 기존 공통 패널의 등록 연결 확인→센서 사용 설정 설계를 승인했다. 센서모드 전환의 자체점등 가능성을 설명했고 실제 이벤트 활성화/움직임 시험은 하지 않는다. 로컬API만 검증 후 정상 재기동하는 추가 승인도 받았다.
+- [x] 별도 `codex/sensor-common-ui-20261014`에서 기존 등록 재확인 POST/GET/apply를 공통 컴포넌트로 연결한다. 현재 gateway.assignmentVersion만 기존 dashboard/조명 page 응답에 추가하며 버전이 없거나 권한/online/범위가 바뀌면 요청을 차단한다. 새API·공유MQTT·schema·권한 변경은 없다.
+- [x] 버튼 부재·조회 버전 누락·지연 조회 완료 후 pending 잔류를 RED로 확인하고 GREEN으로 보완했다. 관련Web122/122, API36/36, 타입 포함Web빌드와APItypecheck, mock Chromium320/390/1024/1440px6/6이다. 조회정보/ID·기본밝기 보존·등록apply와 센서자격 분리, 중복POST/유실응답·권한회수·만료proof 차단을 확인했다. 전체suite/HIL 완료로 확대하지 않는다.
+- [x] API빌드/typecheck exit0, 직접diff리뷰·메뉴문서·diff check를 확인했다. 현재API는 동일root/apps/api watcher3493(전날08:52시작)의 child19395이며 정상ready200이다. 새권한/schema/계약/DB강제변경 없이 기존 API를 소비하고 구형버전은 fail-closed한다. 사용자 단독진행 요청에 따라 독립에이전트리뷰는 하지 않았다.
+- [x] `c20a6529`를 메인에 ff-only 반영하고 동일 API watcher3493의 새 child37376(17:32:10KST)을 확인했다. 메인 공통패널19/19도 다시 통과했다. 잘못된 테스트 경로로 no-test exit1 뒤 실제 경로 실행을 구분한다. 사용자AGENTS/landing dirty diff와 `.env`/AGENTS SHA를 보존했다.
+- [ ] 현재 로그인 UI에서 온라인조명의 정상등록재확인·필요한센서사용설정을 수행하고 현재 sourceEligible와 자유로운 source/target 선택을 확인한다. 오프라인/미검증조명 강제허용·규칙활성화/움직임 START는 하지 않는다.
+- 17:41–17:44KST 실제 적용 확인: API ready는 MQTT만down, UI는4대offline·기존규칙비활성이다. 현재Gateway sameimage/running/restart0·USB1/owner1·주소/TCP/transport/protocol/mapping true지만 MQTT/heartbeat false다. 브로커 CRL nextUpdate=2026-10-14 14:57:46KST 만료와 openssl client검증 `CRL has expired`를 확인했다. leaf 만료/issuer 누락은 아니다. 새공통 등록확인UI는 실제 표시되고 offline 요청을 차단한다. RFquery/SET/등록apply/규칙활성화0이다.
+- 사용자가 `CRL도 갱신해줘`로 갱신을 승인했다. 동일 issuer 서명·Root CRL·폐기 serial 보존·정확한파일 백업→원자교체→동일broker SIGHUP만 준비한다. 기존Vault가33시간 전 exit255 상태이고 현재 issuer공개조회는 연결실패다. Vault1개 동일데이터/설정 기동·기존인증으로 MQTT CRL만 발행하는 추가확인을 요청했으며 아직 Vault/CRL/인증 변경0이다. CRL검증/연결복구 전에는 실제UI준비 완료로 표시하지 않는다.
+- [x] 후속 명시승인 뒤 기존 exact Vault1개를 기동/기존key로 unseal했다. 기동 helper의 전체Mounts 비교 `identity_changed` exit1은 원결과로 보존하고 재실행하지 않았다. 이후 독립 exact inspect/정상 seal-status에서 동일 ID/image·기존 data/config/log volume 경로와 initialized/unsealed를 확인했다. 새Vault 초기화·key/token/설정 생성0이다.
+- [x] MQTT CRL을17:55:25KST에 원본/새본 보호백업 후 원자교체하고 broker3349에SIGHUP했다. Vault 재기동 직후 공개본은stale, 서비스token rotate는거부됐으나 후속공개조회에서 같은issuer의 자동재서명본을 받았다. 최종수동rotate0·CA관리token사용0, 폐기serial2→2·Root원본유지·서명/fresh검증, 새nextUpdate=10월17일17:55:21KST/Root=10월27일14:37:20KST다. openssl client verify는exit0, API/브로커/Gateway 재시작0·새인증서발급/폐기/ACL변경0이다.
+- [x] fresh API ready200/5dependency up 및17:55:53KST Gateway MQTT/heartbeat/transport/protocol/mapping true·singleUSB owner1/restart0을 확인했다. 18:59KST 후속API ready는정상이지만 DB조명4대는offline이므로 Gateway통신복구를 전체조명준비로 확대하지 않는다.
+- 실제정상UI B1-L002 등록연결 POST1회는500으로실패했다. 서버경로 `CommandDbClockHealth.assertHealthy`가 optional evidence source를 요구하지만 실제 provider등록은없어 `DB clock attestation unavailable`로거부한다. 현재등록apply·센서SET·규칙활성화0이며 시각관문완화/가짜attestation·DB강제수리는하지 않는다. DB시각제공자 연결은이번CRL갱신과분리된 후속구현 과제다.
+
 ## 10월14일 직접 UI 시험 준비 재개
 
 - [x] 현재 로그인 UI의 비활성 규칙/준비 차단을 확인한다. 조명4대 오프라인, 기존 A→B100%/60초/적용됨이다. 서버 ready200/의존성5up, strict SSH 정상이다. Mac 주소는 전날과 다르고 Apple NTP 읽기 offset +0.007670±0.025955초로 현재 시간 동기화 변경은 불필요하다.

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getBioSensorPreparation, requestBioSensorPreparation, type BioSensorPreparationOperation, type VehicleEventSourceBlockReason } from "../../../api/automation";
 import type { DashboardFixture } from "../../../api/queries";
 import { Button, Card, Text } from "../../../components/ui";
+import { BioRegistrationConnectionCheck } from "./components/BioRegistrationConnectionCheck";
 
 export const bioSensorReasonLabels: Record<VehicleEventSourceBlockReason, string> = {
   profile_unverified: "호환 프로파일 확인 필요 · 승인된 장비군과 대조해야 합니다.",
@@ -103,6 +104,8 @@ export function BioSensorPreparationPanel({ siteId, fixture, disabled, canPrepar
     <Text weight="semibold">{fixture.name} · {statusLabel}</Text>
     {reasons.map(reason => <Text key={reason} variant="caption" tone="secondary">{bioSensorReasonLabels[reason] ?? "서버에서 사용을 제한했습니다."}</Text>)}
     {!candidate ? <Text variant="caption">현재 등록 연결에서 준비 작업을 사용할 수 없습니다. 관리자가 등록·호환 정보를 확인해야 합니다.</Text> : null}
+    {!candidate && reasons.includes("binding_changed") ? <BioRegistrationConnectionCheck siteId={siteId} fixture={fixture}
+      disabled={disabled || pending} canPrepare={canPrepare} onRefreshSource={onRefreshSource} /> : null}
     <Text variant="caption">감지 센서 자체의 자율 점등은 유지합니다. 아래 밝기 설정은 실행 조명에만 적용하며 자체 밝기 동작은 현장 검증 전입니다.</Text>
     {!canPrepare ? <Text variant="caption">센서 사용 설정과 준비 확인은 현장 관리자에게 요청하세요.</Text> : null}
     {message ? <Text aria-live="polite">{message}</Text> : null}
