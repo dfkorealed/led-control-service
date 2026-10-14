@@ -272,6 +272,8 @@ git commit -m "feat(api): persist exclusions and project complete calendars"
 
 ## Task 6: Gateway BIO durable lease·RF 부분변경 apply — gateway
 
+**연결 경계:** 필수 current-target preflight와 기존 adapter의 실제 쓰기 경계 lease guard를 연결한다. 명시적 temporaryTargetPort의 private control token만 owner 쓰기를 구분하며 source/clock/현재 신원·generation 검사 우회는 없다. 실제 production wiring·최신 자동 목표 restore/독립GET/settlement는 Task7이다. Task6 tick은 예약된 release pair의 영속 intent만 기록하고 placeholder 복귀 목표를 실행하지 않는다.
+
 **Files:** Create apps/gateway/src/automation/bio-temporary-control-runtime.ts, bio-temporary-control-runtime.test.ts; Modify apps/gateway/src/automation/{automation-state-store.ts,automation-state-store.test.ts,bio-pulse-scheduler.ts,schedule-runtime.ts}, apps/gateway/src/bio/bio-dongle-client.ts, apps/gateway/src/adapters/bio-usb-dongle-adapter.ts; Test(existing) bio/bio-dongle-client.test.ts, adapters/bio-usb-dongle-adapter.test.ts, automation/schedule-runtime-bio.test.ts; docs/menus/control.md.
 **Consumes:** Task1 TemporaryControlCommand/Result, Task4 accepted start, 기존 BioVerifiedLampTarget/BioConfigurationState/BioTargetConfigurationPort/SerialTaskQueue/ClockTrustProvider. **Produces:** BioTemporaryControlRuntime.accept(command:TemporaryControlCommand):Promise<void>, ownsFixture(fixtureId:string):boolean, tick():Promise<void>, observe(fixtureId:string,observation:{target:BioVerifiedLampTarget;configuration:BioConfigurationState}):Promise<void>; 아래 새 state/port 타입.
 ~~~ts
@@ -286,7 +288,7 @@ interface BioTemporaryTargetPort {
 type PersistedTemporaryTarget = {snapshot:TemporaryFixtureSnapshot;preState:BioConfigurationState|null;preActivationId:string|null;applyConfirmed:boolean;releaseConfirmed:boolean;configurationMayHaveChanged:boolean;partialMutation:TemporaryTargetEvidence["partialMutation"];applyResult:TemporaryControlResult|null;releaseResult:TemporaryControlResult|null};
 type PersistedTemporarySession = {command:StartTemporaryControlCommand;sessionRevision:1|2;state:TemporaryControlState;targets:Record<string,PersistedTemporaryTarget>};
 type PersistedFixtureLease = {sessionId:string|null;identity:TemporaryFixtureSnapshot;lastGeneration:Generation;applyGeneration:Generation;releaseGeneration:Generation;phase:TemporaryControlState};
-type PersistedAutomationStateV10 = Omit<PersistedAutomationStateV9,"schemaVersion"> & {schemaVersion:10;temporarySessions:Record<string,PersistedTemporarySession>;fixtureLeases:Record<string,PersistedFixtureLease>;temporaryResultOutbox:Record<string,TemporaryControlResult>};
+type PersistedAutomationStateV10 = Omit<PersistedAutomationStateV9,"schemaVersion"> & {schemaVersion:10;temporarySessions:Record<string,PersistedTemporarySession>;fixtureLeases:Record<string,PersistedFixtureLease>;temporaryResultOutbox:Record<string,TemporaryControlResult>;temporaryEndTombstones:Record<string,EndTemporaryControlCommand>};
 ~~~
 - [ ] **Step 1 / RED test:** fresh 정당 identity/정상 자동 설정 preState 저장 뒤에만 RF를 실행하고 low-level writesStarted 증거를 callback으로 기록한다. high 쓰기 후 mode mismatch의 최종 실패도 복귀 대상이다.
 ~~~ts
