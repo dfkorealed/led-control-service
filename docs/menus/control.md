@@ -1,5 +1,30 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 최종 리뷰: 전달 만료·이벤트 보류·서울 연도 경계
+
+### 구현 완료
+
+- 시간제 Start의 전달 권위는 원 command/hash/startedAt/endsAt와 분리해 큐와 실행기까지 전달한다. 비동기 clock/preflight·저장 이후와 최종 native 제출에서 전달/세션 만료의 기존 2,000ms 여유, 같은 부팅 monotonic deadline, 최근 신뢰 clock sample을 검사한다. 만료 후 새 적용 SET은 차단하고 이미 필요한 종료·복귀는 계속 처리한다. 재전송은 원 종료 시각을 연장하지 않는다.
+- 임시 lease 때문에 적용하지 않은 이벤트 대상은 activation의 `skippedFixtureIds`에 미변경 근거를 영속 보존한다. 종료 시 RF/readback을 만들지 않고 기존 wire의 superseded/null로 처리해 이벤트 소유권을 닫는다. 과거 uncertain mutation은 건드리지 않으며, 진행 중 lease 해제 후 적용할 때는 capture 전에 skip 근거를 영속 제거한다. 재시작·명시 종료와 이후 스케줄 실행을 검증했다.
+- 공휴일 변경 승격의 영향 Gateway를 서울 civil year 경계로 선택해 1월 1일만 포함하는 일정도 최신 dataset/revision/outbox를 받는다. 실제 자기 소유 PostgreSQL에서 pointer·revision·outbox의 같은 transaction 승격과 실패 시 전체 rollback을 확인했다.
+
+### 미구현
+
+- 운영 배포·실제 DB migration·clock attestor/provider/ACL 연결·실장비 USB/RF/HIL은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 확인은 지정 Gateway 5개 파일 164개 테스트, API의 지정 snapshot/promotion/rollback 16개 테스트와 두 package 타입 검사 범위다. 전체 suite·build·광출력·전원 장애 복귀의 완료 증거로 확대하지 않는다. 최종 리뷰의 별도 Minor 및 기존 Web ControlView 실패는 이 수정 범위 밖의 제한으로 남긴다.
+
+### 관련 파일
+
+- Gateway `automation/{temporary-control-mqtt,bio-temporary-control-runtime,bio-pulse-scheduler,automation-state-store}.ts` 및 직접 관련 MQTT/임시 적용·복귀/production integration/store 테스트.
+- API `automation/automation-snapshot.service.ts`, `automation/{automation-snapshot.service,holiday-dataset.service}.spec.ts`.
+
+### 갱신 규칙
+
+- 전달 권위·clock guard·skip 증거·서울 연도 경계를 바꾸면 동일 caller/consumer의 지연·부분 쓰기·재시작·transaction rollback 회귀와 이 문서를 함께 갱신한다. 운영·HIL 완료는 별도 증거가 필요하다.
+
 ## 2026-10-15 Web BIO 시간제 제어·통합 이력·선택 연결
 
 ### 구현 완료

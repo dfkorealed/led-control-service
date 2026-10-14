@@ -20,7 +20,8 @@ async function parser() {
 }
 it("independently validates immutable command and UUID delivery hash/window", async () => {
   const parse = await parser();
-  expect(parse(envelope(), { ...command }, new Date("2026-10-14T00:00:01Z"))).toEqual(command);
+  expect(parse(envelope(), { ...command }, new Date("2026-10-14T00:00:01Z"))).toEqual({ command,
+    authority: { generatedAt: Date.parse(payload.startedAt), expiresAt: Date.parse("2026-10-14T00:00:10Z") } });
   const altered = envelope(); altered.brightness = 10;
   const { deliveryPayloadHash: _hash, ...body } = altered;
   expect(() => parse({ ...body, deliveryPayloadHash: bioEnvelopeHash(body) }, command, new Date(payload.startedAt))).toThrow();

@@ -48,8 +48,12 @@ export class AutomationSnapshotService {
   /** The dataset pointer and every affected desired revision commit together.
    * The caller already holds the mutation lock; no I/O or nested transaction. */
   async onPromoted(tx: Prisma.TransactionClient, dataset: HolidayDatasetSnapshot): Promise<void> {
+    // Holiday exclusions support Seoul civil start dates. Jan1 midnight is
+    // Dec31 15:00Z, so a UTC year predicate misses valid Jan1-only schedules.
+    const from = new Date(`${dataset.year}-01-01T00:00:00+09:00`);
+    const until = new Date(`${dataset.year}-12-31T23:59:59.999+09:00`);
     const gateways = await tx.gateway.findMany({ where: { lightingSchedules: { some: { excludeHolidays: true,
-      activeFrom: { lte: new Date(`${dataset.year}-12-31T23:59:59.999Z`) }, activeUntil: { gte: new Date(`${dataset.year}-01-01T00:00:00Z`) } } } },
+      activeFrom: { lte: until }, activeUntil: { gte: from } } } },
       select: { id: true, assignmentVersion: true, automationProtocolDeclarations: { orderBy: [{ assignmentVersion: "desc" }, { declarationRevision: "desc" }], take: 1 } } });
     for (const gateway of gateways) {
       const declaration = gateway.automationProtocolDeclarations[0];

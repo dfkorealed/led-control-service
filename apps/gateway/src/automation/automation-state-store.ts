@@ -164,6 +164,8 @@ export interface PersistedBioActivation {
   releaseReason: "hold_expired" | "operator_release" | "configuration_changed" | null;
   completed: boolean;
   retiredFixtureIds: string[];
+  /** Positive local RF0 evidence, distinct from manual retirement/readback. */
+  skippedFixtureIds: string[];
   reportedResults: string;
 }
 
@@ -1003,7 +1005,11 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
         !isDeepStrictEqual(vehicle.targetFixtureIds, row.targetFixtureIds))) throw new Error("invalid BIO active occurrence");
       for (const fixtureId of row.targetFixtureIds) {
         const target = state.bioTargetsByFixture[fixtureId];
-        if (row.completed && !row.retiredFixtureIds.includes(fixtureId) &&
+        if (row.skippedFixtureIds.includes(fixtureId) && (target?.activationId === row.activationId ||
+          (target?.preState !== null && target?.preState !== undefined && target.restoreResult?.status !== "succeeded"))) {
+          throw new Error("invalid BIO skipped mutation evidence");
+        }
+        if (row.completed && !row.retiredFixtureIds.includes(fixtureId) && !row.skippedFixtureIds.includes(fixtureId) &&
           (target?.activationId !== row.activationId || target.restoreResult?.status !== "succeeded")) {
           throw new Error("invalid BIO release completion");
         }
@@ -1442,8 +1448,11 @@ export function parseBioSourceBinding(value: unknown): BioSourceBinding {
 }
 
 function parseBioActivation(value: unknown): PersistedBioActivation {
+  // Existing durable activations have no positive skipped proof. Only an absent
+  // new field migrates; explicit malformed values must not become RF0 evidence.
+  if (isRecord(value) && !Object.hasOwn(value, "skippedFixtureIds")) value = { ...value, skippedFixtureIds: [] };
   if (!hasExactKeys(value, ["activationId", "startedAt", "snapshotHash", "binding", "targetFixtureIds", "brightnessPercent", "health",
-    "healthReason", "releaseReason", "completed", "retiredFixtureIds", "reportedResults"]) ||
+    "healthReason", "releaseReason", "completed", "retiredFixtureIds", "skippedFixtureIds", "reportedResults"]) ||
     !["healthy", "degraded", "unverified"].includes(value.health as string) ||
     ![null, "hold_expired", "operator_release", "configuration_changed"].includes(value.releaseReason as null) ||
     typeof value.completed !== "boolean" || (value.completed && value.releaseReason === null) ||
@@ -1458,15 +1467,17 @@ function parseBioActivation(value: unknown): PersistedBioActivation {
   };
   const targetFixtureIds = fixtures(value.targetFixtureIds);
   const retiredFixtureIds = fixtures(value.retiredFixtureIds);
+  const skippedFixtureIds = fixtures(value.skippedFixtureIds);
   if (!targetFixtureIds.length || targetFixtureIds.includes(binding.sourceFixtureId.toLowerCase()) ||
-    retiredFixtureIds.some(id => !targetFixtureIds.includes(id))) throw new Error("invalid BIO activation fixtures");
+    retiredFixtureIds.some(id => !targetFixtureIds.includes(id)) ||
+    skippedFixtureIds.some(id => !targetFixtureIds.includes(id) || retiredFixtureIds.includes(id))) throw new Error("invalid BIO activation fixtures");
   const healthReason = parseString(value.healthReason);
   if (!["qualified", "health_unverified", "usb_disconnected", "identity_changed", "liveness_failed", "decoder_failed",
     "fingerprint_changed", "connection_changed"].includes(healthReason)) throw new Error("invalid BIO health reason");
   return { activationId: parseString(value.activationId), startedAt: parseTimestamp(value.startedAt), snapshotHash: value.snapshotHash, binding,
     targetFixtureIds, brightnessPercent: parseBrightness(value.brightnessPercent), health: value.health as PersistedBioActivation["health"],
     healthReason, releaseReason: value.releaseReason as PersistedBioActivation["releaseReason"], completed: value.completed,
-    retiredFixtureIds, reportedResults: value.reportedResults };
+    retiredFixtureIds, skippedFixtureIds, reportedResults: value.reportedResults };
 }
 
 function parseBioTargetResult(value: unknown): PersistedBioTargetResult {

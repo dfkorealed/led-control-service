@@ -288,7 +288,9 @@ export class BioPulseControlCore {
           snapshotHash: this.snapshot.payloadHash,
           targetFixtureIds: [...vehicle.targetFixtureIds], brightnessPercent: vehicle.brightnessPercent,
           health: "healthy", healthReason: "qualified", releaseReason: null, completed: false,
-          retiredFixtureIds: [], reportedResults: "" };
+          retiredFixtureIds: [], skippedFixtureIds: [], reportedResults: "" };
+        activation.skippedFixtureIds = activation.targetFixtureIds.filter(id => state.fixtureLeases[id]?.sessionId &&
+          this.canProveSkipped(state, activation!, id));
         state.bioActivationsByRule[event.ruleId] = activation;
       }
       if (!activation) continue;
@@ -336,6 +338,18 @@ export class BioPulseControlCore {
       if (ruleIds && !ruleIds.has(ruleId)) continue;
       if (activation.completed) continue;
       const release = activation.releaseReason !== null;
+      if (!release) await this.store.updateDurable(next => {
+        const current = next.bioActivationsByRule[ruleId]!;
+        for (const id of current.targetFixtureIds) {
+          if (next.fixtureLeases[id]?.sessionId && this.canProveSkipped(next, current, id)) {
+            if (!current.skippedFixtureIds.includes(id)) current.skippedFixtureIds.push(id);
+          } else if (!next.fixtureLeases[id]?.sessionId) {
+            // Clear RF0 proof durably before the first capture/possible mutation.
+            current.skippedFixtureIds = current.skippedFixtureIds.filter(skipped => skipped !== id);
+          }
+        }
+        return next;
+      });
       const explicitRelease = release && activation.releaseReason === "operator_release";
       const verified = explicitRelease && this.profile.preflightRelease ? await this.profile.preflightRelease(activation.binding, true)
         : !this.profile.preflight || await this.profile.preflight(activation.binding, !explicitRelease);
@@ -349,6 +363,7 @@ export class BioPulseControlCore {
       }
       const state = this.store.read();
       const targetFixtureIds = activation.targetFixtureIds.filter(id => !activation.retiredFixtureIds.includes(id) &&
+        !(release && state.bioActivationsByRule[ruleId]!.skippedFixtureIds.includes(id)) &&
         !state.pendingManualControls[id] && !state.fixtureLeases[id]?.sessionId);
       this.transition = { activation, release };
       try {
@@ -363,10 +378,13 @@ export class BioPulseControlCore {
         this.refreshHealth(next, ruleId);
         const results = current.targetFixtureIds.map(fixtureId => {
           const retired = current.retiredFixtureIds.includes(fixtureId);
+          const skipped = current.skippedFixtureIds.includes(fixtureId);
           const row = next.bioTargetsByFixture[fixtureId];
           const result = row?.activationId === current.activationId ? (release ? row.restoreResult : row.applyResult) : null;
-          return { fixtureId, status: retired ? "superseded" : result?.status ?? "pending",
-            configuration: retired ? null : result?.observed ?? null };
+          // Existing wire superseded means this activation made no target claim;
+          // skipped proof stays local, without fake configuration or retirement.
+          return { fixtureId, status: retired || skipped ? "superseded" : result?.status ?? "pending",
+            configuration: retired || skipped ? null : result?.observed ?? null };
         });
         const resultHash = hash({ release, results });
         if (current.reportedResults !== resultHash) {
@@ -392,12 +410,19 @@ export class BioPulseControlCore {
     }
   }
 
+  private canProveSkipped(state: PersistedAutomationStateV4, activation: PersistedBioActivation, fixtureId: string) {
+    const row = state.bioTargetsByFixture[fixtureId];
+    return row?.activationId !== activation.activationId &&
+      (!row || row.preState === null || row.restoreResult?.status === "succeeded");
+  }
+
   retireManualTargets(state: PersistedAutomationStateV4, fixtureId: string) {
     const suppression = state.manualAutomationSuppressions[fixtureId];
     for (const [ruleId, activation] of Object.entries(state.bioActivationsByRule)) {
       if (!activation.targetFixtureIds.includes(fixtureId) || activation.completed ||
         !suppression?.vehicleEvents.some(item => item.ruleId === ruleId && item.startedAt === activation.startedAt)) continue;
       if (!activation.retiredFixtureIds.includes(fixtureId)) activation.retiredFixtureIds.push(fixtureId);
+      activation.skippedFixtureIds = activation.skippedFixtureIds.filter(id => id !== fixtureId);
       const target = state.bioTargetsByFixture[fixtureId];
       if (target?.activationId === activation.activationId) delete state.bioTargetsByFixture[fixtureId];
     }

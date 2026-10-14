@@ -19,9 +19,12 @@ import type { BioTransportSnapshot } from "../bio/bio-usb-transport";
 import type { BioConfigurationState, BioVerifiedLampTarget } from "../bio/bio-dongle-client";
 import { BioPulseControlCore, type BioSourceAuthority } from "./bio-pulse-scheduler";
 import { CommissionedBioPulseAuthorityProvider } from "../bio/bio-pulse-authority-provider";
+import { BioTemporaryControlRuntime } from "./bio-temporary-control-runtime";
+import { TemporaryControlResultOutbox } from "./temporary-control-result-outbox";
 
 const a = "00000000-0000-4000-8000-000000000001", b = "00000000-0000-4000-8000-000000000002";
 const rule = "00000000-0000-4000-8000-000000000003";
+const c = "00000000-0000-4000-8000-000000000006";
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 function rehash(value: Omit<AutomationSnapshotV2, "payloadHash">): AutomationSnapshotV2 {
@@ -29,7 +32,7 @@ function rehash(value: Omit<AutomationSnapshotV2, "payloadHash">): AutomationSna
     ? Object.fromEntries(Object.entries(input).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, canonical(v)])) : input;
   return { ...value, payloadHash: `sha256:${createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex")}` };
 }
-async function fixture(qualified = true) {
+async function fixture(qualified = true, extraTarget = false) {
   const path = await mkdtemp(join(tmpdir(), "product-bio-")); dirs.push(path);
   let ms = 1000; let healthy = true; let authorityPresent = qualified; let activeRevision = 4;
   let listener: ((value: BioSensorPulseCandidate) => void) | undefined;
@@ -54,13 +57,16 @@ async function fixture(qualified = true) {
         connectionGeneration: connection.generation, healthySinceMonotonicMs: 0 }
     } : null, onChange: callback => { authorityChanged = callback; return () => { authorityChanged = undefined; }; } } });
   let configuration: BioConfigurationState = { configuredHighBrightnessPercent: 30, bioMode: "sensor" };
+  let extraConfiguration: BioConfigurationState = { configuredHighBrightnessPercent: 35, bioMode: "sensor" };
   const target: BioVerifiedLampTarget = { kind: "unicast", nativeUuid: "001122334466", logicalAddress: 2, networkId: 2 };
   const writes: BioConfigurationState[] = []; const reads: string[] = []; let failRestore = false;
   let onRead: (() => void) | undefined;
   const targetPort = {
-    async readBioState(id: string) { reads.push(id); onRead?.(); return { target: { ...target }, configuration: { ...configuration } }; },
-    async restoreBioState(_id: string, _target: BioVerifiedLampTarget, value: BioConfigurationState) {
-      writes.push({ ...value }); if (failRestore) throw new Error("outcome unknown"); configuration = { ...value }; return { ...value };
+    async readBioState(id: string) { reads.push(id); onRead?.(); return { target: id === c ? { ...target, nativeUuid: "001122334477", logicalAddress: 3 } : { ...target },
+      configuration: { ...(id === c ? extraConfiguration : configuration) } }; },
+    async restoreBioState(id: string, _target: BioVerifiedLampTarget, value: BioConfigurationState) {
+      writes.push({ ...value }); if (failRestore) throw new Error("outcome unknown");
+      if (id === c) extraConfiguration = { ...value }; else configuration = { ...value }; return { ...value };
     }
   };
   let saved: AutomationSnapshotV2 | null = null; const errors: unknown[] = [];
@@ -70,8 +76,8 @@ async function fixture(qualified = true) {
     if (storageFailure) throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
     await writeJsonAtomic(path, state);
   }, undefined, { gapJournal: new AutomationTelemetryGapJournal(join(path, "gap")) });
-  const services = createAutomationServices({ scope: { siteId: a, gatewayId: b }, adapterKind: "bio-usb",
-    stateStore: store, bioNormalAssignmentVersion: 1,
+  const createServices = (stateStore = store) => createAutomationServices({ scope: { siteId: a, gatewayId: b }, adapterKind: "bio-usb",
+    stateStore, bioNormalAssignmentVersion: 1,
     configStore: { load: async () => saved, apply: async snapshot => { saved = snapshot as AutomationSnapshotV2; }, restore: async snapshot => { saved = snapshot as AutomationSnapshotV2 | null; } },
     clockTrust: { isTrusted: async () => true }, wallClock: () => new Date(Date.UTC(2026, 9, 2) + ms), monotonicClock: () => ms,
     execute: async actions => actions.map(action => {
@@ -80,12 +86,13 @@ async function fixture(qualified = true) {
       return { fixtureId: action.fixtureId, status: "succeeded" as const, brightnessPercent: action.brightnessPercent,
         faultCode: null, errorCode: null, occurredAt: new Date(Date.UTC(2026, 9, 2) + ms).toISOString() };
     }), bioProductPulse: { source, targetPort, scope: { siteId: a, gatewayId: b } } });
+  const services = createServices();
   await services.scheduleRuntime.initialize(); await services.automationRuntime.initialize();
   const connection = connectBioPulseSource(source, services.scheduleRuntime, error => { errors.push(error); });
   const snapshot = (revision = 4, status: "enabled" | "disabled" = "enabled") => rehash({ schemaVersion: 2,
     siteId: a, gatewayId: b, revision, timeZone: "UTC", schedules: [], generatedAt: "2026-10-02T00:00:00Z",
     vehicleEventRules: [{ id: rule, name: "Explicit qualified software fixture", status, sensorProtocol: "bio-usb-pulse",
-      sourceFixtureIds: [a], targetFixtureIds: [b], action: { dimmingEnabled: true, brightnessPercent: 80 }, holdSeconds: 10 }] });
+      sourceFixtureIds: [a], targetFixtureIds: extraTarget ? [b, c] : [b], action: { dimmingEnabled: true, brightnessPercent: 80 }, holdSeconds: 10 }] });
   return { ...services, source, connection, writes, reads, errors, snapshot, targetPort, genericWrites, store,
     now: () => new Date(Date.UTC(2026, 9, 2) + ms),
     failStorage: () => { storageFailure = true; },
@@ -96,10 +103,118 @@ async function fixture(qualified = true) {
     unhealthy: () => { healthy = false; authorityChanged?.(); }, revoke: () => { authorityPresent = false; authorityChanged?.(); },
     changeMapping: () => { mappingAddress = 2; }, failRestore: () => { failRestore = true; },
     revision: (value: number) => { activeRevision = value; authorityChanged?.(); },
+    extraConfiguration: () => ({ ...extraConfiguration }),
+    restart: async () => { await connection.stopAndDrain(); const nextStore = new FileAutomationStateStore(join(path, "state.json"));
+      const next = createServices(nextStore); await next.scheduleRuntime.initialize(); await next.automationRuntime.initialize(); return { ...next, store: nextStore }; },
     onRead: (callback: () => void) => { onRead = callback; } };
 }
 
 describe("production BIO local bootstrap/lifecycle (software qualification only)", () => {
+  it.each([false, true])("skip proof never erases prior uncertainty and clears before a live renewed capture (prior uncertain=%s)", async uncertain => {
+    const f = await fixture(true, true);
+    const runtime = new BioTemporaryControlRuntime({ store: f.store, now: f.now, clockTrust: { isTrusted: async () => true },
+      preflight: async () => {}, port: { read: async () => { throw new Error("unexpected temporary GET"); },
+        apply: async () => { throw new Error("unexpected apply"); }, restore: async () => { throw new Error("unexpected restore"); } } });
+    try {
+      await f.automationRuntime.hotReload(f.snapshot());
+      const before = { activationId: "prior-uncertain", sourceFixtureId: a, eventBrightnessPercent: 80,
+        target: { kind: "unicast" as const, nativeUuid: "001122334466", logicalAddress: 2, networkId: 2 },
+        preState: { configuredHighBrightnessPercent: 30, bioMode: "sensor" as const },
+        applyResult: { status: "timed_out" as const, attempt: 1, at: f.now().toISOString(), observed: null }, restoreResult: null };
+      if (uncertain) await f.store.updateDurable(state => { state.bioTargetsByFixture[b] = before; return state; });
+      const payload = { schemaVersion: 1 as const, kind: "end" as const, sessionRevision: 2 as const,
+        sessionId: "00000000-0000-4000-8000-000000000099", siteId: a, gatewayId: b, assignmentVersion: 1,
+        admissionRevision: 4, sequence: 1, originSequence: 1, originCommandHash: bioEnvelopeHash({ origin: true }),
+        endsAt: new Date(f.now().getTime() + 60_000).toISOString(), targets: [{ fixtureId: b, meshNodeId: b,
+          nativeUuid: "001122334466", logicalAddress: "0x0002", applyGeneration: "1", releaseGeneration: "2" }] };
+      const end = { ...payload, payloadHash: bioEnvelopeHash(payload) };
+      await runtime.accept(end);
+      f.pulse(); await vi.waitFor(() => expect(f.extraConfiguration().configuredHighBrightnessPercent).toBe(80));
+      if (uncertain) {
+        expect(f.store.read().bioActivationsByRule[rule]!.skippedFixtureIds).toEqual([]);
+        await f.scheduleRuntime.releaseBioEvent(rule);
+        expect(f.store.read().bioActivationsByRule[rule]!.completed).toBe(false);
+        expect(f.store.read().bioTargetsByFixture[b]).toEqual(before);
+      } else {
+        expect(f.store.read().bioActivationsByRule[rule]!.skippedFixtureIds).toEqual([b]);
+        await runtime.expire(f.now());
+        const proof = f.store.read().temporaryEndProofs[end.sessionId]![b]!;
+        const { schemaVersion, eventId, sessionId, siteId, gatewayId, assignmentVersion, admissionRevision, originCommandHash,
+          originSequence, sessionRevision, targetGeneration, resultHash } = proof;
+        await new TemporaryControlResultOutbox(f.store, end).confirm({ schemaVersion, eventId, sessionId, siteId, gatewayId,
+          assignmentVersion, admissionRevision, originCommandHash, originSequence, sessionRevision, targetGeneration, resultHash,
+          status: "applied", reason: null, ingestedAt: f.now().toISOString() });
+        f.advance(100); f.pulse(2); await vi.waitFor(() => expect(f.configuration().configuredHighBrightnessPercent).toBe(80));
+        expect(f.store.read().bioActivationsByRule[rule]!.skippedFixtureIds).toEqual([]);
+        expect(f.store.read().bioTargetsByFixture[b]!.preState).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+      }
+    } finally { await runtime.stopAndDrain(); await f.connection.stopAndDrain(); f.source.stop(); }
+  });
+  // Break caught: an event with one lease-suppressed target must relinquish
+  // ownership without pulse renewal, RF/readback fabrication, or manual retirement.
+  it.each(["expiry", "operator", "restart"])("closes skipped event target after temporary settlement and permits schedules (%s)", async mode => {
+    const f = await fixture(true, true);
+    let temporary: BioTemporaryControlRuntime | undefined;
+    try {
+      const { payloadHash: _hash, ...base } = f.snapshot();
+      const snapshot = rehash({ ...base, schemaVersion: 3, holidayDatasets: [] } as never);
+      await f.automationRuntime.hotReload(snapshot);
+      const startedAt = f.now().toISOString(), sessionId = "00000000-0000-4000-8000-000000000099";
+      const payload = { schemaVersion: 1 as const, kind: "start" as const, sessionId, sessionRevision: 1 as const,
+        siteId: a, gatewayId: b, assignmentVersion: 1, admissionRevision: 4, sequence: 1, brightness: 60,
+        startedAt, endsAt: new Date(f.now().getTime() + 60_000).toISOString(), targets: [{ fixtureId: b, meshNodeId: b,
+          nativeUuid: "001122334466", logicalAddress: "0x0002", applyGeneration: "1", releaseGeneration: "2" }] };
+      const command = { ...payload, payloadHash: bioEnvelopeHash(payload) };
+      let current: Pick<typeof f, "store" | "automationRuntime" | "scheduleRuntime"> = f;
+      const options: ConstructorParameters<typeof BioTemporaryControlRuntime>[0] = { store: f.store, now: f.now, snapshot: () => current.automationRuntime.currentAppliedSnapshot,
+        clockTrust: { isTrusted: async () => true }, preflight: async () => {}, releasePreflight: async () => {}, port: {
+          read: async (id, control) => { await control.beforeWrite?.(); return f.targetPort.readBioState(id); },
+          apply: async (id, brightness, control) => { await control.beforeMutation("high_brightness"); await control.beforeWrite?.();
+            if (!control.mayStartWrite?.()) throw new Error("veto"); control.onWriteStarted?.();
+            const physical = await f.targetPort.readBioState(id);
+            await f.targetPort.restoreBioState(id, physical.target, { configuredHighBrightnessPercent: brightness, bioMode: "force-on" });
+            return { brightnessPercent: brightness, mode: "force-on" }; },
+          restore: async (id, target, goal, control) => { await control.beforeMutation("high_brightness"); await control.beforeWrite?.();
+            if (!control.mayStartWrite?.()) throw new Error("veto"); control.onWriteStarted?.(); return f.targetPort.restoreBioState(id, target, goal); }
+        } };
+      temporary = new BioTemporaryControlRuntime(options);
+      await temporary.accept(command, { generatedAt: f.now().getTime(), expiresAt: f.now().getTime() + 10_000 });
+      expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 60, bioMode: "force-on" });
+      f.pulse(); await vi.waitFor(() => expect(f.extraConfiguration().configuredHighBrightnessPercent).toBe(80));
+      expect(f.store.read().bioTargetsByFixture[b]).toBeUndefined();
+      if (mode === "restart") {
+        await temporary.stopAndDrain(); current = await f.restart();
+        temporary = new BioTemporaryControlRuntime({ ...options, store: current.store });
+        expect(current.store.read().bioActivationsByRule[rule]!.skippedFixtureIds).toEqual([b]);
+        await current.scheduleRuntime.tick(); // Establish existing fresh-health restart hold.
+      }
+      const writesBefore = f.writes.length;
+      if (mode === "operator") await current.scheduleRuntime.releaseBioEvent(rule);
+      else { f.advance(11_000); await current.scheduleRuntime.tick(); }
+      expect(f.configuration().configuredHighBrightnessPercent).toBe(60);
+      expect(f.extraConfiguration()).toEqual({ configuredHighBrightnessPercent: 35, bioMode: "sensor" });
+      expect(f.writes.length).toBe(writesBefore + 1);
+      f.advance(60_000); await temporary.expire(f.now());
+      const proof = current.store.read().temporarySessions[sessionId]!.targets[b]!.releaseResult!;
+      const { schemaVersion, eventId, siteId, gatewayId, assignmentVersion, admissionRevision, originCommandHash,
+        originSequence, sessionRevision, targetGeneration, resultHash } = proof;
+      await new TemporaryControlResultOutbox(current.store, command).confirm({ schemaVersion, eventId, sessionId, siteId, gatewayId,
+        assignmentVersion, admissionRevision, originCommandHash, originSequence, sessionRevision, targetGeneration, resultHash,
+        status: "applied", reason: null, ingestedAt: f.now().toISOString() });
+      await current.scheduleRuntime.tick();
+      expect(current.store.read().bioActivationsByRule[rule]!.completed).toBe(true);
+      expect(current.store.read().bioActivationsByRule[rule]!.retiredFixtureIds).toEqual([]);
+      expect(current.store.read().bioTargetsByFixture[b]).toBeUndefined();
+      (current.scheduleRuntime as any).setBioNormalAuthority({ preflight: async () => {}, current: () => true });
+      const schedule = { id: "00000000-0000-4000-8000-000000000008", name: "after settlement", status: "enabled",
+        activeFrom: "2026-10-02T00:00:00Z", activeUntil: "2026-10-03T00:00:00Z", localStartTime: "00:00", localEndTime: "01:00",
+        excludeWeekends: false, excludeHolidays: false, recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+        action: { dimmingEnabled: true, brightnessPercent: 45 }, fixtureIds: [b] };
+      await current.automationRuntime.hotReload(rehash({ ...base, revision: 5, schemaVersion: 3, holidayDatasets: [], schedules: [schedule] } as never));
+      await current.scheduleRuntime.tick();
+      expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 45, bioMode: "force-on" });
+    } finally { await temporary?.stopAndDrain(); await f.connection.stopAndDrain(); f.source.stop(); }
+  });
   it("preserves independent sensor-normal authority after a temporary lease is settled", async () => {
     const f = await fixture();
     try {
@@ -167,7 +282,8 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
         siteId: a, gatewayId: b, assignmentVersion: 1, admissionRevision: 4, sequence: 1, brightness: 60,
         startedAt: f.now().toISOString(), endsAt: new Date(f.now().getTime() + 60_000).toISOString(),
         targets: [{ fixtureId: b, meshNodeId: "00000000-0000-4000-8000-000000000088", nativeUuid: "001122334466", logicalAddress: "0x0002", applyGeneration: "1", releaseGeneration: "2" }] };
-      await services.runtime.accept({ ...payload, payloadHash: bioEnvelopeHash(payload) });
+      await services.runtime.accept({ ...payload, payloadHash: bioEnvelopeHash(payload) },
+        { generatedAt: f.now().getTime(), expiresAt: f.now().getTime() + 10_000 });
       if (race !== "none" && race !== "handoff") {
         expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
         expect(f.store.read().temporarySessions[payload.sessionId]?.targets[b]?.applyResult?.rfWriteEvidence).toBe("not_started");

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { temporaryControlCommandSchema, temporaryControlResultSchema, type TemporaryControlCommand,
+import { GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS, temporaryControlCommandSchema, temporaryControlResultSchema, type TemporaryControlCommand,
   type StartTemporaryControlCommand, type EndTemporaryControlCommand, type TemporaryControlResult, type TemporaryFixtureSnapshot, type AutomationSnapshot } from "@led-control/shared";
 import type { BioOperationControl, BioVerifiedLampTarget, BioConfigurationState } from "../bio/bio-dongle-client";
 import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
@@ -13,6 +13,12 @@ import { resolveLatestBioAutomaticTarget, currentNormalConfiguration, canObserve
 
 export interface BioTemporaryApplyControl extends BioOperationControl {
   beforeMutation(stage: "high_brightness" | "mode"): Promise<void>;
+}
+/** Transport authority is deliberately absent from the persisted command/hash. */
+export interface TemporaryDeliveryAuthority { generatedAt: number; expiresAt: number }
+interface ApplyAuthority extends TemporaryDeliveryAuthority {
+  monotonicDeadline: number;
+  checkedClock: { wall: number; monotonic: number } | null;
 }
 export interface BioTemporaryTargetPort {
   read(fixtureId: string, control: BioOperationControl): Promise<{ target: BioVerifiedLampTarget; configuration: BioConfigurationState }>;
@@ -41,17 +47,32 @@ export class BioTemporaryControlRuntime {
   private readonly queue = new SerialTaskQueue();
   private readonly now: () => Date;
   private readonly deadlines = new Map<string, number>();
+  private readonly applyAuthorities = new Map<string, ApplyAuthority>();
   private stopping = false;
   constructor(private readonly options: BioTemporaryControlOptions) { this.now = options.now ?? (() => new Date()); }
 
   ownsFixture(fixtureId: string): boolean { return Boolean(this.options.store.read().fixtureLeases[fixtureId]?.sessionId); }
 
-  accept(input: TemporaryControlCommand): Promise<void> {
+  accept(input: TemporaryControlCommand, delivery?: TemporaryDeliveryAuthority): Promise<void> {
     if (this.stopping) return Promise.reject(new Error("temporary_runtime_stopping"));
     const command = temporaryControlCommandSchema.parse(structuredClone(input));
     const { payloadHash, ...payload } = command;
     if (bioEnvelopeHash(payload) !== payloadHash) return Promise.reject(new Error("temporary_command_hash_mismatch"));
+    let authority: ApplyAuthority | undefined;
+    if (command.kind === "start") {
+      if (!delivery || !Number.isFinite(delivery.generatedAt) || !Number.isFinite(delivery.expiresAt) ||
+        delivery.expiresAt <= delivery.generatedAt || delivery.expiresAt - delivery.generatedAt > 10_000 ||
+        delivery.generatedAt < Date.parse(command.startedAt) || delivery.expiresAt > Date.parse(command.endsAt)) {
+        return Promise.reject(new Error("temporary_delivery_authority_required"));
+      }
+      const wall = this.now().getTime(), monotonic = this.monotonic();
+      authority = { ...delivery, monotonicDeadline: monotonic + Math.max(0, delivery.expiresAt - wall), checkedClock: null };
+      // Queue wait is elapsed session time too. A duplicate never resets this boot's deadline.
+      if (!this.deadlines.has(command.sessionId)) this.deadlines.set(command.sessionId,
+        monotonic + Math.max(0, Date.parse(command.endsAt) - wall));
+    }
     return this.queue.run(async () => {
+      if (authority) this.applyAuthorities.set(command.sessionId, authority);
       await this.options.store.initialize();
       const previous = this.options.store.read().temporarySessions[command.sessionId];
       if (command.kind === "end") {
@@ -396,7 +417,7 @@ export class BioTemporaryControlRuntime {
         beforeWrite: () => this.guard(command, target, true),
         mayStartWrite: () => {
           this.owned(this.options.store.read(), command, target, true);
-          return !this.stopping && this.now().getTime() < Date.parse(command.endsAt) && this.options.authorityCurrent?.(target) !== false;
+          return !this.stopping && this.applyTimeCurrent(command) && this.options.authorityCurrent?.(target) !== false;
         },
         beforeMutation: async stage => {
           await this.guard(command, target, true);
@@ -555,13 +576,34 @@ export class BioTemporaryControlRuntime {
   private async guard(command: StartTemporaryControlCommand, target: TemporaryFixtureSnapshot, apply: boolean) {
     const row = this.owned(this.options.store.read(), command, target, apply);
     if (apply && row.preState && this.options.snapshot && !currentNormalConfiguration(this.options.store.read(), command, target)) throw new Error("normal_configuration_unavailable");
-    if (apply && (!await this.options.clockTrust.isTrusted(this.now()) || this.now().getTime() < Date.parse(command.startedAt) ||
-      this.now().getTime() >= Date.parse(command.endsAt))) throw new Error("temporary_clock_or_deadline_untrusted");
+    if (apply) await this.checkApplyClock(command);
     await this.options.preflight(command, target);
     this.owned(this.options.store.read(), command, target, apply);
-    if (apply && (!await this.options.clockTrust.isTrusted(this.now()) || this.now().getTime() < Date.parse(command.startedAt) ||
-      this.now().getTime() >= Date.parse(command.endsAt))) throw new Error("temporary_clock_or_deadline_untrusted");
+    if (apply) await this.checkApplyClock(command);
     if (this.options.authorityCurrent?.(target) === false) throw new Error("temporary_authority_changed");
+  }
+  private async checkApplyClock(command: StartTemporaryControlCommand) {
+    const authority = this.applyAuthorities.get(command.sessionId);
+    if (!authority) throw new Error("temporary_delivery_authority_required");
+    authority.checkedClock = null;
+    const sample = { wall: this.now().getTime(), monotonic: this.monotonic() };
+    if (!await this.options.clockTrust.isTrusted(new Date(sample.wall))) throw new Error("temporary_clock_or_deadline_untrusted");
+    authority.checkedClock = sample;
+    if (!this.applyTimeCurrent(command)) throw new Error("temporary_clock_or_deadline_untrusted");
+  }
+  private applyTimeCurrent(command: StartTemporaryControlCommand): boolean {
+    const authority = this.applyAuthorities.get(command.sessionId), sample = authority?.checkedClock;
+    const wall = this.now().getTime(), monotonic = this.monotonic();
+    const guard = GATEWAY_COMMAND_EXPIRY_CLOCK_SKEW_GUARD_MS;
+    const age = sample && monotonic - sample.monotonic;
+    // Use the existing strict 2s expiry reserve. A clock check that itself stalls,
+    // a rollback/forward skew, or native queue delay cannot renew authorization.
+    return !!authority && !!sample && Number.isFinite(wall) && Number.isFinite(monotonic) &&
+      age !== null && age !== undefined && age >= 0 && age <= guard &&
+      Math.abs((wall - sample.wall) - age) < guard &&
+      wall >= authority.generatedAt && wall >= Date.parse(command.startedAt) &&
+      wall < authority.expiresAt - guard && wall < Date.parse(command.endsAt) - guard &&
+      monotonic < authority.monotonicDeadline - guard && monotonic < (this.deadlines.get(command.sessionId) ?? -Infinity) - guard;
   }
   private assertIdentity(snapshot: TemporaryFixtureSnapshot, target: BioVerifiedLampTarget) {
     if (target.kind !== "unicast" || target.nativeUuid !== snapshot.nativeUuid ||

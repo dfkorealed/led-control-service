@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { AutomationClock } from "./automation-clock";
 import { AutomationSnapshotService } from "./automation-snapshot.service";
+import { randomUUID } from "node:crypto";
 
 const instant = "2026-10-14T00:00:00.000Z";
 const controller = () => new AbortController();
@@ -40,9 +41,8 @@ describe("complete Korean holiday provider and immutable cache", () => {
     jest.useRealTimers();
   });
   afterAll(async () => {
-    expect(liveCalls).toBe(0);
-    network?.mockRestore();
-    try { await db?.$disconnect(); } finally { cluster?.stop(); }
+    try { expect(liveCalls).toBe(0); }
+    finally { network?.mockRestore(); try { await db?.$disconnect(); } finally { cluster?.stop(); } }
   });
 
   function harness(provider?: { fetchMonth: (input: any, signal: AbortSignal) => Promise<any> }, hook?: any) {
@@ -80,6 +80,53 @@ describe("complete Korean holiday provider and immutable cache", () => {
     return { service, state, calls, provider: mockProvider };
   }
   const cached = (year: number) => db.holidayYearCoverage.findUnique({ where: { country_year: { country: "KR", year } }, include: { dataset: true } });
+
+  // Break caught: UTC year overlap omits a Jan1-only Seoul schedule; promotion
+  // must publish its new dataset and roll all writes back if the same hook fails.
+  it("Seoul January 1 dataset promotion advances revision/outbox atomically and rolls back on hook failure", async () => {
+    const snapshots = new AutomationSnapshotService({ now: () => new Date(instant) });
+    let rollback = false;
+    const h = harness(undefined, { onPromoted: async (tx: any, dataset: any) => {
+      await snapshots.onPromoted(tx, dataset); if (rollback) throw new Error("local rollback fixture");
+    } });
+    expect((await h.service.refreshYear(2027)).status).toBe("promoted");
+    const organization = await db.organization.create({ data: { name: "Jan1 promotion", type: "customer" } });
+    const actor = await db.user.create({ data: { organizationId: organization.id, loginId: randomUUID(), name: "local", passwordHash: "unused", role: "admin" } });
+    const site = await db.site.create({ data: { organizationId: organization.id, adminUserId: actor.id, name: "Seoul", timeZone: "Asia/Seoul" } });
+    const floor = await db.floor.create({ data: { siteId: site.id, name: "local", level: 1 } });
+    const gateway = await db.gateway.create({ data: { siteId: site.id, name: "local", serialNumber: randomUUID(), firmwareVersion: "fixture", assignmentVersion: 1 } });
+    const node = await db.meshNode.create({ data: { gatewayId: gateway.id, deviceUuid: "bio:001122334466", meshAddress: "0x0002", firmwareVersion: "fixture", vehicleSensorProtocol: "bio_usb_pulse" } });
+    const fixture = await db.fixture.create({ data: { floorId: floor.id, siteId: site.id, gatewayId: gateway.id, meshNodeId: node.id,
+      name: "local", ratedWatt: 20, x: 0, y: 0 } });
+    const inventory = await db.gatewayInventory.create({ data: { serialNumber: gateway.serialNumber, claimedGatewayId: gateway.id, claimedAt: new Date(instant) } });
+    await db.gatewayCertificate.create({ data: { inventoryId: inventory.id, gatewayId: gateway.id, purpose: "mqtt", status: "active",
+      certificateSerial: randomUUID(), fingerprint: randomUUID(), issuer: "fixture", notBefore: new Date("2026-01-01Z"), notAfter: new Date("2028-01-01Z") } });
+    await db.gatewayAutomationProtocolSupport.create({ data: { siteId: site.id, gatewayId: gateway.id, assignmentVersion: 1, declarationRevision: 1n,
+      declarationId: randomUUID(), maxSnapshotVersion: 3, temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true,
+      payloadHash: `sha256:${"a".repeat(64)}`, declaredAt: new Date(instant) } });
+    await db.lightingSchedule.create({ data: { siteId: site.id, gatewayId: gateway.id, createdById: actor.id, updatedById: actor.id, name: "Jan1 only", status: "enabled",
+      activeFrom: new Date("2026-12-31T15:00:00Z"), activeUntil: new Date("2026-12-31T15:00:00Z"), localStartTime: "09:00", localEndTime: "10:00",
+      recurrenceKind: "once", weeklyDays: [], dimmingEnabled: true, brightnessPercent: 50, excludeHolidays: true,
+      fixtures: { create: { fixtureId: fixture.id } } } });
+    await db.$transaction(async tx => { await snapshots.lockMutation(tx); await snapshots.incrementDesiredRevision(tx, gateway.id); });
+    const before = await db.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: gateway.id } });
+    const outboxBefore = await db.mqttOutbox.count({ where: { gatewayId: gateway.id } });
+    h.state.changed = true;
+    const promoted = await h.service.refreshYear(2027);
+    expect(promoted.status).toBe("promoted");
+    const updated = await db.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: gateway.id } });
+    expect(updated.desiredRevision).toBe(before.desiredRevision + 1);
+    expect(await db.mqttOutbox.count({ where: { gatewayId: gateway.id } })).toBe(outboxBefore + 1);
+    const published = await db.mqttOutbox.findFirstOrThrow({ where: { gatewayId: gateway.id, revision: updated.desiredRevision } });
+    expect(published.payload).toMatchObject({ holidayDatasets: [{ year: 2027, revision: promoted.revision }] });
+    const pointer = await cached(2027), datasetCount = await db.holidayDataset.count({ where: { year: 2027 } });
+    rollback = true; h.state.changed = false;
+    expect((await h.service.refreshYear(2027)).status).toBe("failed");
+    expect(await cached(2027)).toEqual(pointer);
+    expect(await db.holidayDataset.count({ where: { year: 2027 } })).toBe(datasetCount);
+    expect(await db.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: gateway.id } })).toEqual(updated);
+    expect(await db.mqttOutbox.count({ where: { gatewayId: gateway.id } })).toBe(outboxBefore + 1);
+  });
 
   it("invalid year does not fetch or create a coverage pointer", async () => {
     const h = harness();

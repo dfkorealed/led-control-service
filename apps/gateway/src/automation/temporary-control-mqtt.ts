@@ -1,7 +1,7 @@
 import { mqttTopics, temporaryControlCommandSchema, temporaryControlIngestedReceiptSchema,
   type TemporaryControlCommand, type TemporaryControlResult } from "@led-control/shared";
 import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
-import type { BioTemporaryControlRuntime } from "./bio-temporary-control-runtime";
+import type { BioTemporaryControlRuntime, TemporaryDeliveryAuthority } from "./bio-temporary-control-runtime";
 import type { TemporaryControlResultOutbox } from "./temporary-control-result-outbox";
 import type { ClockTrustProvider } from "./clock-trust-provider";
 
@@ -10,7 +10,7 @@ const instant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 /** Delivery freshness is independent of the original immutable command identity.
  * A broker PUBACK authorizes neither admission nor target settlement. */
 export function parseTemporaryControlDelivery(value: unknown,
-  scope: { siteId: string; gatewayId: string; assignmentVersion: number }, now: Date): TemporaryControlCommand {
+  scope: { siteId: string; gatewayId: string; assignmentVersion: number }, now: Date): { command: TemporaryControlCommand; authority: TemporaryDeliveryAuthority } {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("temporary_delivery_invalid");
   const { deliveryGeneration, deliveryGeneratedAt, deliveryWindowMs, expiresAt, deliveryPayloadHash, ...original } = value as Record<string, unknown>;
   if (typeof deliveryGeneration !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deliveryGeneration) ||
@@ -32,7 +32,7 @@ export function parseTemporaryControlDelivery(value: unknown,
     (command.kind === "start" && (epoch < Date.parse(command.startedAt) || epoch >= Date.parse(command.endsAt) || expires > Date.parse(command.endsAt)))) {
     throw new Error("temporary_delivery_expired");
   }
-  return command;
+  return { command, authority: { generatedAt: generated, expiresAt: expires } };
 }
 
 export class TemporaryControlMqtt {
@@ -56,10 +56,10 @@ export class TemporaryControlMqtt {
   async handleCommand(payload: Buffer) {
     if (this.stopping) throw new Error("temporary_runtime_stopping");
     const now = this.now();
-    const command = parseTemporaryControlDelivery(JSON.parse(payload.toString()), this.options.scope, now);
+    const { command, authority } = parseTemporaryControlDelivery(JSON.parse(payload.toString()), this.options.scope, now);
     if (command.kind === "start") {
       if (!await this.options.clockTrust.isTrusted(now)) throw new Error("temporary_clock_untrusted");
-      await this.options.runtime.accept(command);
+      await this.options.runtime.accept(command, authority);
     } else await this.options.runtime.release(command);
     await this.wake();
   }
