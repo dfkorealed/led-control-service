@@ -2,19 +2,20 @@
 
 기준일: 2026-10-14
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 공유·저장 완료·공휴일 처리 구현 중
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 공유·저장·공휴일 완료·API 연결 중
 
 - 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장부터 승인된 소프트웨어 구현을 진행 중이다. 실제 API/UI 기능 연결·장비 반영은 아직이다.
 - 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing 및 후속 공통 로딩 미커밋 변경을 보존한다.
 - 신규 기능은 BIO 센서 조명만 지원하고 기존 native 코드·등록·데이터를 자동 삭제/변환하지 않는다.12개 UI 합의와 스케줄/달력/이벤트 추가 위치 통일을 유지한다.
 - 제안은 독립 TemporaryControlSession·Gateway durable single-owner·최신 자동 운전 복귀다. legacy 영구 명령 TTL 재사용/과거 밝기 단순 복원은 제외한다.
 - 달력은 발생일 대체 보기·일정별 주말/휴일 제외 기본false다. 서버/Gateway가 검증 dataset/coverage를 공유하며 목업6날짜를 제품화하지 않는다.
-- 사용자가 서면 설계 `91bf922e`와 [상세 실행 계획](superpowers/plans/2026-10-14-bio-control-operations.md) `bd943bf6`을 승인하고 진행을 요청했다. Tasks1–2 공유·저장 완료·Task3 공휴일 데이터 처리 구현 중이며 Tasks4–9는 대기다. 기능 전체 완료나 서버/장비 반영은 아직 아니다.
+- 사용자가 서면 설계 `91bf922e`와 [상세 실행 계획](superpowers/plans/2026-10-14-bio-control-operations.md) `bd943bf6`을 승인하고 진행을 요청했다. Tasks1–3 공유·저장·공휴일 처리 완료·Task4 API 연결 중이며 Tasks5–9는 대기다. 기능 전체 완료나 서버/장비 반영은 아직 아니다.
 - 실행 방식은 총괄 오케스트레이터→backend 공유 계약·Prisma→engine/Gateway→기존 ‘제어 UI 개선 담당자’→최소 QA다. 공유 계약 검증 커밋을 전달한 뒤에만 소비 구현을 시작하며 ‘제어 페이지 담당자’에게 UI를 중복 배정하지 않는다.
 - 문서 작성 단계의 제품 테스트·설치·빌드·DB/provider/실장비 변경0 기록은 당시 증거다. 이후 각 작업의 변경·직접 연관 최소 검증 결과를 체크리스트와 함께 기록한다. 전체 suite/무관 회귀는 이번 사용자 범위가 아니다.
 - Task1 `639a988c`의 공유70/70·disposableACL4/4·직접 기존6/6과 타입/exports 준비를 확인했다. 독립 리뷰 I2건(0% force-off 설정 보존·동일시각 상충증거)의 수정 `111ef160`은 RED2FAIL→관련11/11·타입/prepare0, scoped 재리뷰 모두 ADDRESSED/새C/I0이다. 운영 권한/등록/장비는 변경하지 않았다.
 - 기존 wildcard 권한을 넓히지 않도록 신규 메시지는 독립 temporary-control namespace와 명시적 현장–Gateway mapping만 사용한다. V3 receipt는 기존 nested ACK와 exact 비교하며 UI/API/Gateway 소비자 구현은 아직이다.
 - Task2 `0d201dbd`: 자기 소유 PG16.14에서 신규 migration·SQL12/12와 직접 기존V2 자격1/1, generate/APItypecheck/diff0을 확인했다. 독립 리뷰는 spec 준수/Approved·C/I0, settled readback/reason 상세 변경 제한의 Minor1을 최종 리뷰로 추적한다. 계정/현장 범위와 원 identity·generation/receipt/tombstone 보존은 DB 제약이며 raw 증거·권한·최신 복귀 판단/retention worker는 후속 API 책임이다. 운영 DB접촉0이다.
+- Task3 `817fe030`: complete-year/정확해시·빈월·부분/중복·실패캐시보존·원자hook·lifecycle의 scoped39/39 및 APItypecheck/diff0, 실제provider/종료후호출/잔여PG0이다. 별도 리뷰 spec준수/Approved·C/I0·테스트Minor2(실패시 cleanup, cross-year 독립fixture)를 최종 리뷰로 추적한다. 수집시각은 semantichash에서 제외하고 snapshot/calendar는 같은tx reader를 소비한다. 실제키/provider 설정과 Gateway·UI 적용은 미연결이다.
 - 로컬 소프트웨어 병합과 운영 migration/Pi 배포/HIL/PKI/재시작/remote 승인은 별개다. 총괄이 최종 검토/커밋한다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료

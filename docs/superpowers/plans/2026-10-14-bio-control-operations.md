@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–2 공유 계약·저장 구조는 구현/리뷰 완료(`111ef160`/`0d201dbd`). Task3 공휴일 완전 데이터 처리를 시작하며 Tasks4–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
+**현재 상태:** Tasks1–3 공유 계약·저장 구조·공휴일 처리는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`). Task4 실제 HTTP/MQTT 연결을 시작하며 Tasks5–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -20,8 +20,9 @@
 | --- | --- |
 | Task1 공유 계약·V3·MQTT/ACL | 완료, 재리뷰 지적0 |
 | Task2 DB 저장·V3 SQL | 완료, 차단 지적0·Minor1 최종 리뷰 추적 |
-| Task3 공식 공휴일 완전 데이터 | 진행 중 |
-| Tasks4–7 API/engine/Gateway | 대기 |
+| Task3 공식 공휴일 완전 데이터 | 완료, 차단 지적0·테스트 Minor2 최종 리뷰 추적 |
+| Task4 HTTP/MQTT/V3 연결 | 진행 중 |
+| Tasks5–7 engine/Gateway | 대기 |
 | Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | 대기 |
 
 ## Global Constraints
@@ -35,6 +36,7 @@
 - 종료는 최신 승인 revision/현재 유효 자동 우선순위로 재평가한다. 정상 mode는 sensor/force-on/force-off이며 sensor readback은 광출력 증거가 아니다.
 - release intent/tombstone을 먼저 영속화하고 RF 직전 신원·배정·generation·건강·신선도를 재검사한다. stale release/ACK가 새 lease를 해제하지 못한다.
 - 최초/매일 공휴일 갱신은 당해+다음해 전체연도 대상이며 실제 지원은 검증된 coverage뿐이다. 모든 월/페이지/totalCount 검증 후 원자 승격; 정상 빈 월도 검증한다.
+- 공휴일 payloadHash는 정렬·unique normalized {country,source,year,coverageFrom,coverageUntil,dates}의 기존 canonical hash이며 fetchedAt/revision을 제외한다. 현재 coverage와 동일한 hash만 unchanged다. changed완전 승격 hook은 같은 mutation transaction을 소비하고 실패 시 dataset/pointer/snapshot을 함께 rollback한다.
 - 한국 휴일 제외는 Asia/Seoul만, 주말 제외는 현장 TZ다. 없는 coverage를 평일로 간주하지 않는다. 실패 시 이전 완전 revision 유지; 알 수 없는 신규 발생은 차단하되 기존 end/release는 계속한다.
 - 두 제외 boolean은 NOT NULL DEFAULT false다. once/Mon1…Sun7/31일/윤일/야간 시작일/Temporal DST/현장 날짜 양끝 포함 계약을 보존한다.
 - 임시 목록 기본20/최대100; 달력 현장 날짜 양끝 포함 최대42일, 전체 일정 projection이다. 목록의 첫25/100건 또는 검색 페이지를 달력 전체로 사용하지 않는다.
@@ -171,8 +173,8 @@ git commit -m "feat(api): persist BIO session leases and V3 qualification"
 ## Task 3: 공식 한국 공휴일 완전 dataset·갱신 cache — backend
 
 **Files:** Create apps/api/src/automation/holiday-provider.ts, holiday-dataset.service.ts, holiday-dataset.service.spec.ts; Modify apps/api/src/automation/automation-runtime.module.ts, docs/menus/control.md. 실제 ServiceKey/env 설정은 하지 않는다.
-**Consumes:** Task1 HolidayDatasetSnapshot, Task2 HolidayDataset/YearCoverage, 기존 AutomationClock/lockMutation. **Produces:** holiday-provider.ts의 HolidayProviderPage={year:number,month:number,page:number,numOfRows:number,totalCount:number,items:Array<{date:string,name:string,isHoliday:boolean}>}; HolidayProvider.fetchMonth(input:{year:number;month:number;page:number},signal:AbortSignal):Promise<HolidayProviderPage>; holiday-dataset.service.ts의 HolidayRefreshResult={status:"promoted"|"unchanged"|"failed",revision:string|null,reason:string|null}; HolidayDatasetService.refreshYear(year:number):Promise<HolidayRefreshResult>, loadCoverage(from:string,to:string):Promise<HolidayDatasetSnapshot[]>.
-- [ ] **Step 1 / RED test:** HTTP mock의 response.header.resultCode/body.items/item·totalCount/numOfRows/pageNo를 pin하고12개월 모든 페이지를 확인한다. 동일 날짜의 서로 다른 합법 휴일명은 합치되 반복 페이지/동일 source row는 오류다.
+**Consumes:** Task1 HolidayDatasetSnapshot, Task2 HolidayDataset/YearCoverage, 기존 AutomationClock/lockMutation. **Produces:** holiday-provider.ts의 HolidayProviderPage={year:number,month:number,page:number,numOfRows:number,totalCount:number,items:Array<{date:string,name:string,isHoliday:boolean}>}; HolidayProvider.fetchMonth(input:{year:number;month:number;page:number},signal:AbortSignal):Promise<HolidayProviderPage>; holiday-dataset.service.ts의 HolidayRefreshResult={status:"promoted"|"unchanged"|"failed",revision:string|null,reason:string|null}; HolidayDatasetService.refreshYear(year:number):Promise<HolidayRefreshResult>, loadCoverage(from:string,to:string,tx?:Prisma.TransactionClient):Promise<HolidayDatasetSnapshot[]>. 동일 파일의 loadHolidayCoverage(tx,from,to)로 snapshot/calendar의 같은 transaction에서 검증된 자료를 읽고 역DI를 피한다. HOLIDAY_DATASET_PROMOTION/ onPromoted(tx,dataset) optional hook은 Task4가 같은 transaction에 연결한다.
+- [x] **Step 1 / RED test:** HTTP mock의 response.header.resultCode/body.items/item·totalCount/numOfRows/pageNo를 pin하고12개월 모든 페이지를 확인한다. 동일 날짜의 서로 다른 합법 휴일명은 합치되 반복 페이지/동일 source row는 오류다.
 ~~~ts
 it("empty_month_complete_and_failed_refresh_keep_revision", async () => {
   expect((await h.refreshCompleteYear({emptyMonth:2})).status).toBe("promoted");
@@ -185,10 +187,10 @@ it("periodic_refresh_and_shutdown", async () => {
   await h.stop(); await h.advanceOneDay(); expect(h.callsAfterStop()).toBe(0);
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/holiday-dataset.service.spec.ts. missing service 또는 incomplete page 승격 assertion FAIL.
-- [ ] **Step 3 / 최소 코드:** 내장 fetch와 공식 특일 API response를 strict parse한다. year/month/date/isHoliday/totalCount/페이지 일관성·누락을 검증하고 normalized dataset canonical hash를 계산해 완전 연도만 transaction 승격한다. 최초/하루1회 당해+다음해를 목표로 하며 keyed injected provider가 없으면 refresh unavailable을 노출하고 verified cache만 사용한다. key·URL query·원응답을 로그/브라우저로 보내지 않는다. 종료 hook으로 timer/abort를 정리한다.
-- [ ] **Step 4 / GREEN:** Step2 동일. 정상 totalCount0·부분/중복·invalid날짜/isHoliday·hash mismatch·provider down·임시휴일 신규revision·shutdown test 전부 PASS; live provider 호출0. periodic_refresh_and_shutdown test는 fake clock에서 최초+하루 뒤 당해/다음해 갱신만 확인하고 stop 이후 호출0을 assert한다. 데이터가 달라진 완전 승격만 Task4의 snapshot revision 갱신 hook을 호출한다.
-- [ ] **Step 5 / 소유 commit:**
+- [x] **Step 2 / RED 실행:** pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/holiday-dataset.service.spec.ts. missing service 또는 incomplete page 승격 assertion FAIL.
+- [x] **Step 3 / 최소 코드:** 내장 fetch와 공식 특일 API response를 strict parse한다. year/month/date/isHoliday/totalCount/페이지 일관성·누락을 검증하고 normalized dataset canonical hash를 계산해 완전 연도만 transaction 승격한다. 최초/하루1회 당해+다음해를 목표로 하며 keyed injected provider가 없으면 refresh unavailable을 노출하고 verified cache만 사용한다. key·URL query·원응답을 로그/브라우저로 보내지 않는다. 종료 hook으로 timer/abort를 정리한다.
+- [x] **Step 4 / GREEN:** Step2 동일. 정상 totalCount0·부분/중복·invalid날짜/isHoliday·hash mismatch·provider down·임시휴일 신규revision·shutdown test 전부 PASS; live provider 호출0. periodic_refresh_and_shutdown test는 fake clock에서 최초+하루 뒤 당해/다음해 갱신만 확인하고 stop 이후 호출0을 assert한다. 데이터가 달라진 완전 승격만 Task4의 snapshot revision 갱신 hook을 호출한다.
+- [x] **Step 5 / 소유 commit:**
 ~~~bash
 git add apps/api/src/automation/holiday-provider.ts apps/api/src/automation/holiday-dataset.service.ts apps/api/src/automation/holiday-dataset.service.spec.ts apps/api/src/automation/automation-runtime.module.ts docs/menus/control.md
 git commit -m "feat(api): validate complete Korean holiday datasets"
@@ -196,7 +198,7 @@ git commit -m "feat(api): validate complete Korean holiday datasets"
 
 ## Task 4: HTTP session·전달 outbox·exact 결과 및 V3 호환 — backend
 
-**Files:** Create apps/api/src/temporary-controls/temporary-controls.controller.ts, temporary-controls.service.ts, temporary-controls.module.ts, temporary-control-publisher.ts, temporary-control-results.ts, temporary-control-retention.ts 및 temporary-controls.service.spec.ts, temporary-control-publisher.spec.ts, temporary-control-results.spec.ts, temporary-control-retention.spec.ts, temporary-controls.integration.spec.ts; Create apps/api/src/automation/bio-pulse-telemetry.spec.ts. Modify apps/api/src/app.module.ts, commands/commands.service.ts, automation/automation-protocol-support.ts, automation/automation-snapshot.service.ts, automation/automation-mqtt-consumer.service.ts, automation/bio-pulse-telemetry.ts, mqtt/mqtt.service.ts, mqtt/topic-scope.ts, docs/menus/control.md. Existing Test automation/{automation-protocol-support.spec.ts,automation-snapshot.service.spec.ts,automation-mqtt-consumer.service.spec.ts}.
+**Files:** Create apps/api/src/temporary-controls/temporary-controls.controller.ts, temporary-controls.service.ts, temporary-controls.module.ts, temporary-control-publisher.ts, temporary-control-results.ts, temporary-control-retention.ts 및 temporary-controls.service.spec.ts, temporary-control-publisher.spec.ts, temporary-control-results.spec.ts, temporary-control-retention.spec.ts, temporary-controls.integration.spec.ts; Create apps/api/src/automation/bio-pulse-telemetry.spec.ts. Modify apps/api/src/app.module.ts, commands/commands.service.ts, automation/automation-protocol-support.ts, automation/automation-snapshot.service.ts, automation/automation-mqtt-consumer.service.ts, automation/automation-runtime.module.ts, automation/bio-pulse-telemetry.ts, mqtt/mqtt.service.ts, mqtt/topic-scope.ts, docs/menus/control.md. Existing Test automation/{automation-protocol-support.spec.ts,automation-snapshot.service.spec.ts,automation-mqtt-consumer.service.spec.ts}.
 **Consumes:** Tasks1–3 DTO/models/capability/dataset. **Produces:** TemporaryControlsService.start(siteId:string,actor:AuthenticatedUser,input:CreateTemporaryControlInput):Promise<TemporaryControlView>, end(siteId:string,id:string,actor:AuthenticatedUser,input:EndTemporaryControlInput):Promise<TemporaryControlView>, get(siteId:string,id:string,actor:AuthenticatedUser):Promise<TemporaryControlView>, list(siteId:string,actor:AuthenticatedUser,query:TemporaryControlListQuery):Promise<TemporaryControlListResponse>; ingestTemporaryControlResult(scope:{siteId:string;gatewayId:string},result:TemporaryControlResult):Promise<TemporaryControlIngestedReceipt>; assertNoTemporaryLease(tx:Prisma.TransactionClient,fixtureIds:string[]):Promise<void>.
 - [ ] **Step 1 / RED test:** start/end202·server.now·site read/control을 실제 transaction으로 검증하고 같은 fingerprint 재송신·다른 payload409·active source/nonBIO/2GW409·관측 불확정 충돌을 확인한다.
 ~~~ts
