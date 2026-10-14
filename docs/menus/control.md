@@ -1,5 +1,32 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-14 공식 한국 공휴일 dataset 갱신 기반
+
+### 구현 완료
+
+- 공식 KASI 특일 서비스의 `getRestDeInfo` JSON 응답 adapter와 전체연도 공휴일 cache 서비스를 추가했다. 응답 성공 코드, 연도·월·날짜·Y/N, 모든 월의 totalCount·페이지·행 수를 검증하고 정상 빈 월도 증거로 저장한다. 같은 날짜의 서로 다른 휴일명은 합치고 반복 페이지·동일 행·부분 자료를 거부한다.
+- 정렬·중복 제거한 날짜/휴일명과 KR/kasi/연도/coverage의 canonical hash가 바뀐 완전 자료만 새 immutable revision을 저장한다. 기존 mutation lock 안에서 coverage pointer와 후속 snapshot 갱신 hook을 같은 transaction으로 처리하며 오류 시 이전 완전 revision을 보존한다. 내용이 같은 일일 수집은 revision을 유지하고, 과거 내용으로 되돌아와도 현재 자료와 다르면 새 revision을 만든다.
+- 최초 및 하루 간격으로 한국 날짜의 당해·다음해를 갱신하며 종료 시 timer·요청을 취소한다. 실제 key가 주입된 provider가 없으면 갱신 불가를 반환하고, 해시·12개월 페이지 증거를 재검증한 cache만 읽는다. coverage 누락/손상은409, 저장소 장애는 민감한 원문 없는503이며 알 수 없는 날짜를 평일로 만들지 않는다.
+
+### 미구현
+
+- Task4의 실제 V3 snapshot revision 갱신 소비, 일정 제외/달력 API·평가기, Gateway 및 Web 연결은 후속 단계다. 이번 단계는 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
+- ServiceKey 설정·실제 provider 연결, 사용자 DB migration, 서버/Pi 반영, ACL reload 및 HIL은 수행하지 않았다. production module은 기본 live provider를 생성하거나 환경 변수를 읽지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공식 활용가이드와 mock JSON 응답을 기준으로 adapter를 검증했다. 실제 서비스 응답/자격 증명 연결은 별도 승인된 설정과 검증이 필요하다. HTTP 요청과 JSON body 처리는10초 deadline을 공유한다.
+- 자기 소유 PostgreSQL16, HTTP mock 및 fake clock으로 직접 관련39개 테스트를 검증했다. 실제 조명 동작·광출력이나 전체 서비스 회귀 완료로 확대하지 않는다. 기존 native/BIO 등록·설정과 보존 정책은 변경하지 않았다.
+
+### 관련 파일
+
+- `apps/api/src/automation/holiday-provider.ts`, `holiday-dataset.service.ts`, `holiday-dataset.service.spec.ts`, `automation-runtime.module.ts`.
+- 저장 구조는 위 서비스가 기존 `HolidayDataset`/`HolidayYearCoverage` 모델을 소비하며 이번 작업에서 schema/migration은 변경하지 않았다.
+
+### 갱신 규칙
+
+- provider 소프트웨어와 실제 연결, cache 검증과 snapshot/화면 소비를 구분한다. `HOLIDAY_DATASET_PROMOTION` hook과 같은 파일의 `loadHolidayCoverage(tx,from,to)`를 소비해 snapshot 서비스의 역방향 DI 순환을 만들지 않는다. 실패한 부분 자료를 coverage로 승격하거나 ServiceKey/URL query/원응답을 로그·브라우저로 보내지 않는다.
+
 ## 2026-10-14 BIO 시간제 제어·달력 DB 기반
 
 ### 구현 완료
@@ -10,12 +37,12 @@
 
 ### 미구현
 
-- 실제 API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider, 달력 평가기, Gateway 실행과 Web UI 연결은 후속 단계다. DB 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
+- 실제 API 접수/권한·결과 판정·전송/상세 정리 worker, 달력 평가기, Gateway 실행과 Web UI 연결은 후속 단계다. 공휴일 provider/cache 소프트웨어는 위 후속 기록에서 구현했으며 DB 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
 - 현재 사용자 DB migration·서버/장비 반영·ACL reload·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
 
-- SQL은 귀속/소유권/세대/최초 판정 보존을 강제한다. 최신 자동 설정과 readback의 실제 일치, canonical hash·완전 provider 페이지 검증, 대상1~1000개와 권한의 transaction admission은 후속 API가 공유 계약에 따라 판정해야 한다.
+- SQL은 귀속/소유권/세대/최초 판정 보존을 강제한다. 공휴일 canonical hash·완전 provider 페이지 검증은 위 후속 서비스가 담당하며 최신 자동 설정과 readback의 실제 일치, 대상1~1000개와 권한의 transaction admission은 후속 API가 공유 계약에 따라 판정해야 한다.
 - 신규 SQL12/12와 직접 관련 기존V2 자격·활성화1/1을 자기 소유 PostgreSQL16에서 검증했다. 모든 변경은 소프트웨어 증거이며 실제 조명 복귀·광출력 증거가 아니다. 보존 ON/OFF 설정과 기존 native/BIO 등록·밝기는 변경하지 않았다.
 
 ### 관련 파일
@@ -37,12 +64,12 @@
 
 ### 미구현
 
-- DB session·lease·outbox·휴일 저장 구조는 위 후속 기록에서 구현했다. API·휴일 provider 갱신·실제 달력 평가기·Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
+- DB session·lease·outbox·휴일 저장 구조 및 공휴일 provider/cache 소프트웨어는 위 후속 기록에서 구현했다. API·실제 달력 평가기·Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
 - 운영 환경의 실제 현장/Gateway 매핑, ACL 반영·reload, 서버/장비 배포·재시작·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
 
-- 공유 parser는 hash 형식과 결과 귀속을 검증한다. payload의 canonical hash 계산·DB immutable snapshot/현재 lease·최신 복귀 revision 검증과 완전12개월 provider proof는 후속 소비자가 담당한다. readback은 조명 설정 증거이며 실제 광출력 증거가 아니다.
+- 공유 parser는 hash 형식과 결과 귀속을 검증한다. 공휴일 canonical hash·완전12개월 provider proof는 위 서비스가 검증하며 다른 payload의 canonical hash 계산·DB immutable snapshot/현재 lease·최신 복귀 revision 검증은 후속 소비자가 담당한다. readback은 조명 설정 증거이며 실제 광출력 증거가 아니다.
 - 개발 준비는 명시적 `DEV_TEMPORARY_CONTROL_SCOPES` JSON 매핑을 검증·전달하는 소프트웨어만 제공한다. 환경 값을 설정하거나 현재 브로커 권한을 변경하지 않았다. 미설정 상태에서 신규 임시 제어 메시지는 거부된다.
 - 지정 공유5파일70/70와 새 disposable mTLS·ACL/매핑/production 계약4/4(fail/skip0), 기존 직접 ACL·준비 경로6/6을 확인했다. CJS/ESM 두 신규 subpath 로딩·shared 타입 검사·shared→engine 준비가 통과했다. 전체 서비스 테스트·운영 장비 검증 완료로 확대하지 않는다.
 
