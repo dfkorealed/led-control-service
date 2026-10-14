@@ -12,10 +12,13 @@
 
 - [x] 현재 로그인 UI의 비활성 규칙/준비 차단을 확인한다. 조명4대 오프라인, 기존 A→B100%/60초/적용됨이다. 서버 ready200/의존성5up, strict SSH 정상이다. Mac 주소는 전날과 다르고 Apple NTP 읽기 offset +0.007670±0.025955초로 현재 시간 동기화 변경은 불필요하다.
 - [x] 현재 exact Gateway·USB owner·저장 주소와 서버 TCP 경계를 최소 읽기로 대조한다. 같은 이미지/running/restart0·USB1/owner1/현재 runtime 귀속·transport/protocol/mapping true다. 저장된 두 별칭·ExtraHosts는 이전 PC 주소이며 그 주소 TCP8883은 실패, 현재 주소 TCP8883은 성공이다. MQTT/heartbeat false로 UI 시험은 아직 불가다. 제품 쓰기·USB open·RF query0이며 이전 승인/원장을 재실행하지 않았다.
-- [ ] 중단이 필요한 경우 새 승인 후 서버 별칭 주소만 교정한다. 동일 이미지·등록·매핑·인증·밝기와 fresh 암호화 백업을 보존하고 브로커/API 재시작·보안 관문 완화는 하지 않는다.
+- [x] 오늘 새 승인 뒤 서버 별칭2개/ExtraHosts 주소만 교정했다. fresh3root 암호화 백업52항목/69,222,078bytes 전체 hash 검증·TERM1/create1/start1/hosts write1이다. 실제 중단은00:13:51→00:14:18UTC 약27초였다. 동일 이미지/launch/등록/매핑/state·이전 컨테이너/백업을 보존하고 fresh health/MQTT/heartbeat/transport/protocol/mapping true·singleUSB owner1/restart0을 확인했다. 브로커/API 재시작·SET·PKI/ACL 변경0이다.
 
-현재 일시 중단/주소 교정의 새 승인 요청을 전달했으며 답변 전에는 중단·재구성하지 않는다. 어제의 중단 승인을 오늘 작업에 재사용하지 않는다. 진단 원장은 `task-3-oct14-ui-readonly-result.json`으로 별도 보존한다.
-- [ ] 정상 UI에서 새 센서 준비 query1회와 현재 sourceEligible·명시적 활성화 버튼을 확인한다. 센서 mode SET이 필요하면 해당 조건을 알리고 승인 범위 안에서만 수행한다.
+현재 사용자가 새 승인 요청에 `승인, 주소 교정과 일시 중단 진행`으로 답했다. 오늘의 최대6~8분 중단·기존 두 서버 별칭의 현재 주소 교정만 승인됐으며 같은 이미지/등록/밝기/인증/센서 설정과 새 암호화 백업을 보존한다. 브로커/API 재시작·규칙 활성화/움직임 시험은 범위 밖이다. 어제의 승인/원장을 재사용하지 않고 `task-3-oct14-ui-*` 원장을 사용한다.
+- [x] 정상 UI에서 새 A 준비 query1회/기존 요청 GET만 수행하고 현재 자격·활성화 차단을 확인했다. report/서버 모두unverified·BIO_PREPARATION_UNVERIFIED·fingerprint 없음·mode/link false·ACK applied다. clock stale로 거부된 것이 아니며 준비 완료로 승격하지 않는다.
+- [x] 사용자는 특정A/B 변경 선택 대신 모든 조명을 UI에서 자유롭게 시험하도록 요청했다. 현재online 전체의 정상 준비 조건을 점검하며 실제online/호환/자격 관문은 유지한다. 오프라인조명은 전원/연결 복구가 필요하고 강제지원/규칙활성화는 하지 않는다.
+- [x] 일반 이벤트 추가→모든조명 목록→준비 상태 보기로 현재online을 확인했다. B1-L006의 dashboard 재조회 후 준비query1개는 approved fingerprint 정확1개일치·needs_setup/BIO_SENSOR_MODE_REQUIRED·ACK applied다. B1-L002는 현재완료등록의 discovery 상태가discovered로 낮아져 binding_changed/후보false다. readonly9개 provision귀속관문은일치한다. B1-L006은provisioned/후보true이며 센서모드준비가 필요하다.
+- [ ] 온라인조명 정상 등록연결 재확인과 센서사용모드 변경의 사용자 승인을 받는다. ID/기본밝기/인증은보존하나 센서모드로 바뀌면 자체점등이가능함을 설명했다. 공통준비패널에 기존 서버 검증/감사 API를 이용한 등록연결확인을 추가하는 bounded 설계를 제시했으며 제품코드는 승인 전 작성하지 않는다.
 - [ ] 비활성 A→B100%/60초 규칙과 유지시간10초 변경 가능한 UI를 인계하고 결과를 메뉴/상태판에 기록한 뒤 작업 브랜치에서 메인으로 통합한다. 규칙 활성화·움직임 START는 실행하지 않는다.
 
 ## 10월13일 제품 이벤트 UI 진단 영역 정리
