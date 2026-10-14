@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 BIO 일정 제외·공통 달력 평가기
+
+### 구현 완료
+
+- 공통 engine의 기존 Temporal 발생 후보 iterator 한곳에서 일정별 주말/한국 공휴일 제외를 적용한다. 발생 목록·현재/다음 발생·겹침 검사·달력 projection이 같은 시작일 판정을 사용하고, 기존 V1 및 두 flag가 false인 일정은 기존 동작을 유지한다.
+- 주말은 현장 시작일의 ISO 토/일이며 한국 휴일은 Asia/Seoul의 검증된 KR/kasi 전체연도 dataset으로 판정한다. 없는/부분/중복 coverage와 다른 TZ의 휴일 제외는 `coverage_unknown`으로 신규 시작을 차단한다. 제외된 once는 이월하지 않으며 31일·윤일·야간·Temporal DST 규칙을 유지한다.
+- 달력 projection은 양끝 포함 최대42일의 모든 일정 시작일을 반환하며 목록 페이지 크기로 자르지 않는다. 야간 종료는 조회 마지막 날이나 미지원 다음 연도를 넘어도 원 시각을 유지하고, 최신 dataset revision을 전달하면 다음 발생과 겹침도 같은 내용으로 다시 평가한다.
+
+### 미구현
+
+- 일정 제외 저장/권한·BIO/V3 admission 검증·완전 달력 HTTP API는 후속 API 단계다. Gateway의 검증된 V3 dataset 소비 및 기존 Web 화면 연결도 후속 단계이며 이 engine 완료만으로 현재 화면에서 사용할 수 있다고 표시하지 않는다.
+- 운영 provider/DB/장비 연결 및 HIL은 수행하지 않았다. engine은 API cache/Gateway accepted V3 경계에서 canonical 내용/hash 검증을 끝낸 dataset을 입력받는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 알 수 없는 시작을 engine이 생략한 결과만으로 완전 달력을 증명할 수 없다. API는 검증된 전체 coverage를 같은 transaction에서 읽고 실패 시 오류로 응답해야 한다. 이미 시작한 장비 동작의 end/release 유지·복구는 후속 Gateway 실행기가 보존해야 한다.
+- 검증 범위는 지정 engine 4개 테스트 파일과 typecheck다. 실제 조명 동작, API·UI 연결 또는 전체 서비스 회귀 완료의 증거로 확대하지 않는다.
+
+### 관련 파일
+
+- `packages/automation-engine/src/{schedule-exclusions,schedule-calendar,recurrence,overlap,index}.ts` 및 해당 테스트 파일.
+
+### 갱신 규칙
+
+- 시작일 제외·coverage·달력 범위·야간/DST 계약 변경 시 next/active/overlap/calendar의 일치 회귀를 함께 갱신한다. API/Gateway/Web 및 운영 연결은 각 단계의 실제 검증 근거로 별도 완료 기록한다.
+
 ## 2026-10-15 BIO 시간제 제어 API·전달·결과 소비
 
 ### 구현 완료
@@ -39,7 +65,7 @@
 
 ### 미구현
 
-- 실제 V3 snapshot revision 갱신 소비는 위 2026-10-15 기록에서 구현했다. 일정 제외/달력 API·평가기, Gateway 및 Web 연결은 후속 단계이며 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
+- 실제 V3 snapshot revision 갱신 소비와 공통 일정 제외·달력 평가기는 위 2026-10-15 기록에서 구현했다. 일정 제외 저장/달력 API, Gateway 및 Web 연결은 후속 단계이며 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
 - ServiceKey 설정·실제 provider 연결, 사용자 DB migration, 서버/Pi 반영, ACL reload 및 HIL은 수행하지 않았다. production module은 기본 live provider를 생성하거나 환경 변수를 읽지 않는다.
 
 ### 부족하거나 개선이 필요한 기능
@@ -66,7 +92,7 @@
 
 ### 미구현
 
-- API 접수/권한·결과 판정·전송/상세 정리 worker 및 공휴일 provider/cache 소프트웨어는 위 후속 기록에서 구현했다. 달력 평가기, Gateway 실행과 Web UI 연결은 후속 단계이며 DB/API 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
+- API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider/cache 소프트웨어와 공통 달력 평가기는 위 후속 기록에서 구현했다. 달력 API, Gateway 실행과 Web UI 연결은 후속 단계이며 DB/API 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
 - 현재 사용자 DB migration·서버/장비 반영·ACL reload·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
@@ -93,7 +119,7 @@
 
 ### 미구현
 
-- DB session·lease·outbox·휴일 저장 구조 및 공휴일 provider/cache 소프트웨어는 위 후속 기록에서 구현했다. API·실제 달력 평가기·Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
+- DB session·lease·outbox·휴일 저장 구조, 시간제 제어 API, 공휴일 provider/cache 소프트웨어와 공통 달력 평가기는 위 후속 기록에서 구현했다. 달력 API·Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
 - 운영 환경의 실제 현장/Gateway 매핑, ACL 반영·reload, 서버/장비 배포·재시작·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능

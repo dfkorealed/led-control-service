@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { LightingScheduleSnapshotV1 } from "@led-control/shared";
+import type { HolidayDatasetSnapshot, LightingScheduleSnapshot } from "@led-control/shared";
+import { evaluateScheduleStartDate } from "./schedule-exclusions";
 
 export interface ScheduleOccurrence {
   key: string;
@@ -35,7 +36,7 @@ function earlierDate(left: Temporal.PlainDate, right: Temporal.PlainDate): Tempo
 }
 
 function occurrenceOnDate(
-  rule: LightingScheduleSnapshotV1,
+  rule: LightingScheduleSnapshot,
   date: Temporal.PlainDate,
   timeZone: string
 ): ScheduleOccurrence | null {
@@ -70,7 +71,7 @@ function isDateInRange(
 }
 
 function* candidateDates(
-  rule: LightingScheduleSnapshotV1,
+  rule: LightingScheduleSnapshot,
   firstDate: Temporal.PlainDate,
   lastDate: Temporal.PlainDate,
   activeFrom: Temporal.PlainDate
@@ -141,10 +142,11 @@ function* candidateDates(
 }
 
 export function* iterateScheduleOccurrences(
-  rule: LightingScheduleSnapshotV1,
+  rule: LightingScheduleSnapshot,
   firstDate: Temporal.PlainDate,
   lastDate: Temporal.PlainDate,
-  timeZone: string
+  timeZone: string,
+  datasets: readonly HolidayDatasetSnapshot[] = []
 ): Generator<ScheduleOccurrence> {
   if (rule.status !== "enabled" || Temporal.PlainDate.compare(firstDate, lastDate) > 0) {
     return;
@@ -156,6 +158,9 @@ export function* iterateScheduleOccurrences(
   const end = earlierDate(lastDate, activeUntil);
 
   for (const date of candidateDates(rule, start, end, activeFrom)) {
+    if (!evaluateScheduleStartDate(rule, date.toString(), timeZone, datasets).allowed) {
+      continue;
+    }
     const occurrence = occurrenceOnDate(rule, date, timeZone);
     if (occurrence !== null) {
       yield occurrence;
@@ -164,9 +169,10 @@ export function* iterateScheduleOccurrences(
 }
 
 export function getOccurrences(
-  rule: LightingScheduleSnapshotV1,
+  rule: LightingScheduleSnapshot,
   range: OccurrenceRange,
-  timeZone: string
+  timeZone: string,
+  datasets?: readonly HolidayDatasetSnapshot[]
 ): ScheduleOccurrence[] {
   if (range.endsAtEpochMs <= range.startsAtEpochMs) {
     return [];
@@ -178,7 +184,7 @@ export function getOccurrences(
   const lastDate = epochDate(range.endsAtEpochMs, timeZone).add({ days: 1 });
 
   const occurrences: ScheduleOccurrence[] = [];
-  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, lastDate, timeZone)) {
+  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, lastDate, timeZone, datasets)) {
     if (
       occurrence.startsAtEpochMs < range.endsAtEpochMs
       && range.startsAtEpochMs < occurrence.endsAtEpochMs
@@ -190,13 +196,14 @@ export function getOccurrences(
 }
 
 export function getActiveOccurrence(
-  rule: LightingScheduleSnapshotV1,
+  rule: LightingScheduleSnapshot,
   epochMs: number,
-  timeZone: string
+  timeZone: string,
+  datasets?: readonly HolidayDatasetSnapshot[]
 ): ScheduleOccurrence | null {
   const localDate = epochDate(epochMs, timeZone);
   const firstDate = localDate.subtract({ days: OCCURRENCE_SPILL_LOOKBACK_DAYS });
-  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, localDate, timeZone)) {
+  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, localDate, timeZone, datasets)) {
     if (occurrence.startsAtEpochMs <= epochMs && epochMs < occurrence.endsAtEpochMs) {
       return occurrence;
     }
@@ -205,9 +212,10 @@ export function getActiveOccurrence(
 }
 
 export function getNextOccurrence(
-  rule: LightingScheduleSnapshotV1,
+  rule: LightingScheduleSnapshot,
   epochMs: number,
-  timeZone: string
+  timeZone: string,
+  datasets?: readonly HolidayDatasetSnapshot[]
 ): ScheduleOccurrence | null {
   if (rule.status !== "enabled") {
     return null;
@@ -216,7 +224,7 @@ export function getNextOccurrence(
   const activeFrom = instantDate(rule.activeFrom, timeZone);
   const activeUntil = instantDate(rule.activeUntil, timeZone);
   const firstDate = laterDate(epochDate(epochMs, timeZone), activeFrom);
-  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, activeUntil, timeZone)) {
+  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, activeUntil, timeZone, datasets)) {
     if (occurrence.startsAtEpochMs > epochMs) {
       return occurrence;
     }

@@ -1,4 +1,4 @@
-import type { LightingScheduleSnapshotV1, ScheduleRecurrenceKind } from "@led-control/shared";
+import type { HolidayDatasetSnapshot, LightingScheduleSnapshotV1, LightingScheduleSnapshotV3, ScheduleRecurrenceKind } from "@led-control/shared";
 import { describe, expect, it } from "vitest";
 import { getActiveOccurrence, getNextOccurrence, getOccurrences } from "./recurrence";
 
@@ -32,6 +32,60 @@ function schedule(
 }
 
 describe("schedule recurrence", () => {
+  const holidayCoverage: HolidayDatasetSnapshot[] = [{
+    country: "KR", source: "kasi", year: 2026, revision: "2026-1",
+    fetchedAt: "2026-10-01T00:00:00Z", coverageFrom: "2026-01-01", coverageUntil: "2026-12-31",
+    payloadHash: `sha256:${"a".repeat(64)}`, dates: []
+  }];
+
+  function excludedSchedule(patch: Parameters<typeof schedule>[0] = {}, flags = {
+    excludeWeekends: true, excludeHolidays: false
+  }): LightingScheduleSnapshotV3 {
+    return { ...schedule(patch), ...flags };
+  }
+
+  it.each([
+    ["once is never postponed", { kind: "once" as const }, "2026-10-03T00:00:00Z", null],
+    ["Sunday is ISO weekday seven", { kind: "weekly" as const, weeklyDays: [7] }, "2026-10-03T00:00:00Z", null],
+    ["monthly 31 skips weekends and missing dates", { kind: "monthly" as const, monthlyDay: 31 }, "2026-05-01T00:00:00Z", "2026-07-31"],
+    ["leap day skips excluded years without rolling", { kind: "yearly" as const, yearlyMonth: 2, yearlyDay: 29 }, "2032-01-01T00:00:00Z", "2036-02-29"]
+  ])("filters candidates: %s", (_label, recurrence, activeFrom, expected) => {
+    const rule = excludedSchedule({ activeFrom, activeUntil: "2036-12-31T00:00:00Z", recurrence });
+    expect(getNextOccurrence(rule, Date.parse(activeFrom), "Asia/Seoul")?.localDate ?? null).toBe(expected);
+  });
+
+  it("late_holiday_revision changes next and active results using the same candidate filter", () => {
+    const rule = excludedSchedule({ activeFrom: "2026-10-01T00:00:00Z", activeUntil: "2026-10-07T00:00:00Z" }, {
+      excludeWeekends: true, excludeHolidays: true
+    });
+    const revised = [{ ...holidayCoverage[0], revision: "2026-2", dates: [{ date: "2026-10-05", names: ["임시공휴일"] }] }];
+    const before = Date.parse("2026-10-02T12:00:00Z");
+    expect(getNextOccurrence(rule, before, "Asia/Seoul", holidayCoverage)?.localDate).toBe("2026-10-05");
+    expect(getNextOccurrence(rule, before, "Asia/Seoul", revised)?.localDate).toBe("2026-10-06");
+    expect(getActiveOccurrence(rule, Date.parse("2026-10-05T01:30:00Z"), "Asia/Seoul", revised)).toBeNull();
+    expect(getOccurrences(rule, { startsAtEpochMs: before, endsAtEpochMs: Date.parse("2026-10-07T15:00:00Z") }, "Asia/Seoul", revised).map(item => item.localDate))
+      .toEqual(["2026-10-06", "2026-10-07"]);
+  });
+
+  it("blocks unknown holiday starts but preserves a covered year's overnight end", () => {
+    const rule = excludedSchedule({ activeFrom: "2026-12-31T00:00:00Z", activeUntil: "2027-01-02T00:00:00Z", localStartTime: "23:00", localEndTime: "02:00" }, {
+      excludeWeekends: false, excludeHolidays: true
+    });
+    expect(getNextOccurrence(rule, Date.parse("2026-12-31T00:00:00Z"), "Asia/Seoul")).toBeNull();
+    expect(getActiveOccurrence(rule, Date.parse("2026-12-31T16:00:00Z"), "Asia/Seoul", holidayCoverage)).toMatchObject({
+      localDate: "2026-12-31", endsAtEpochMs: Date.parse("2026-12-31T17:00:00Z")
+    });
+    expect(getNextOccurrence(rule, Date.parse("2026-12-31T14:00:00Z"), "Asia/Seoul", holidayCoverage)).toBeNull();
+  });
+
+  it("evaluates the original start day for DST spill into an excluded weekend", () => {
+    const rule = excludedSchedule({ activeFrom: "2011-12-29T10:00:00Z", activeUntil: "2011-12-30T09:59:59Z", localStartTime: "23:00", localEndTime: "02:00" });
+    expect(getActiveOccurrence(rule, Date.parse("2011-12-30T11:00:00Z"), "Pacific/Apia")?.localDate).toBe("2011-12-29");
+    expect(getOccurrences(rule, { startsAtEpochMs: Date.parse("2011-12-30T10:30:00Z"), endsAtEpochMs: Date.parse("2011-12-30T11:30:00Z") }, "Pacific/Apia")).toHaveLength(1);
+    const excludedSunday = excludedSchedule({ activeFrom: "2026-03-08T05:00:00Z", activeUntil: "2026-03-09T03:59:59Z", localStartTime: "02:30", localEndTime: "04:00" });
+    expect(getNextOccurrence(excludedSunday, Date.parse("2026-03-08T05:00:00Z"), "America/New_York")).toBeNull();
+  });
+
   it("skips monthly days that do not exist instead of rolling into the next month", () => {
     const rule = schedule({
       localStartTime: "20:00",
