@@ -6,6 +6,10 @@
 
 - 사용자 승인으로 저장 옆 초기화 명령에 요소만/조명도 미배치 두 mode와 서버 즉시 저장·현재층 한정·크기/격자/등록/제어 보존·기록복구를 구현한다. CAD는 일반 도형만 적용하고 조명 후보 슬롯 기능을 제거한다. 실제 조명 심볼 도형은 보존한다.
 - 기존 공통 맵 계획 R1–R4를 최신화했다. `6f89ad1a` 기반 별도 `codex/map-clear-no-slots-20261014`에서 backend 두 독립 범위→Web 계약 소비→QA/전체 gate→로컬 머지를 진행한다. 기존 사용자 AGENTS/landing 변경·현재 DB/맵/장비·실행 서버는 보존하며 운영 초기화/장비/remote 작업0이다.
+- backend 계약을 `dc04e649`·`5e7ee0ea`·`97f25cf7`로 고정했다. R1 임시PG를 포함한57/57과 R2 집중568PASS/36SKIP·직접54/54·fresh임시PG25/25를 확인했다. 임시fixture 오류/초기RED는 별도 원 로그로 보존한다. 독립 backend QA와 Web 연결은 진행 중이며 아직 메인에 반영하지 않았다.
+- 안전 경계: 새 clear는 복구 가능한 공통 맵을 대상으로 한다. 현행 common.restore에서 구형 legacy 기록을 복구할 수 없어 common 문서 없는 상태는409로 거부하고 이력을 영구 삭제하는 bootstrap reset으로 자동 우회하지 않는다. 빈 맵 bootstrap 호환은 유지하며 이 경계와 안내를 Web에 반영한다.
+- backend QA의 `97f25cf7` 판정은 R1추가결함없음/R2 P2한건으로 ReadyNo다. 선택 영역의 후보row가0이어도 다른 영역의 과거nonemptydigest가 남은 pending 작업을 apply가 허용하는 경계를 실서비스 메모리 재현으로 확인했다. 같은 CAD 담당자가 worker와같은digest관문을legacy/native apply에도추가한다. 현재 API 전체 실행은 이 보완 전 중간 cohort이며 최종 검증과 구분한다.
+- R1은 소유커밋dc04e649·임시PG57/57·APItype/build0·독립리뷰 추가P1/P2없음으로 체크를 완료했다. 보완 전API 전체는265suites/3,297PASS/1,247환경SKIP/FAIL0(exit0,181.824s)이며 원 로그를 보존한다. R2 digest 수리·Web 선택 팝업/CAD 후보UI 제거·최종 전체gate/QA/머지는 진행 중이다.
 
 ## 2026-10-13 CAD 미리보기·적용 일치 — 구현·검증·로컬 메인 반영 완료
 
