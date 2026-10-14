@@ -45,6 +45,7 @@ import { pruneLockedFloorMapRevisions } from "../floor-editor/floor-map-revision
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 import { cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { readExactRegionBounds } from "./floor-import-region-bounds";
+import { candidateRegionDigestsEqual, computeCandidateRegionDigests } from "./cad-candidate-region-digest";
 
 const createInputSchema = z.object({
   sourceAssetId: z.string().uuid(),
@@ -566,6 +567,7 @@ export class FloorImportService {
         if (candidates.length > 0) {
           throw new ConflictException("legacy CAD candidates cannot be applied; cancel this import and re-import");
         }
+        await this.assertGeometryOnlyRegionDigests(tx, jobId);
 
         const applying = await tx.floorImportJob.updateMany({
           where: { id: jobId, floorId, status: "review_required" },
@@ -856,6 +858,23 @@ export class FloorImportService {
     catch { throw new BadRequestException(message); }
   }
 
+  private async assertGeometryOnlyRegionDigests(tx: Prisma.TransactionClient, jobId: string) {
+    // The caller holds the Floor/job locks. Selected-region candidate rows can
+    // be empty while another region retains a legacy candidate contract, so
+    // validate every persisted region without rewriting its historical digest.
+    const regions = await tx.floorImportRegion.findMany({
+      where: { jobId }, take: CAD_IMPORT_MAX_REGIONS + 1,
+      orderBy: [{ regionId: "asc" }, { id: "asc" }],
+      select: { regionId: true, candidateIdentityDigest: true }
+    });
+    if (regions.length > CAD_IMPORT_MAX_REGIONS || !candidateRegionDigestsEqual(
+      Object.fromEntries(regions.map(region => [region.regionId, region.candidateIdentityDigest ?? ""])),
+      computeCandidateRegionDigests(regions.map(region => region.regionId), [], [])
+    )) {
+      throw new ConflictException("legacy CAD region candidate contract cannot be applied; cancel this import and re-import");
+    }
+  }
+
   private async applyPreparedMap(user: AuthenticatedUser, siteId: string, floorId: string, jobId: string, input: FloorImportApplyInput) {
     const ref = await this.mapPreparation!.readPrepared(floorId, jobId);
     if (ref.revision !== input.expectedRevision + 1) throw new ConflictException("prepared map revision conflict");
@@ -890,6 +909,7 @@ export class FloorImportService {
       if (candidates.length > 0) {
         throw new ConflictException("legacy CAD candidates cannot be applied; cancel this import and re-import");
       }
+      await this.assertGeometryOnlyRegionDigests(tx, jobId);
       await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "applying", stage: "applying" } });
       const deletedObjects = await tx.floorMapObject.deleteMany({ where: { floorId } });
       const unplacedFixtures = await tx.fixture.updateMany({ where: { floorId }, data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 } });

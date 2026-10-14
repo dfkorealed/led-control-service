@@ -9,6 +9,7 @@ const user = {
   loginId: "floor-admin", name: "Floor Admin", role: "admin" as const,
   status: "active" as const, mustChangePassword: false
 };
+const EMPTY_REGION_DIGEST = "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
 
 function job(overrides: Record<string, unknown> = {}) {
   return {
@@ -517,7 +518,7 @@ describe("FloorImportService", () => {
     }));
   });
 
-  it.each(["geometry", "historical candidates"])("applies geometry without candidate writes or fails closed: %s", async mode => {
+  it.each(["geometry", "historical candidates", "unselected legacy digest", "missing digest"])("applies geometry without candidate writes or fails closed: %s", async mode => {
     const floorId = randomUUID(); const jobId = randomUUID(); const sourceAssetId = randomUUID();
     const renderedAssetId = randomUUID(); const acceptedId = randomUUID(); const rejectedId = randomUUID();
     const floor = {
@@ -544,12 +545,17 @@ describe("FloorImportService", () => {
           renderedSha256: "b".repeat(64)
         }]),
       floorImportCandidate: {
-        findMany: jest.fn().mockResolvedValue(mode === "geometry" ? [] : [
+        findMany: jest.fn().mockResolvedValue(mode !== "historical candidates" ? [] : [
           { id: acceptedId, x: 12, y: 34, rotation: 15 },
           { id: rejectedId, x: 56, y: 78, rotation: 0 }
         ]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
+      floorImportRegion: { findMany: jest.fn().mockResolvedValue([
+        { regionId: "selected", candidateIdentityDigest: EMPTY_REGION_DIGEST },
+        { regionId: "unselected", candidateIdentityDigest: mode === "unselected legacy digest" ? "a".repeat(64)
+          : mode === "missing digest" ? null : EMPTY_REGION_DIGEST }
+      ]) },
       floorImportJob: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       floorPlan: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
       floorCadScene: {
@@ -593,11 +599,17 @@ describe("FloorImportService", () => {
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
       confirmMapReset: true, candidateIds: []
     });
-    if (mode === "historical candidates") {
+    if (mode !== "geometry") {
+      await expect(applying).rejects.toBeInstanceOf(ConflictException);
       await expect(applying).rejects.toThrow(/cancel.*re-import/i);
       expect(tx.floorImportCandidate.updateMany).not.toHaveBeenCalled();
       expect(tx.floorLightSlot.deleteMany).not.toHaveBeenCalled();
       expect(tx.floorImportJob.updateMany).not.toHaveBeenCalled();
+      expect(tx.floorMapObject.deleteMany).not.toHaveBeenCalled();
+      expect(tx.fixture.updateMany).not.toHaveBeenCalled();
+      expect(tx.floorPlan.upsert).not.toHaveBeenCalled();
+      expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
       return;
     }
     const result = await applying;
@@ -635,6 +647,68 @@ describe("FloorImportService", () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
       action: "floor_import.applied", targetId: jobId, transaction: tx
     }));
+  });
+
+  it.each(["geometry", "unselected legacy digest", "missing digest"])("validates every persisted digest after prepared apply locks: %s", async mode => {
+    const floorId = randomUUID(), jobId = randomUUID(), generationId = randomUUID();
+    const now = new Date("2026-09-17T00:00:00.000Z");
+    const ref = { formatVersion: 1, generationId, revision: 1, width: 640, height: 512, gridSize: 10, elementCount: 1,
+      manifest: { assetId: randomUUID(), sha256: "a".repeat(64), byteSize: 100, decodedByteSize: 500 } };
+    const events: string[] = [];
+    const floor = { id: floorId, siteId: "site-1", status: "active", mapRevision: 0, editorLeaseHolderId: user.id,
+      editorLeaseFence: 8, editorLeaseTokenHash: hashEditorLeaseToken("lease-token"),
+      editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"), floorPlan: null, fixtures: [], mapObjects: [], lightSlots: [] };
+    const tx: any = {
+      $queryRaw: jest.fn(async (query: any) => {
+        const sql = (query.strings ?? query).join(" ");
+        if (sql.includes('FROM "FloorImportJob"')) events.push("job locked");
+        return sql.includes(" AS now") ? [{ now }] : [];
+      }),
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      floor: { findUniqueOrThrow: jest.fn().mockResolvedValue(floor), update: jest.fn() },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue({ id: jobId, status: "review_required", renderedAssetId: randomUUID(),
+        preparedMapGenerationId: generationId, excludedRegionPrimitiveCount: 0, preparedMapGeneration: {
+          status: "prepared", baseRevision: 1, sourceGenerationId: null, sourceRevision: null
+        } }), update: jest.fn() },
+      floorImportRegion: { findMany: jest.fn(async () => {
+        events.push("region digest read");
+        return [{ regionId: "selected", candidateIdentityDigest: EMPTY_REGION_DIGEST },
+          { regionId: "unselected", candidateIdentityDigest: mode === "unselected legacy digest" ? "a".repeat(64)
+            : mode === "missing digest" ? null : EMPTY_REGION_DIGEST }];
+      }) },
+      floorImportCandidate: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
+      floorMapDocument: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      floorMapGeneration: { update: jest.fn() },
+      floorMapRevision: { create: jest.fn().mockResolvedValue({ id: randomUUID() }) },
+      floorMapObject: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      floorLightSlot: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      floorCadScene: { deleteMany: jest.fn() },
+      fixture: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      floorPlan: { upsert: jest.fn() }
+    };
+    const prisma: any = { floor: { findUnique: jest.fn().mockResolvedValue(floor) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue({ preparedMapGenerationId: generationId }) },
+      $transaction: jest.fn((run: (client: any) => unknown) => run(tx)) };
+    const access: any = { assert: jest.fn(), assertManageInTransaction: jest.fn().mockResolvedValue({ organizationId: user.organizationId }) };
+    const audit: any = { record: jest.fn() };
+    const preparation: any = { readPrepared: jest.fn().mockResolvedValue(ref), readDisplayManifest: jest.fn() };
+    const store: any = { readManifest: jest.fn(), pinRevision: jest.fn() };
+    const service = new FloorImportService(prisma, access, audit, undefined, undefined, undefined, preparation, store);
+    const applying = service.apply(user, floorId, jobId, { expectedRevision: 0, leaseToken: "lease-token", leaseFence: 8,
+      candidateIds: [], confirmMapReset: true });
+    if (mode !== "geometry") {
+      await expect(applying).rejects.toBeInstanceOf(ConflictException);
+      await expect(applying).rejects.toThrow(/cancel.*re-import/i);
+      for (const mutation of [tx.floorImportJob.update, tx.floorMapObject.deleteMany, tx.floorLightSlot.deleteMany,
+        tx.fixture.updateMany, tx.floorPlan.upsert, tx.floorCadScene.deleteMany, tx.floorMapRevision.create,
+        tx.floorMapDocument.create, tx.floorMapGeneration.update, tx.floor.update, tx.$executeRaw, audit.record, store.pinRevision]) {
+        expect(mutation).not.toHaveBeenCalled();
+      }
+    } else {
+      await expect(applying).resolves.toMatchObject({ status: "completed", mapDocument: ref, createdSlotCount: 0, acceptedCandidateIds: [] });
+    }
+    expect(events).toEqual(["job locked", "region digest read"]);
+    expect(tx.floorImportCandidate.updateMany).not.toHaveBeenCalled();
   });
 
   it.each([

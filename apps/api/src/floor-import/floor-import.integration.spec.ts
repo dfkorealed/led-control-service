@@ -212,6 +212,32 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     return new FloorImportService(prisma as never, access as never, new AuditService(prisma as never), storage as never);
   }
 
+  async function assertRegionDigestConflictIsReadOnly(imports: FloorImportService, jobId: string, regionId: string,
+    input: Parameters<FloorImportService["apply"]>[3]) {
+    await prisma.floorImportRegion.updateMany({ where: { jobId, regionId }, data: { candidateIdentityDigest: "a".repeat(64) } });
+    expect(await prisma.floorImportCandidate.count({ where: { jobId } })).toBe(0);
+    const state = () => prisma.$transaction(async tx => ({
+      floor: await tx.floor.findUniqueOrThrow({ where: { id: floorId }, include: {
+        floorPlan: true, cadScene: { include: { tiles: true } }, fixtures: { orderBy: { id: "asc" } },
+        lightSlots: { orderBy: { id: "asc" } }, mapObjects: { orderBy: { id: "asc" } },
+        mapRevisions: { orderBy: { revision: "asc" } }, mapDocument: true
+      } }),
+      jobs: await tx.floorImportJob.findMany({ where: { floorId }, orderBy: { id: "asc" }, include: {
+        candidates: { orderBy: { id: "asc" } }, regions: { orderBy: { id: "asc" } }
+      } }),
+      generations: await tx.floorMapGeneration.findMany({ where: { floorId }, orderBy: { id: "asc" } }),
+      audits: await tx.auditLog.findMany({ where: { siteId }, orderBy: { id: "asc" } })
+    }));
+    const before = await state();
+    const applying = imports.apply(user, floorId, jobId, input);
+    await expect(applying).rejects.toBeInstanceOf(ConflictException);
+    await expect(applying).rejects.toThrow(/cancel.*re-import/i);
+    expect(await state()).toEqual(before);
+    // Only this disposable test fixture is reset to a new-policy ledger before
+    // the existing positive apply assertions; production never rewrites digests.
+    await prisma.floorImportRegion.updateMany({ where: { jobId, regionId }, data: { candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST } });
+  }
+
   function worker() {
     return new FloorImportWorkerService(
       prisma as never, {} as never, {} as never, {} as never, {} as never,
@@ -344,6 +370,9 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
         editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
         editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
       } });
+      await assertRegionDigestConflictIsReadOnly(imports, job.id, regions[0].regionId, {
+        expectedRevision: 0, leaseToken, leaseFence: 1, candidateIds: [], confirmMapReset: true
+      });
       await expect(imports.apply(user, floorId, job.id, {
         expectedRevision: 0, leaseToken, leaseFence: 1, candidateIds: [], confirmMapReset: true
       })).resolves.toMatchObject({ status: "completed", revision: 1, createdSlotCount: 0 });
@@ -761,7 +790,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
     const persistedRegion = await prisma.floorImportRegion.create({ data: {
       jobId: job.id, regionId: region.regionId, minX: region.bounds.minX, minY: region.bounds.minY,
       maxX: region.bounds.maxX, maxY: region.bounds.maxY, primitiveCount: region.primitiveCount,
-      previewAssetId: preview.id, selectedAt: new Date()
+      previewAssetId: preview.id, selectedAt: new Date(), candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST
     } });
     const identity = cadScenePersistenceIdentity(job.id, region.regionId);
     const built = buildCadScene({
@@ -821,6 +850,13 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
       editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
     } });
+    const unselectedRegion = await prisma.floorImportRegion.create({ data: {
+      jobId: job.id, regionId: "region-444444444444444444444444", minX: 2000, minY: 2000, maxX: 3000, maxY: 3000,
+      primitiveCount: 1, candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST
+    } });
+    await assertRegionDigestConflictIsReadOnly(imports, job.id, unselectedRegion.regionId, {
+      expectedRevision: 0, leaseToken: "native-lease", leaseFence: 4, candidateIds: [], confirmMapReset: true
+    });
     await expect(imports.apply(user, floorId, job.id, {
       expectedRevision: 0, leaseToken: "native-lease", leaseFence: 4,
       candidateIds: [], confirmMapReset: true
@@ -903,7 +939,7 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       };
       await prisma.floorImportRegion.create({ data: {
         jobId: job.id, regionId: region.regionId, ...bounds,
-        primitiveCount: 1, selectedAt: new Date()
+        primitiveCount: 1, selectedAt: new Date(), candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST
       } });
       const identity = cadScenePersistenceIdentity(job.id, region.regionId);
       const built = buildCadScene({ version: 1, bounds, blocks: [], entities: [{
@@ -1949,6 +1985,13 @@ class FloorImportWorkerService extends ProductionFloorImportWorkerService {
       editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
     } });
 
+    const unselectedRegion = await prisma.floorImportRegion.create({ data: {
+      jobId: job.id, regionId: "region-555555555555555555555555", minX: 0, minY: 0, maxX: 100, maxY: 100,
+      primitiveCount: 1, candidateIdentityDigest: EMPTY_CANDIDATE_IDENTITY_DIGEST
+    } });
+    await assertRegionDigestConflictIsReadOnly(service(), job.id, unselectedRegion.regionId, {
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: [], confirmMapReset: true
+    });
     const applied = await service().apply(user, floorId, job.id, {
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
       candidateIds: [], confirmMapReset: true
