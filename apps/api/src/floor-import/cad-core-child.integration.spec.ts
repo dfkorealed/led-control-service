@@ -1,4 +1,4 @@
-import { cadSceneManifestSchema } from "@led-control/shared";
+import { mapDisplayManifestSchema } from "@led-control/shared";
 import { fork, type ForkOptions } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -8,7 +8,10 @@ import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
 import { computeCandidateRegionDigests } from "./cad-candidate-region-digest";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { readCanonicalElements, readCanonicalMetadata } from "./cad-canonical-spool";
-import { decodeCadSceneTile } from "./cad-scene-codec";
+import { decodeMapDisplayTile } from "./cad-scene-codec";
+import { readCadDisplayTileIndex, withCadDisplayTileFile } from "./cad-display-tile-spool";
+import { gunzipSync } from "node:zlib";
+import { parseAsciiDxfFile } from "./dxf-document-parser";
 
 const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
 
@@ -16,7 +19,7 @@ describe("CAD core child source encoding boundary", () => {
   it.each([
     ["CP949", Buffer.concat([Buffer.from("LIGHT_"), Buffer.from([0xb0, 0xa1, 0x81, 0x41])])],
     ["UTF-8", Buffer.from("LIGHT_\uac00\uac02")]
-  ])("preserves %s names and candidates through the production child entry", async (_encoding, nameBytes) => {
+  ])("preserves %s symbol geometry and names without lighting candidates through the production child entry", async (_encoding, nameBytes) => {
     const directory = await mkdtemp(join(tmpdir(), "cad-core-source-encoding-"));
     try {
       const groups = [
@@ -34,23 +37,18 @@ describe("CAD core child source encoding boundary", () => {
       ])));
       // Exercise the real IPC executor and child source without generating or
       // relying on dist. Preserve its production heap, env and wall limits.
-      const executor = new ChildProcessCadCoreExecutor({
-        entryPath: resolve(process.cwd(), "src/floor-import/cad-core-child.ts"),
-        forkProcess: (modulePath: string | URL, argsOrOptions?: readonly string[] | ForkOptions, options?: ForkOptions) => {
-          const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
-          const config = Array.isArray(argsOrOptions) ? options : argsOrOptions as ForkOptions | undefined;
-          return fork(modulePath, args, {
-            ...config, execArgv: [...(config?.execArgv ?? []), "--import", require.resolve("tsx")]
-          });
-        }
-      });
+      const executor = sourceExecutor();
       const result = await executor.execute({ dxfPath, renderedPath: join(directory, "whole.svg"), profileId: "generic-lighting-v1" });
       expect(result.modelEntityCount).toBe(2);
       expect(result.blockCount).toBe(1);
-      expect(result.candidates).toEqual([
-        expect.objectContaining({ sourceEntityId: "I1", layerName: "LIGHT_\uac00\uac02", blockName: "LIGHT_\uac00\uac02" }),
-        expect.objectContaining({ sourceEntityId: "I2", layerName: "LIGHT_\uac00\uac02", blockName: "LIGHT_\uac00\uac02" })
-      ]);
+      expect(result.candidates).toEqual([]);
+      expect(result.candidateRegionAssignments).toEqual([]);
+      expect(result.regions.every(region => region.lightCandidateCount === 0)).toBe(true);
+      const svg = gunzipSync(await readFile(join(directory, "whole.svg"))).toString("utf8");
+      expect((await parseAsciiDxfFile(dxfPath)).blocks[0].name).toBe("LIGHT_\uac00\uac02");
+      expect(svg.match(/<circle\b/g)).toHaveLength(1);
+      expect(svg.match(/<use\b/g)).toHaveLength(2);
+      expect(svg).toContain('matrix(1 0 0 1 10 0)');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -60,7 +58,7 @@ describe("CAD core child source encoding boundary", () => {
 (enabled ? describe : describe.skip)("CAD core child native artifacts", () => {
   jest.setTimeout(60_000);
 
-  it("places offset mirrored block lights at their geometry without losing selected candidates", async () => {
+  it("preserves offset mirrored lighting symbols as canonical geometry without selected candidates", async () => {
     const root = await mkdtemp(join(tmpdir(), "cad-core-offset-region-"));
     const selectedDirectory = await mkdtemp(join(tmpdir(), "cad-core-offset-selected-"));
     const dxfPath = join(root, "offset.dxf");
@@ -74,14 +72,12 @@ describe("CAD core child source encoding boundary", () => {
       0, "ENDSEC", 0, "EOF"
     ];
     await writeFile(dxfPath, groups.join("\n") + "\n");
-    const executor = new ChildProcessCadCoreExecutor({ entryPath: process.env.CAD_CORE_CHILD_ENTRY ?? resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
+    const executor = sourceExecutor();
     try {
       const detected = await executor.execute({ dxfPath, renderedPath: join(root, "whole.svg"), profileId: "generic-lighting-v1" });
       expect(detected.regions).toHaveLength(2);
-      expect(detected.candidates.map(candidate => candidate.sourcePosition)).toEqual([
-        { x: -900, y: 1000 }, { x: -895, y: 1000 }
-      ]);
-      const region = detected.regions.find(item => item.lightCandidateCount === 2)!;
+      expect(detected.candidates).toEqual([]);
+      const region = detected.regions.find(item => item.primitiveCount === 2)!;
       const selected = await executor.execute({
         dxfPath, renderedPath: join(selectedDirectory, "whole.svg"), profileId: "generic-lighting-v1",
         artifactDirectory: selectedDirectory, jobId: randomUUID(), selectedRegionId: region.regionId,
@@ -90,14 +86,18 @@ describe("CAD core child source encoding boundary", () => {
           detected.candidates.map(candidate => candidate.sourceEntityId)
         )
       });
-      expect(selected.selectedCandidates?.map(candidate => candidate.sourceEntityId)).toEqual(["I1", "I2"]);
+      expect(selected.selectedCandidates).toEqual([]);
       expect(selected.scene?.sourceBounds).toEqual(region.bounds);
       expect(selected.candidates).toEqual(detected.candidates);
-      for (const [index, candidate] of selected.selectedCandidates!.entries()) {
-        const source = detected.candidates[index].sourcePosition!;
+      const symbols = [];
+      for await (const element of readCanonicalElements(selectedDirectory, selected.canonical!)) symbols.push(element);
+      expect(symbols).toHaveLength(2);
+      for (const [index, symbol] of symbols.entries()) {
+        const source = [{ x: -900, y: 1000 }, { x: -895, y: 1000 }][index];
         const transform = selected.scene!.transform;
-        expect(candidate.x).toBeCloseTo(source.x * transform.scaleX + transform.translateX, 9);
-        expect(candidate.y).toBeCloseTo(source.y * transform.scaleY + transform.translateY, 9);
+        expect(symbol.type).toBe("ellipse");
+        expect(symbol.transform.x).toBeCloseTo(source.x * transform.scaleX + transform.translateX, 9);
+        expect(symbol.transform.y).toBeCloseTo(source.y * transform.scaleY + transform.translateY, 9);
       }
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -105,7 +105,7 @@ describe("CAD core child source encoding boundary", () => {
     }
   });
 
-  it("keeps whole-document candidate coordinates valid when selecting a narrow region", async () => {
+  it("keeps whole-document rendering and narrow lighting-symbol region coordinates without candidates", async () => {
     const root = await mkdtemp(join(tmpdir(), "cad-core-narrow-region-"));
     const selectedDirectory = await mkdtemp(join(tmpdir(), "cad-core-narrow-selected-"));
     const dxfPath = join(root, "narrow.dxf");
@@ -119,11 +119,11 @@ describe("CAD core child source encoding boundary", () => {
       0, "ENDSEC", 0, "EOF"
     ];
     await writeFile(dxfPath, groups.join("\n") + "\n");
-    const executor = new ChildProcessCadCoreExecutor({ entryPath: process.env.CAD_CORE_CHILD_ENTRY ?? resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
+    const executor = sourceExecutor();
     try {
       const detected = await executor.execute({ dxfPath, renderedPath: join(root, "whole.svg"), profileId: "generic-lighting-v1" });
-      expect(detected.candidates).toHaveLength(2);
-      const region = detected.regions.find(item => item.lightCandidateCount === 2)!;
+      expect(detected.candidates).toEqual([]);
+      const region = detected.regions.find(item => item.primitiveCount === 2)!;
       expect(region).toBeDefined();
       const selected = await executor.execute({
         dxfPath, renderedPath: join(selectedDirectory, "whole.svg"), profileId: "generic-lighting-v1",
@@ -135,8 +135,11 @@ describe("CAD core child source encoding boundary", () => {
       });
       expect(selected.rendered.viewport).toEqual(detected.rendered.viewport);
       expect(selected.candidates).toEqual(detected.candidates);
-      expect(selected.selectedCandidates).toHaveLength(2);
+      expect(selected.selectedCandidates).toEqual([]);
       expect(selected.scene?.sourceBounds).toEqual(region.bounds);
+      const symbols = [];
+      for await (const element of readCanonicalElements(selectedDirectory, selected.canonical!)) symbols.push(element);
+      expect(symbols).toHaveLength(2);
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(selectedDirectory, { recursive: true, force: true });
@@ -147,9 +150,7 @@ describe("CAD core child source encoding boundary", () => {
     const firstDirectory = await mkdtemp(join(tmpdir(), "cad-core-regions-"));
     const selectedDirectory = await mkdtemp(join(tmpdir(), "cad-core-scene-"));
     const dxfPath = resolve(process.cwd(), "../../scripts/fixtures/cad-import/valid-mixed-layout.dxf");
-    const executor = new ChildProcessCadCoreExecutor({
-      entryPath: process.env.CAD_CORE_CHILD_ENTRY ?? resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js")
-    });
+    const executor = sourceExecutor();
     const jobId = randomUUID();
 
     try {
@@ -201,7 +202,7 @@ describe("CAD core child source encoding boundary", () => {
       const manifestPayload = await readFile(join(selectedDirectory, selected.scene!.manifestFilename));
       expect(manifestPayload.byteLength).toBe(selected.scene!.manifestByteSize);
       expect(sha256(manifestPayload)).toBe(selected.scene!.manifestSha256);
-      const manifest = cadSceneManifestSchema.parse({
+      const manifest = mapDisplayManifestSchema.parse({
         ...JSON.parse(manifestPayload.toString("utf8")),
         byteSize: selected.scene!.manifestByteSize,
         sha256: selected.scene!.manifestSha256
@@ -224,36 +225,19 @@ describe("CAD core child source encoding boundary", () => {
       const metadata = await readCanonicalMetadata(selectedDirectory, selected.canonical!);
       expect(metadata.elementCount).toBe(stored.size);
       expect(metadata.displayLayerBindings.length).toBe(metadata.layers.length);
-      const detectedCandidates = new Map(selected.candidates.map(candidate => [candidate.sourceEntityId, candidate]));
-      expect(selected.candidateRegionAssignments).toHaveLength(selected.candidates.length);
-      const selectedAssignmentIds = new Set((selected.candidateRegionAssignments ?? [])
-        .filter(assignment => assignment.regionId === selectedRegion.regionId)
-        .map(assignment => assignment.sourceEntityId));
-      expect(selectedAssignmentIds.size).toBe(selectedRegion.lightCandidateCount);
-      for (const candidate of selected.selectedCandidates ?? []) {
-        const detectedCandidate = detectedCandidates.get(candidate.sourceEntityId);
-        expect(detectedCandidate).toBeDefined();
-        expect(selectedAssignmentIds.has(candidate.sourceEntityId)).toBe(true);
-        const source = detectedCandidate!.sourcePosition!;
-        expect(source.x).toBeGreaterThanOrEqual(selectedRegion.bounds.minX);
-        expect(source.x).toBeLessThanOrEqual(selectedRegion.bounds.maxX);
-        expect(source.y).toBeGreaterThanOrEqual(selectedRegion.bounds.minY);
-        expect(source.y).toBeLessThanOrEqual(selectedRegion.bounds.maxY);
-        expect(candidate.x).toBeCloseTo(source.x * manifest.transform.scaleX + manifest.transform.translateX, 9);
-        expect(candidate.y).toBeCloseTo(source.y * manifest.transform.scaleY + manifest.transform.translateY, 9);
-        expect(candidate.rotation).toBe(detectedCandidate!.rotation);
-        expect(candidate.x).toBeGreaterThanOrEqual(0);
-        expect(candidate.x).toBeLessThanOrEqual(manifest.width);
-        expect(candidate.y).toBeGreaterThanOrEqual(0);
-        expect(candidate.y).toBeLessThanOrEqual(manifest.height);
-      }
+      expect(selected.candidates).toEqual([]);
+      expect(selected.selectedCandidates).toEqual([]);
+      expect(selected.candidateRegionAssignments).toEqual([]);
+      expect(stored.size).toBeGreaterThan(0);
       expect(manifest.tiles.length).toBeGreaterThan(0);
+      const index = await readCadDisplayTileIndex(selectedDirectory, selected.canonical!.displayTiles!, manifest);
       for (const tile of manifest.tiles) {
-        const payload = await readFile(join(selectedDirectory, `${tile.assetId}.bin`));
-        expect(tile.assetId).toBe(identity.tileAssetId(tile));
-        expect(payload.byteLength).toBe(tile.byteSize);
-        expect(sha256(payload)).toBe(tile.sha256);
-        for (const pick of decodeCadSceneTile(payload, tile)) expect(stored.has(pick.elementId)).toBe(true);
+        await withCadDisplayTileFile(selectedDirectory, tile, index, async (_path, payload) => {
+          expect(tile.assetId).toBe(identity.tileAssetId(tile));
+          expect(payload.byteLength).toBe(tile.byteSize);
+          expect(sha256(payload)).toBe(tile.sha256);
+          for (const pick of decodeMapDisplayTile(payload, tile)) expect(stored.has(pick.elementId)).toBe(true);
+        });
       }
     } finally {
       await rm(firstDirectory, { recursive: true, force: true });
@@ -264,4 +248,17 @@ describe("CAD core child source encoding boundary", () => {
 
 function sha256(value: Uint8Array) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function sourceExecutor() {
+  return new ChildProcessCadCoreExecutor({
+    entryPath: resolve(process.cwd(), "src/floor-import/cad-core-child.ts"),
+    forkProcess: (modulePath: string | URL, argsOrOptions?: readonly string[] | ForkOptions, options?: ForkOptions) => {
+      const args = Array.isArray(argsOrOptions) ? argsOrOptions : [];
+      const config = Array.isArray(argsOrOptions) ? options : argsOrOptions as ForkOptions | undefined;
+      return fork(modulePath, args, {
+        ...config, execArgv: [...(config?.execArgv ?? []), "--import", require.resolve("tsx")]
+      });
+    }
+  });
 }

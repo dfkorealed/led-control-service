@@ -2,8 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { CAD_RENDERED_SVG_MAX_BYTES, renderCadDocumentSvgFile } from "./cad-svg-renderer";
 import { parseAsciiDxfFile } from "./dxf-document-parser";
-import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
-import { createCadViewport, measureCadCandidateSvgTransformMatch, projectCadPointToViewport } from "./cad-viewport";
+import { measureCadCandidateSvgTransformMatch } from "./cad-viewport";
 import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "./lighting-detector-registry";
 import { encodeCadCoreResponse, type CadCoreRequest, type CadCoreResult } from "./cad-core-executor";
 import { detectCadRegions } from "./cad-region-detector";
@@ -14,7 +13,6 @@ import { CAD_MAP_MAX_METADATA_BYTES } from "./map-element-converter";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { renderCadRegionPreviewFiles } from "./cad-region-preview-renderer";
 
-const MAX_CANDIDATES = 2_000;
 let accepted = false;
 
 process.on("message", (request: Omit<CadCoreRequest, "abortSignal">) => {
@@ -40,25 +38,13 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     throw new Error("CAD detector profile metadata mismatch");
   }
   const document = await parseAsciiDxfFile(request.dxfPath);
-  const ruleCandidates = await rules.detect(document);
-  const aiCandidates = await new DisabledAiLightingSymbolDetector().detect(document);
-  const detectedCandidates = [...ruleCandidates, ...aiCandidates];
-  if (detectedCandidates.length > MAX_CANDIDATES) throw new Error("CAD lighting candidate limit exceeded");
-  if (new Set(detectedCandidates.map(candidate => candidate.sourceEntityId.normalize("NFKC").toUpperCase())).size !== detectedCandidates.length) {
-    throw new Error("CAD lighting candidate identity collision");
-  }
+  // Product imports are geometry-only. Keep lighting INSERTs in the unchanged
+  // document for expansion/rendering, but never invoke rule or AI detectors.
+  // Profile metadata and empty candidate digests remain wire-compatible fences.
   const regionDetection = detectCadRegions(document, {
     maxExpandedEntities: 1_000_000,
-    maxBlockDepth: 32,
-    lightCandidates: detectedCandidates.map(candidate => ({
-      sourceEntityId: candidate.sourceEntityId,
-      position: candidate.position
-    }))
+    maxBlockDepth: 32
   });
-  const candidates = detectedCandidates.map(candidate => ({
-    ...candidate,
-    position: regionDetection.candidatePositions.get(candidate.sourceEntityId) ?? candidate.position
-  }));
   const selectedRegion = request.selectedRegionId
     ? regionDetection.regions.find(region => region.regionId === request.selectedRegionId)
     : regionDetection.regions.length === 1 ? regionDetection.regions[0] : undefined;
@@ -67,31 +53,8 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
       request.artifactDirectory && (!isAbsolute(request.artifactDirectory) || !/^[a-f0-9-]{36}$/i.test(request.jobId!))) {
     throw new Error("Invalid CAD artifact request");
   }
-  const viewport = createCadViewport(document.bounds);
-  const projected = candidates.map(candidate => {
-    const point = projectCadPointToViewport(candidate.position, document.bounds);
-    if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.y < 0 ||
-        point.x > viewport.width || point.y > viewport.height) throw new Error("CAD lighting candidate falls outside the rendered viewport");
-    if (candidate.method === "ai" && (!candidate.provider || !candidate.model || !candidate.inputDigest)) {
-      throw new Error("AI-assisted CAD candidate is missing reproducibility metadata");
-    }
-    return {
-      sourceEntityId: candidate.sourceEntityId,
-      layerName: candidate.layerName,
-      blockName: candidate.blockName,
-      x: point.x,
-      y: point.y,
-      rotation: -candidate.rotation,
-      confidence: candidate.confidence,
-      method: candidate.method,
-      ...(candidate.provider ? { provider: candidate.provider } : {}),
-      ...(candidate.model ? { model: candidate.model } : {}),
-      ...(candidate.inputDigest ? { inputDigest: candidate.inputDigest } : {}),
-      sourcePosition: { x: candidate.position.x, y: candidate.position.y }
-    };
-  });
-  // The fallback asset and `candidates` share the full-document viewport. Only
-  // native scene geometry and selectedCandidates use the selected-region frame.
+  // The fallback asset uses the full-document viewport; native scene geometry
+  // retains the selected-region frame, with no lighting placement overlay.
   const rendered = await renderCadDocumentSvgFile(document, request.renderedPath, {
     maxOutputBytes: CAD_RENDERED_SVG_MAX_BYTES,
     maxRenderedEntities: 1_000_000,
@@ -122,7 +85,7 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
   }
   let scene = null;
   let canonical;
-  let selectedCandidates = undefined;
+  let selectedCandidates: CadCoreResult["selectedCandidates"] = undefined;
   if (selectedRegion && request.artifactDirectory && request.jobId) {
     const identity = cadScenePersistenceIdentity(request.jobId, selectedRegion.regionId);
     // Reserve canonical metadata + public manifest + one restored raw tile.
@@ -159,24 +122,7 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
       sourceBounds: { ...built.manifest.sourceBounds },
       transform: { ...built.manifest.transform }
     };
-    const selectedCandidateIds = new Set(regionDetection.candidateRegionAssignments
-      .filter(assignment => assignment.regionId === selectedRegion.regionId)
-      .map(assignment => normalizeCandidateIdentity(assignment.sourceEntityId)));
-    selectedCandidates = candidates
-      .filter(candidate => selectedCandidateIds.has(normalizeCandidateIdentity(candidate.sourceEntityId)))
-      .map(candidate => ({
-        sourceEntityId: candidate.sourceEntityId,
-        layerName: candidate.layerName,
-        blockName: candidate.blockName,
-        x: candidate.position.x * built.manifest.transform.scaleX + built.manifest.transform.translateX,
-        y: candidate.position.y * built.manifest.transform.scaleY + built.manifest.transform.translateY,
-        rotation: -candidate.rotation,
-        confidence: candidate.confidence,
-        method: candidate.method,
-        ...(candidate.provider ? { provider: candidate.provider } : {}),
-        ...(candidate.model ? { model: candidate.model } : {}),
-        ...(candidate.inputDigest ? { inputDigest: candidate.inputDigest } : {})
-      }));
+    selectedCandidates = [];
   }
   const usage = process.resourceUsage();
   return {
@@ -185,13 +131,13 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     profileDigest: rules.profileDigest,
     modelEntityCount: document.entities.length,
     blockCount: document.blocks.length,
-    candidates: projected,
+    candidates: [],
     selectedCandidates,
     candidateRegionAssignments: regionDetection.candidateRegionAssignments,
     excludedRegionPrimitiveCount: regionDetection.excludedPrimitiveCount,
     regions: regionDetection.regions,
     candidateTransformMatch: measureCadCandidateSvgTransformMatch(
-      candidates.map(candidate => candidate.position),
+      [],
       document.bounds,
       0.01
     ),
@@ -201,8 +147,4 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     canonical,
     observedMaxRssBytes: usage.maxRSS * 1024
   };
-}
-
-function normalizeCandidateIdentity(value: string) {
-  return value.normalize("NFKC").toUpperCase();
 }
