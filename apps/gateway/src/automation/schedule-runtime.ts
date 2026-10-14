@@ -3,6 +3,7 @@ import {
   type AutomationExecutionFixtureResultV1,
   type AutomationSnapshotV1,
   type AutomationSnapshotV2,
+  type AutomationSnapshotV3,
   type LightingScheduleSnapshotV1,
   type VehicleEventRuleSnapshotV1
 } from "@led-control/shared";
@@ -187,8 +188,11 @@ export class ScheduleRuntime {
     return this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2 ? null : structuredClone(this.snapshot);
   }
 
-  recompute(snapshot: SchedulerSnapshot, degradedBioRecovery = false): Promise<DesiredLightingState> {
+  recompute(snapshot: SchedulerSnapshot | AutomationSnapshotV3, degradedBioRecovery = false): Promise<DesiredLightingState> {
     return this.enqueue(async () => {
+      // V3 admission is not legacy V2 execution. The next integration owns verified
+      // holiday/current-config installation; reject before changing any active state.
+      if (snapshot.schemaVersion === 3) throw new Error("bio_v3_runtime_unavailable");
       await this.ensureInitialized();
       if (this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2) throw new Error("bio_test_snapshot_change_unavailable");
       // Protocol support is configuration ability only. Product BIO pulse
@@ -279,6 +283,12 @@ export class ScheduleRuntime {
       try {
         await this.options.store.updateControlState(current => {
           const restored = structuredClone(checkpoint.state);
+          // Temporary intake is a separate durable owner. Rolling back an
+          // automatic snapshot must not rewind a later lease/result/tombstone.
+          restored.temporarySessions = current.temporarySessions;
+          restored.fixtureLeases = current.fixtureLeases;
+          restored.temporaryResultOutbox = current.temporaryResultOutbox;
+          restored.temporaryEndTombstones = current.temporaryEndTombstones;
           if (this.bioProduct) {
             restored.bioActivationsByRule = current.bioActivationsByRule;
             restored.bioTargetsByFixture = current.bioTargetsByFixture;
@@ -358,6 +368,9 @@ export class ScheduleRuntime {
       let recoveredResult: AutomationExecutionFixtureResultV1 | null = null;
       await this.updateState((state) => {
         state.currentByFixture[fixtureId] = brightness;
+        // Telemetry stays current, but temporary optical output is never a new
+        // automatic baseline, permanent manual success, or retirement signal.
+        if (state.fixtureLeases[fixtureId]?.sessionId) return state;
         const transition = state.transitionsByFixture[fixtureId];
         const legacyDesired = state.unverifiedDesiredByFixture[fixtureId];
         if (this.pendingObservationFixtures.has(fixtureId) &&
@@ -454,6 +467,7 @@ export class ScheduleRuntime {
       stage = "persisting_state";
       await this.updateState((state) => {
         for (const fixtureId of input.fixtureIds) {
+          if (state.fixtureLeases[fixtureId]?.sessionId) throw new Error("temporary_fixture_lease_conflict");
           const base = state.baseBrightnessByFixture[fixtureId] ??
             state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId] ?? null;
           if (base === null && !this.options.allowManualStateInitialization && !this.bio?.hasTarget(fixtureId)) {
@@ -785,6 +799,7 @@ export class ScheduleRuntime {
     const fixtures = relevantFixtures(snapshot, state);
 
     for (const fixtureId of fixtures) {
+      if (state.fixtureLeases[fixtureId]?.sessionId) continue;
       if (this.bio?.ownsFixture(state, fixtureId)) continue;
       const events = Object.entries(state.vehicleRules)
         .filter(([ruleId, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId) &&
@@ -1225,6 +1240,7 @@ function actionBrightness(rule: LightingScheduleSnapshotV1 | VehicleEventRuleSna
 function captureBase(state: PersistedAutomationStateV4, fixtureId: string): number | null {
   const existing = state.baseBrightnessByFixture[fixtureId];
   if (existing !== undefined) return existing;
+  if (state.fixtureLeases[fixtureId]?.sessionId) return null;
   const current = state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId];
   if (current === undefined) return null;
   state.baseBrightnessByFixture[fixtureId] = current;

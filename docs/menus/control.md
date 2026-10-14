@@ -1,5 +1,32 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 Gateway BIO 시간제 소유권·부분 쓰기 기반
+
+### 구현 완료
+
+- 기존 V9 자동 운전 원장·native 필드를 보존하는 V10 상태에 immutable 시작, 대상별 정상 configuration preState, apply/release generation 쌍, 임시 fixture lease, 결과 outbox와 종료 tombstone을 저장한다. 중복·재시작은 endsAt을 연장하지 않고, 시작보다 먼저 받은 종료는 같은 durable transaction에 안전 소유권을 예약하여 늦은 시작의 RF를 막는다.
+- BIO 밝기·모드 각 SET 직전에 변경 가능 intent를 durable 저장하고 소유권·신원·clock·deadline을 다시 검사한다. 설정의 독립 GET으로 전체 성공·밝기만 변경·mode만 변경·unknown을 구분하며, 첫 제출 전 중단이 확실한 RF0와 이미 제출했거나 재시작 중단된 unknown을 구분한다. ENOSPC는 다음 RF를 허용하지 않는다.
+- 일반 BIO 제어·복구·센서 모드 SET 및 자동 target 쓰기는 같은 임시 lease를 검사한다. 선택 target의 쓰기만 보류하며 pulse 수신·건강·자동 발생 원장은 유지한다. 임시 출력은 baseline 승격·영구 suppression·retireManualTargets로 처리하지 않고 설정 활성화 rollback도 별도 임시 원장을 되돌리지 않는다.
+- 절대 만료와 명시 종료는 예약한 release generation으로 revision2 intent부터 저장한다. 실제 복귀가 확인되기 전에는 unknown/부분 변경 소유권을 해제하거나 restored로 표시하지 않는다.
+
+### 미구현
+
+- 실제 current V3 설치·완전 공휴일 검증·MQTT delivery/ingested ACK·latest 자동 복귀 평가 및 Web 연결은 Task 7 이후 작업이다. 현재 런타임은 필수 preflight와 adapter의 명시적 owner port를 제공하지만 bootstrap에 연결하지 않았다. V3 scheduler 입력은 실제 연결 전까지 상태 변경 전에 명시적으로 거부한다.
+- 운영 배포·실제 USB/RF/HIL 검증은 수행하지 않았다. 센서 configuration GET은 광출력 증거가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 후속 연결은 현재 V3/assignment/meshNode·UUID/address/source/capability 검증과 lease guard를 실제 authority에 연결해야 한다. 자동 복귀는 과거 preState의 무조건 재생이 아니라 최신 승인 목표 재평가·독립 GET·durable 결과/ACK로 완료해야 한다.
+- 검증은 지정 Gateway 다섯 파일의 메모리·fake USB·자기 소유 임시 파일 테스트와 package typecheck 범위다. 전체 서비스/실장비 완료를 의미하지 않는다.
+
+### 관련 파일
+
+- `apps/gateway/src/automation/{bio-temporary-control-runtime,automation-state-store,bio-pulse-scheduler,schedule-runtime}.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts` 및 지정 다섯 테스트 파일.
+
+### 갱신 규칙
+
+- 임시 lease·mutation intent·RF0·재시작·만료·종료 tombstone 변경 시 부분 쓰기/unknown 유지와 실제 write 경계 회귀를 함께 갱신한다. 실제 자동 복귀·MQTT ACK·V3/Web 연결은 해당 검증 근거가 확보된 단계에서 별도 완료 기록한다.
+
 ## 2026-10-15 BIO 일정 제외·공통 달력 평가기·완전 달력 API
 
 ### 구현 완료
@@ -43,7 +70,7 @@
 
 ### 미구현
 
-- 실제 Gateway 임시 실행·재시작 복구·자동 목표 평가 및 기존 Web 화면 연결은 후속 작업이다. 달력 API는 위 후속 기록에서 구현했다. 이 단계의 HTTP/MQTT/SQL 증거는 mock transport와 자기 소유 PostgreSQL 검증이다.
+- Gateway 임시 apply·재시작 관측·만료 intent 기반은 위 기록에서 구현했다. 실제 V3/MQTT 연결·최신 자동 목표 복귀 및 기존 Web 화면 연결은 후속 작업이다. 달력 API는 위 기록에서 구현했다. 이 단계의 HTTP/MQTT/SQL 증거는 mock transport와 자기 소유 PostgreSQL 검증이다.
 - 운영 clock attestor·공휴일 provider/ServiceKey, 운영 migration·서버/Pi 배포·PKI/ACL 적용·HIL은 수행하지 않았다. 현재 production clock attestor가 없으면 새로운 시간제 시작은 503으로 차단한다.
 
 ### 부족하거나 개선이 필요한 기능
@@ -69,7 +96,7 @@
 
 ### 미구현
 
-- 실제 V3 snapshot revision 갱신 소비와 공통 일정 제외·달력 평가기는 위 2026-10-15 기록에서 구현했다. 일정 제외 저장/달력 API, Gateway 및 Web 연결은 후속 단계이며 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
+- 실제 V3 snapshot revision 갱신 소비와 공통 일정 제외·달력 평가기, 일정 제외 저장/완전 달력 API는 위 2026-10-15 기록에서 구현했다. Gateway V3 및 Web 연결은 후속 단계이며 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
 - ServiceKey 설정·실제 provider 연결, 사용자 DB migration, 서버/Pi 반영, ACL reload 및 HIL은 수행하지 않았다. production module은 기본 live provider를 생성하거나 환경 변수를 읽지 않는다.
 
 ### 부족하거나 개선이 필요한 기능
@@ -96,7 +123,7 @@
 
 ### 미구현
 
-- API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider/cache 소프트웨어와 공통 달력 평가기는 위 후속 기록에서 구현했다. 달력 API, Gateway 실행과 Web UI 연결은 후속 단계이며 DB/API 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
+- API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider/cache 소프트웨어·공통 달력 평가기·완전 달력 API 및 Gateway durable 임시 apply 기반은 위 후속 기록에서 구현했다. Gateway V3/MQTT·최신 자동 복귀와 Web UI 연결은 후속 단계이며 DB/API 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
 - 현재 사용자 DB migration·서버/장비 반영·ACL reload·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능

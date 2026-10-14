@@ -28,8 +28,19 @@ const ruleId = "00000000-0000-4000-8000-000000000401";
 const requestedAt = "2026-09-01T01:00:00.000Z";
 const appliedAt = "2026-09-01T01:00:01.000Z";
 
+it("migrates V9 preserving all legacy journals and starts without invented temporary ownership", () => {
+  const old = { ...emptyAutomationState(), schemaVersion: 9 } as Record<string, unknown>;
+  delete old.temporarySessions; delete old.fixtureLeases; delete old.temporaryResultOutbox;
+  delete old.temporaryEndTombstones;
+  old.baseBrightnessByFixture = { [fixtureId]: 30 };
+  expect(parseAutomationState(old)).toEqual({ ...old, schemaVersion: 10,
+    temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {} });
+});
+
 function manualV6State() {
-  const { bioPulseInbox: _bioPulseInbox, bioTargetsByFixture: _bioTargets, bioActivationsByRule: _bioActivations, ...legacy } = emptyAutomationState();
+  const { bioPulseInbox: _bioPulseInbox, bioTargetsByFixture: _bioTargets, bioActivationsByRule: _bioActivations,
+    temporarySessions: _temporarySessions, fixtureLeases: _leases, temporaryResultOutbox: _outbox,
+    temporaryEndTombstones: _ends, ...legacy } = emptyAutomationState();
   return {
     ...legacy,
     schemaVersion: 6,
@@ -72,7 +83,7 @@ describe("V8 BIO target configuration journal", () => {
     const v6 = manualV6State();
     const v7 = { ...v6, schemaVersion: 7, bioPulseInbox: {} };
     for (const legacy of [v6, v7]) {
-      expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 9, bioTargetsByFixture: {}, bioActivationsByRule: {} });
+      expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 10, bioTargetsByFixture: {}, bioActivationsByRule: {} });
       expect(() => parseAutomationState({ ...legacy, bioTargetsByFixture: {} })).toThrow();
     }
   });
@@ -123,7 +134,7 @@ describe("V7 BIO receipt journal", () => {
   it("migrates strict V6 state without inventing a pulse receipt", () => {
     const legacy = manualV6State();
     delete (legacy as Record<string, unknown>).bioPulseInbox;
-    expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 9, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} });
+    expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} });
     expect(() => parseAutomationState({ ...legacy, bioPulseInbox: {} })).toThrow();
   });
 
@@ -198,13 +209,14 @@ describe("V7 BIO receipt journal", () => {
 describe("V6 automation state", () => {
   it("round-trips pending controls and exact source suppressions through durable storage", async () => {
     const state = manualV6State();
-    const migrated = { ...state, schemaVersion: 9, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} };
+    const migrated = { ...state, schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {},
+      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {} };
     expect(parseAutomationState(state)).toEqual(migrated);
     const path = await statePath();
     await writeJsonAtomic(path, state);
     expect(await new FileAutomationStateStore(path).initialize()).toEqual(migrated);
     expect(emptyAutomationState()).toMatchObject({
-      schemaVersion: 9, pendingManualControls: {}, manualAutomationSuppressions: {}
+      schemaVersion: 10, pendingManualControls: {}, manualAutomationSuppressions: {}
     });
     expect(emptyAutomationState()).not.toHaveProperty("manualOverrides");
   });
@@ -243,7 +255,8 @@ describe("V6 automation state", () => {
     const state = manualV6State();
     state.manualAutomationSuppressions[fixtureId]!.schedules.push({ scheduleId, occurrenceKey: "2026-09-02" });
     state.manualAutomationSuppressions[fixtureId]!.vehicleEvents.push({ ruleId, startedAt: appliedAt });
-    expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 9, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} });
+    expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {},
+      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {} });
   });
 
   it.each(["pendingManualControls", "manualAutomationSuppressions"] as const)("bounds %s to 10,000 fixtures", (field) => {
@@ -286,7 +299,7 @@ describe("V6 automation state", () => {
       }
     };
     const result = parseAutomationState(old);
-    expect(result.schemaVersion).toBe(9);
+    expect(result.schemaVersion).toBe(10);
     expect(result.baseBrightnessByFixture).toEqual({ [success]: 60, [observed]: 60, [mismatch]: 20 });
     expect(result.pendingManualControls).toEqual({
       [pending]: { sourceId: commandId, brightnessPercent: 60, requestedAt, preBrightness: 60 }
@@ -466,7 +479,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -760,7 +773,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",
@@ -814,7 +827,7 @@ describe("FileAutomationStateStore", () => {
 
     const store = new FileAutomationStateStore(path);
     await expect(store.initialize()).resolves.toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       pendingTelemetryHandoffs: [handoff]
     });
     await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toEqual({

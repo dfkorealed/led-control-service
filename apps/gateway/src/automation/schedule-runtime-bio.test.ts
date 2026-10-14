@@ -8,6 +8,52 @@ import { writeJsonAtomic } from "../mesh/mesh-store-file";
 import type { BioConfigurationState, BioVerifiedLampTarget } from "../bio/bio-dongle-client";
 import { FileAutomationStateStore, parseAutomationState, emptyAutomationState } from "./automation-state-store";
 import { ScheduleRuntime } from "./schedule-runtime";
+import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
+
+async function reserveTemporary(f: Awaited<ReturnType<typeof fixture>>) {
+  const payload = { schemaVersion: 1 as const, kind: "start" as const, sessionId: manual, sessionRevision: 1 as const,
+    siteId: a, gatewayId: b, assignmentVersion: 1, admissionRevision: 4, sequence: 1, brightness: 70,
+    startedAt: f.now().toISOString(), endsAt: new Date(f.now().getTime() + 60_000).toISOString(),
+    targets: [{ fixtureId: b, meshNodeId: b, nativeUuid: "001122334466", logicalAddress: "0x0002", applyGeneration: "1", releaseGeneration: "2" }] };
+  const command = { ...payload, payloadHash: bioEnvelopeHash(payload) };
+  await f.store.updateDurable(state => {
+    const snapshot = command.targets[0]!;
+    state.temporarySessions[manual] = { command, sessionRevision: 1, state: "pending", targets: { [b]: {
+      snapshot, preState: null, preActivationId: null, applyConfirmed: false, releaseConfirmed: false,
+      configurationMayHaveChanged: false, partialMutation: "none", applyResult: null, releaseResult: null } } };
+    state.fixtureLeases[b] = { sessionId: manual, identity: snapshot, applyGeneration: "1", releaseGeneration: "2", lastGeneration: "1", phase: "pending" };
+    return state;
+  });
+}
+
+it("temporary lease defers only selected target writes while preserving pulse receipts and automatic state", async () => {
+  const f = await fixture([b, c]); await f.runtime.activateBioPulseTestSnapshot(f.snapshot);
+  await reserveTemporary(f);
+  await f.runtime.recordVehicleSensorInput(f.pulse());
+  expect(f.writes.map(row => row.fixtureId)).toEqual([c]);
+  expect(f.store.read().bioPulseInbox[a]?.receipt.sequence).toBe(1);
+  expect(f.store.read().bioActivationsByRule[rule]?.targetFixtureIds).toEqual([b, c]);
+  expect(f.store.read().bioActivationsByRule[rule]?.retiredFixtureIds).toEqual([]);
+  await expect(f.runtime.prepareManualControl({ sourceId: manual, fixtureIds: [b], brightnessPercent: 20,
+    requestedAt: f.now().toISOString() })).rejects.toThrow("temporary_fixture_lease_conflict");
+});
+
+it("configuration activation rollback preserves independently accepted temporary journals and leases", async () => {
+  const f = await fixture();
+  await f.runtime.recompute({ ...f.snapshot, schemaVersion: 1, vehicleEventRules: [] });
+  await reserveTemporary(f);
+  const accepted = f.store.read();
+  await f.runtime.rollbackActivation();
+  expect(f.store.read().temporarySessions).toEqual(accepted.temporarySessions);
+  expect(f.store.read().fixtureLeases).toEqual(accepted.fixtureLeases);
+});
+
+it("rejects unintegrated V3 before replacing the active scheduler or touching RF", async () => {
+  const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot);
+  const next = { ...f.snapshot, schemaVersion: 3 as const, schedules: [], holidayDatasets: [] };
+  await expect(f.runtime.recompute(next as any)).rejects.toThrow("bio_v3_runtime_unavailable");
+  expect(f.writes).toEqual([]); expect(f.genericWrites).toEqual([]);
+});
 
 const a = "00000000-0000-4000-8000-000000000001";
 const b = "00000000-0000-4000-8000-000000000002";
@@ -312,7 +358,8 @@ describe("synthetic V2 BIO scheduler integration; product gate remains OFF", () 
   });
 
   it("migrates strict V8 and rejects inconsistent V9 activation identity and retirement", async () => {
-    const { bioActivationsByRule: _activations, ...v8 } = emptyAutomationState();
+    const { bioActivationsByRule: _activations, temporarySessions: _temporary, fixtureLeases: _leases,
+      temporaryResultOutbox: _results, temporaryEndTombstones: _ends, ...v8 } = emptyAutomationState();
     expect(parseAutomationState({ ...v8, schemaVersion: 8 }).bioActivationsByRule).toEqual({});
     expect(() => parseAutomationState({ ...v8, schemaVersion: 8, bioActivationsByRule: {} })).toThrow();
     const f = await fixture(); await f.runtime.activateBioPulseTestSnapshot(f.snapshot); await f.runtime.recordVehicleSensorInput(f.pulse());

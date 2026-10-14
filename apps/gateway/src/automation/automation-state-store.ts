@@ -14,6 +14,10 @@ import {
 } from "./automation-telemetry-handoff";
 import type { AutomationTelemetryGapJournalLike } from "./automation-telemetry-gap-journal";
 import type { BioConfigurationState, BioVerifiedLampTarget } from "../bio/bio-dongle-client";
+import { temporaryControlCommandSchema, temporaryControlResultSchema, temporaryFixtureSnapshotSchema,
+  type Generation, type StartTemporaryControlCommand, type EndTemporaryControlCommand, type TemporaryControlState, type TemporaryFixtureSnapshot,
+  type TemporaryTargetEvidence, type TemporaryControlResult } from "@led-control/shared";
+import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
 
 export interface PersistedOccurrenceState {
   key: string;
@@ -182,8 +186,24 @@ export interface PersistedAutomationStateV9 {
   bioActivationsByRule: Record<string, PersistedBioActivation>;
 }
 
+export type PersistedTemporaryTarget = {
+  snapshot: TemporaryFixtureSnapshot; preState: BioConfigurationState | null; preActivationId: string | null;
+  applyConfirmed: boolean; releaseConfirmed: boolean; configurationMayHaveChanged: boolean;
+  partialMutation: TemporaryTargetEvidence["partialMutation"];
+  applyResult: TemporaryControlResult | null; releaseResult: TemporaryControlResult | null;
+};
+export type PersistedTemporarySession = { command: StartTemporaryControlCommand; sessionRevision: 1 | 2;
+  state: TemporaryControlState; targets: Record<string, PersistedTemporaryTarget> };
+export type PersistedFixtureLease = { sessionId: string | null; identity: TemporaryFixtureSnapshot;
+  lastGeneration: Generation; applyGeneration: Generation; releaseGeneration: Generation; phase: TemporaryControlState };
+export type PersistedAutomationStateV10 = Omit<PersistedAutomationStateV9, "schemaVersion"> & {
+  schemaVersion: 10; temporarySessions: Record<string, PersistedTemporarySession>;
+  fixtureLeases: Record<string, PersistedFixtureLease>; temporaryResultOutbox: Record<string, TemporaryControlResult>;
+  temporaryEndTombstones: Record<string, EndTemporaryControlCommand>;
+};
+
 // Historical import names refer to the current in-memory schema; only the parser accepts older disk shapes.
-export type PersistedAutomationStateV8 = PersistedAutomationStateV9;
+export type PersistedAutomationStateV8 = PersistedAutomationStateV10;
 export type PersistedAutomationStateV7 = PersistedAutomationStateV8;
 export type PersistedAutomationStateV6 = PersistedAutomationStateV7;
 export type PersistedAutomationStateV4 = PersistedAutomationStateV7;
@@ -722,7 +742,8 @@ function isEnospc(error: unknown): error is NodeJS.ErrnoException {
 
 export function emptyAutomationState(): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
+    temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {},
     activeOccurrences: {},
     pendingManualControls: {},
     manualAutomationSuppressions: {},
@@ -741,7 +762,143 @@ export function emptyAutomationState(): PersistedAutomationStateV4 {
   };
 }
 
+function temporaryState(value: unknown): TemporaryControlState {
+  if (typeof value !== "string" || !["pending", "applying", "holding", "partial", "unknown", "releasing", "restored",
+    "recovery_pending", "rejected", "cancelled"].includes(value)) throw new Error("invalid temporary state");
+  return value as TemporaryControlState;
+}
+
+function parseTemporaryResult(value: unknown): TemporaryControlResult {
+  const result = temporaryControlResultSchema.parse(value);
+  const { resultHash, ...payload } = result;
+  if (bioEnvelopeHash(payload) !== resultHash) throw new Error("invalid temporary result hash");
+  return result;
+}
+
+function parseTemporaryEnd(value: unknown): EndTemporaryControlCommand {
+  const command = temporaryControlCommandSchema.parse(value);
+  if (command.kind !== "end") throw new Error("invalid temporary end tombstone");
+  const { payloadHash, ...payload } = command;
+  if (bioEnvelopeHash(payload) !== payloadHash) throw new Error("invalid temporary end hash");
+  return command;
+}
+
+function parseTemporaryTarget(value: unknown): PersistedTemporaryTarget {
+  if (!hasExactKeys(value, ["snapshot", "preState", "preActivationId", "applyConfirmed", "releaseConfirmed",
+    "configurationMayHaveChanged", "partialMutation", "applyResult", "releaseResult"])) throw new Error("invalid temporary target");
+  if (typeof value.applyConfirmed !== "boolean" || typeof value.releaseConfirmed !== "boolean" ||
+    typeof value.configurationMayHaveChanged !== "boolean" ||
+    !["none", "high_brightness", "mode", "unverified"].includes(String(value.partialMutation)) ||
+    !(value.preActivationId === null || (typeof value.preActivationId === "string" && value.preActivationId.length > 0 && value.preActivationId.length <= 512))) {
+    throw new Error("invalid temporary evidence");
+  }
+  const row: PersistedTemporaryTarget = { snapshot: temporaryFixtureSnapshotSchema.parse(value.snapshot),
+    preState: value.preState === null ? null : parseBioConfigurationState(value.preState),
+    preActivationId: value.preActivationId as string | null,
+    applyConfirmed: value.applyConfirmed, releaseConfirmed: value.releaseConfirmed,
+    configurationMayHaveChanged: value.configurationMayHaveChanged,
+    partialMutation: value.partialMutation as PersistedTemporaryTarget["partialMutation"],
+    applyResult: value.applyResult === null ? null : parseTemporaryResult(value.applyResult),
+    releaseResult: value.releaseResult === null ? null : parseTemporaryResult(value.releaseResult) };
+  if ((row.partialMutation !== "none" && !row.configurationMayHaveChanged) ||
+    (row.configurationMayHaveChanged && !row.preState) ||
+    (row.applyConfirmed && (!row.applyResult?.applyConfirmed || row.partialMutation !== "none")) ||
+    (row.releaseConfirmed && (!row.releaseResult?.releaseConfirmed || row.partialMutation !== "none"))) {
+    throw new Error("invalid temporary confirmation");
+  }
+  return row;
+}
+
+function parseTemporarySession(value: unknown): PersistedTemporarySession {
+  if (!hasExactKeys(value, ["command", "sessionRevision", "state", "targets"]) ||
+    (value.sessionRevision !== 1 && value.sessionRevision !== 2)) throw new Error("invalid temporary session");
+  const command = temporaryControlCommandSchema.parse(value.command);
+  if (command.kind !== "start") throw new Error("temporary session requires immutable start");
+  const { payloadHash, ...payload } = command;
+  if (bioEnvelopeHash(payload) !== payloadHash) throw new Error("invalid temporary command hash");
+  const targets = parseFixtureRecord(value.targets, parseTemporaryTarget);
+  if (Object.keys(targets).length !== command.targets.length || command.targets.some(snapshot =>
+    !isDeepStrictEqual(targets[snapshot.fixtureId]?.snapshot, snapshot))) throw new Error("invalid temporary snapshots");
+  const state = temporaryState(value.state);
+  const rows = Object.values(targets);
+  if ((state === "holding" && (value.sessionRevision !== 1 || rows.some(row => !row.applyConfirmed))) ||
+    (["restored", "rejected", "cancelled"].includes(state) && rows.some(row =>
+      !row.releaseConfirmed && (row.configurationMayHaveChanged || row.applyResult?.rfWriteEvidence !== "not_started")))) {
+    throw new Error("invalid temporary terminal evidence");
+  }
+  return { command, targets, sessionRevision: value.sessionRevision, state };
+}
+
+function parseFixtureLease(value: unknown): PersistedFixtureLease {
+  if (!hasExactKeys(value, ["sessionId", "identity", "lastGeneration", "applyGeneration", "releaseGeneration", "phase"])) {
+    throw new Error("invalid fixture lease");
+  }
+  const identity = temporaryFixtureSnapshotSchema.parse(value.identity);
+  if (!(value.sessionId === null || (typeof value.sessionId === "string" && /^[0-9a-f-]{36}$/.test(value.sessionId))) ||
+    value.applyGeneration !== identity.applyGeneration || value.releaseGeneration !== identity.releaseGeneration ||
+    (value.lastGeneration !== identity.applyGeneration && value.lastGeneration !== identity.releaseGeneration)) throw new Error("invalid fixture generation");
+  const phase = temporaryState(value.phase);
+  if (value.sessionId === null && !["restored", "rejected", "cancelled"].includes(phase)) throw new Error("unresolved lease missing owner");
+  return { sessionId: value.sessionId, identity, lastGeneration: value.lastGeneration,
+    applyGeneration: identity.applyGeneration, releaseGeneration: identity.releaseGeneration, phase };
+}
+
+function validateTemporaryResult(session: PersistedTemporarySession, result: TemporaryControlResult) {
+  const command = session.command;
+  const target = session.targets[result.fixtureId];
+  if (!target || result.sessionId !== command.sessionId || result.siteId !== command.siteId || result.gatewayId !== command.gatewayId ||
+    result.assignmentVersion !== command.assignmentVersion || result.admissionRevision !== command.admissionRevision ||
+    result.originCommandHash !== command.payloadHash || result.originSequence !== command.sequence ||
+    result.targetGeneration !== (result.sessionRevision === 1 ? target.snapshot.applyGeneration : target.snapshot.releaseGeneration)) {
+    throw new Error("invalid temporary result attribution");
+  }
+}
+
 export function parseAutomationState(value: unknown): PersistedAutomationStateV4 {
+  if (isRecord(value) && value.schemaVersion === 10) {
+    const { temporarySessions, fixtureLeases, temporaryResultOutbox, temporaryEndTombstones, ...legacy } = value;
+    const state = parseAutomationState({ ...legacy, schemaVersion: 9 });
+    state.temporarySessions = parseFixtureRecord(temporarySessions, parseTemporarySession);
+    state.fixtureLeases = parseFixtureRecord(fixtureLeases, parseFixtureLease);
+    state.temporaryResultOutbox = parseFixtureRecord(temporaryResultOutbox, parseTemporaryResult);
+    state.temporaryEndTombstones = parseFixtureRecord(temporaryEndTombstones, parseTemporaryEnd);
+    for (const [id, end] of Object.entries(state.temporaryEndTombstones)) {
+      if (id !== end.sessionId) throw new Error("invalid temporary tombstone identity");
+      const start = state.temporarySessions[id]?.command;
+      if (start && (end.originCommandHash !== start.payloadHash || end.originSequence !== start.sequence ||
+        end.siteId !== start.siteId || end.gatewayId !== start.gatewayId || end.assignmentVersion !== start.assignmentVersion ||
+        end.admissionRevision !== start.admissionRevision || end.endsAt !== start.endsAt || !isDeepStrictEqual(end.targets, start.targets))) {
+        throw new Error("invalid temporary tombstone origin");
+      }
+    }
+    for (const [id, session] of Object.entries(state.temporarySessions)) {
+      if (id !== session.command.sessionId) throw new Error("invalid temporary session identity");
+      for (const [fixtureId, target] of Object.entries(session.targets)) {
+        const lease = state.fixtureLeases[fixtureId];
+        if (!lease || (lease.sessionId === id && (!isDeepStrictEqual(lease.identity, target.snapshot) ||
+          lease.phase !== session.state || lease.lastGeneration !== (session.sessionRevision === 1
+            ? target.snapshot.applyGeneration : target.snapshot.releaseGeneration)))) throw new Error("invalid temporary lease ownership");
+        if (!["restored", "rejected", "cancelled"].includes(session.state) && lease.sessionId !== id) {
+          throw new Error("unresolved temporary target lost owner");
+        }
+        for (const result of [target.applyResult, target.releaseResult]) if (result) validateTemporaryResult(session, result);
+      }
+    }
+    for (const [fixtureId, lease] of Object.entries(state.fixtureLeases)) {
+      const tombstone = lease.sessionId && state.temporaryEndTombstones[lease.sessionId];
+      const tombstoneTarget = tombstone && tombstone.targets.find(target => target.fixtureId === fixtureId);
+      if (lease.identity.fixtureId !== fixtureId || (lease.sessionId !== null &&
+        !state.temporarySessions[lease.sessionId]?.targets[fixtureId] &&
+        !(tombstoneTarget && isDeepStrictEqual(tombstoneTarget, lease.identity) && lease.phase === "releasing" &&
+          lease.lastGeneration === tombstoneTarget.releaseGeneration))) throw new Error("invalid fixture lease identity");
+    }
+    for (const [eventId, result] of Object.entries(state.temporaryResultOutbox)) {
+      const session = state.temporarySessions[result.sessionId];
+      if (eventId !== result.eventId || !session) throw new Error("invalid temporary result owner");
+      validateTemporaryResult(session, result);
+    }
+    return state;
+  }
   if (isRecord(value) && value.schemaVersion === 9) {
     const { bioActivationsByRule, ...legacy } = value;
     const state = parseAutomationState({ ...legacy, schemaVersion: 8 });
@@ -796,7 +953,8 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
     "vehicleSensorInbox"
   ]) && value.schemaVersion === 6) {
     return {
-      schemaVersion: 9,
+      schemaVersion: 10,
+      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {},
       activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
       pendingManualControls: parseFixtureRecord(value.pendingManualControls, parseManualControl),
       manualAutomationSuppressions: parseFixtureRecord(value.manualAutomationSuppressions, parseManualSuppression),
@@ -951,7 +1109,8 @@ function parseAutomationStateFields(
   // Validate every legacy field before dropping timed overrides, including entries that cannot migrate.
   const manualOverrides = parseRecord(value.manualOverrides, parseManualOverride);
   const state: PersistedAutomationStateV6 = {
-    schemaVersion: 9,
+    schemaVersion: 10,
+    temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {},
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
     pendingManualControls: {},
     manualAutomationSuppressions: {},

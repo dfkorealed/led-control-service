@@ -43,6 +43,36 @@ const discovered = {
 };
 
 describe("BioUsbDongleAdapter", () => {
+  it("allows the explicit temporary owner port and retains source protection and durable stage callbacks", async () => {
+    const f = createPhysicalControlFixture({ configurationReports: true });
+    try {
+      await f.client.probe(); await f.adapter.scan(scanCommand);
+      f.adapter.setBioTemporaryLeaseGuard(() => true);
+      const port = f.adapter.temporaryTargetPort(); const stages: string[] = [];
+      const control = { beforeWrite: async () => {}, mayStartWrite: () => true,
+        beforeMutation: async (stage: "high_brightness" | "mode") => { stages.push(stage); } };
+      await expect(port.apply(provisioningCommand.nodeId, 60, control)).resolves.toMatchObject({ brightnessPercent: 60, mode: "force-on" });
+      expect(stages).toEqual(["high_brightness", "mode"]);
+      const observed = await port.read(provisioningCommand.nodeId, {});
+      expect(observed.configuration).toEqual({ configuredHighBrightnessPercent: 60, bioMode: "force-on" });
+      await expect(port.restore(provisioningCommand.nodeId, observed.target,
+        { configuredHighBrightnessPercent: 30, bioMode: "sensor" }, control)).resolves.toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+      expect(stages).toEqual(["high_brightness", "mode", "high_brightness", "mode"]);
+      const writes = f.bodies.filter(body => body.startsWith("cd") || body.startsWith("cc"));
+      f.adapter.setBioSourceTargetGuard(() => true);
+      await expect(port.apply(provisioningCommand.nodeId, 60, control)).rejects.toThrow("bio_source_target_forbidden");
+      expect(f.bodies.filter(body => body.startsWith("cd") || body.startsWith("cc"))).toEqual(writes);
+    } finally { await f.client.close(); }
+  });
+  it("blocks ordinary SET at the actual USB boundary while the temporary fixture lease is owned", async () => {
+    const f = createPhysicalControlFixture();
+    try {
+      await f.client.probe(); await f.adapter.scan(scanCommand);
+      f.adapter.setBioTemporaryLeaseGuard(() => true);
+      await f.adapter.applyUnicast(provisioningCommand.nodeId, 60);
+      expect(f.bodies.filter(body => body.startsWith("cd") || body.startsWith("cc"))).toEqual([]);
+    } finally { await f.client.close(); }
+  });
   it("keeps unregistered discovery identify available with source protection installed", async () => {
     const f = createFixture();
     f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(null);
@@ -1133,6 +1163,16 @@ describe("sensor-mode operation fresh GET authority", () => {
     } finally { await f.client.close(); }
   });
 
+  it("does not bypass a temporary lease through authenticated ensure_sensor while query stays read-only", async () => {
+    const f = createPhysicalControlFixture({ sensorModeReports: true });
+    try {
+      await f.client.probe(); f.adapter.setBioTemporaryLeaseGuard(() => true);
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("query"), {})).resolves.toBe("sensor");
+      await expect(f.adapter.sensorModeOperation(sensorModeInput("ensure_sensor"), {})).rejects.toThrow();
+      expect(f.bodies.filter(body => body.startsWith("cc") || body.startsWith("cd"))).toEqual([]);
+    } finally { await f.client.close(); }
+  });
+
   it("rejects a mapping mutated during fresh discovery before sensor SET", async () => {
     const f = readyForOnePresence();
     const mapping = confirmedMapping();
@@ -1237,10 +1277,12 @@ function createFixture(events: string[] = []) {
   };
 }
 
-function createPhysicalControlFixture(options: { failOutput?: boolean; sensorModeReports?: boolean } = {}) {
+function createPhysicalControlFixture(options: { failOutput?: boolean; sensorModeReports?: boolean; configurationReports?: boolean } = {}) {
   const events = new EventEmitter();
   const bodies: string[] = [];
   let allowed = true;
+  let rawBrightness = 140;
+  let rawMode = 0;
   const connection = {
     async open() {}, async close() {},
     onData(listener: (bytes: Buffer) => void) { events.on("data", listener); return () => { events.off("data", listener); }; },
@@ -1258,6 +1300,8 @@ function createPhysicalControlFixture(options: { failOutput?: boolean; sensorMod
         else if (frame[2] === 0x10) {
           const body = frame.subarray(19, -2).toString("hex"); bodies.push(body);
           if (body === "cd13c6") allowed = false;
+          if (options.configurationReports && body.startsWith("cd13")) rawBrightness = Number.parseInt(body.slice(4), 16);
+          if (options.configurationReports && body.startsWith("cc12")) rawMode = Number.parseInt(body.slice(4), 16);
           events.emit("data", Buffer.from("55aa1101002055", "hex"));
           if (body === "8305") {
             const payload = Buffer.from("d3001122334455832e0101c00000000a010505085932020100030000", "hex");
@@ -1271,6 +1315,14 @@ function createPhysicalControlFixture(options: { failOutput?: boolean; sensorMod
             payload[7] = 0x83; payload[8] = 120;
             payload.writeUInt16BE(0x0101, 9); payload.writeUInt16BE(0xc000, 11);
             payload.set([0x4f, 0x12, 0], 15);
+            events.emit("data", encodeCrcFrame(0x12, payload));
+          }
+          if (options.configurationReports && (body === "4e13" || body === "4e12")) {
+            const payload = Buffer.alloc(18); payload.writeInt8(-42, 0);
+            Buffer.from(discovered.nativeUuid, "hex").copy(payload, 1);
+            payload[7] = 0x83; payload[8] = 120;
+            payload.writeUInt16BE(0x0101, 9); payload.writeUInt16BE(0xc000, 11);
+            payload.set([0x4f, body === "4e13" ? 0x13 : 0x12, body === "4e13" ? rawBrightness : rawMode], 15);
             events.emit("data", encodeCrcFrame(0x12, payload));
           }
         }

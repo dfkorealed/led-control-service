@@ -28,6 +28,8 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "re
   reconnectReadyTimeoutMs?: number;
 };
 export interface BioOperationControl extends Partial<CommandWriteControl> {
+  /** Durable intent before each configuration SET; GET never invokes this hook. */
+  beforeMutation?: (stage: "high_brightness" | "mode") => Promise<void>;
   /** Trusted local product guard, inside the owned operation immediately before RF. */
   beforeWrite?: () => Promise<void>;
   signal?: AbortSignal;
@@ -829,6 +831,13 @@ export class BioDongleClient {
     throwIfOperationStopped(control);
     if (control.beforeWrite) await control.beforeWrite();
     throwIfOperationStopped(control);
+    if (control.beforeMutation && (operation.kind === "setHighBrightness" || operation.kind === "setControlMode")) {
+      await control.beforeMutation(operation.kind === "setHighBrightness" ? "high_brightness" : "mode");
+      // fsync can yield to a new lease, identity or deadline. Recheck the same
+      // owner after persistence and before the synchronous transport write gate.
+      if (control.beforeWrite) await control.beforeWrite();
+      throwIfOperationStopped(control);
+    }
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;
     // Get remains usable after Set proof loss, including the read-back of a

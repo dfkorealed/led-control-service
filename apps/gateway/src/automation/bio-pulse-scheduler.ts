@@ -58,6 +58,7 @@ export class BioPulseControlCore {
         return observed;
       },
       restoreBioState: async (id, target, configuration) => {
+        if (this.store.read().fixtureLeases[id]?.sessionId) throw new Error("temporary_fixture_lease_conflict");
         // Read again immediately before each RF call: authority may change while a
         // preceding asynchronous GET/fsync is in flight. Packet metadata is not authority.
         const operation = this.transition;
@@ -66,7 +67,7 @@ export class BioPulseControlCore {
         }
         await this.preflightTransition();
         return profile.targetPort.restoreBioState(id, target, configuration,
-          profile.preflight ? this.transitionControl() : undefined);
+          this.transitionControl(id));
       }
     }, now);
   }
@@ -108,10 +109,15 @@ export class BioPulseControlCore {
       || !this.canTransition(operation.activation, operation.release)) throw new Error("bio_source_authority_unverified");
   }
 
-  private transitionControl() {
-    return { beforeWrite: () => this.preflightTransition(), mayStartWrite: () => {
+  private transitionControl(fixtureId?: string) {
+    return { beforeWrite: async () => {
+      if (fixtureId && this.store.read().fixtureLeases[fixtureId]?.sessionId) throw new Error("temporary_fixture_lease_conflict");
+      await this.preflightTransition();
+      if (fixtureId && this.store.read().fixtureLeases[fixtureId]?.sessionId) throw new Error("temporary_fixture_lease_conflict");
+    }, mayStartWrite: () => {
       const operation = this.transition;
-      return Boolean(operation && this.canTransition(operation.activation, operation.release));
+      return Boolean(operation && this.canTransition(operation.activation, operation.release) &&
+        (!fixtureId || !this.store.read().fixtureLeases[fixtureId]?.sessionId));
     } };
   }
 
@@ -342,7 +348,7 @@ export class BioPulseControlCore {
       }
       const state = this.store.read();
       const targetFixtureIds = activation.targetFixtureIds.filter(id => !activation.retiredFixtureIds.includes(id) &&
-        !state.pendingManualControls[id]);
+        !state.pendingManualControls[id] && !state.fixtureLeases[id]?.sessionId);
       this.transition = { activation, release };
       try {
         if (targetFixtureIds.length) {
