@@ -2,14 +2,14 @@
 
 기준일: 2026-10-15
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 발생일/달력 API 완료·Gateway 연결 중
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — Gateway 잠금/apply 완료·최신 복귀/V3 연결 중
 
 - 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장부터 승인된 소프트웨어 구현을 진행 중이다. 실제 API/UI 기능 연결·장비 반영은 아직이다.
 - 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing 및 후속 공통 로딩 미커밋 변경을 보존한다.
 - 신규 기능은 BIO 센서 조명만 지원하고 기존 native 코드·등록·데이터를 자동 삭제/변환하지 않는다.12개 UI 합의와 스케줄/달력/이벤트 추가 위치 통일을 유지한다.
 - 제안은 독립 TemporaryControlSession·Gateway durable single-owner·최신 자동 운전 복귀다. legacy 영구 명령 TTL 재사용/과거 밝기 단순 복원은 제외한다.
 - 달력은 발생일 대체 보기·일정별 주말/휴일 제외 기본false다. 서버/Gateway가 검증 dataset/coverage를 공유하며 목업6날짜를 제품화하지 않는다.
-- 사용자가 서면 설계 `91bf922e`와 [상세 실행 계획](superpowers/plans/2026-10-14-bio-control-operations.md) `bd943bf6`을 승인하고 진행을 요청했다. Tasks1–5 공유·저장·공휴일·API·발생일/달력 처리는 구현/리뷰 완료·Task6 Gateway 연결 중이며 Tasks7–9는 대기다. 기능 전체 완료나 서버/장비 반영은 아직 아니다.
+- 사용자가 서면 설계 `91bf922e`와 [상세 실행 계획](superpowers/plans/2026-10-14-bio-control-operations.md) `bd943bf6`을 승인하고 진행을 요청했다. Tasks1–6 공유·DB·공휴일·API·발생일/달력·Gateway 잠금/apply는 구현/리뷰 완료·Task7 최신 복귀/V3/MQTT 연결 중이며 Tasks8–9는 대기다. 기능 전체 완료나 서버/장비 반영은 아직 아니다.
 - 실행 방식은 총괄 오케스트레이터→backend 공유 계약·Prisma→engine/Gateway→기존 ‘제어 UI 개선 담당자’→최소 QA다. 공유 계약 검증 커밋을 전달한 뒤에만 소비 구현을 시작하며 ‘제어 페이지 담당자’에게 UI를 중복 배정하지 않는다.
 - 문서 작성 단계의 제품 테스트·설치·빌드·DB/provider/실장비 변경0 기록은 당시 증거다. 이후 각 작업의 변경·직접 연관 최소 검증 결과를 체크리스트와 함께 기록한다. 전체 suite/무관 회귀는 이번 사용자 범위가 아니다.
 - Task1 `639a988c`의 공유70/70·disposableACL4/4·직접 기존6/6과 타입/exports 준비를 확인했다. 독립 리뷰 I2건(0% force-off 설정 보존·동일시각 상충증거)의 수정 `111ef160`은 RED2FAIL→관련11/11·타입/prepare0, scoped 재리뷰 모두 ADDRESSED/새C/I0이다. 운영 권한/등록/장비는 변경하지 않았다.
@@ -21,6 +21,7 @@
 - Task4 `8f55bada`의 관련118/118·타입/build0 이후 리뷰에서 동일instant ISO표현 동률 누락과 거절된 currentidentity mutation증거 소실 I2건을 확인했다. 원 담당자의 fixround1 `19c87c6f`는 임시PG semantic RED5→covering2파일29/29·APItype/diff0·잔여PG0이며 scoped 재리뷰 두 건 모두 ADDRESSED/새C/I/Minor0이다. 거절된 성공확인과 현재신원의 설정변경 가능성을 분리·보존하여 RF0의 lease 해제를 막는다. Task4 완료·Task5 발생일/달력 연결을 시작하며 운영 및 Tasks6–9 경계는 유지한다.
 - 로컬 소프트웨어 병합과 운영 migration/Pi 배포/HIL/PKI/재시작/remote 승인은 별개다. 총괄이 최종 검토/커밋한다.
 - Task5 engine `f7d6cfa2`·API `fd492953`: semantic RED→engine4files56/56·API4files80/80·직접 controller1/1 및 각type/diff0이다. 실제 발생 시작일 iterator를 next/overlap/완전 달력에서 공유하고 같은 authorized RepeatableRead의 전체 일정/revision/검증dataset으로 조회한다. Self-owned HTTP401/101규칙/private-no-store/400/404도 확인했다. Combined 독립 리뷰 spec준수/Approved·C/I0·이전 문서 미구현 설명의 Minor1을 최종 추적한다. 실제 PostgreSQL 동시 조회·Gateway accepted-end/RF·Web stale-scope·운영은 해당 fixture 증거로 완료 주장하지 않는다.
+- Task6 `042ad4ff`의 fivefiles353/353·Gatewaytype/diff0 뒤 독립 리뷰에서 end-only 예약 부재와 잘못된 결과slot/revision/holding 설정 승인 I2건을 확인했다. Fixround1 `e585b657`는 semanticRED11→지정twofiles91/91·type/diff0, scoped 재리뷰 두 건 모두 ADDRESSED/새breakage0이다. 기존 V9/일반·센서 SET/Pulse 증거를 보존하고 private owner port·durable beforeMutation·V10 end tombstone/reserved fence로 잠금을 연결한다. Task5의 오래된 API 미구현 설명은 해당 menu 갱신에서 수정됐음을 리뷰가 확인했다. Task7 실제 production wiring/최신 복귀/GET/MQTT/ACK은 아직이며 public V3 실행은 교체 전 명시 차단이다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 
