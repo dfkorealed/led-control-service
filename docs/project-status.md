@@ -2,7 +2,7 @@
 
 기준일: 2026-10-14
 
-## 2026-10-14 모든 조명 공통 센서 준비 UI — 메인/API 반영, CRL 복구 대기
+## 2026-10-14 모든 조명 공통 센서 준비 UI — 메인/API·CRL 반영, 등록 시각 검증 후속
 
 - 사용자는 A/B 고정 대신 모든조명의 자유로운UI시험을 요청하고 공통 등록연결확인→센서사용설정의 bounded설계에 `진행해줘`로 승인했다. 로컬API만 검증 후 정상재기동하는 승인도 받았으며 Gateway/브로커재시작·DB/schema/인증·밝기변경·이벤트활성화/움직임시험으로 확대하지 않는다.
 - 최신메인833121fb 기반 `codex/sensor-common-ui-20261014`에서 기존정상 POST/GET/apply를 재사용한다. 기존 dashboard/조명page의 gateway에 현재assignmentVersion만 추가하며 UI는 이를 추정하지 않는다. 공통컴포넌트는 scope/permission/online 변화·잘못된proof·만료를 차단하고 유실POST는 같은identity, 유실apply는 GET으로 재개한다. 등록repair만으로 센서자격/밝기/규칙ON을 합성하지 않는다.
@@ -10,6 +10,8 @@
 - APIbuild/typecheck도exit0이며 직접diff리뷰/문서/diff check를 확인했다. 현재root/apps/api의 동일watcher3493·child19395·ready200을 읽기로 확인했고 승인된 정상watcher 적용만 수행한다. 사용자 단독진행 요청대로 별도리뷰에이전트/다른채팅메시지는0이다. 메인반영/실제UI준비는 다음단계다.
 - 후속: `c20a6529`를 로컬메인에ff-only반영했고 동일watcher가 child37376(17:32:10KST)으로 정상재기동했다. 메인패널19/19·실제UI의 공통등록확인표시/오프라인차단을 확인했고 기존dirty3파일/환경SHA를 보존했다. 현재API dependency는 MQTT만down, 4대offline/기존규칙비활성이다. Gateway sameimage/restart0/단독USBowner/주소·TCP·transport/protocol/mapping 정상이므로 오전주소복구와 구분한다.
 - 새차단원인: brokerMQTT CRL이14:57:46KST 만료됐으며 openssl client검증은CRL만expired(leaf만료/issuer누락false)다. 사용자는 CRL갱신을추가승인했다. 기존Vault는33시간전exit255·issuer조회연결실패여서 기존Vault1개 기동/기존인증 발행에대한 확인을요청했다. 현재CRL/CA/key/인증·broker/gateway변경·RFquery/SET/등록apply/규칙활성화0이다. 실제센서준비/자유선택/현장시험완료로 확대하지 않는다.
+- 후속명시승인으로exact기존Vault만기동/unseal하고 기존issuer가자동재서명한CRL을보호백업/서명/Root원본/폐기2→2/fresh검증 후17:55:25KST 원자교체·samebroker3349 SIGHUP했다. 새nextUpdate10월17일17:55:21KST, Root10월27일14:37:20KST다. 실제수동rotate0/CA관리token사용0·새인증서발급/폐기/ACL/DB변경0·API/broker/Gateway재시작0이다. 초기VaultMounts전체비교guard실패·stale공개본/서비스token거부는보존하며 후속exactinspect로동일ID/image/기존mount·initialized/unsealed를확인했다.
+- openssl client verify0·API ready200/5up·17:55:53 Gateway MQTT/heartbeat/transport/protocol/mapping true와singleUSBowner/restart0을확인했다. 후속18:59 API ready는정상이나 조명4offline이다. 실제UI등록확인POST1회500의별도원인은 등록서비스 `CommandDbClockHealth`의증거provider가실제미등록이라는안전관문이다. 가짜시각증거/관문완화/DB강제등록·센서SET/규칙활성화0이며 전체UI시험완료는아니다. 시각provider연결은CRL과구분해후속구현한다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 

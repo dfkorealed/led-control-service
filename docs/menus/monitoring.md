@@ -2,6 +2,7 @@
 
 - 2026-10-14 공통센서준비UI 조회정보: dashboard와 paged조명조회에 현재gateway.assignmentVersion만 추가해 정상등록재확인 요청을 현재배정에 결속한다. map/status/밝기해석·센서자격·권한/schema는 바꾸지 않는다. 해당조회unit36/36과 관련Web/모바일PC mock회귀를 확인했으며 실제적용과 감지시험은 별도다.
 - 후속17:41KST: 메인/API반영 후 현재4대offline·MQTTdown을정상표시한다. Gateway단독USB/transport/protocol/mapping은정상이지만 MQTT CRL이14:57:46KST만료다. CRL갱신은승인됐으며 기존issuer Vault기동확인대기다. 오전MQTT정상증거를현재상태로재사용하거나 offline을강제online으로변경하지 않는다.
+- 후속17:55KST CRL교체/동일broker reload로MQTT·Gateway heartbeat를복구했다.18:59API ready200/5dependency up이지만 DB조명4대offline은별도현재상태다. CRL복구/예전센서검증을모든조명online/사용가능판정으로대체하지 않는다. 기존ID/기본밝기·폐기2건/Root CRL은보존하며 갱신일10월17일17:55:21KST 전에새서명본갱신이필요하다.
 
 ## 2026-10-14 선택형 맵 초기화 연동
 
