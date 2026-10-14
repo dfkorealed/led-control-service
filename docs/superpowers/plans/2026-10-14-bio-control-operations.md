@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–6 공유 계약·DB·공휴일·API·발생일/달력·Gateway 영속 잠금/apply는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`/`19c87c6f`/`fd492953`/`e585b657`). Task7 최신 자동 복귀/V3/MQTT 연결을 시작하며 Tasks8–9는 대기다. 전체 기능 완료·운영 반영은 아직 아니다.
+**현재 상태:** Tasks1–7 공유 계약·DB·공휴일·API·발생일/달력·Gateway apply/최신 자동 복귀/V3/MQTT는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`/`19c87c6f`/`fd492953`/`e585b657`/`1fe9ff53`). Task7 fix round1은 재리뷰 I1/I2 ADDRESSED·새C/I/M0이며 Tasks8–9 지정 Web handoff를 준비한다. 전체 기능 완료·운영 반영은 아직 아니다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -24,8 +24,8 @@
 | Task4 HTTP/MQTT/V3 연결 | 완료, fix round1 재리뷰 지적0 |
 | Task5 발생일 평가기·달력 API | 완료, 차단 지적0·문서 Minor1 최종 리뷰 추적 |
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
-| Task7 Gateway 최신 복귀/V3 | 구현 중 |
-| Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | 대기 |
+| Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
+| Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | handoff 준비 |
 
 ## Global Constraints
 
@@ -315,9 +315,23 @@ git commit -m "feat(gateway): persist BIO temporary ownership and partial writes
 
 **내구성 소비 범위 보완:** automation/automation-state-store.ts 및 automation-state-store.test.ts도 Modify/commit/직접 covering 범위에 포함한다. 실제 end-before-start에서는 API가 뒤의 start 전달을 보류하므로 존재하지 않는 start를 기다리거나 조작하지 않고 genuine end-only 결과/최소 settlement proof를 보존해야 한다. Task6의 strict reservation/slot/revision 검증을 약화시키지 않는다. 새 저장 타입이 필요하면 root에 정확한 제안/근거를 전달한 뒤 구현한다.
 
+**승인된 Task7 저장·복귀 계약 보완:**
+- `temporaryEndProofs:Record<sessionId,Record<fixtureId,TemporaryControlResult>>`는 authentic End에 귀속된 revision2/예약 release generation의 실제 RF0 proof를 보존한다. Durable start+mutation-intent-before-apply 불변식이 검증된 end-only 경로만 proof를 생성하며, 단순 row 부재는 증거가 아니다. exact End/identity/pair/hash parser를 유지하고 outbox 정리 뒤에도 proof/fence를 남긴다. rejected receipt는 settlement가 아니다.
+- `bioNormalConfigurations:Record<fixtureId,{identity:Pick<TemporaryFixtureSnapshot,"fixtureId"|"meshNodeId"|"nativeUuid"|"logicalAddress">;siteId:string;gatewayId:string;assignmentVersion:number;networkId:number;configuration:BioConfigurationState;observedAt:string;baselineBrightness:number|null;snapshotRevision:number;snapshotPayloadHash:string}>`는 overlay가 없는 상태에서 독립 GET으로 확인한 full normal mode/high configuration 권위다. 현재 신원/귀속/network/baseBrightness marker를 검증하고 GET 직후·durable commit 전에 no-overlay/revision/health를 재검사한다. Overlay의 preState나 scalar만으로 정상 mode를 추정하지 않는다. 권위가 없거나 stale하면 신규 apply는 첫 SET 전 RF0 거절, 이미 변경 가능성이 있는 session은 lease/recovery_pending을 유지한다.
+- `PersistedTemporaryTarget.releaseAcknowledged:boolean`은 현재 revision2 terminal proof에 대한 exact APPLIED receipt만 true다. verified restore 또는 ever-mutation 없는 genuine RF0만 대상별로 settle/lease clear하며, 다른 미해결 대상은 유지한다. rejected/unknown observation/outbox 부재는 성공이 아니고 stale ACK는 successor 또는 이미 settle된 대상을 되돌리지 않는다. Aggregate terminal은 모든 대상의 settlement 뒤다.
+- 이 세 신규 필드만 이전에 검증된 V10에서 부재 시 각각 empty/false로 읽고 canonical write에는 필수로 저장한다. 기존 필드/strict reservation/slot/revision을 완화하지 않는다.
+- 기존 `prepareManualControl`의 durable permanent-mutation 경계와 새 `withConfigurationMutation(fixtureId,operation)` seam에서 full normal proof를 SET 이전에 무효화한다. Lease veto가 먼저이며 실패/불확실 mutation 후 오래된 proof를 복구하지 않는다. GET은 무효화하지 않는다.
+- Sensor normal 복귀와 lease clear 직후의 scheduler tick이 scalar force-on/off로 복귀를 덮어쓰면 안 된다. BIO normal 경로는 유효한 full configuration 권위를 사용하거나 안전하게 보류하고, sensor GET을 광출력으로 간주하지 않는다. 기존 영구/기본 제어와 event>schedule>normal 의미를 유지하며 temporary 밝기를 baseline으로 승격하지 않는다. 이미 지정한 release/production integration tests에서 이 경계를 검증한다.
+- Modify/commit 소유에 `apps/gateway/src/bio/bio-pulse-authority-provider.ts`의 known V2/V3 binding 소비를 추가한다. BIO wire/report version2는 유지한다. 별도 기존 provider test 파일은 없으므로 지정된 production-bio-pulse-integration.test.ts에서 검증한다.
+- 직접 연관 `apps/gateway/src/automation/schedule-runtime-bio.test.ts:21` fixture의 `releaseAcknowledged:false` 한 줄만 Modify/commit 범위에 추가한다. 이 파일은 타입 검증만 하며 제외된 Task6 cohort를 다시 실행하지 않는다.
+- 최종201/201·type/build 뒤 발견한 retained-normal-proof V3→V1 downgrade 저장실패 경계는 durable invalidation으로 수리한다. Proof 없는 legacy V1은 유지한다. Named production regression/type/diff만 다시 검증하고 최종 source 반영 Gateway build 한 번 추가를 승인했다(총 두 번). Pre-fix 증거를 보존하고 전체 cohort/Task6는 반복하지 않는다.
+- Review round1: 이미 서버가 exact APPLIED로 확정한 terminal event의 settlement는 current 로컬 목표/releaseResult 변화로 폐기하지 않는다. Server settlement/최신 로컬 출력 검증을 분리하고 successor 변경/old RF replay는 금지한다. Final source preflight await 동안 target mapping 변경을 native 제출까지 검출한다. Named release/outbox/production covering+type/diff만 다시 실행한다.
+- Round1 handoff는 pending proof freeze가 아니라 exact APPLIED receipt 실제 관측의 직렬화 경계다. 관측 전 독립 GET·current owner/health/identity/generation의 offline 최신 자동 목표 갱신을 유지한다. Retained accepted event는 historical server settlement이며 old owner의 lease/lastDesired만 정리하고 후속 old retry는 금지한다. Full-normal proof는 scalar baseline 없이 기존 event/schedule candidate 권위로 사용할 수 있지만 temp/high baseline 승격은 없다. Existing mapping onChange epoch+post-source reread+final native sync fence/stop unsubscribe로 마지막 await race를 막는다.
+- Ordinary full-config normal/event/schedule 소비도 existing factory의 trusted async preflight/sync mapping-source-transport native fence hook을 요구한다. Hook 부재/candidate authority 부재는 defer/RF0이며 optional constructor로 production allow-all을 만들지 않는다. Proof 없는 legacy는 보존하고 해당 named production fixture는 hook을 명시 주입한다. 소유 factory/ScheduleRuntime 안에서만 연결하며 새field/API/adapter/file/USB listener는 없다.
+
 **Files:** Create apps/gateway/src/automation/bio-temporary-release.ts, bio-temporary-release.test.ts, temporary-control-mqtt.ts, temporary-control-mqtt.test.ts, temporary-control-result-outbox.ts, temporary-control-result-outbox.test.ts; Modify automation/{bio-temporary-control-runtime.ts,bio-product-pulse-controller.ts,bio-pulse-scheduler.ts,bio-source-target-guard.ts,vehicle-event-runtime.ts,schedule-runtime.ts,automation-runtime.ts,automation-current-config-requester.ts}, apps/gateway/src/index.ts, docs/menus/control.md. Test(existing) automation/{production-bio-pulse-integration.test.ts,bio-source-target-guard.test.ts,automation-runtime.test.ts,automation-current-config-requester.test.ts,automation-config-store.test.ts,automation-config-ack-outbox.test.ts,vehicle-event-runtime.test.ts}; 새 release test의 file-store로 restart/ACK replay를 검증한다.
 **Consumes:** Tasks1/5/6 contract/evaluator/lease, 기존 product BIO authority/current activation/정상 configuration 증거. **Produces:** bio-temporary-release.ts의 BioAutomaticTarget={configuration:BioConfigurationState,restorationRevision:number,restorationPayloadHash:string,sourceIdentity:string|null}; resolveLatestBioAutomaticTarget(input:{fixtureId:string;snapshot:AutomationSnapshot;state:PersistedAutomationStateV10;now:Date}):BioAutomaticTarget|{reason:string}; runtime.release(command:EndTemporaryControlCommand):Promise<void>, expire(now:Date):Promise<void>, stopAndDrain():Promise<void>; temporary-control-result-outbox.ts의 TemporaryControlResultOutbox.persist(result:TemporaryControlResult):Promise<void>, confirm(receipt:TemporaryControlIngestedReceipt):Promise<boolean>.
-- [ ] **Step 1 / RED test:** partialMutation+applyConfirmed 대상은 관측·재평가 후 복귀하고 unchanged를 증명한 대상만 제외한다. GET/fsync 사이 snapshot/health/lease 변경을 주입한다.
+- [x] **Step 1 / RED test:** partialMutation+applyConfirmed 대상은 관측·재평가 후 복귀하고 unchanged를 증명한 대상만 제외한다. GET/fsync 사이 snapshot/health/lease 변경을 주입한다.
 ~~~ts
 it("release_revision_race_and_degraded_release", async () => {
   await h.beginReleaseThenChangeRevision(); expect(h.lastAppliedRevision()).toBe(h.latestRevision);
@@ -330,15 +344,16 @@ it("offline_expiry_uses_reserved_release_fence", async () => {
   expect(h.serverCounterAllocationsDuringExpiry()).toBe(0);
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm --filter @led-control/gateway test src/automation/bio-temporary-release.test.ts src/automation/temporary-control-mqtt.test.ts src/automation/temporary-control-result-outbox.test.ts src/automation/production-bio-pulse-integration.test.ts src/automation/bio-source-target-guard.test.ts src/automation/automation-runtime.test.ts src/automation/automation-current-config-requester.test.ts src/automation/automation-config-store.test.ts src/automation/automation-config-ack-outbox.test.ts src/automation/vehicle-event-runtime.test.ts. 최신 release revision/oldACK/knownV3/source 보호/예약 offline fence assertion FAIL.
-- [ ] **Step 3 / 최소 코드:** release intent/tombstone→exact GET→현재 자동 목표→RF 직전 revision/health/generation 재검증→restoreConfiguration high+mode GET→durable result 순서를 지킨다. 기존 event>schedule>normal 우선 의미와 still-valid activation을 유지하고 만료 hold/중간 pulse 재활성은 금지한다. 안전 목표를 결정할 수 없으면 recovery_pending으로 owner를 유지한다.
+- [x] **Step 2 / RED 실행:** pnpm --filter @led-control/gateway test src/automation/bio-temporary-release.test.ts src/automation/temporary-control-mqtt.test.ts src/automation/temporary-control-result-outbox.test.ts src/automation/production-bio-pulse-integration.test.ts src/automation/bio-source-target-guard.test.ts src/automation/automation-runtime.test.ts src/automation/automation-current-config-requester.test.ts src/automation/automation-config-store.test.ts src/automation/automation-config-ack-outbox.test.ts src/automation/vehicle-event-runtime.test.ts. 최신 release revision/oldACK/knownV3/source 보호/예약 offline fence assertion FAIL.
+- [x] **Step 3 / 최소 코드:** release intent/tombstone→exact GET→현재 자동 목표→RF 직전 revision/health/generation 재검증→restoreConfiguration high+mode GET→durable result 순서를 지킨다. 기존 event>schedule>normal 우선 의미와 still-valid activation을 유지하고 만료 hold/중간 pulse 재활성은 금지한다. 안전 목표를 결정할 수 없으면 recovery_pending으로 owner를 유지한다.
   V3 snapshot은 해당 version으로 install한다. 관련 schemaVersion===2 분기를 known helper로 갱신해 V3 BIO/source reservation/telemetry/store 내구성을 보호한다. index.ts1059 부근 선언과 requester를 V3로 바꾸고 Task1 새 topics의 strict scope/router/outbox를 MQTT에 연결한다. 검증 dataset을 config store에 저장하고 next/actual에 Task5 evaluator를 사용한다. result outbox는 저장된 originCommandHash/admissionRevision과 별도 restorationRevision을 그대로 replay하고 exact ingested receipt 뒤에만 해당 event를 정리한다.
-- [ ] **Step 4 / GREEN:** Step2 동일+pnpm --filter @led-control/gateway typecheck; pnpm --filter @led-control/gateway build 한 번. release-before-start·end-after-expiry·권한 취소 후 안전 만료·late apply/release·identity 변경·partial terminal fsync/restart·source health fault·동일 부팅 monotonic/재시작 absolute·offline holiday·V2 보존/V3 source 보호 PASS. 카운트다운0/PUBACK는 restored 증거가 아니며 새 USB listener는 만들지 않는다.
-- [ ] **Step 5 / 소유 commit:**
+- [x] **Step 4 / GREEN:** Step2 동일+pnpm --filter @led-control/gateway typecheck; pnpm --filter @led-control/gateway build 한 번. release-before-start·end-after-expiry·권한 취소 후 안전 만료·late apply/release·identity 변경·partial terminal fsync/restart·source health fault·동일 부팅 monotonic/재시작 absolute·offline holiday·V2 보존/V3 source 보호 PASS. 카운트다운0/PUBACK는 restored 증거가 아니며 새 USB listener는 만들지 않는다.
+- [x] **Step 5 / 소유 commit:**
 ~~~bash
 git add apps/gateway/src/automation/bio-temporary-release.ts apps/gateway/src/automation/bio-temporary-release.test.ts apps/gateway/src/automation/temporary-control-mqtt.ts apps/gateway/src/automation/temporary-control-mqtt.test.ts apps/gateway/src/automation/temporary-control-result-outbox.ts apps/gateway/src/automation/temporary-control-result-outbox.test.ts apps/gateway/src/automation/bio-temporary-control-runtime.ts apps/gateway/src/automation/bio-product-pulse-controller.ts apps/gateway/src/automation/bio-pulse-scheduler.ts apps/gateway/src/automation/bio-source-target-guard.ts apps/gateway/src/automation/bio-source-target-guard.test.ts apps/gateway/src/automation/vehicle-event-runtime.ts apps/gateway/src/automation/vehicle-event-runtime.test.ts apps/gateway/src/automation/schedule-runtime.ts apps/gateway/src/automation/automation-runtime.ts apps/gateway/src/automation/automation-runtime.test.ts apps/gateway/src/automation/automation-current-config-requester.ts apps/gateway/src/automation/automation-current-config-requester.test.ts apps/gateway/src/automation/automation-config-store.test.ts apps/gateway/src/automation/automation-config-ack-outbox.test.ts apps/gateway/src/automation/production-bio-pulse-integration.test.ts apps/gateway/src/index.ts docs/menus/control.md
 git add apps/gateway/src/automation/automation-config-store.ts
 git add apps/gateway/src/automation/automation-state-store.ts apps/gateway/src/automation/automation-state-store.test.ts
+git add apps/gateway/src/bio/bio-pulse-authority-provider.ts apps/gateway/src/automation/schedule-runtime-bio.test.ts
 git commit -m "feat(gateway): verify latest BIO automatic restoration and V3"
 ~~~
 
