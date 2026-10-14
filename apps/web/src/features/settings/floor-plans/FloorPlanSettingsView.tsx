@@ -2,7 +2,7 @@ import { FileImage, LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-reac
 import { Link, useLocation } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useDashboard, type SiteCapabilities } from "../../../api/queries";
-import { Card, FeedbackState, Text, StatusBadge } from "../../../components/ui";
+import { LoadingState, Card, FeedbackState, Text, StatusBadge  } from "../../../components/ui";
 import { settingsActionLinkClass } from "../settings-action-link";
 import { FloorPlanPreview } from "./FloorPlanPreview";
 
@@ -44,7 +44,7 @@ export function FloorPlanSettingsView({ siteId, capabilities }: FloorPlanSetting
   return (
     <section className="grid min-w-0 gap-4">
       <Text tone="secondary">{canEdit ? "층별 맵을 확인하고 편집합니다." : "층별 맵 설정 상태를 조회합니다."}</Text>
-      {isLoading && <FeedbackState icon={LoaderCircle} title="도면 목록을 불러오는 중" />}
+      {isLoading && <LoadingState title="도면 목록을 불러오는 중" />}
       {error && <FeedbackState tone="danger" icon={TriangleAlert} title="도면 목록을 불러오지 못했습니다." />}
       {data && (data.floors.length === 0
         ? <FeedbackState icon={FileImage} title="등록된 층이 없습니다." description="현장 관리에서 층을 추가한 뒤 맵을 편집할 수 있습니다." />

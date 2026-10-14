@@ -3,7 +3,7 @@ import { Lightbulb, Square, SkipForward, Check } from "lucide-react";
 import type { FixtureIdentifyResponse } from "@led-control/shared";
 import { identifyFixture, acquireFloorEditorLease } from "../../api/floor-editor";
 import { ApiError } from "../../api/client";
-import { Button } from "../../components/ui";
+import { Button, LoadingIndicator } from "../../components/ui";
 import { useFloorEditorStore } from "./editor-store";
 
 interface ActiveSession { floorId: string; fixtureId: string; sessionId: string; expiresAt: number; leaseToken: string; leaseFence: number }
@@ -105,6 +105,7 @@ export function FixtureIdentifyPanel({ floorId, readOnly, leaseToken, leaseFence
   return <section className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-3" aria-label="조명 위치 확인" data-fixture-identify-panel=""><h3 className="m-0 text-card-title text-content-primary">조명 위치 확인</h3>
     <strong className="text-label text-content-primary">{fixture?.name ?? state?.fixtures.find((f) => f.id === session?.fixtureId)?.name}</strong>
     {session && session.fixtureId !== fixture?.id && <p className="m-0 text-body-sm text-content-secondary">진행 중인 식별 대상: {state?.fixtures.find((f) => f.id === session.fixtureId)?.name}</p>}
+    {pending && <LoadingIndicator>위치 확인 요청을 처리하는 중입니다.</LoadingIndicator>}
     {message && <p className="m-0 text-body-sm text-content-secondary" role="status">{message}</p>}
     {session && <p className="m-0 text-body-sm text-content-secondary">{remaining > 0 ? `장비 자체 만료까지 최대 ${remaining}초` : "명령 유효 시간 종료 · 장비 자체 만료 시점 경과"}</p>}
     <div className="flex flex-wrap gap-2">

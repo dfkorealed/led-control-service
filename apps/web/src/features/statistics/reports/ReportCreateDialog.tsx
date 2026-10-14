@@ -2,7 +2,7 @@ import type { EnergyReportRequest, EnergyReportTargetsResponse, EnergyScope } fr
 import { useEffect, useRef, useState } from "react";
 import type { MobileFileDownloadOutcome } from "../../mobile/file-download";
 import { energyReportRequestErrorMessage, type EnergyReportRequestAction } from "../../../api/energy";
-import { Button, DatePicker, formatIsoDate, ModalDialog, parseIsoDate, SelectBox, Text } from "../../../components/ui";
+import { LoadingIndicator, Button, DatePicker, formatIsoDate, ModalDialog, parseIsoDate, SelectBox, Text  } from "../../../components/ui";
 import { completedDateBounds } from "../completed-date-bounds";
 
 const scopeItems: Array<{ id: EnergyScope; label: string }> = [
@@ -121,7 +121,7 @@ export function ReportCreateDialog({
         <SelectBox label="범위" items={scopeItems} selectedKey={scope} onSelectionChange={(value) => value && setReportScope(value)} />
         <SelectBox label="대상" items={targets.map((target) => ({ id: target.identityId, label: target.label }))}
           selectedKey={hasValidTarget ? identityId : null} isDisabled={Boolean(targetMessage)} onSelectionChange={(value) => value && setIdentityId(value)} />
-        {targetMessage ? <Text role="status" variant="body-sm" tone="secondary" className="col-span-full">{targetMessage}</Text> : null}
+        {targetMessage ? isTargetsLoading ? <LoadingIndicator className="col-span-full">{targetMessage}</LoadingIndicator> : <Text role="status" variant="body-sm" tone="secondary" className="col-span-full">{targetMessage}</Text> : null}
         {completedDate && !validPeriod ? <Text role="alert" variant="body-sm" tone="danger" className="col-span-full">시작일과 종료일을 마지막 완료일 이내의 순서대로 선택해 주세요.</Text> : null}
       </div>
     </ModalDialog>

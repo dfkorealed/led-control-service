@@ -13,6 +13,22 @@ vi.mock("../../../api/energy", () => ({
 }));
 
 describe("StatisticsAnalysisPage", () => {
+  it.each(["summary", "ranking"])("shows a paused %s request without animation and resumes real loading", source => {
+    const pending = { data: undefined, isLoading: false, isPending: true, isFetching: false, isPaused: true, isError: false, refetch: vi.fn() };
+    if (source === "summary") mocks.summary.mockReturnValue(pending);
+    else mocks.hook.mockReturnValue(pending);
+    const view = render(analysisPage());
+    const waiting = screen.getByText("네트워크 연결을 기다리고 있습니다.").closest('[role="status"]');
+    expect(waiting).not.toHaveAttribute("aria-busy", "true");
+    expect(waiting?.querySelector("svg")).not.toHaveClass("animate-spin");
+    const fetching = { ...pending, isPaused: false, isLoading: true, isFetching: true };
+    if (source === "summary") mocks.summary.mockReturnValue(fetching);
+    else mocks.hook.mockReturnValue(fetching);
+    view.rerender(analysisPage());
+    const loading = screen.getByText("사용량 순위를 계산하는 중").closest('[role="status"]');
+    expect(loading).toHaveAttribute("aria-busy", "true");
+    expect(loading?.querySelector("svg")).toHaveClass("animate-spin");
+  });
   it("summarizes only the selected period outside the filters", () => {
     renderPage();
     const conditions = screen.getByRole("region", { name: "사용량 분석 조건" });

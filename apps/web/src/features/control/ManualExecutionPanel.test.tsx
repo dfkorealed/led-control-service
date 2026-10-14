@@ -14,6 +14,17 @@ function setup(locked = false, eligible = true) {
   render(<Draft />); return submit;
 }
 describe("ManualExecutionPanel", () => {
+  it.each([false, true])("shows only request transmission as loading without expanding the compact control (%s)", compact => {
+    const submit = vi.fn();
+    const view = render(<ManualExecutionPanel brightness={70} compact={compact} controlsLocked canSubmit={false} applyLabel="명령 전송 중" isSubmitting onBrightnessChange={vi.fn()} onSubmit={submit} />);
+    const button = screen.getByRole("button", { name: "명령 전송 중" });
+    expect(button.querySelector("svg")).toHaveClass("animate-spin");
+    expect(button).toBeDisabled();
+    if (compact) expect(button).toHaveTextContent("적용");
+    fireEvent.click(button); expect(submit).not.toHaveBeenCalled();
+    view.rerender(<ManualExecutionPanel brightness={70} compact={compact} controlsLocked canSubmit={false} applyLabel="확인 필요" onBrightnessChange={vi.fn()} onSubmit={submit} />);
+    expect(screen.getByRole("button", { name: "확인 필요" }).querySelector("svg")).toBeNull();
+  });
   it("C6-8 compact More keeps the raw draft and explicit Apply independent of its auxiliary content", () => {
     const submit = vi.fn();
     function CompactDraft() {

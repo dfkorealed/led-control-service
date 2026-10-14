@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { LoadingIndicator, Button, Card, Heading, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem  } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -589,10 +589,10 @@ export function ControlView({
       <section className={controlScreenClassName} data-control-screen="">
         {modeTabs}
         {eventSiteId ? (
-          <Suspense fallback={<Text tone="muted" role="status">이벤트 화면을 불러오는 중입니다.</Text>}>
+          <Suspense fallback={<LoadingIndicator>이벤트 화면을 불러오는 중입니다.</LoadingIndicator>}>
             <VehicleEventControlPanel key={`${userId}:${eventSiteId}`} siteId={eventSiteId} role={userRole} dashboard={data} scopeKey={`${userId}:${eventSiteId}`} />
           </Suspense>
-        ) : isLoading ? <Text tone="muted" role="status">현장 정보를 불러오는 중입니다.</Text> : <Text tone="danger" role="alert">이벤트 현장을 확인하지 못했습니다.</Text>}
+        ) : isLoading ? <LoadingIndicator>현장 정보를 불러오는 중입니다.</LoadingIndicator> : <Text tone="danger" role="alert">이벤트 현장을 확인하지 못했습니다.</Text>}
       </section>
     );
   }
@@ -610,7 +610,7 @@ export function ControlView({
                 role="tabpanel"
                 aria-labelledby="control-mode-schedule"
               >
-                <Text tone="muted" role="status">스케줄 화면을 불러오는 중입니다.</Text>
+                <LoadingIndicator>스케줄 화면을 불러오는 중입니다.</LoadingIndicator>
               </div>
             )}
           >
@@ -623,7 +623,7 @@ export function ControlView({
             />
           </Suspense>
         ) : isLoading ? (
-          <Text tone="muted" role="status">현장 정보를 불러오는 중입니다.</Text>
+          <LoadingIndicator>현장 정보를 불러오는 중입니다.</LoadingIndicator>
         ) : (
           <Text tone="danger" role="alert">스케줄 현장을 확인하지 못했습니다.</Text>
         )}
@@ -632,7 +632,7 @@ export function ControlView({
   }
 
   if (isLoading && !data) {
-    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상을 불러오는 중입니다.</Text></section>;
+    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<LoadingIndicator>제어 대상을 불러오는 중입니다.</LoadingIndicator></section>;
   }
 
   if (error && !data) {
@@ -742,7 +742,7 @@ export function ControlView({
             </div>
           </section>
           <ManualExecutionPanel key={`${userId}:${data.site.id}`} compact={singleColumnLayout} importantStatus={importantStatus}
-            moreContent={auxiliaryContent} brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+            moreContent={auxiliaryContent} brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit} isSubmitting={isSubmitting}
                 applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
                 onBrightnessChange={setBrightness} onSubmit={submitCommand} />
         </SidePanel>
@@ -839,7 +839,7 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
       {scopedActiveRequest && !scopedCommandId && replayRejected ? <Text tone="danger">안전을 위해 재전송할 수 없습니다. 확인 필요한 명령을 조회하세요.</Text> : null}
       {scopedActiveRequest && replayRejected && awaitingCaseRelease ? <div className="grid gap-2">
         <Text tone="warning">위험 승인은 기록됐습니다. 서버의 차단 해제를 확인할 때까지 새 제어는 잠겨 있습니다.</Text>
-        <Button type="button" variant="secondary" disabled={isCaseReleaseFetching} onClick={onRefreshCaseRelease}>차단 상태 다시 조회</Button>
+        <Button type="button" variant="secondary" disabled={isCaseReleaseFetching} isLoading={isCaseReleaseFetching} loadingLabel="차단 상태 조회 중" onClick={onRefreshCaseRelease}>차단 상태 다시 조회</Button>
       </div> : null}
       {message ? <Text tone={message.startsWith("명령을 전송") ? "success" : "danger"}>{message}</Text> : null}
       {verificationError ? <Text tone="danger" role="alert">{verificationError}</Text> : null}
@@ -865,20 +865,20 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
     </> : null}
     {hasMismatchedCommandStatus && !missingCommand ? <div className="grid gap-2" role="alert">
       <Text tone="danger">명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.</Text>
-      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
-        {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching} isLoading={isCommandFetching} loadingLabel="명령 상태 조회 중">
+        명령 상태 다시 조회
       </Button>
     </div> : null}
     {(missingCommand || retentionExpired) && detailCommandId ? <div className="grid gap-2" role="alert">
       <Text tone="danger">{isCommandExpiredError(commandError) ? "상세 보관 종료. 최근 3개월의 명령 상세만 조회할 수 있습니다." : retentionExpired ? "상세 보관 기한을 지나 서버 확인이 필요합니다." : "명령 원본을 찾을 수 없습니다."} 실제 상태 확인 전까지 제어 잠금을 유지합니다.</Text>
-      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
-        {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching} isLoading={isCommandFetching} loadingLabel="명령 상태 조회 중">
+        명령 상태 다시 조회
       </Button>
     </div> : null}
     {commandError && detailCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? <div className="grid gap-2" role="alert">
       <Text tone="danger">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</Text>
-      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
-        {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching} isLoading={isCommandFetching} loadingLabel="명령 상태 조회 중">
+        명령 상태 다시 조회
       </Button>
     </div> : null}
   </div>;

@@ -7,6 +7,7 @@ export interface ManualExecutionPanelProps {
   controlsLocked: boolean;
   canSubmit: boolean;
   applyLabel: string;
+  isSubmitting?: boolean;
   onBrightnessChange: (value: number) => void;
   onSubmit: () => void;
   /** Manual mobile presentation only; desktop/default consumers keep all controls expanded. */
@@ -16,7 +17,7 @@ export interface ManualExecutionPanelProps {
 }
 
 /** Draft presentation only: the parent retains command ownership and eligibility. */
-export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus }: ManualExecutionPanelProps) {
+export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, isSubmitting = false, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus }: ManualExecutionPanelProps) {
   const [inlineMoreOpen, setMoreOpen] = useState(false);
   const auxiliary = useManualAuxiliary();
   const moreOpen = compact && auxiliary ? auxiliary.active === "more" : inlineMoreOpen;
@@ -63,7 +64,7 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
   // One editable input stays mounted while auxiliary content is disclosed.
   // Blur/Enter and the first invalid Apply guard remain owned by this draft.
   const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? `${manualCompactButtonHitClassName} px-2 text-caption` : "max-compact:scroll-mb-shell-navigation-safe"}
-    aria-label={applyLabel} onClick={() => {
+    isLoading={isSubmitting} loadingLabel={compact ? "적용" : "명령 전송 중"} aria-label={applyLabel} onClick={() => {
       if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
       if (!rawValid.current || restoring.current || !canSubmit) return;
       onSubmit();

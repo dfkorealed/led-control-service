@@ -2,6 +2,21 @@
 
 기준일: 2026-10-14
 
+## 2026-10-14 공통 로딩 전체 Web 적용 — 구현·소프트웨어 검증·읽기 전용 리뷰 완료
+
+- 사용자의 적용 승인으로 `fa5ab18b`의 현재 checkout에서 Web 표시만 갱신한다. 기존 맵의 LoaderCircle/20px/reduced-motion을 `components/ui/LoadingIndicator.tsx`의 시각 요소와 inline 상태, `LoadingState.tsx`의 패널 상태로 재사용한다. Button/IconTooltipButton·라우트/목록/상세/다이얼로그·검색/다음 페이지·실제 요청 버튼에 연결하며 API/query 조건·장비/DB/인증 로직은 변경하지 않는다.
+- 캐시가 있는 재조회에 전체 overlay를 추가하지 않는다. paused는 spinner 없이 연결 대기, disabled 날짜조회는 입력 안내, 오류/빈 결과/장비 미확정은 기존 상태로 유지한다. 맵 accessible host/portal·visit token·첫 paint/오류 완료와 CAD 단계별 진행률·보고서 생성 상태는 그대로다. 공개 상담의 focusable aria-disabled 제출은 native guard를 유지하고 spinner만 추가한다.
+- 실행 체크리스트(writing-plans): [x] 시작 HEAD·기존 dirty 보존/전체 로딩 audit, [x] 기존 baseline/신규 core·소비자 RED, [x] 공통 UI와 소비자 GREEN, [x] 전체 Web/타입/빌드/UI 정책 실행, [x] Chromium 전환·모바일/모션 검사, [x] 메뉴 문서/소스 manifest·증거 정리, [x] 총괄 최종 리뷰 통합. 총괄은 같은 체크리스트와 현재 상태를 함께 확인한다.
+- 현재 증거: 구현 전 focused baseline420PASS/ControlView5FAIL, core78/78·대표 소비자206/206·신규 요청/paused/공개문의47/47 GREEN. 전체 Web3756PASS/같은 ControlView5FAIL/3SKIP(exit1,52.90s), typecheck/build exit0, 정책79/79·기존/신규 위반0/0이다. 기존 실패를 전체 PASS로 기록하지 않으며 상세 이름과 원 로그는 최종 기록에 보존한다.
+- Inquiry 새 spinner assertion이 실패할 때 deferred 요청을 정리하지 못해 종료가 정체된 원 실행을 보존했다. verbose 예상 실패와 owned 요청 finally 정리 뒤 RED exit1→전체 Inquiry13/13 GREEN을 확인했다. 테스트 timeout/retry/검증 기준과 제품 제출 로직은 완화하지 않았다. 실제 상담 접수·장비/HIL·운영 배포·API/Pi 재시작·원격 작업은 미실행이다.
+- 최종 최소 검토 보완은 최초 층 조명·분석 summary/ranking·새 현장 header의 paused metadata와 층 복구 대상행의 실제 pending 표시다. Query/권한/복구 계약은 그대로 두고 RED→관련155/155 GREEN을 확인했다. 실제 cachedA→newB의 Query 상태 `pending/paused`, GET0→online spinner→ready와 미완성 날짜+새 검색의 `pending/idle` 비애니메이션을 회귀로 고정했다.
+- 마지막 freeze의 fresh Web 전체는254파일(252PASS/ControlView1FAIL/기존1SKIP), 3761PASS/구현 전과 같은 ControlView5FAIL/3SKIP(exit1,50.87s)다. 실패 이름은 `reopens historical detail with one close action in single-column=true without issuing physical control`, `preserves only the focused close action across single-column=false transitions`, 같은 `single-column=true transitions`, `group URL and roving focus survive back forward and theme`, `uses roving tab focus and selects modes with circular arrow, Home, and End keys`다. 전체 GREEN으로 축약하지 않는다.
+- 중간 전체2차는3756PASS/6FAIL/3SKIP으로 위5건 외 `FloorEditorView > previews CAD review results and applies with editor authority (common map: true, interruption: 'purge')`의 `data-preview-ready=false`가1000ms 대기에서 한 번 나타났다. 원 로그를 보존하고 같은 파일85/85 focused와 마지막 전체에서 미재현됨을 구분한다. 원인을 확정하거나 구현 전 baseline 실패로 분류하지 않았고 CAD 제품/타임아웃/검증 기준을 수정하지 않았다.
+- 마지막 typecheck/build exit0·정책79/79·기존/신규 위반0/0, 격리15204 fake-API Chromium12/12(exit0,46.9s)을 확인했다. 새8개는1440/390/320×600/320 reduced-motion의 route/list/아이콘 버튼/query→image paint/빈 결과/실패·overflow/버튼 프레임 불변이며 기존4개는 editor/monitoring 이미지·version-only 자동paint·readonly 도형/빈 맵 회귀다. 처음3개 browser cohort의 locator/matcher/실제 retry 완료 대기 오류는 원 로그에 따로 보존하고 제품 결함으로 합치지 않는다.
+- 증거는 `.local/common-loading-20261014`의 원 로그/소스 SHA manifest/화면/audit이며 코드 HEAD는 `fa5ab18b24f780746b1e4c40611b88b442f72b29`에서 커밋 없이 유지한다. AGENTS/LandingPage의 기존 전체 SHA와 landing 문서 원29531bytes prefix SHA를 보존하고 마지막에 승인된 표시 기록만 append했다. 전체 저장소 canonical/API/Gateway·실기기·실백엔드·배포/HIL 검증은 미실행이다.
+- 총괄이 최종 원로그와 diff를 직접 대조했고 같은 읽기 전용 reviewer의 최종 제품 판정은 Critical0/Important0/Minor0이다. 이번 표시 변경만 완료로 인계하며 기존 ControlView5개 실패·중간 CAD 미재현 실패·운영/HIL 한계는 해소 완료로 바꾸지 않는다. 커밋/머지/push는 하지 않았다.
+
+
 ## 2026-10-14 모든 조명 공통 센서 준비 UI — 메인/API·CRL 반영, 등록 시각 검증 후속
 
 - 사용자는 A/B 고정 대신 모든조명의 자유로운UI시험을 요청하고 공통 등록연결확인→센서사용설정의 bounded설계에 `진행해줘`로 승인했다. 로컬API만 검증 후 정상재기동하는 승인도 받았으며 Gateway/브로커재시작·DB/schema/인증·밝기변경·이벤트활성화/움직임시험으로 확대하지 않는다.

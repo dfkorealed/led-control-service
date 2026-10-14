@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FocusScope, useFocusManager } from "react-aria";
 import { isApiStatus } from "../../api/client";
-import { Button, DataGrid, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, StatusBadge, Text, useDateRangeDraft, type DateRangeValue, type DataGridColumn } from "../../components/ui";
+import { LoadingIndicator, Button, DataGrid, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, StatusBadge, Text, useDateRangeDraft, type DateRangeValue, type DataGridColumn  } from "../../components/ui";
 import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
 import { monitoringActivityContent, monitoringActivityStatus } from "./monitoring-activity-presentation";
 import type { MonitoringActivityItem } from "@led-control/shared";
@@ -97,7 +97,7 @@ export function MonitoringLogDrawer({ isOpen, onClose, returnFocusRef, fallbackF
       {invalidDates ? <Text role="status">시작일과 종료일을 모두 입력하고 날짜 순서를 확인하세요.</Text> : expired ? <section role="status" className="grid gap-3">
         <Text>보관 기간이 지나 이 페이지를 볼 수 없습니다.</Text>
         <Button variant="secondary" onClick={() => setCursorStack([""])}>최신 기록 보기</Button>
-      </section> : pending ? <Text role="status">운영 활동을 불러오는 중</Text>
+      </section> : !datesCommitted ? <Text role="status">조회 기간을 완성해 주세요.</Text> : pending ? <LoadingIndicator isPaused={query.isPaused}>운영 활동을 불러오는 중</LoadingIndicator>
         : query.error ? <section role="alert" className="grid gap-3">
           <Text>운영 활동을 불러오지 못했습니다.</Text>
           <Button variant="secondary" onClick={() => void query.refetch()}>다시 시도</Button>

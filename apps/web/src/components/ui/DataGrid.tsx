@@ -7,6 +7,7 @@ import { DataTableShell } from "./DataTableShell";
 import { DataTableHeaderCell } from "./DataTableHeaderCell";
 import { cn } from "./utils/cn";
 import { CustomerThemeContext } from "./theme/CustomerThemeProvider";
+import { LoadingIndicator } from "./LoadingIndicator";
 
 export type DataGridAlign = "left" | "center" | "right";
 export type DataGridSurface = "table" | "card";
@@ -78,7 +79,7 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
   const compactCards = variant === "compact" && !table;
   const customerCards = Boolean(customerTheme) && compactCards;
   const cellClass = cn("min-w-0 wrap-anywhere whitespace-normal", variant === "compact" ? "px-3 py-2" : "px-4 py-3");
-  const empty = emptyState ?? (isBusy ? "불러오는 중" : "항목이 없습니다.");
+  const empty = emptyState ?? (isBusy ? <LoadingIndicator>불러오는 중</LoadingIndicator> : "항목이 없습니다.");
   const rowKey = (row: T) => { const key = getRowKey(row); return `${typeof key}:${key}`; };
   const cardColumns = compactColumnIds ? compactColumnIds.map(id => columns.find(column => column.id === id)).filter((column): column is DataGridColumn<T> => Boolean(column)) : columns;
   const detailId = (row: T) => `${detailsId}-${encodeURIComponent(rowKey(row))}`;

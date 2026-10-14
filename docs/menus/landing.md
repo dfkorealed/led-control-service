@@ -94,3 +94,25 @@
 
 - 공개 경로, PDF 보고서 예시·형식 안내, 화면 문구·접근성, 상담 필드·동의·보관 정책, API 접수/오류 계약이 바뀌면 이 문서와 영향을 받는 [주요 기능](features.md), [통계](statistics.md), [요금제](pricing.md), [운영자 상담](operator.md) 문서를 같은 작업에서 갱신한다.
 - 자동 테스트, 실제 배포 연결, 최종 메일 수신의 검증 상태를 구분해 기록한다.
+
+## 2026-10-14 공통 로딩 표시 적용
+
+### 구현 완료
+
+- 기존 `InquiryForm`의 요청 pending에 공통20px spinner/reduced-motion을 적용했다. focusable native aria-disabled 제출·중복 guard·원 요청 식별자/성공/오류·포커스 계약을 유지하며 `isLoading`으로 native disabled를 강제하지 않는다. `LandingPage.tsx`의 기존 사용자 변경은 그대로 보존했다.
+
+### 미구현
+
+- 실제 상담 접수·NAVER WORKS 연결·메일 수신·운영 배포 검증은 수행하지 않았다. 공개 정적 연락 안내에 온라인 접수 기능을 새로 추가하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 소프트웨어 Inquiry 회귀13/13과 공통 loading 단위 검증을 확인했다. 초기 spinner RED에서 owned deferred를 finally에 정리하지 못해 테스트 종료가 정체된 원 기록을 보존하고, 정리 후 정상 RED→GREEN과 제품 전송 로직 보존을 구분한다. 브라우저는 fake API 증거이며 실제 접수/HIL 완료가 아니다.
+
+### 관련 파일
+
+- `apps/web/src/features/landing/InquiryForm.tsx`, `InquiryForm.test.tsx`, `components/ui/{Button,LoadingIndicator}.tsx`, `docs/project-status.md`.
+
+### 갱신 규칙
+
+- pending 표시 변경 시 native submit/aria-disabled/포커스·중복 방지와 오류/실제 접수 상태를 함께 검증한다. 원래의 랜딩 사용자 변경을 임의로 수정하거나 커밋하지 않는다.

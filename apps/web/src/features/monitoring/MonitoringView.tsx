@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { Button, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { LoadingSpinner, LoadingState, Button, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MapLoadingOverlay } from "../../components/ui/MapLoadingOverlay";
@@ -43,7 +43,7 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
   const { data, isLoading } = dashboardQuery;
 
   const pageHeader = <Heading as="h1" className="sr-only">모니터링</Heading>;
-  if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" /></section>;
+  if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<LoadingState title="모니터링 현황을 불러오는 중" /></section>;
   if (!data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></section>;
 
   return (
@@ -361,7 +361,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             {formatSnapshotUpdatedAt(snapshotFreshness, data.site.timeZone ?? "Asia/Seoul")}
           </Text>
           <Button ref={refreshButtonRef} variant="secondary" className="shrink-0 max-tablet:size-13 max-tablet:p-0" aria-label={isManualRefreshing ? "장치 상태 확인 중" : "새로고침"} disabled={isManualRefreshing} aria-busy={isManualRefreshing} onClick={() => void handleRefresh()}>
-            <RefreshCw aria-hidden="true" size={16} className={isManualRefreshing ? "animate-spin" : undefined} />
+            {isManualRefreshing ? <LoadingSpinner /> : <RefreshCw aria-hidden="true" size={16} />}
             <span className="max-tablet:hidden">{isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}</span>
           </Button>
       </div>
@@ -370,6 +370,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         enabled={Boolean(floor)}
         floorName={floor?.name}
         hasData={hasFixtureData}
+        isPaused={fixtureQuery.isPaused}
         error={fixtureQuery.error}
         onRetry={() => void fixtureQuery.refetch()}
       />
@@ -424,6 +425,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
             generatedAt={activityQuery.data?.generatedAt ?? null}
             retainedFrom={activityQuery.data?.retainedFrom ?? null}
             isPending={activityQuery.isPending}
+            isPaused={activityQuery.isPaused}
             error={activityQuery.error}
             isRefetchError={activityQuery.isRefetchError}
             timeZone={data.site.timeZone}
@@ -518,18 +520,20 @@ function FixtureQueryFeedback({
   enabled,
   floorName,
   hasData,
+  isPaused,
   error,
   onRetry
 }: {
   enabled: boolean;
   floorName: string | undefined;
   hasData: boolean;
+  isPaused: boolean;
   error: unknown;
   onRetry: () => void;
 }) {
   if (!enabled || hasData) return null;
   if (error) return <FeedbackState tone="danger" icon={TriangleAlert} title="조명 상태를 불러오지 못했습니다." action={<Button variant="secondary" onClick={onRetry}>조명 상태 다시 시도</Button>} />;
-  return <FeedbackState icon={Clock3} title={`${floorName ? `${floorName} ` : ""}조명 상태를 불러오는 중`} />;
+  return <LoadingState isPaused={isPaused} title={`${floorName ? `${floorName} ` : ""}조명 상태를 불러오는 중`} />;
 }
 
 type SnapshotFreshness = ReturnType<typeof getSnapshotFreshness>;

@@ -1,5 +1,27 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-14 공통 로딩 표시 적용
+
+### 구현 완료
+
+- 현황·층 조명 조회/다음 조명/운영 활동 목록과 요청 새로고침에 공통 spinner와 상태 문구를 적용했다. 맵 query/첫 paint의 기존 accessible host·portal과 이동/줌 비차단 계약은 유지한다. 새로고침은 기존 compact 아이콘 버튼의 프레임·disabled/aria-busy를 보존한다.
+
+### 미구현
+
+- 실장비/HIL·native WebView에서의 표시 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 캐시 갱신에 전체 overlay를 추가하지 않는다. 알람/장비 미확정·미관측 조명 상세는 실제 조회 완료와 다르므로 일반 spinner로 승격하지 않는다. offline 활동·최초 층 조명·새 현장 header 조회는 연결 대기로 표시한다. 마지막 mock Chromium12/12와 단위/기존 실패·총괄 최종 리뷰는 상태판에 구분한다.
+
+### 관련 파일
+
+- `components/ui/{LoadingIndicator,LoadingState,MapLoadingOverlay}.tsx`, `features/monitoring/{MonitoringView,MonitoringFixtureFinder,MonitoringLogDrawer,MonitoringLogTicker}.tsx`, 공통 헤더/세션 상태와 `e2e/common-loading.spec.ts`.
+
+### 갱신 규칙
+
+- 공통 loading 변경 시 제어/설정/통계의 오류·빈 결과·paused·캐시 보존과 reduced-motion을 함께 검증한다.
+
 - 2026-10-14 공통센서준비UI 조회정보: dashboard와 paged조명조회에 현재gateway.assignmentVersion만 추가해 정상등록재확인 요청을 현재배정에 결속한다. map/status/밝기해석·센서자격·권한/schema는 바꾸지 않는다. 해당조회unit36/36과 관련Web/모바일PC mock회귀를 확인했으며 실제적용과 감지시험은 별도다.
 - 후속17:41KST: 메인/API반영 후 현재4대offline·MQTTdown을정상표시한다. Gateway단독USB/transport/protocol/mapping은정상이지만 MQTT CRL이14:57:46KST만료다. CRL갱신은승인됐으며 기존issuer Vault기동확인대기다. 오전MQTT정상증거를현재상태로재사용하거나 offline을강제online으로변경하지 않는다.
 - 후속17:55KST CRL교체/동일broker reload로MQTT·Gateway heartbeat를복구했다.18:59API ready200/5dependency up이지만 DB조명4대offline은별도현재상태다. CRL복구/예전센서검증을모든조명online/사용가능판정으로대체하지 않는다. 기존ID/기본밝기·폐기2건/Root CRL은보존하며 갱신일10월17일17:55:21KST 전에새서명본갱신이필요하다.

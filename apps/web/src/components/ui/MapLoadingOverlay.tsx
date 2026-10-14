@@ -1,7 +1,7 @@
-import { LoaderCircle } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Text } from "./Typography";
+import { LoadingSpinner } from "./LoadingIndicator";
 
 const LoadingHost = createContext<HTMLElement | null>(null);
 
@@ -18,7 +18,7 @@ export function MapLoadingOverlay({ loading }: { loading: boolean }) {
   const content = <div role="status" aria-live="polite" aria-busy="true"
     className="absolute inset-0 z-20 grid place-items-center bg-surface-panel/95 p-3">
     <div className="flex min-w-0 items-center gap-2">
-      <LoaderCircle aria-hidden="true" className="size-5 shrink-0 animate-spin motion-reduce:animate-none text-content-secondary" />
+      <LoadingSpinner className="text-content-secondary" />
       <Text variant="body-sm" tone="secondary">맵을 불러오는 중입니다.</Text>
     </div>
   </div>;

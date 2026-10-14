@@ -689,6 +689,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                         />
                         <Button
                           variant="secondary"
+                          isLoading={excludeMutation.isPending && excludeMutation.variables === node.id}
+                          loadingLabel="제외 처리 중"
                           disabled={
                             !reconcileConfirmations.includes(node.id)
                             || excludeMutation.isPending
@@ -770,6 +772,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
           {sessionSnapshot.status === "active" ? (
             <Button
               variant="ghost"
+              isLoading={completeMutation.isPending || cancelMutation.isPending}
+              loadingLabel={hasProvisionedNode ? "등록 세션 완료 중" : "등록 세션 취소 중"}
               disabled={!isTerminalScan || hasUnresolvedNode || completeMutation.isPending || cancelMutation.isPending}
               onClick={() => hasProvisionedNode ? completeMutation.mutate() : cancelMutation.mutate()}
             >

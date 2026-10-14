@@ -38,7 +38,7 @@ export function CommandRiskReconcileDialog({ open, caseRecord, timeZone = "UTC",
   }
 
   return <ModalDialog isOpen={open} title="확인 불가 명령 위험 승인" description="이 작업은 명령을 재전송하지 않습니다. 실제 조명 상태를 확인한 책임과 사유가 감사 기록에 남습니다." onClose={onClose} isPending={pending}
-    actions={<Button type="button" variant="primary" disabled={!valid || pending} onClick={() => void submit()}>위험 승인 및 차단 해제</Button>}>
+    actions={<Button type="button" variant="primary" disabled={!valid || pending} isLoading={pending} loadingLabel="위험 승인 처리 중" onClick={() => void submit()}>위험 승인 및 차단 해제</Button>}>
     <div className="grid gap-4">
       <Text>영향 대상 {caseRecord.targetCount}개 조명 · 원본 명령 {caseRecord.originalCommandId}</Text>
       <RadioGroup label="확인 방법" value={method} onChange={(value) => setMethod(value as CommandCaseReconcileInput["verificationMethod"])} items={[

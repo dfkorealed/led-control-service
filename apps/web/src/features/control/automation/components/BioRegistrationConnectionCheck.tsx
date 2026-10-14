@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { applyBioRegistrationRevalidation, getBioRegistrationRevalidation, requestBioRegistrationRevalidation, type BioRegistrationRevalidationView } from "../../../../api/registration";
 import type { DashboardFixture } from "../../../../api/queries";
-import { Button, Text } from "../../../../components/ui";
+import { Button, LoadingIndicator, Text } from "../../../../components/ui";
 
 /** Repair the current audited registration only. A mode GET or successful apply
  * must never grant sensor eligibility, change brightness, or activate a rule. */
@@ -107,6 +107,7 @@ export function BioRegistrationConnectionCheck({ siteId, fixture, disabled, canP
       <Button type="button" variant="secondary" disabled={!allowed || pending || !canRestart} onClick={() => void start()}>등록 연결 확인</Button>
       {receipt ? <Button type="button" variant="secondary" disabled={!allowed || pending} onClick={resume}>등록 확인 결과 조회</Button> : null}
     </div>
+    {pending ? <LoadingIndicator>등록 연결 확인 요청을 처리하는 중입니다.</LoadingIndicator> : null}
     {message ? <Text aria-live="polite">{message}</Text> : null}
     {error ? <Text role="alert" tone="danger">{error}</Text> : null}
   </div>;

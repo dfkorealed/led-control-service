@@ -1,11 +1,27 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import * as api from "../../api/automation";
 import { SensorProfilesView } from "./SensorProfilesView";
 vi.mock("../../api/automation", async original => ({ ...await original<typeof import("../../api/automation")>(), listBioSensorProfiles: vi.fn(), createBioSensorProfile: vi.fn(), revokeBioSensorProfile: vi.fn() }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); onlineManager.setOnline(true); vi.clearAllMocks(); });
 function renderView(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) { return render(<QueryClientProvider client={client}><SensorProfilesView /></QueryClientProvider>); }
+it("shows offline waiting without a spinner and resumes real loading before an empty result", async () => {
+  onlineManager.setOnline(false);
+  let finish!: (value: never[]) => void;
+  vi.mocked(api.listBioSensorProfiles).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  renderView();
+  const waiting = screen.getByRole("status");
+  expect(waiting).toHaveTextContent("네트워크 연결을 기다리고 있습니다.");
+  expect(waiting).not.toHaveAttribute("aria-busy", "true");
+  expect(waiting.querySelector("svg")).toBeNull();
+  await act(async () => onlineManager.setOnline(true));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("프로파일 목록을 불러오는 중입니다."));
+  expect(screen.getByRole("status").querySelector("svg")).toHaveClass("animate-spin");
+  await act(async () => finish([]));
+  expect(await screen.findByText(/승인된 호환 프로파일이 없습니다/)).toBeVisible();
+  expect(screen.queryByRole("status")).toBeNull();
+});
 it("keeps an empty approval catalog honest and refuses malformed approval without a write", async () => {
   vi.mocked(api.listBioSensorProfiles).mockResolvedValue([]); renderView();
   expect(await screen.findByText(/승인된 호환 프로파일이 없습니다/)).toBeVisible();

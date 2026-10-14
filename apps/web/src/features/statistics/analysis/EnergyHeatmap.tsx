@@ -2,7 +2,7 @@ import type { EnergyHeatmapMetric } from "@led-control/shared/energy-p2-contract
 import type { EnergyObservedMeanResponse } from "@led-control/shared/energy-observed-mean-contracts";
 import { Activity, Grid3X3, TriangleAlert } from "lucide-react";
 import { Fragment, useRef, useState } from "react";
-import { Button, Card, FeedbackState, FilterPanel, Heading, Text } from "../../../components/ui";
+import { LoadingState, Button, Card, FeedbackState, FilterPanel, Heading, Text  } from "../../../components/ui";
 
 const weekdays = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
 
@@ -27,7 +27,7 @@ export function EnergyHeatmap({
   // Keep the metric overlay/trigger mounted while its query changes; replacing the whole
   // card during loading would destroy the active focus scope and its restore target.
   const feedback = isLoading
-    ? <FeedbackState icon={Activity} title="시간대별 사용량을 계산하는 중" />
+    ? <LoadingState title="시간대별 사용량을 계산하는 중" />
     : isError || !data
       ? <FeedbackState tone="danger" icon={TriangleAlert} title="시간대별 사용량을 불러오지 못했습니다."
         action={onRetry ? <Button variant="secondary" onClick={onRetry}>다시 시도</Button> : undefined} />

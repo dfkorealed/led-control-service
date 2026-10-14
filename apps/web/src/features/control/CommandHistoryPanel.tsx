@@ -4,7 +4,7 @@ import { FocusScope, useFocusManager } from "react-aria";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCommandHistory, type CommandStage, type CommandStatusResponse } from "../../api/commands";
 import { ApiError } from "../../api/client";
-import { Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, RecentActivityTicker, SearchField, SelectBox, StatusBadge, Text, cn, useDateRangeDraft, type DateRangeValue } from "../../components/ui";
+import { LoadingIndicator, Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, RecentActivityTicker, SearchField, SelectBox, StatusBadge, Text, cn, useDateRangeDraft, type DateRangeValue  } from "../../components/ui";
 import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
 import { formatControlTimestamp } from "./control-time";
 
@@ -130,7 +130,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
       <div className="min-w-0 flex-1">
         <RecentCommandInteraction.Provider value={{ onSelect, disabled, selectedCommandId }}>
           <RecentActivityTicker title="제어 이력" scopeKey={JSON.stringify([userId, siteId])} items={tickerRows}
-            emptyContent={latest.isPending ? <Text role="status">최근 명령을 불러오는 중입니다.</Text>
+            emptyContent={latest.isPending ? <LoadingIndicator isPaused={latest.isPaused}>최근 명령을 불러오는 중입니다.</LoadingIndicator>
               : latest.error ? <Text role="alert" tone="danger">최근 명령을 불러오지 못했습니다.</Text>
               : <Text>명령 이력이 없습니다.</Text>}
             onOpen={() => setOpen(true)} triggerRef={openerRef} triggerHasPopup="dialog"
@@ -169,7 +169,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
           onPageSizeChange={value => { preserveFocus(); setLimit(value); }} />}
       </CommandHistoryPager></FocusScope>} status={<>
         <Text variant="caption" tone="secondary">{retainedFrom ? `최근 3개월 · ${formatControlTimestamp(retainedFrom, timeZone)} (${timeZone})부터` : "이력 보관 기간을 확인할 수 없습니다."}</Text>
-        {pending ? <Text role="status">명령 이력을 불러오는 중입니다.</Text> : null}
+        {pending && !periodError ? <LoadingIndicator isPaused={history.isPaused}>명령 이력을 불러오는 중입니다.</LoadingIndicator> : null}
         {success && !page!.items.length ? <Text>{query || stage || period ? "조건에 맞는 명령이 없습니다." : "명령 이력이 없습니다."}</Text> : null}
         {history.error ? <div className="grid gap-2" role="alert"><Text tone="danger">{cursorExpired ? "이력 범위가 변경되었습니다. 첫 페이지를 다시 조회합니다." : "명령 이력을 불러오지 못했습니다."}</Text><Button variant="secondary" type="button" disabled={!canRetryHistory} onClick={retryHistory}>이력 다시 조회</Button></div> : null}
       </>}>

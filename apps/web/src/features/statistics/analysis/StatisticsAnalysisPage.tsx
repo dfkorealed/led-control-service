@@ -5,7 +5,7 @@ import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "luci
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyObservedMeanHeatmap, useEnergyRankings, useEnergySummary } from "../../../api/energy";
-import { Button, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft } from "../../../components/ui";
+import { LoadingState, Button, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft  } from "../../../components/ui";
 import { draftToDate } from "../../../components/ui/date/useDateDraft";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { completedDateBounds } from "../completed-date-bounds";
@@ -72,7 +72,7 @@ export function StatisticsAnalysisPage() {
       title="현장 기간 기준을 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => summary.refetch()}>다시 시도</Button>} /></section>;
   }
   if (!siteId || summary.isLoading || !defaults) {
-    return <section className="grid min-w-0 gap-6">{pageHeader}<FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
+    return <section className="grid min-w-0 gap-6">{pageHeader}<LoadingState isPaused={summary.isPaused} title="사용량 순위를 계산하는 중" /></section>;
   }
   return (
     <section className="grid min-w-0 gap-5 max-compact:gap-2" aria-label="사용량 분석 결과">
@@ -104,7 +104,7 @@ export function StatisticsAnalysisPage() {
       </FilterPanel>
       {!validRange ? <FeedbackState tone="danger" icon={TriangleAlert} title="완료된 기간을 선택해 주세요."
         description={`시작일과 종료일을 1~400일 범위로 선택하고 종료일은 ${defaults.to} 이전이어야 합니다.`} /> : null}
-      {validRange && !query.data && !query.isError ? <FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /> : null}
+      {validRange && !query.data && !query.isError ? <LoadingState isPaused={query.isPaused} title="사용량 순위를 계산하는 중" /> : null}
       {rankingMismatch ? <FeedbackState tone="danger" icon={TriangleAlert} title="선택 기간의 분석 응답이 일치하지 않습니다."
         action={<Button variant="secondary" onClick={() => query.refetch()}>다시 시도</Button>} /> : null}
       {validRange && query.isError ? <FeedbackState tone="danger" icon={TriangleAlert} title="사용량 분석을 불러오지 못했습니다."

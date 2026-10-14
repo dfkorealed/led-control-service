@@ -12,7 +12,7 @@ import { DataGrid, type DataGridColumn } from "../../components/ui/DataGrid";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
-import { formatTimestamp } from "../../components/ui";
+import { LoadingIndicator, LoadingState, formatTimestamp  } from "../../components/ui";
 
 const deliveryPresentation = {
   queued: { label: "발송 대기", tone: "neutral", icon: Clock3 },
@@ -45,7 +45,7 @@ export function LandingInquiriesView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
           <h2 className="text-card-title font-bold text-content-primary">NAVER WORKS 메일 연결</h2>
-          {mail.isPending ? <p className="text-content-secondary">연결 상태를 확인하는 중입니다.</p> : null}
+          {mail.isPending ? <LoadingIndicator isPaused={mail.isPaused}>연결 상태를 확인하는 중입니다.</LoadingIndicator> : null}
           {mail.isSuccess ? <p className="text-content-secondary">{mail.data.connected ? "연결됨" : "연결되지 않음"}</p> : null}
         </div>
         {mail.isSuccess ? <Button type="button" variant="primary" isLoading={isConnecting} loadingLabel="연결 시작 중" onClick={() => void connectMail()}>{mail.data.connected ? "NAVER WORKS 다시 연결" : "NAVER WORKS 연결"}</Button> : null}
@@ -58,7 +58,7 @@ export function LandingInquiriesView() {
 
     <div className="grid gap-3">
       <h2 className="text-card-title font-bold text-content-primary">최근 상담 문의</h2>
-      {inquiries.isPending ? <FeedbackState tone="neutral" icon={Clock3} title="문의 목록을 불러오는 중입니다." /> : null}
+      {inquiries.isPending ? <LoadingState isPaused={inquiries.isPaused} tone="neutral" title="문의 목록을 불러오는 중입니다." /> : null}
       {inquiries.isError ? <FeedbackState tone="danger" icon={CircleAlert} title="문의 목록을 불러오지 못했습니다." description="연결을 확인한 뒤 다시 시도하세요." action={<Button type="button" onClick={() => void inquiries.refetch()}>다시 시도</Button>} /> : null}
       {inquiries.isSuccess ? <DataGrid caption="최근 상담 문의 표" rows={inquiries.data.items} columns={inquiryColumns}
         getRowKey={item => item.reference} emptyState="접수된 상담 문의가 없습니다." /> : null}

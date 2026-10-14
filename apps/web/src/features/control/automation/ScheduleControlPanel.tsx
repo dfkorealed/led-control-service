@@ -21,7 +21,7 @@ import type { AuthUser } from "../../../api/auth";
 import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
+import { LoadingState, Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem  } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
@@ -485,13 +485,13 @@ export function ScheduleControlPanel({
         ) : null}
 
       <AutomationRuleWorkspace footer={!hasGlobalContract && schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError && !isAuthBlocked ? (
-        <Button variant="secondary" type="button" disabled={schedulesQuery.isFetchingNextPage} onClick={() => void loadNextPage()}>
-          {schedulesQuery.isFetchingNextPage ? "불러오는 중" : "스케줄 더 보기"}
+        <Button variant="secondary" type="button" disabled={schedulesQuery.isFetchingNextPage} isLoading={schedulesQuery.isFetchingNextPage} loadingLabel="불러오는 중" onClick={() => void loadNextPage()}>
+          스케줄 더 보기
         </Button>
       ) : undefined}>
 
-      {schedulesQuery.isLoading ? <FeedbackState icon={Clock3} title="스케줄을 불러오는 중입니다." /> : null}
-      {isSearchPending ? <FeedbackState icon={Clock3} title="검색 조건을 적용 중입니다." /> : null}
+      {schedulesQuery.isLoading ? <LoadingState title="스케줄을 불러오는 중입니다." /> : null}
+      {isSearchPending ? <LoadingState title="검색 조건을 적용 중입니다." /> : null}
       {queryFailure && !isNonBlockingQueryFailure ? (
         <FeedbackState
           tone={(schedulesQuery.isRefetchError || visiblePollError) && !isScheduleUnauthorized(effectiveError) ? "warning" : "danger"}

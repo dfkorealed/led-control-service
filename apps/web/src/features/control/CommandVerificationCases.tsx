@@ -5,7 +5,7 @@ import {
   type CommandVerificationCase
 } from "../../api/commands";
 import { ApiError } from "../../api/client";
-import { Button, DrawerDialog, Text } from "../../components/ui";
+import { LoadingIndicator, Button, DrawerDialog, Text  } from "../../components/ui";
 import { clearPendingCaseStatusCheck, loadPendingCaseStatusCheck, saveRecentResolvedCaseId } from "./active-command-store";
 import { formatControlTimestamp } from "./control-time";
 
@@ -100,7 +100,7 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
       }}>다음</Button></div>}>
       <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-3">
         <div className="grid min-h-0 content-start gap-2 overflow-y-auto overscroll-contain" aria-label="확인 필요 case 목록">
-          {cases.isPending ? <Text role="status">확인 필요한 명령을 불러오는 중입니다.</Text> : null}
+          {cases.isPending ? <LoadingIndicator isPaused={cases.isPaused}>확인 필요한 명령을 불러오는 중입니다.</LoadingIndicator> : null}
           {!cases.isPending && !cases.error && !permissionLost && !page?.items.length ? <Text>확인 필요한 명령이 없습니다.</Text> : null}
           {permissionLost ? <Text role="alert" tone="danger">조회 권한이 변경되었습니다. 다시 로그인한 뒤 확인하세요. 제어 잠금은 유지됩니다.</Text> : null}
           {page?.items.map((item) => <CaseRow key={item.caseId} item={item} selected={selectedCaseId === item.caseId} onSelect={() => { setSelectedCaseId(item.caseId); setCheckMessage(""); }} />)}
@@ -109,7 +109,7 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
           {cases.error && !permissionLost ? <div role="alert" className="grid gap-2"><Text tone="danger">확인 필요 목록을 조회하지 못했습니다. 제어 잠금은 유지됩니다.</Text><Button type="button" variant="secondary" onClick={() => void cases.refetch()}>case 다시 조회</Button></div> : null}
         </div>
         {selectedCaseId ? <div className="grid gap-2 border-t border-border-default pt-3">
-          {detail.isPending ? <Text role="status">case 상세를 조회하는 중입니다.</Text> : null}
+          {detail.isPending ? <LoadingIndicator isPaused={detail.isPaused}>case 상세를 조회하는 중입니다.</LoadingIndicator> : null}
           {detail.error && !permissionLost ? <div role="alert" className="grid gap-2"><Text tone="danger">case 상세를 확인하지 못했습니다. 잠금은 유지됩니다.</Text><Button type="button" variant="secondary" onClick={() => void detail.refetch()}>상세 다시 조회</Button></div> : null}
           {selectedCase ? <>
             <Text tone="warning">서버 기능 준비 전에는 case 상태 확인 요청과 위험 승인을 사용할 수 없습니다. 제어 잠금은 유지됩니다.</Text>

@@ -14,7 +14,7 @@ import {
   type MfaEnrollment
 } from "../../../api/auth";
 import { authSessionsQueryKey, clearPrincipalCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
-import { Button, Card, ConfirmDialog, FeedbackState, ModalDialog, Text, PasswordField, StatusBadge, TextField, formatTimestamp } from "../../../components/ui";
+import { LoadingState, Button, Card, ConfirmDialog, FeedbackState, ModalDialog, Text, PasswordField, StatusBadge, TextField, formatTimestamp  } from "../../../components/ui";
 import { PasswordChangeCard } from "./PasswordSettingsView";
 
 type MfaQueryKey = readonly ["auth", "mfa", string];
@@ -172,7 +172,7 @@ function MfaCard({
         </div>
         <ShieldCheck size={22} aria-hidden="true" />
       </div>
-      {isLoading ? <FeedbackState tone="neutral" icon={RefreshCw} title="2단계 인증 상태를 확인하는 중입니다." /> : null}
+      {isLoading ? <LoadingState tone="neutral" title="2단계 인증 상태를 확인하는 중입니다." /> : null}
       {error ? (
         <FeedbackState
           tone="danger"
@@ -315,7 +315,7 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
         </div>
         <Laptop size={22} aria-hidden="true" />
       </div>
-      {isLoading ? <FeedbackState tone="neutral" icon={RefreshCw} title="활성 세션을 불러오는 중입니다." /> : null}
+      {isLoading ? <LoadingState tone="neutral" title="활성 세션을 불러오는 중입니다." /> : null}
       {error ? (
         <FeedbackState
           tone="danger"

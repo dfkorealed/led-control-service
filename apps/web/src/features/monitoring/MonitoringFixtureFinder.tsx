@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { DashboardFixture } from "../../api/queries";
-import { Button, SearchField, SelectBox, Text } from "../../components/ui";
+import { LoadingIndicator, Button, SearchField, SelectBox, Text  } from "../../components/ui";
 import type { FloorMapSnapshot } from "@led-control/shared";
 import { resolveFixtureMapPosition } from "../floor-map/fixture-map-position";
 import { matchesMonitoringFixture, matchesMonitoringFixtureSearch, type MonitoringFixtureFilter } from "./monitoring-fixture-filter";
@@ -82,7 +82,7 @@ export function MonitoringFixtureFinder({
       {!hasNextPage && !isFetchingNextPage && !nextPageError && expectedTotal != null && fixtures.length !== expectedTotal
         ? <Text variant="body-sm" tone="secondary">목록과 집계의 확인 시점이 다릅니다. 새로고침해 주세요.</Text> : null}
       {hasNextPage ? isFetchingNextPage
-        ? <Text variant="body-sm" tone="secondary">다음 조명을 불러오는 중입니다.</Text>
+        ? <LoadingIndicator>다음 조명을 불러오는 중입니다.</LoadingIndicator>
         : <Button variant="secondary" onClick={onLoadMore}>다음 조명 보기</Button>
         : null}
       {filter === "unplaced" && userRole === "admin" && visibleFixtures.length > 0 ? (

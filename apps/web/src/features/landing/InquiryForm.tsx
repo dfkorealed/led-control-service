@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { ApiError, classifyApiFailure } from "../../api/client";
 import { submitLandingInquiry, type LandingInquiryInput } from "../../api/landing-inquiries";
 import { Button } from "../../components/ui/Button";
+import { LoadingSpinner } from "../../components/ui/LoadingIndicator";
 import { Card } from "../../components/ui/Card";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { HoneypotField } from "../../components/ui/HoneypotField";
@@ -144,7 +145,9 @@ export function InquiryForm({ onPendingChange, presentation = "card", initialMes
     <NativeInquiryCheckbox ref={consentRef} label="개인정보 수집·이용에 동의합니다" name="consent" checked={fields.consent} onChange={event => update("consent", event.target.checked)} required errorMessage={errors.consent} disabled={pending} />
     {outcome.kind !== "idle" && <div role="alert" className={`inquiry-feedback rounded-control border p-landing-concept-inquiry-message-inset text-landing-concept-inquiry-feedback ${outcome.kind === "error" ? "border-status-inquiry-danger-border bg-status-inquiry-danger-background" : "border-status-success-border bg-status-success-background"}`}><strong>{outcome.kind === "success" ? "상담 문의가 접수되었습니다." : outcome.title}</strong><p className="m-landing-concept-inquiry-message-description-space">{outcome.kind === "success" ? `접수번호: ${outcome.reference}` : outcome.description}</p>{outcome.kind === "error" && outcome.mailFallback && <a href="mailto:kymkjh2002@dfkorealed.com" className="mt-landing-concept-inquiry-feedback-action-top-space inline-block font-extrabold text-action-primary-hover underline underline-offset-3">이메일로 직접 문의하기</a>}</div>}
     <p className="sr-only" role="status" aria-live="polite">{pending ? "상담 문의를 접수하고 있습니다. 잠시만 기다려 주세요." : ""}</p>
-    <Button ref={submitButtonRef} type="submit" variant="landingConceptSubmit" aria-disabled={pending} disabled={outcome.kind === "success"}>{pending ? "접수 중" : "상담 문의 보내기"}</Button>
+    {/* Native inquiry keeps its focusable aria-disabled submit contract while
+        pending; isLoading would disable the button and change focus behavior. */}
+    <Button ref={submitButtonRef} type="submit" variant="landingConceptSubmit" aria-busy={pending} aria-disabled={pending} disabled={outcome.kind === "success"}>{pending ? <><LoadingSpinner />접수 중</> : "상담 문의 보내기"}</Button>
   </form>;
 
   const form = <form noValidate onSubmit={handleSubmit} className="grid gap-5 text-content-primary">
@@ -167,7 +170,7 @@ export function InquiryForm({ onPendingChange, presentation = "card", initialMes
       {outcome.kind === "success" && <FeedbackState tone="success" icon={CheckCircle2} title="상담 문의가 접수되었습니다." description={`접수번호: ${outcome.reference}`} />}
       <p className="sr-only" role="status" aria-live="polite">{pending ? "상담 문의를 접수하고 있습니다. 잠시만 기다려 주세요." : ""}</p>
       {/* Keep one tab stop inside the modal while its fields and close control are unavailable. */}
-      <Button type="submit" variant="primary" size="lg" aria-busy={pending} aria-disabled={pending || outcome.kind === "success"}>{pending ? "접수 중" : "상담 문의 보내기"}</Button>
+      <Button type="submit" variant="primary" size="lg" aria-busy={pending} aria-disabled={pending || outcome.kind === "success"}>{pending ? <><LoadingSpinner />접수 중</> : "상담 문의 보내기"}</Button>
     </form>;
   return presentation === "dialog" ? form : <Card className="p-5 text-content-primary compact:p-7">{form}</Card>;
 }

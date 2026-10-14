@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } f
 import { Button } from "../Button";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { DrawerDialog } from "../DrawerDialog";
+import { LoadingIndicator } from "../LoadingIndicator";
 import { StatusBadge, type StatusTone } from "../StatusBadge";
 import { Heading, Text } from "../Typography";
 import { cn } from "../utils/cn";
@@ -160,7 +161,7 @@ export const SessionStatusCenter = forwardRef<SessionStatusCenterHandle, Session
               aria-label={`결과 확인 및 다시 시도 ${id}`} onClick={() => void alarms.dismissAll(id)}>결과 확인 및 다시 시도</Button>
           </div>)}
           {!alarms.enabled ? <Text tone="secondary">현장을 선택하면 알람을 확인할 수 있습니다.</Text> : null}
-          {alarms.isLoading ? <Text role="status" tone="secondary">알람 확인 중…</Text> : null}
+          {alarms.isLoading ? <LoadingIndicator>알람 확인 중…</LoadingIndicator> : null}
           {alarms.error ? <div className="grid gap-2" role="status">
             <Text tone="secondary">{alarms.isStale ? "알람 갱신 실패 · 마지막으로 확인한 값을 표시합니다." : "알람 확인 불가 · 다시 시도하세요."}</Text>
             <Button type="button" size="sm" variant="secondary" className="justify-self-start" onClick={() => void alarms.refetch()}>알람 다시 조회</Button>

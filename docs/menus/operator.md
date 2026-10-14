@@ -1,5 +1,27 @@
 # 운영자 메뉴 기능 현황
 
+## 2026-10-14 공통 로딩 표시 적용
+
+### 구현 완료
+
+- 관리자 목록·상담 문의/메일 연결 상태·센서 프로파일 초기조회·승인 등록 및 기존 저장/삭제/로그아웃 버튼을 공통 loading으로 연결했다. 공통 코어는 스피너20px·reduced-motion·disabled/ref/activation을 보존한다.
+
+### 미구현
+
+- 실제 NAVER WORKS 연결/상담 접수·메일 수신/프로파일 등록·운영 계정 mutation을 수행하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 실제 Query의 offline→online→빈 목록 단위 검증에서 paused는 busy spinner 없이 연결 대기, online 재개는 spinner, 완료는 빈 결과로 구분했다. 기존 메일 전달/프로파일 준비 상태는 변경하지 않는다.
+
+### 관련 파일
+
+- `features/operator/{LandingInquiriesView,SensorProfilesView,OperatorShell}.tsx`, `site-admins/SiteAdminManagementView.tsx`, `components/ui/{Button,IconTooltipButton,RouteLoadingState,LoadingIndicator,LoadingState}.tsx`, `e2e/common-loading.spec.ts`.
+
+### 갱신 규칙
+
+- 운영자 표시 변경 시 실제 action/query pending과 domain status를 구별하고 mock browser 결과를 live 접수/운영 변경으로 기록하지 않는다.
+
 ## 2026-10-12 계정 보안 route 제목 소유 보완
 
 ### 구현 완료

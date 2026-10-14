@@ -17,7 +17,7 @@ import { FeedbackState } from "../../../components/ui/FeedbackState";
 import { MetricCard } from "../../../components/ui/MetricCard";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
-import { formatTimestamp } from "../../../components/ui";
+import { LoadingState, formatTimestamp  } from "../../../components/ui";
 import { DeleteSiteDialog } from "./DeleteSiteDialog";
 import { ResetAdminPasswordDialog } from "./ResetAdminPasswordDialog";
 import { SiteAdminFormDialog } from "./SiteAdminFormDialog";
@@ -87,7 +87,7 @@ export function SiteAdminManagementView() {
         {summaries.map(({ label, value, tone, icon }) => <MetricCard key={label} label={label} value={value} tone={tone} icon={icon} />)}
       </div>
 
-      {siteAdmins.isLoading ? <FeedbackState tone="neutral" icon={Clock3} title="현장 관리자 목록을 불러오는 중입니다." /> : null}
+      {siteAdmins.isLoading ? <LoadingState tone="neutral" title="현장 관리자 목록을 불러오는 중입니다." /> : null}
       {siteAdmins.error ? (
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 관리자 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void siteAdmins.refetch()}>다시 시도</Button>} />
       ) : null}

@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-14 공통 로딩 표시 적용
+
+### 구현 완료
+
+- 수동/스케줄/이벤트 화면 지연 로드·대상 초기조회·구역/명령 이력/확인 필요 상세·검색조건 적용·다음 페이지·저장/삭제/승인 요청에 공통 표시를 연결했다. 수동 적용은 HTTP 전송 중만 spinner를 표시하며 compact 적용 문구·실제 버튼 높이와 입력/실행 guard를 보존한다.
+- 센서 준비/등록 연결 확인은 local 요청 처리 중만 별도 inline 상태를 표시한다. 준비 판정·장비 응답/미확정·진행 상태는 재해석하지 않는다. paused query는 연결 대기, 미완성 조회 기간은 입력 안내다.
+
+### 미구현
+
+- 실제 조명 명령/센서 준비 요청/HIL을 실행한 증거는 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 기존 ControlView5개 단위 실패를 구현 전 baseline과 최종 전체 Web 결과에서 구분해 보존한다. 공통 맵 portal/paint·카메라 상태와 disabled/error/미확정 잠금 로직은 변경하지 않는다.
+
+### 관련 파일
+
+- `features/control/{ControlView,ManualExecutionPanel,CommandHistoryPanel,CommandVerificationCases,CommandRiskReconcileDialog}.tsx`, `automation`·`groups` 소비자, `components/ui/{Button,ConfirmDialog,LoadingIndicator,LoadingState}.tsx`.
+
+### 갱신 규칙
+
+- API 전송 pending과 장비 결과 pending을 구별하고, 버튼 ref/네이티브 activation·44px 조작 영역/compact 높이를 확인한다.
+
 ## 2026-10-14 공통 등록 연결 확인 UI
 
 ### 구현 완료

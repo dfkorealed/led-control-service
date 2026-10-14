@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, ApiTimeoutError, ApiTransportError } from "../../api/client";
 import { InquiryForm } from "./InquiryForm";
@@ -151,10 +151,16 @@ describe("InquiryForm", () => {
     render(<InquiryForm />);
     fillValidForm();
     submit();
-    expect(screen.getByRole("button", { name: "접수 중" })).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(screen.getByRole("button", { name: "접수 중" }));
-    expect(submitLandingInquiry).toHaveBeenCalledTimes(1);
-    finish({ reference: "KI-987", status: "received" });
+    try {
+      expect(screen.getByRole("button", { name: "접수 중" })).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("button", { name: "접수 중" }).querySelector("svg")).toHaveClass("animate-spin");
+      fireEvent.click(screen.getByRole("button", { name: "접수 중" }));
+      expect(submitLandingInquiry).toHaveBeenCalledTimes(1);
+    } finally {
+      // Resolve the owned deferred request even when a loading assertion fails;
+      // otherwise React Aria's pending submit lifecycle cannot settle in cleanup.
+      await act(async () => finish({ reference: "KI-987", status: "received" }));
+    }
     expect(await screen.findByText(/KI-987/)).toBeInTheDocument();
   });
 });

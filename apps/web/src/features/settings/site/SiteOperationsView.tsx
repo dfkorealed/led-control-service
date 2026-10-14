@@ -20,7 +20,7 @@ import {
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
-import { Button, Card, DataGrid, FeedbackState, Heading, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn } from "../../../components/ui";
+import { LoadingState, Button, Card, DataGrid, FeedbackState, Heading, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn  } from "../../../components/ui";
 import { BioSensorSettingsPanel } from "./BioSensorSettingsPanel";
 import { SiteInformationEditDialog } from "./SiteInformationEditDialog";
 import { FloorEditDialog } from "./FloorEditDialog";
@@ -120,7 +120,7 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
       </div>
 
       {settingsQuery.isPending && !settingsQuery.data
-        ? <FeedbackState tone="neutral" icon={Clock3} title="현장 운영 정보를 불러오는 중입니다." />
+        ? <LoadingState isPaused={settingsQuery.isPaused} tone="neutral" title="현장 운영 정보를 불러오는 중입니다." />
         : null}
       {settingsQuery.error && !settingsQuery.data ? (
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 운영 정보를 불러오지 못했습니다." action={<Button type="button" onClick={() => void settingsQuery.refetch()}>다시 시도</Button>} />
@@ -150,7 +150,8 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
           <CreateFloorForm siteId={siteId} nextDisplayOrder={settingsQuery.data.floors.length} isOpen={floorEditor?.id === "create"} trigger={floorEditor?.trigger ?? null} onClose={() => setFloorEditor(null)} />
           <DataGrid caption="층 목록" rows={settingsQuery.data.floors} getRowKey={floor => floor.id} variant="compact"
             columns={floorColumns(floor => setFloorEditor(floor), archiveMutation.isPending || restoreMutation.isPending,
-              floor => { setFloorActionError(null); setFloorToArchive(floor); }, floor => { setFloorActionError(null); restoreMutation.mutate(floor); })} />
+              floor => { setFloorActionError(null); setFloorToArchive(floor); }, floor => { setFloorActionError(null); restoreMutation.mutate(floor); },
+              restoreMutation.isPending ? restoreMutation.variables?.id : undefined)} />
             {settingsQuery.data.floors.map((floor) => (
               <FloorRow
                 key={floor.id}
@@ -366,7 +367,7 @@ function FloorRow({ siteId, floor, isOpen, trigger, onClose }: {
 }
 
 function floorColumns(onEdit: (editor: { id: string; trigger: HTMLElement }) => void, busy: boolean,
-  onArchive: (floor: SiteSettingsFloor) => void, onRestore: (floor: SiteSettingsFloor) => void): DataGridColumn<SiteSettingsFloor>[] {
+  onArchive: (floor: SiteSettingsFloor) => void, onRestore: (floor: SiteSettingsFloor) => void, restoringFloorId?: string): DataGridColumn<SiteSettingsFloor>[] {
   return [
     { id: "name", header: "층 이름", minWidth: 100, renderCell: floor => <strong>{floor.name}</strong> },
     { id: "level", header: "레벨 / 순서", minWidth: 100, renderCell: floor => `${floor.level} / ${floor.displayOrder}` },
@@ -377,7 +378,7 @@ function floorColumns(onEdit: (editor: { id: string; trigger: HTMLElement }) => 
     { id: "actions", header: "작업", minWidth: 120, renderCell: floor => <div className="flex flex-wrap gap-2">{floor.status === "active" ? <>
       <Button aria-label={`${floor.name} 수정`} disabled={busy} variant="ghost" onClick={event => onEdit({ id: floor.id, trigger: event.currentTarget })}>수정</Button>
       <Button aria-label={`${floor.name} 보관`} disabled={busy || floor.fixtureCount > 0 || floor.activeGroupCount > 0} variant="danger" onClick={() => onArchive(floor)}>보관</Button>
-    </> : <Button aria-label={`${floor.name} 복구`} disabled={busy} onClick={() => onRestore(floor)}><RotateCcw size={16} aria-hidden="true" />복구</Button>}</div> }
+    </> : <Button aria-label={`${floor.name} 복구`} disabled={busy} isLoading={restoringFloorId === floor.id} loadingLabel="복구 중" onClick={() => onRestore(floor)}><RotateCcw size={16} aria-hidden="true" />복구</Button>}</div> }
   ];
 }
 
@@ -413,7 +414,7 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
         </div>}
       />
       {floors.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="조명을 조회할 운영 중인 층이 없습니다." /> : null}
-      {fixturesQuery.isPending && selectedFloorId ? <FeedbackState tone="neutral" icon={Clock3} title="조명 목록을 불러오는 중입니다." /> : null}
+      {fixturesQuery.isPending && selectedFloorId ? <LoadingState isPaused={fixturesQuery.isPaused} tone="neutral" title="조명 목록을 불러오는 중입니다." /> : null}
       {fixturesQuery.error && fixtures.length === 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void fixturesQuery.refetch()}>조명 목록 다시 시도</Button>} /> : null}
       {!fixturesQuery.isPending && !fixturesQuery.error && selectedFloorId && fixtures.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="이 층에 등록된 조명이 없습니다." /> : null}
       {fixtures.length > 0 ? <div className="grid gap-3" aria-label="조명 목록">
@@ -548,7 +549,7 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
           description="최신 구역 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
           action={{ label: "구역 목록 다시 시도", onClick: () => { void groupsQuery.refetch(); } }} /> : null} />
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      {groupsQuery.isPending ? <FeedbackState tone="neutral" icon={Clock3} title="구역 목록을 불러오는 중입니다." /> : null}
+      {groupsQuery.isPending ? <LoadingState isPaused={groupsQuery.isPaused} tone="neutral" title="구역 목록을 불러오는 중입니다." /> : null}
       {groupsQuery.error && !groupsQuery.data ? <FeedbackState tone="danger" icon={CircleAlert} title="구역 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void groupsQuery.refetch()}>구역 목록 다시 시도</Button>} /> : null}
       {groupsQuery.data?.length === 0 ? <FeedbackState tone="neutral" icon={Network} title="등록된 구역이 없습니다." /> : null}
       {groupsQuery.data?.length ? <div className="grid gap-3" aria-label="구역 목록">
