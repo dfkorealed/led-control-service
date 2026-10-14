@@ -449,6 +449,8 @@ model Site {
   gatewayClaimAudits         GatewayClaimAudit[]
   memberships                SiteMembership[]
   automationConfigurations   GatewayAutomationConfiguration[]
+  temporaryControlSessions   TemporaryControlSession[]
+  temporaryControlLeases     TemporaryControlLease[]
   lightingSchedules          LightingSchedule[]
   vehicleEventRules          VehicleEventRule[]
   manualOverrides            ManualOverride[]
@@ -1306,6 +1308,7 @@ model Fixture {
   commandResults             CommandFixtureResult[]
   sensorModeOperations       SensorModeOperation[]
   bioSensorPreparations      BioSensorPreparationOperation[]
+  temporaryControlLease      TemporaryControlLease?
   bioRegistrationRevalidations BioRegistrationRevalidationOperation[]
   lightingScheduleTargets    LightingScheduleFixture[]
   vehicleEventSources        VehicleEventSource[]
@@ -1404,6 +1407,8 @@ model Gateway {
   certificates            GatewayCertificate[]
   automationConfiguration GatewayAutomationConfiguration?
   automationProtocolDeclarations GatewayAutomationProtocolSupport[]
+  temporaryControlSessions TemporaryControlSession[]
+  temporaryControlLeases TemporaryControlLease[]
   lightingSchedules       LightingSchedule[]
   vehicleEventRules       VehicleEventRule[]
   manualOverrides         ManualOverride[]
@@ -2223,6 +2228,9 @@ model GatewayAutomationProtocolSupport {
   declarationRevision  BigInt
   declarationId        String @unique
   maxSnapshotVersion   Int
+  temporaryControlVersion Int?
+  bioConfigurationReadback Boolean @default(false)
+  durableFixtureLease Boolean @default(false)
   payloadHash          String
   declaredAt           DateTime
   receivedAt           DateTime @default(now())
@@ -2249,6 +2257,8 @@ model LightingSchedule {
   yearlyDay         Int?
   dimmingEnabled    Boolean
   brightnessPercent Int
+  excludeWeekends   Boolean                   @default(false)
+  excludeHolidays   Boolean                   @default(false)
   desiredRevision   Int                       @default(0)
   appliedRevision   Int                       @default(0)
   targetCount       Int                       @default(0)
@@ -2266,6 +2276,196 @@ model LightingSchedule {
   @@unique([id, siteId, gatewayId])
   @@index([siteId, status, createdAt])
   @@index([gatewayId, status])
+}
+
+/// Minimum admission/replay identity survives terminal detail redaction.
+model TemporaryControlSession {
+  id String @id @default(uuid())
+  siteId String
+  gatewayId String
+  actorId String
+  assignmentVersion Int
+  admissionRevision Int
+  originSequence BigInt
+  originCommandHash String
+  state String @default("pending")
+  sessionRevision Int @default(1)
+  startedAt DateTime
+  endsAt DateTime
+  durationMinutes Int
+  brightness Int?
+  reason String?
+  releaseIntentAt DateTime?
+  terminalAt DateTime?
+  detailsRedacted Boolean @default(false)
+  createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  updatedAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')")) @updatedAt
+  site Site @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gateway Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  targets TemporaryControlTarget[]
+  ownedLeases TemporaryControlLease[]
+  operations TemporaryControlOperationReceipt[]
+  outbox TemporaryControlOutbox[]
+  results TemporaryControlResultReceipt[]
+
+  @@unique([id, siteId, gatewayId])
+  @@unique([id, siteId])
+  @@index([siteId, startedAt, id])
+  @@index([state, endsAt])
+}
+
+/// fixtureId is an immutable tombstone identity, not the optional live FK.
+/// SQL target insertion locks this row and atomically reserves counter+1/+2.
+model TemporaryControlLease {
+  fixtureId String @id
+  liveFixtureId String? @unique
+  siteId String
+  gatewayId String
+  meshNodeId String
+  nativeUuid String
+  logicalAddress String
+  lastGeneration BigInt @default(0)
+  releaseTombstoneGeneration BigInt @default(0)
+  ownerSessionId String?
+  createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  updatedAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')")) @updatedAt
+  liveFixture Fixture? @relation(fields: [liveFixtureId], references: [id], onDelete: SetNull, onUpdate: Restrict)
+  site Site @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gateway Gateway @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  ownerSession TemporaryControlSession? @relation(fields: [ownerSessionId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  targets TemporaryControlTarget[]
+
+  @@unique([fixtureId, siteId, gatewayId])
+  @@index([ownerSessionId])
+}
+
+model TemporaryControlTarget {
+  sessionId String
+  fixtureId String
+  siteId String
+  gatewayId String
+  meshNodeId String
+  nativeUuid String
+  logicalAddress String
+  applyGeneration BigInt
+  releaseGeneration BigInt
+  applyConfirmed Boolean @default(false)
+  releaseConfirmed Boolean @default(false)
+  configurationMayHaveChanged Boolean @default(false)
+  unchangedConfirmed Boolean @default(false)
+  partialMutation String @default("none")
+  rfWriteEvidence String @default("not_started")
+  configurationReadback Json?
+  restorationRevision Int?
+  restorationPayloadHash String?
+  reason String?
+  resolvedAt DateTime?
+  createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  updatedAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')")) @updatedAt
+  session TemporaryControlSession @relation(fields: [sessionId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  lease TemporaryControlLease @relation(fields: [fixtureId, siteId, gatewayId], references: [fixtureId, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  results TemporaryControlResultReceipt[]
+
+  @@id([sessionId, fixtureId])
+  @@unique([sessionId, meshNodeId])
+  @@unique([sessionId, nativeUuid])
+  @@unique([sessionId, logicalAddress])
+  @@index([fixtureId])
+}
+
+/// No actor FK: minimal idempotency attribution must survive account lifecycle.
+model TemporaryControlOperationReceipt {
+  siteId String
+  actorId String
+  operation String
+  clientRequestId String
+  fingerprint String
+  sessionId String
+  createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  session TemporaryControlSession @relation(fields: [sessionId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([siteId, actorId, operation, clientRequestId], map: "TemporaryControlOperationReceipt_pkey")
+  @@index([sessionId])
+}
+
+model TemporaryControlOutbox {
+  id String @id @default(uuid())
+  sessionId String
+  siteId String
+  gatewayId String
+  kind String
+  sessionRevision Int
+  deduplicationKey String @unique
+  payload Json?
+  payloadHash String
+  deliveryGeneration String?
+  deliveryPayloadHash String?
+  deliveryGeneratedAt DateTime?
+  deliveryWindowMs Int?
+  expiresAt DateTime?
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  leaseToken String?
+  leaseUntil DateTime?
+  publishedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  session TemporaryControlSession @relation(fields: [sessionId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([completedAt, nextAttemptAt])
+  @@index([sessionId])
+}
+
+/// First event/hash verdict and generation remain after nullable payload redaction.
+model TemporaryControlResultReceipt {
+  eventId String @id
+  sessionId String
+  siteId String
+  gatewayId String
+  fixtureId String
+  sessionRevision Int
+  targetGeneration BigInt
+  resultHash String
+  status String
+  reason String?
+  result Json?
+  ingestedAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  session TemporaryControlSession @relation(fields: [sessionId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  target TemporaryControlTarget @relation(fields: [sessionId, fixtureId], references: [sessionId, fixtureId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([sessionId, fixtureId])
+}
+
+/// Immutable complete revisions; provider page validation precedes insertion.
+model HolidayDataset {
+  id String @id @default(uuid())
+  country String
+  source String
+  year Int
+  revision String
+  fetchedAt DateTime
+  coverageFrom DateTime @db.Date
+  coverageUntil DateTime @db.Date
+  payloadHash String
+  dates Json
+  completenessProof Json
+  complete Boolean @default(false)
+  createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"))
+  coverage HolidayYearCoverage[]
+
+  @@unique([country, year, revision])
+  @@unique([id, country, year, complete])
+}
+
+model HolidayYearCoverage {
+  country String
+  year Int
+  datasetId String
+  complete Boolean @default(true)
+  updatedAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')")) @updatedAt
+  dataset HolidayDataset @relation(fields: [datasetId, country, year, complete], references: [id, country, year, complete], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([country, year])
 }
 
 model LightingScheduleFixture {

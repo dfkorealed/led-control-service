@@ -1,5 +1,32 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-14 BIO 시간제 제어·달력 DB 기반
+
+### 구현 완료
+
+- 독립 시간제 session/target/영속 fixture lease, start/end idempotency receipt, 전용 outbox·결과 receipt를 저장하는 Prisma 모델과 순방향 migration을 추가했다. 같은 조명은 하나의 owner만 갖고 apply/release generation을 한 쌍으로 원자 예약한다. 미해결 삭제·재배정·옛 결과의 새 조명 적용을 차단하며 상세 정리 후에도 최소 신원·fingerprint·generation/tombstone을 보존한다.
+- 일정의 주말/공휴일 제외는 기존 행을 포함하여 기본false다. 공휴일 complete revision과 country/year coverage pointer를 분리하고 완전12개월 증거가 있는 같은 연도 dataset만 원자 승격한다.
+- DB BIO 자격은 기존V2를 유지하고 V3에는 임시 제어version1과 readback/durable lease 두 증거를 요구한다. 기존 commission-mode 검증과 V2 센서 보고 형식은 유지한다.
+
+### 미구현
+
+- 실제 API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider, 달력 평가기, Gateway 실행과 Web UI 연결은 후속 단계다. DB 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
+- 현재 사용자 DB migration·서버/장비 반영·ACL reload·HIL·ServiceKey/provider 연결은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- SQL은 귀속/소유권/세대/최초 판정 보존을 강제한다. 최신 자동 설정과 readback의 실제 일치, canonical hash·완전 provider 페이지 검증, 대상1~1000개와 권한의 transaction admission은 후속 API가 공유 계약에 따라 판정해야 한다.
+- 신규 SQL12/12와 직접 관련 기존V2 자격·활성화1/1을 자기 소유 PostgreSQL16에서 검증했다. 모든 변경은 소프트웨어 증거이며 실제 조명 복귀·광출력 증거가 아니다. 보존 ON/OFF 설정과 기존 native/BIO 등록·밝기는 변경하지 않았다.
+
+### 관련 파일
+
+- `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20261014090000_bio_temporary_control_calendar/migration.sql`.
+- `apps/api/src/automation/bio-control-schema.integration.spec.ts`, `docs/database-schema.md`.
+
+### 갱신 규칙
+
+- 저장 구조, API 사용 가능 상태, Gateway/화면 연결, 운영 적용을 구분한다. 최소 receipt/tombstone 삭제는 일반 상세 보존 정책에 포함하지 않는다.
+
 ## 2026-10-14 BIO 시간제 제어·달력 공유 계약
 
 ### 구현 완료
@@ -10,7 +37,7 @@
 
 ### 미구현
 
-- API/DB session·lease·outbox·휴일 provider 갱신·실제 달력 평가기·Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
+- DB session·lease·outbox·휴일 저장 구조는 위 후속 기록에서 구현했다. API·휴일 provider 갱신·실제 달력 평가기·Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
 - 운영 환경의 실제 현장/Gateway 매핑, ACL 반영·reload, 서버/장비 배포·재시작·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
