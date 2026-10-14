@@ -2,7 +2,11 @@
 
 기준일: 2026-10-15
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 메인·DB 반영 완료, API 복구 승인 대기
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어·메인·DB 반영 및 로컬 서비스 복구 완료
+
+- 최종 결과(2026-10-15): 추가 사용자 승인으로 기존 API/Web/broker group을 정상 종료하고 환경·인증서·ACL을 그대로 재사용해 새 owned supervisor로 기동했다. 상위 TERM이 남긴 정확한 orphan3493/3528만 정상TERM했고 oldgroup은 모두reap됐다. SIGKILL·설정 생성/PKI/ACLrender·DB재적용·Gateway/RF/HIL은 없었다. 08:51:40KST 새API live/ready200·postgres/redis/mqtt/objectStorage/cadConverter5up·Web200, 총괄의 후속 독립 trusted TLS/HTTP 검사도200/5up이다. 기존22staticfile·1592제품/보호 source SHA 및4dirty를 유지했다. 브라우저 기존 오류 상태는 정상reload 후 실제스케줄 목록1건·달력1건/새공통추가를읽기로확인했으며 저장/활성화/장비명령은0이다.
+- 런타임은 `.local/bio-control-operations-runtime-20261015-zK0GOuyo`의 persistent supervisor session12739/PID48753 → broker48816/apps48821 → Nest48928/API49099·Vite48993다. 예전failed controller/supervisor는새privateenv handoff뒤정상close했다. 기존pnpm의leaf orphan화때문에향후중지는同경로 `stop-owned-group.mjs`의정확신원/descendant검사·leaf-first정상TERM을사용하고session12739의STOPPED확인후EXIT한다. helper는syntax/읽기전용ownership만검증, live중지시험은하지않았다. leader-onlySTOP을완전한종료보장으로기록하지않는다.
+- 활성 체크리스트45/45를완료한다: 별도branch구현/지정담당자협업/태스크·최종·한정통합review, 최소직접검증, 사용자변경보존/일반localmerge, DBbackup→139migration/119기존데이터보존, 실제서비스재시작/ready까지다. 전체suiteGREEN·실장비성공은아니다. 기존Web5실패/Minor6/색상·bundle경고를유지하며clock attestor·Gateway V3/current applied ACK·신규MQTT scope/ACL·공휴일키/coverage와Gateway배포/HIL은별도실사용관문이다. 원증거는 `.local/bio-control-operations-evidence-20261015-L10bFdB0`로보존하고새DB백업은삭제하지않는다. 아래API중단/승인대기는복구전중간이력이다.
 
 - 현재 결과(2026-10-15 08:38 KST): `8436e076` 로딩 통합·독립 검토 뒤 별도 브랜치를 로컬 메인 `848dec0c`에 일반 merge했다. 기존 AGENTS/랜딩 3경로 full SHA와 사용자 UI 감사 2789bytes/hash/date를 보존했다. DB는 백업 후 순방향 migration 1개만 적용해138→139완료/미완료0, public120→128/new8empty, 기본값·11함수/8인덱스/25트리거와 기존119데이터 table의 행 수·전체 해시 불변을 API 재개 전에 확인했다. 원 migration 원장·과거 rolled-back 기록·기존 native/등록/맵/이력은 그대로다.
 - 실제 main shared/engine build·Prisma generate·API typecheck/build는 exit0이다. 하지만 재개한 기존 watcher3493이 교체 전 공유 declaration33개를 캐시해 감시 컴파일66오류를 내고 새APIchild를 만들지 못했다. 디스크의 정상 fresh build와 실패한 resident watch compile을 구분한다. Root 승인 mtime-only 이벤트1회도 source bytes/inode/mode는 유지했으나 새child를 만들지 못했다. 현재 API4000은 중단, Web3528·broker3349·원 parent는 유지 중이며 정상 서비스/전체 기능 사용 가능으로 기록하지 않는다.

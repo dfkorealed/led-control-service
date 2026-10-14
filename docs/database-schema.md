@@ -8,6 +8,8 @@
 
 백업은 `.local/db-backups/bio-control-operations-20261015-2026-10-14T232824290Z-335cfeb4-2bb5-4449-9953-15afbbd008f0/led_control.pre-bio.dump`,6446897bytes/dir0700/file0600, SHA256`ecae978f0308dd989e932763490e835f43a56316c5575f6f15578272f1e7561d`다. Full custom archive/list/fsync와119table 전후 보존을 확인했으며 백업은 보관한다. 복원 drill·live restore·DB reset/resolve/seed는 하지 않았다. Fresh API client/type/build는 정상이나 기존 watcher의 stale shared declaration/감시컴파일 오류로 현재 API4000은 중단 상태다. API/Web/broker 기존환경 재기동의 추가 승인 관문은 [상태판](project-status.md)을 따른다. 실제 Gateway/RF/HIL/clock attestor/provider/ACL 반영은 별도이며 아래 software-only 검증 문장은 당시 이력이다.
 
+후속 추가승인으로같은환경·인증서·ACL을재사용해API/Web/brokergroup을정상재기동했다. 2026-10-15 08:51:40KST actualAPIlive/ready200/5up·Web200 및총괄독립재검사를확인해현재API중단은해소됐다. Static22file·제품/보호1592source·사용자4dirty는동일하며DB재적용/새seed/백업삭제는없다. Migration직후119table불변증거와재기동후정상worker의기존운영원장갱신은구분한다. 원증거는 `.local/bio-control-operations-evidence-20261015-L10bFdB0`, 실행supervisor는별도main.local보호경로라feature정리와무관하다. 위API중단/대기는당시이력이다.
+
 | 테이블 | 저장 계약·수명 |
 | --- | --- |
 | `TemporaryControlSession` | `id`, site/Gateway/actor, assignment/admission revision, 원 start sequence/hash, 불변 startedAt/endsAt/duration, nullable brightness, state/sessionRevision/reason, releaseIntentAt/terminalAt/detailsRedacted. site–Gateway 복합 FK RESTRICT, 전체 분 단위1~1440분·밝기0~100·절대 종료 검증. 최소 세션 정본은 삭제하지 않고 종료 상세만 정리한다. |

@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–9 소프트웨어 구현·태스크별 리뷰와 최종 Important3/NB1 수리·한정 재검토가 완료됐다. NB1 `1119a048` Gateway96PASS/type0·재검토 새C/I0, 로딩 보존 `c6a00fec`/feature 통합 `8436e076`의 지정 UI392PASS/기존5FAIL·5E2E/type/UI/build·독립Approved/C0/I0을 확인했다. 별도 브랜치의 로컬 메인 merge `848dec0c`와 DB백업→migration138→139·기존119데이터 보존·실제APItype/build는 완료했다. 그러나 기존 watcher의 stale shared declaration33개/감시컴파일66오류로 API4000이 중단 상태다. mtime-only1회는 실패했고 API/Web/broker 묶음의 기존환경 재기동 승인을 요청했다. Step5는 API복구·최종확인 전 미완료(44/45)다. Branch/worktree/백업/원 증거를 보존하고 기존Minor6/Web5실패·색상/번들 경고·Gateway배포/HIL/clock/V3/provider 준비 한계는 유지한다.
+**현재 상태:** Tasks1–9와45/45step완료. NB1 `1119a048` Gateway96PASS/type0·한정재검토C/I0, 로딩 보존c6/통합8436의지정UI392PASS/기존5FAIL·5E2E/type/UI/build·독립Approved/C0/I0을확인했다. 별도branch의메인일반merge848, DBbackup→139migration/119원데이터불변·실제APItype/build후 stale watcher/66오류·mtime-only실패를기록하고추가사용자승인으로group을기존환경/인증서/ACL재사용재기동했다. 새ownedAPI/Web/broker의trustedlive/ready200/5up·Web200/22static·1592source·4dirty보존을확인했고총괄의독립health및실제목록/달력읽기도정상이다. 원증거는main.local/bio-control-operations-evidence-20261015-L10bFdB0, 새backup은보관한다. 기존Minor6/Web5실패·색상/번들 경고·Gateway배포/HIL/clock/V3/provider 준비 한계는별도이며전체GREEN/실장비완료가아니다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -26,7 +26,7 @@
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
 | Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
 | Task8 지정 Web 공통 추가·달력·제외 UI | 완료, C/I0·Minor2 최종 추적 |
-| Task9 시간제 UI·최소 QA·로컬 머지 | 소프트웨어 검토 C/I0·메인 merge/DB139 완료; API watch 캐시로 중단·복구 승인 대기 |
+| Task9 시간제 UI·최소 QA·로컬 머지 | 완료: 검토 C/I0·지정 최소 QA·메인 merge/DB139/데이터보존·추가승인 group재기동/실제ready |
 
 ## Global Constraints
 
@@ -416,8 +416,9 @@ it("counter_zero_is_not_restored_and_stale_mutation_is_discarded", async () => {
 pnpm --filter @led-control/web exec playwright test e2e/bio-control-operations.spec.ts --config=playwright.bio-control-operations.config.ts --project=chromium --workers=1
 ~~~
   cases=desktop_calendar_and_shared_add / mobile_320_more_preserves_map / mobile_390_partial_and_unknown / schedule_switch_save_cancel_focus.1349×1226/320×600/390×844에서 footer1 node·group2 target/강조·유지/만료 후 map canvas 동일·document overflow0·Dialog visible Switch/Space/Escape focus·event reset 보존을 assert한다. 권한 변경/stale 응답/partialMutation 복귀는 unit/API/Gateway에서 검증하고 브라우저 전체 suite는 실행하지 않는다. Task8/9 직접 변경 test만 최종 source에서 한 번 합쳐 실행하며 영향 없는 suite는 반복하지 않는다.
-- [ ] **Step 5 / 소유 commit·마지막검토:** 전체 diff의 safety/schema/실경로·증거를 단일 read-only review로 확인한다. P1/P2 수리는 해당 test만 재실행하고 총괄이 두 기록을 갱신한다. 제품/docs 검증 commit 뒤 clean/기대 HEAD/기존 dirty 보존을 확인하고 승인 범위의 local merge를 판단한다. 전체 GREEN/HIL/운영 적용은 주장하지 않는다.
+- [x] **Step 5 / 소유 commit·마지막검토:** 전체 diff의 safety/schema/실경로·증거를 단일 read-only review로 확인한다. P1/P2 수리는 해당 test만 재실행하고 총괄이 두 기록을 갱신한다. 제품/docs 검증 commit 뒤 clean/기대 HEAD/기존 dirty 보존을 확인하고 승인 범위의 local merge를 판단한다. 전체 GREEN/HIL/운영 적용은 주장하지 않는다.
   - 실제 결과: final Important3/NB1/로딩 통합 한정 검토 C/I0, 메인848dec0c·DB139/119원데이터 보존·API fresh build/type0 완료. 기존 watcher stale33/66오류·one-shot실패로 API4000 복구가 남았다. 추가 묶음 재기동 승인 전 branch/worktree/백업은 정리하지 않는다.
+  - 최종 결과: 추가사용자승인으로API/Web/brokergroup정상재기동·source/config/원환경보존·actualtrustedready200/5up/Web200·총괄독립재검사·실제브라우저목록/달력조회정상이다. 위복구대기는중간이력, 현재Step5완료다. 새backup·원증거를main.local에보관하며Gateway/HIL/clock/V3/ACL/provider실사용관문과기존5실패/Minor는유지한다.
   총괄은 main의 현재 HEAD와 사용자 dirty를 다시 확인한다. main 감시 프로세스가 merge 직후 API를 자동 재기동하거나 미적용 schema를 읽는다면 운영 승인 없는 자동 반영을 피하기 위해 먼저 안전한 중지/반영 경계를 사용자와 합의한다. 이 경계가 확보된 뒤 `codex/mvp1-cloud-web`에서 `git merge --no-ff codex/bio-control-operations-20261014`를 사용한다. 겹치는 상태 문서는 양쪽 이력을 보존하며 충돌 소스가 생기면 해당 변경·최소 관련 검증을 다시 수행한다. merge 후 실제 반영 diff와 보호 파일을 대조하고 변경 관련 smoke만 실행한다. DB migration·Pi 배포·provider 키 설정은 merge 명령에 묶지 않는다.
 ~~~bash
 git add apps/web/src/api/temporary-controls.ts apps/web/src/features/control/useTemporaryControlSession.ts apps/web/src/features/control/useTemporaryControlSession.test.tsx apps/web/src/features/control/TemporaryControlPanel.tsx apps/web/src/features/control/TemporaryControlPanel.test.tsx apps/web/src/features/control/TemporaryControlHistory.tsx apps/web/src/features/control/TemporaryControlHistory.test.tsx apps/web/src/features/control/ControlView.tsx apps/web/src/features/control/ControlView.test.tsx apps/web/src/features/control/ManualExecutionPanel.tsx apps/web/src/features/control/ManualExecutionPanel.test.tsx apps/web/src/features/control/CommandHistoryPanel.tsx apps/web/src/features/control/CommandHistoryPanel.test.tsx apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx apps/web/e2e/bio-control-operations.spec.ts apps/web/playwright.bio-control-operations.config.ts apps/web/e2e/support/bio-control-operations-server.mjs apps/web/src/features/control/automation/ScheduleDialog.tsx apps/web/src/features/control/automation/ScheduleDialog.test.tsx docs/menus/control.md

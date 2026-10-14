@@ -1,24 +1,26 @@
 # 제어 메뉴 기능 현황
 
-## 2026-10-15 메인·DB 반영과 API 복구 대기
+## 2026-10-15 메인·DB 반영 및 로컬 서비스 복구 완료
 
 ### 구현 완료
 
 - 지정 ‘제어 UI 개선 담당자’와 시간제 제어/API 연결, 달력 대체 보기·띠/주말·휴일 제외, 목록/달력/이벤트 공통 추가 위치, 저장 구역·단일 하단 이력 및 모바일 지도/HTTPspinner를 통합했다. 독립 한정 검토 C/I0이며 직접6파일392PASS/기존5FAIL·5E2E·Webtype/UI/build를 확인했다. 업무모드 등 제거 기능은 복원하지 않았다.
 - 별도 브랜치에서 로딩69변경을 보존·통합한 뒤 로컬 메인848dec0c에 merge했다. 사용자 AGENTS/랜딩/감사 변경은 unstaged로 보존했다. DB는 full custom backup 후138→139migration·기존119개 데이터 table의 행 수/hash 불변·신규8개 table/default/schema를 확인했다. 실제 main API client/type/build는 exit0이다.
+- 추가사용자승인뒤기존API/Web/brokergroup을정확정상종료·같은환경/인증서/ACL재사용으로재기동했다. 새ownedgroupactualAPIlive/ready200/5up·Web200과총괄의독립검사·실제스케줄목록1건/달력1건읽기를확인했다. Static22file·1592제품/보호source 및4dirty는동일, Gateway/RF명령/설정생성/PKI/ACL변경·DB재적용·백업삭제는0이다. 원실패와복구제약은기록에유지한다.
 
 ### 미구현
 
-- **현재 API4000 복구는 완료되지 않았다.** 기존 watcher가 교체 전 shared declaration33개를 캐시해 감시컴파일66오류를 내고 새child를 만들지 못한다. Source mtime-only1회는 bytes/inode/mode를 보존했으나 실패했다. API/Web/broker 개발 프로세스의 기존환경/인증서/ACL 재사용 재기동은 추가 승인 대기이며 정상 서비스/전체 기능 사용 가능으로 표시하지 않는다.
+- 기존watcher stale33/감시컴파일66오류·mtime-only1회실패는후속승인group재기동으로해소했다. 로컬API는정상이며이는모든기능·실장비사용준비완료와다르다. 다음실사용관문은아래와같다.
 - Gateway/Pi 배포·USB/RF/HIL·운영clock attestor·현재 V3 적용확인·신규 MQTT scope/ACL·공휴일 ServiceKey/provider 연결은 아직이다. 시간제 새시작은 clock 미등록503/V3 미적용409 안전 관문을 유지하며 누락된 휴일 coverage를 평일로 간주하지 않는다.
 
 ### 부족하거나 개선이 필요한 기능
 
 - 기존 ControlView5실패, 최종 Minor6와 색상/bundle경고는 유지한다. 이번 최소 검증을 전체 suite·실제 장비 성공으로 확대하지 않는다. Backup archive-list는 통과했지만 복원 drill은 하지 않았고 새 백업은 삭제하지 않았다.
+- Persistentruntime12739의leader-onlySTOP은pnpmleaf orphan화를완전히막지않는다. `.local/bio-control-operations-runtime-20261015-zK0GOuyo/stop-owned-group.mjs`의현재신원/descendant관문·leaf-first정상TERM뒤STOPPED/EXIT를사용한다. Syntax/읽기전용owner검사만통과, live중지시험은하지않았으며신원이바뀌면재검토한다. 실행소스/원증거는feature삭제와분리해main.local에보관한다.
 
 ### 관련 파일
 
-- `docs/database-schema.md`, `docs/project-status.md`, `docs/superpowers/plans/2026-10-14-bio-control-operations.md`와 위/아래 태스크별 제어 파일. 원 증거는 feature worktree의 해당 plan `.superpowers/sdd/2026-10-14-bio-control-operations`에 보존한다.
+- `docs/database-schema.md`, `docs/project-status.md`, `docs/superpowers/plans/2026-10-14-bio-control-operations.md`와 위/아래 태스크별 제어 파일. 원증거는 `.local/bio-control-operations-evidence-20261015-L10bFdB0`에보존한다.
 
 ### 갱신 규칙
 
