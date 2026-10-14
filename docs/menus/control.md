@@ -15,6 +15,7 @@
 ### 부족하거나 개선이 필요한 기능
 
 - 확인은 지정 Gateway 5개 파일 164개 테스트, API의 지정 snapshot/promotion/rollback 16개 테스트와 두 package 타입 검사 범위다. 전체 suite·build·광출력·전원 장애 복귀의 완료 증거로 확대하지 않는다. 최종 리뷰의 별도 Minor 및 기존 Web ControlView 실패는 이 수정 범위 밖의 제한으로 남긴다.
+- 한정 재검토에서 기존 지적 3건은 해결됐으나 Important NB1이 남았다. 완료된 이벤트 A의 `skippedFixtureIds`가 이후 규칙 교체로 생긴 정상 이벤트 B의 대상 저장을 `invalid BIO skipped mutation evidence`로 막는다. historical RF0 근거와 이후 다른 activation mutation을 구별하는 parser 수리·직접 회귀 전에는 전체 완료/병합 가능으로 표시하지 않는다. 현재는 source-trace로 확인했으며 새 실행 재현은 아직이다.
 
 ### 관련 파일
 

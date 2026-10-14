@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–9 소프트웨어 구현과 태스크별 리뷰는 완료했다(Task7 `1fe9ff53`, Task8 `1fc20739`, Task9 `a02fd1b0`+fix1 `67c85ef9`). 지정 ‘제어 UI 개선 담당자’의 직접480PASS/기존5FAIL·4E2E·UI위반0 및 createdAt 보정후31covering/type/build 증거와, 후속 권한/불확정 요청 수리의16PASS·테스트 생성자 보정후3PASS/type0을 구분한다. Scoped 재리뷰는 Important2 ADDRESSED·새C/I/M0이다. Minor는 최종 whole-branch triage에 남기며 Step5 전체 리뷰·안전한 로컬 병합·운영 반영은 아직이다.
+**현재 상태:** Tasks1–9 소프트웨어 구현과 태스크별 리뷰는 완료했다(Task7 `1fe9ff53`, Task8 `1fc20739`, Task9 `a02fd1b0`+fix1 `67c85ef9`). 지정 ‘제어 UI 개선 담당자’의 직접480PASS/기존5FAIL·4E2E·UI위반0 및 createdAt 보정후31covering/type/build 증거와, 후속 권한/불확정 요청 수리의16PASS·테스트 생성자 보정후3PASS/type0을 구분한다. `fa5ab18b..7ad60dcc` 최종 리뷰의 Important3는 단일 수리 `2e26d5bb`(Gateway164/API16+38이름필터제외·type/diff0) 뒤 한정 재검토에서 모두 ADDRESSED다. 그러나 새Important NB1—완료된 skip activation의 historical 증거가 이후 다른 정상 event capture를 막는 parser 수명—이 남았다. 전체 완료/merge 승인은 없으며 추가 수리 방향·main dirty/운영 경계 확인 전 Step5는 미완료다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -26,7 +26,7 @@
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
 | Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
 | Task8 지정 Web 공통 추가·달력·제외 UI | 완료, C/I0·Minor2 최종 추적 |
-| Task9 시간제 UI·최소 QA·로컬 머지 | 소프트웨어 완료, 67c85ef9 fix1 재리뷰 지적0; 최종 리뷰·안전한 병합 대기 |
+| Task9 시간제 UI·최소 QA·로컬 머지 | 태스크별 완료; 최종 I3 해결/NB1 미수리·추가 방향/안전한 병합 대기 |
 
 ## Global Constraints
 

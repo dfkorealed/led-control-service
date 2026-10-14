@@ -2,7 +2,7 @@
 
 기준일: 2026-10-15
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어 태스크 완료·최종 검토/통합 대기
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 태스크별 완료·최종 잔여1건/통합 대기
 
 - 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장·API/Gateway/UI 소프트웨어 연결과 태스크별 리뷰를 완료했다. 전체 브랜치 최종 검토·안전한 로컬 병합 및 실제 DB/서버/장비 반영은 아직이다.
 - 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing 및 후속 공통 로딩 미커밋 변경을 보존한다.
@@ -49,6 +49,10 @@
 - Task9 `a02fd1b0`: 별도 시간제 API/hook·서버 증거/잠금·하단 단일 이력/Drawer·저장 구역 지도 강조·Switch 실제 필드 스크롤을 소유21files로 연결했다. 직접15파일480PASS/기존ControlView5FAIL(exit1)·지정4E2E PASS·UI위반0이며 optional createdAt1줄 보정 뒤 해당31tests/type/build0을 확인했다. 합산/브라우저는 보정 전, covering/type/build는 보정 후라는 시점을 구분하며 전체GREEN/HIL로 표시하지 않는다. 현재 독립 리뷰의 Important2(불확정 start 권한 오류 시 복구 식별자 보존, principal 변경 시 옛 미리보기 폐기)를 같은 지정 담당자의 fixround1로 수리 중이다. Root는 source를 대신 수리하거나 같은 검증을 반복하지 않는다. Final review 및 미커밋 main71files 중 겹침10files/실행 API watcher의 안전한 통합 경계는 아직 남아 있다.
 
 - Task9 후속 fix1 `67c85ef9`: 불확정 요청의 명시적 재확인401/403/404 뒤 원 body/clientRequestId·잠금을 보존하고, preview를 hook과 같은 user/role/capability/유효현장에 결속해 전환 시 폐기·표시/확인에서 재검사했다. Semantic RED5→한정16PASS, 테스트 생성자 인자 보정 뒤 해당3PASS/Webtype0·diff0이며 scoped 재리뷰는 Important2 ADDRESSED·새C/I/M0이다. 이전480/5·4E2E·build를 이 fix commit의 재실행 증거로 사용하지 않는다. Tasks1–9 소프트웨어 태스크별 검토 완료·44/45steps이며 마지막 전체 리뷰/안전한 로컬 머지가 남았다. 기존5실패와 deferred Minor, main dirty 및 API watch/DB 운영 경계는 그대로 보존한다.
+
+- `fa5ab18b..7ad60dcc` 단일 전체 브랜치 최종 리뷰는 C0/I3/Minor7·With fixes다. 수신 시만 확인한 전달 만료가 queue/native RF까지 이어지지 않는 점, 시간제 잠금 동안 한 번도 적용되지 않은 pulse 대상의 종료 결과가 pending에 남는 점, 서울1월1일 종료 일정이 공휴일 UTC 연도 승격 조회에서 빠지는 점을 소스로 확인했다. 단일 API/Gateway 담당자가 세 지적과 직접 연관 회귀만 수리하며 전체 suite/브라우저/build를 반복하지 않는다. 최종 scoped 재검토와 안전한 병합 전 완료로 표시하지 않는다. Minor7·기존5실패·현재 운영clock/ACL/provider/Gateway/HIL 준비 한계도 유지한다.
+
+- 최종 단일 수리 `2e26d5bb`의 소유12files·manifest30entries/current·committed12hash mismatch0, Gateway5files164PASS/0SKIP·API2files16PASS/38이름필터제외·두type/diff0을원로그와대조했다. 마지막164는순수testhelper generic타입보정전이며그뒤Gatewaytype0이다. 한정재검토는원Important3 ADDRESSED/M2 cleanup RESOLVED이나새Important NB1(완료된skip event의historical marker가나중의다른eventcapture를거절)을확인했다. 총괄의source-trace대조도같으며NB1실행회귀/수리는아직이다. 전체완료/merge승인없음·44/45steps, SDD최종1회수리/재검토상한뒤추가방향을사용자에게확인하고branch/evidence를보존한다. M1/M3–M7·기존Web5실패·운영/HIL한계와main71dirty/자동watcher도미해소다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 
