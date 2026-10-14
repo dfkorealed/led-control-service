@@ -7,6 +7,16 @@ const request = { schemaVersion: 2 as const, requestId: "00000000-0000-4000-8000
   requestedAt: "2026-09-30T00:00:00.000Z" };
 
 describe("Gateway automation protocol support authority", () => {
+  it("records strict V3 capabilities and does not infer them from a numeric version", async () => {
+    const h = harness();
+    const v3 = { ...request, schemaVersion: 3 as const, maxSnapshotVersion: 3 as const,
+      temporaryControlVersion: 1 as const, bioConfigurationReadback: true as const, durableFixtureLease: true as const };
+    await expect(recordAutomationProtocolSupport(h.tx as never, v3 as never)).resolves.toBe("accepted");
+    expect(await loadAutomationProtocolSupport(h.tx as never, request)).toBe(3);
+    expect(h.rows[0]).toMatchObject({ temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true });
+    h.rows[0].durableFixtureLease = false;
+    expect(await loadAutomationProtocolSupport(h.tx as never, request)).toBe(1);
+  });
   it("treats newer same support as exact snapshot resync, not a support transition", async () => {
     const h = harness(); await recordAutomationProtocolSupport(h.tx as never, request);
     expect(await recordAutomationProtocolSupport(h.tx as never, { ...request, requestId: "00000000-0000-4000-8000-000000000006", declarationRevision: 2 })).toBe("refreshed");

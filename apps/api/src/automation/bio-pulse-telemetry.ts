@@ -3,6 +3,7 @@ import { automationSnapshotSchema, bioPulseExecutionIngestedAckV2Schema, mqttTop
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { canonicalPayloadHash } from "./automation-payload-hash";
+import { declaredAutomationVersion } from "./automation-protocol-support";
 
 type Scope = { siteId: string; gatewayId: string };
 type Event = BioPulseExecutionEventV2;
@@ -12,6 +13,8 @@ const sourceBindingsSchema = z.record(z.string().uuid(), z.string().uuid().nulla
  * Broker mTLS/topic ACL authenticates delivery; the SQL checks current authority,
  * not the peer certificate (which MQTT subscribers do not receive). */
 export async function ingestBioPulseTelemetry(tx: Prisma.TransactionClient, scope: Scope, event: Event, now: Date) {
+  // The MQTT parser adds channel; persist only the two authenticated identities.
+  scope = { siteId: scope.siteId, gatewayId: scope.gatewayId };
   await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
   const identities = await tx.$queryRaw<Array<{ assignmentVersion: number }>>(Prisma.sql`
     SELECT gateway."assignmentVersion" FROM "Gateway" gateway
@@ -41,13 +44,14 @@ export async function ingestBioPulseTelemetry(tx: Prisma.TransactionClient, scop
   const declaration = await tx.gatewayAutomationProtocolSupport.findFirst({
     where: { ...scope, assignmentVersion: event.assignmentVersion }, orderBy: { declarationRevision: "desc" }
   });
-  if (declaration?.maxSnapshotVersion !== 2) return;
+  const version = declaredAutomationVersion(declaration);
+  if (version !== 2 && version !== 3) return;
   const rows = await tx.mqttOutbox.findMany({ where: { gatewayId: scope.gatewayId, revision: event.revision,
     dispatchId: null, applicationAckKey: null, automationAssignmentVersion: event.assignmentVersion } });
   if (rows.length !== 1) return;
   const row = rows[0]!;
   const parsed = automationSnapshotSchema.safeParse(row.payload);
-  if (!parsed.success || parsed.data.schemaVersion !== 2 || row.topic !== mqttTopics.automationConfig(scope.siteId, scope.gatewayId)) return;
+  if (!parsed.success || (parsed.data.schemaVersion !== 2 && parsed.data.schemaVersion !== 3) || row.topic !== mqttTopics.automationConfig(scope.siteId, scope.gatewayId)) return;
   const { payloadHash, ...body } = parsed.data;
   if (body.siteId !== scope.siteId || body.gatewayId !== scope.gatewayId || body.revision !== event.revision ||
     row.payloadHash !== payloadHash || canonicalPayloadHash(body) !== payloadHash) return;

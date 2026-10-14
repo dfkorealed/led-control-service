@@ -8,9 +8,11 @@ import {
   bioPulseExecutionEventV2Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotSchema,
+  matchesAutomationConfigAppliedReceiptV3,
   mqttTopics,
   vehicleSensorCapabilityDeliveryV2Schema,
   type AutomationConfigAppliedDelivery,
+  type AutomationConfigAppliedReceiptV3,
   type AutomationExecutionEventV1
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
@@ -117,7 +119,7 @@ export class AutomationMqttConsumerService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.snapshots.lockMutation(tx);
-      if (parsed.data.schemaVersion === 2) {
+      if (parsed.data.schemaVersion === 2 || parsed.data.schemaVersion === 3) {
         const outcome = await recordAutomationProtocolSupport(tx, parsed.data);
         if (outcome === "stale" || outcome === "unverified") return;
         if (outcome === "accepted") await this.snapshots.incrementDesiredRevision(tx, scope.gatewayId);
@@ -137,6 +139,7 @@ export class AutomationMqttConsumerService {
       // An old binary cannot receive V2 via its strict V1 request. A V1 request
       // is not an explicit support declaration and cannot upgrade authority.
       if (parsed.data.schemaVersion === 1 && stored.snapshot.schemaVersion !== 1) return;
+      if (parsed.data.schemaVersion === 2 && stored.snapshot.schemaVersion === 3) return;
       const now = this.clock.now();
       await tx.mqttOutbox.updateMany({
         where: {
@@ -172,9 +175,10 @@ export class AutomationMqttConsumerService {
       // Rule appliedRevision writes take the same DB membership lock. Acquire
       // it before Gateway rows, matching declarations and ordinary rule saves.
       await this.snapshots.lockMutation(tx);
-      if (ack.schemaVersion === 2 && await loadAutomationProtocolSupport(tx, scope) !== 2) return;
+      if ((ack.schemaVersion === 2 || ack.schemaVersion === 3) && await loadAutomationProtocolSupport(tx, scope) !== ack.schemaVersion) return;
       const configuration = await this.lockCurrentConfiguration(tx, scope);
       if (!configuration || ack.revision > configuration.desiredRevision) return;
+      if (ack.revision === configuration.desiredRevision && ack.payloadHash !== configuration.payloadHash) return;
 
       const stored = await this.loadStoredSnapshot(tx, scope, ack.revision, ack.payloadHash);
       if (!stored) return;
@@ -222,7 +226,7 @@ export class AutomationMqttConsumerService {
             data: { appliedRevision: ack.revision }
           });
         }
-        if (storedSnapshot.schemaVersion === 2 && isCurrentDesired) {
+        if ((storedSnapshot.schemaVersion === 2 || storedSnapshot.schemaVersion === 3) && isCurrentDesired) {
           const bioIds = storedSnapshot.vehicleEventRules.filter(rule => rule.sensorProtocol === "bio-usb-pulse").map(rule => rule.id);
           if (bioIds.length) await tx.vehicleEventRule.updateMany({
             where: { id: { in: bioIds }, gatewayId: scope.gatewayId, sensorProtocol: "bio_usb_pulse",
@@ -279,7 +283,8 @@ export class AutomationMqttConsumerService {
         !receipt.success || receipt.data.siteId !== scope.siteId ||
         receipt.data.gatewayId !== scope.gatewayId ||
         receipt.data.acknowledgementId !== delivery.acknowledgementId ||
-        !isDeepStrictEqual(receipt.data.acknowledgement, delivery.acknowledgement)
+        !isDeepStrictEqual(receipt.data.acknowledgement, delivery.acknowledgement) ||
+        (delivery.schemaVersion === 3 && (receipt.data.schemaVersion !== 3 || !matchesAutomationConfigAppliedReceiptV3(delivery, receipt.data as AutomationConfigAppliedReceiptV3)))
       ) {
         throw new BadRequestException("config-applied acknowledgement identity conflict");
       }

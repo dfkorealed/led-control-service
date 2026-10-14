@@ -1,4 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
+import { TemporaryControlResults } from "../temporary-controls/temporary-control-results";
+import { parseTemporaryControlResultTopic } from "./topic-scope";
+import { temporaryControlResultSchema } from "@led-control/shared";
 import {
   acceptanceAckV2Schema,
   commandClockRequestSchema,
@@ -208,6 +211,7 @@ export class MqttService implements OnModuleInit {
       );
       client.subscribe(["sites/+/gateways/+/acks/acceptance", "sites/+/gateways/+/acks/device-status"], { qos: 1 });
       client.subscribe([
+        mqttTopics.temporaryControlResult("+", "+"),
         "sites/+/gateways/+/state/fixtures",
         "sites/+/gateways/+/state/fixture-presence",
         "sites/+/gateways/+/state/heartbeat"
@@ -780,6 +784,14 @@ export class MqttService implements OnModuleInit {
   }
 
   async handleMessage(topic: string, payload: Buffer, receivedAt = new Date()) {
+    const temporaryScope = parseTemporaryControlResultTopic(topic);
+    if (temporaryScope) {
+      const result = temporaryControlResultSchema.parse(JSON.parse(payload.toString()));
+      // The existing QoS1 customHandleAcks path waits for this transaction before
+      // PUBACK; the dedicated outbox worker publishes the durable receipt later.
+      await new TemporaryControlResults(this.prisma).ingestTemporaryControlResult(temporaryScope, result);
+      return;
+    }
     const frozenReceivedAt = new Date(receivedAt.getTime());
     const bioScope = parseGatewayTopic(topic);
     if (bioScope && topic === bioSensorCatalogTopics.ack(bioScope.siteId, bioScope.gatewayId)) {

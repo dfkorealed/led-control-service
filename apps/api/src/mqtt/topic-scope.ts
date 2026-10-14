@@ -12,6 +12,11 @@ export function parseGatewayTopic(topic: string): GatewayTopicScope | null {
   return { siteId: match[1], gatewayId: match[2], channel: match[3] };
 }
 
+export function parseTemporaryControlResultTopic(topic: string): GatewayTopicScope | null {
+  const scope = parseGatewayTopic(topic);
+  return scope?.channel === "temporary-control/result" ? scope : null;
+}
+
 export function assertGatewayScope(scope: GatewayTopicScope, payload: { siteId: string; gatewayId: string }) {
   if (scope.siteId !== payload.siteId || scope.gatewayId !== payload.gatewayId) {
     throw new ForbiddenException("gateway MQTT scope mismatch");

@@ -9,6 +9,22 @@ const FIXTURE_A = "00000000-0000-4000-8000-000000000005";
 const FIXTURE_B = "00000000-0000-4000-8000-000000000006";
 
 describe("AutomationSnapshotService", () => {
+  it("serializes a strict V3 snapshot with explicit exclusion flags and preserves source bindings", async () => {
+    const payloads: any[] = [];
+    const tx = {
+      gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID, assignmentVersion: 1, site: { timeZone: "Asia/Seoul" }, automationConfiguration: null,
+        inventory: { id: "inventory", claimedAt: new Date(), disabledAt: null }, certificates: [{ inventoryId: "inventory" }],
+        automationProtocolDeclarations: [{ assignmentVersion: 1, maxSnapshotVersion: 3, temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true }] }) },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [{ id: SCHEDULE_A, name: "new", status: "enabled", activeFrom: new Date("2026-01-01Z"),
+        activeUntil: new Date("2026-12-31Z"), localStartTime: "08:00", localEndTime: "09:00", recurrenceKind: "daily", weeklyDays: [], monthlyDay: null,
+        yearlyMonth: null, yearlyDay: null, dimmingEnabled: true, brightnessPercent: 70, fixtures: [{ fixtureId: FIXTURE_A }], excludeWeekends: true, excludeHolidays: false }] },
+      vehicleEventRule: { updateMany: async () => ({}), findMany: async () => [] }, gatewayAutomationConfiguration: { upsert: async () => ({}) },
+      mqttOutbox: { create: async ({ data }: any) => { payloads.push(data); } }
+    };
+    await new AutomationSnapshotService({ now: () => new Date("2026-10-14Z") }).incrementDesiredRevision(tx as never, GATEWAY_ID);
+    expect(payloads[0]).toMatchObject({ automationAssignmentVersion: 1, automationSourceBindings: {},
+      payload: { schemaVersion: 3, holidayDatasets: [], schedules: [{ excludeWeekends: true, excludeHolidays: false }] } });
+  });
   const generatedAt = new Date("2026-08-31T23:00:00.000Z");
   const service = new AutomationSnapshotService({ now: () => generatedAt } as never);
 

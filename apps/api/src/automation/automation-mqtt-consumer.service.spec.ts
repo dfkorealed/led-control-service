@@ -17,6 +17,25 @@ const REQUEST_ID = "00000000-0000-4000-8000-000000000012";
 const NOW = new Date("2026-08-30T01:00:00.000Z");
 
 describe("AutomationMqttConsumerService", () => {
+  it("previous_v3_snapshot_hash_cannot_promote_current_revision", async () => {
+    const h = createHarness(); const row = h.state.configOutboxes.at(-1)!;
+    const { payloadHash: previousHash, ...oldBody } = row.payload;
+    const body = { ...oldBody, schemaVersion: 3, holidayDatasets: [], schedules: oldBody.schedules.map((s: any) => ({ ...s, excludeWeekends: false, excludeHolidays: false })),
+      vehicleEventRules: oldBody.vehicleEventRules.map((r: any) => ({ ...r, sensorProtocol: "bluez-stateful" })) };
+    row.payload = { ...body, payloadHash: canonicalPayloadHash(body) }; row.payloadHash = row.payload.payloadHash;
+    h.state.configuration.payloadHash = row.payloadHash; h.state.protocolVersion = 3;
+    const old = configAck(5, "applied", previousHash);
+    const delivery = { ...old, schemaVersion: 3, acknowledgement: { ...old.acknowledgement, schemaVersion: 3 } };
+    await h.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, delivery);
+    expect(h.state.configuration.appliedRevision).toBe(2);
+    const exact = { ...delivery, acknowledgement: { ...delivery.acknowledgement, payloadHash: row.payloadHash } };
+    h.state.protocolVersion = 1;
+    await h.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, exact);
+    expect(h.state.configuration.appliedRevision).toBe(2);
+    h.state.protocolVersion = 3;
+    expect(await h.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, exact)).toMatchObject({ schemaVersion: 3 });
+    expect(h.state.configuration.appliedRevision).toBe(5);
+  });
   it("acknowledges the exact V2 snapshot only after independent support, without capability promotion", async () => {
     const h = createHarness();
     const row = h.state.configOutboxes.at(-1)!;
@@ -543,7 +562,8 @@ function createPrisma(state: State) {
       if (sql.includes('FROM "Gateway"')) return state.identityActive ? [{ id: GATEWAY_ID, assignmentVersion: 1 }] : [];
       return [];
     }),
-    gatewayAutomationProtocolSupport: { findFirst: async () => ({ maxSnapshotVersion: state.protocolVersion }) },
+    gatewayAutomationProtocolSupport: { findFirst: async () => ({ maxSnapshotVersion: state.protocolVersion,
+      ...(state.protocolVersion === 3 ? { temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true } : {}) }) },
     mqttOutbox: {
       findFirst: jest.fn(async ({ where }: any) => state.configOutboxes.find((row) =>
         row.gatewayId === where.gatewayId && row.revision === where.revision &&

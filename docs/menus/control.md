@@ -1,5 +1,34 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 BIO 시간제 제어 API·전달·결과 소비
+
+### 구현 완료
+
+- 현장별 시간제 시작·종료(202 접수), 단건·목록(private, no-store), 현재 권한 재검증, strict 입력·단일 Gateway·BIO 신원·활성 센서 source·기존 불확정 명령·임시 lease 충돌 검사를 연결했다. 실제 접수는 현재 assignment의 적용 확인된 V3 snapshot과 정확한 ACK/hash 및 기존 `CommandDbClockHealth`의 신뢰된 DB UTC sample이 있어야 한다. 같은 요청은 최소 fingerprint로 기존 세션을 반환하고 기간을 연장하지 않는다.
+- 시작 transaction에서 고정 대상과 apply/release generation 쌍, 원 command hash/sequence, operation receipt, outbox를 원자 저장한다. 종료·만료는 이미 예약한 release generation을 재사용해 intent부터 기록한다. 기본 영구 SET도 같은 임시 lease를 검사한다.
+- 독립 temporary-control MQTT 경로에서 30초 worker lease, 10초 publish timeout, CAS와 최대 60초 재시도를 적용한다. 시작 전달 window는 고정 endsAt 이내이고 종료는 별도 window다. 10회/15분 전달 batch가 끝나도 영속 release intent와 미해결 lease는 남겨 다음 batch에서 재시도한다. PUBACK은 RF 성공이 아니다.
+- 결과의 원 admission·assignment·대상·generation·hash 및 최신 적용 V3 restoration revision/hash를 검증하고 receipt→대상 증거→owner 해결→ingested ACK를 한 transaction에 저장한다. 부분 쓰기/unknown은 유지하고 과거 결과가 새 소유자를 해제하지 않는다. 정상 BIO mode의 재평가·독립 GET은 후속 Gateway 실행기 책임이며 센서 mode를 광출력 확인으로 표시하지 않는다.
+- V3 선언·스냅샷·ACK와 공휴일 승격 hook을 연결했다. 완전 dataset pointer 및 관련 desired revision/outbox가 함께 commit/rollback한다. BIO 센서 telemetry·capability wire2와 V2 호환을 유지한다.
+- 기존 `COMMAND_DETAIL_REDACTION_ENABLED` ON/OFF와 DB UTC 3개월 경계를 사용해 terminal 상세만 정리한다. 최소 operation fingerprint, 결과 receipt/hash, fixture counter와 release tombstone은 삭제하지 않으며 정리 후 재시도도 원 세션을 반환한다.
+
+### 미구현
+
+- 실제 Gateway 임시 실행·재시작 복구·자동 목표 평가, 달력 API 및 기존 Web 화면 연결은 후속 작업이다. 이 단계의 HTTP/MQTT/SQL 증거는 mock transport와 자기 소유 PostgreSQL 검증이다.
+- 운영 clock attestor·공휴일 provider/ServiceKey, 운영 migration·서버/Pi 배포·PKI/ACL 적용·HIL은 수행하지 않았다. 현재 production clock attestor가 없으면 새로운 시간제 시작은 503으로 차단한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 사용자 권한 취소는 새 HTTP 쓰기를 차단한다. 이미 transaction에서 접수된 원 start는 후속 권한 변화만으로 자동 취소하지 않고 원 payload/endsAt 및 clock·현재 V3·assignment·lease 검사를 유지한다. 접수된 동작 중지는 권한 있는 사용자의 명시적 end를 사용하며 안전 만료·복구는 원 actor 권한과 독립이다.
+- Gateway가 내려가 있거나 복귀 결과가 없으면 lease를 보류하고 recovery 상태를 유지한다. 카운트다운 종료나 전송 접수만으로 장비 복귀를 보장하지 않는다.
+
+### 관련 파일
+
+- `apps/api/src/temporary-controls/*`, `apps/api/src/commands/commands.service.ts`, `apps/api/src/automation/{automation-protocol-support,automation-snapshot.service,automation-mqtt-consumer.service,bio-pulse-telemetry,automation-runtime.module}.ts`, `apps/api/src/mqtt/{mqtt.service,mqtt.module,topic-scope}.ts`, `apps/api/src/app.module.ts`.
+
+### 갱신 규칙
+
+- admission·권한·generation·전달/결과/보존 조건 변경 시 실제 transaction과 stale/late 결과·상세 정리 후 replay 회귀를 함께 갱신한다. 실장비 검증과 후속 UI 완료는 별도 증거 없이 이 항목으로 승격하지 않는다.
+
 ## 2026-10-14 공식 한국 공휴일 dataset 갱신 기반
 
 ### 구현 완료
@@ -10,7 +39,7 @@
 
 ### 미구현
 
-- Task4의 실제 V3 snapshot revision 갱신 소비, 일정 제외/달력 API·평가기, Gateway 및 Web 연결은 후속 단계다. 이번 단계는 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
+- 실제 V3 snapshot revision 갱신 소비는 위 2026-10-15 기록에서 구현했다. 일정 제외/달력 API·평가기, Gateway 및 Web 연결은 후속 단계이며 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
 - ServiceKey 설정·실제 provider 연결, 사용자 DB migration, 서버/Pi 반영, ACL reload 및 HIL은 수행하지 않았다. production module은 기본 live provider를 생성하거나 환경 변수를 읽지 않는다.
 
 ### 부족하거나 개선이 필요한 기능
@@ -37,12 +66,12 @@
 
 ### 미구현
 
-- 실제 API 접수/권한·결과 판정·전송/상세 정리 worker, 달력 평가기, Gateway 실행과 Web UI 연결은 후속 단계다. 공휴일 provider/cache 소프트웨어는 위 후속 기록에서 구현했으며 DB 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
+- API 접수/권한·결과 판정·전송/상세 정리 worker 및 공휴일 provider/cache 소프트웨어는 위 후속 기록에서 구현했다. 달력 평가기, Gateway 실행과 Web UI 연결은 후속 단계이며 DB/API 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
 - 현재 사용자 DB migration·서버/장비 반영·ACL reload·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
 
-- SQL은 귀속/소유권/세대/최초 판정 보존을 강제한다. 공휴일 canonical hash·완전 provider 페이지 검증은 위 후속 서비스가 담당하며 최신 자동 설정과 readback의 실제 일치, 대상1~1000개와 권한의 transaction admission은 후속 API가 공유 계약에 따라 판정해야 한다.
+- SQL은 귀속/소유권/세대/최초 판정 보존을 강제한다. 위 후속 서비스/API가 공휴일 canonical hash·완전 provider 페이지, 대상1~1000개·권한의 transaction admission과 최신 적용 restoration revision/hash를 검증한다. 실제 자동 목표의 재평가와 독립 readback 일치는 후속 Gateway가 담당한다.
 - 신규 SQL12/12와 직접 관련 기존V2 자격·활성화1/1을 자기 소유 PostgreSQL16에서 검증했다. 모든 변경은 소프트웨어 증거이며 실제 조명 복귀·광출력 증거가 아니다. 보존 ON/OFF 설정과 기존 native/BIO 등록·밝기는 변경하지 않았다.
 
 ### 관련 파일

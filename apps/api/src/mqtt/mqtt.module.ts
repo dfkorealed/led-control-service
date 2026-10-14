@@ -69,6 +69,6 @@ import { BioSensorCatalogOutboxService } from "../automation/bio-sensor-catalog-
     CommandClockResponderService,
     MeshGroupSyncWorker
   ],
-  exports: [MqttService, SensorModeOperationsService, BioRegistrationRevalidationService]
+  exports: [MqttService, CommandDbClockHealth, SensorModeOperationsService, BioRegistrationRevalidationService]
 })
 export class MqttModule {}

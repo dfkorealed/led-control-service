@@ -9,7 +9,7 @@ import { AutomationSnapshotService } from "./automation-snapshot.service";
 import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
 import { AuditModule } from "../audit/audit.module";
 import { BioClassificationReconciliationService } from "../registration/bio-classification-reconciliation.service";
-import { HolidayDatasetService } from "./holiday-dataset.service";
+import { HOLIDAY_DATASET_PROMOTION, HolidayDatasetService } from "./holiday-dataset.service";
 
 @Module({
   imports: [PrismaModule, AccessModule, AuditModule],
@@ -21,6 +21,7 @@ import { HolidayDatasetService } from "./holiday-dataset.service";
     HolidayDatasetService,
     AutomationMqttConsumerService,
     AutomationSnapshotService,
+    { provide: HOLIDAY_DATASET_PROMOTION, useExisting: AutomationSnapshotService },
     VehicleSensorCapabilityService
   ],
   exports: [

@@ -66,6 +66,7 @@ function createHarness(options: {
   };
   let storedCommand: Record<string, unknown> | null = options.existingCommand ?? null;
   const tx: any = {
+    temporaryControlLease: { findFirst: jest.fn().mockResolvedValue(null) },
     vehicleEventSource: { findFirst: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn().mockResolvedValue([]),
     fixture: { findMany: jest.fn().mockResolvedValue(options.fixtures ?? []) },
@@ -137,6 +138,13 @@ function createHarness(options: {
 }
 
 describe("CommandsService", () => {
+  it("refuses a new permanent SET while its fixture has an unresolved temporary owner", async () => {
+    const h = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    h.tx.temporaryControlLease.findFirst.mockResolvedValue({ fixtureId: ids.fixture1 });
+    await expect(h.service.createDimmingCommand(controlUser, { siteId: ids.site, target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 70 }))
+      .rejects.toMatchObject({ status: 409, response: { code: "temporary_control_lease_conflict" } });
+    expect(h.tx.command.create).not.toHaveBeenCalled();
+  });
   it("re-expands saved group membership and blocks A added after a previous B command", async () => {
     const b = fixture(ids.fixture2);
     const h = createHarness({ group: { id: ids.group, groupFixtures: [{ fixtureId: b.id, fixture: b }] } });

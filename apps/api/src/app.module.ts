@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { TemporaryControlsModule } from "./temporary-controls/temporary-controls.module";
 import { FixtureIdentifyModule } from "./fixture-identify/fixture-identify.module";
 import { AccessModule } from "./access/access.module";
 import { AuditModule } from "./audit/audit.module";
@@ -32,6 +33,7 @@ import { LandingInquiriesModule } from "./landing-inquiries/landing-inquiries.mo
 
 @Module({
   imports: [
+    TemporaryControlsModule,
     ObservabilityModule,
     FixtureIdentifyModule,
     PrismaModule,

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import {
   automationSnapshotSchema,
+  type HolidayDatasetSnapshot,
   type LightingScheduleSnapshotV1,
   mqttTopics,
   type VehicleEventRuleSnapshotV1
@@ -8,6 +9,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { AutomationClock } from "./automation-clock";
 import { canonicalPayloadHash } from "./automation-payload-hash";
+import { declaredAutomationVersion } from "./automation-protocol-support";
 
 interface LightingScheduleSnapshotRow {
   id: string;
@@ -39,6 +41,20 @@ export class AutomationSnapshotService {
     await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
   }
 
+  /** The dataset pointer and every affected desired revision commit together.
+   * The caller already holds the mutation lock; no I/O or nested transaction. */
+  async onPromoted(tx: Prisma.TransactionClient, dataset: HolidayDatasetSnapshot): Promise<void> {
+    const gateways = await tx.gateway.findMany({ where: { lightingSchedules: { some: { excludeHolidays: true,
+      activeFrom: { lte: new Date(`${dataset.year}-12-31T23:59:59.999Z`) }, activeUntil: { gte: new Date(`${dataset.year}-01-01T00:00:00Z`) } } } },
+      select: { id: true, assignmentVersion: true, automationProtocolDeclarations: { orderBy: [{ assignmentVersion: "desc" }, { declarationRevision: "desc" }], take: 1 } } });
+    for (const gateway of gateways) {
+      const declaration = gateway.automationProtocolDeclarations[0];
+      if (declaration?.assignmentVersion === gateway.assignmentVersion && declaredAutomationVersion(declaration) === 3) {
+        await this.incrementDesiredRevision(tx, gateway.id);
+      }
+    }
+  }
+
   async incrementDesiredRevision(tx: Prisma.TransactionClient, gatewayId: string) {
     const gateway = await tx.gateway.findUnique({
       where: { id: gatewayId },
@@ -49,7 +65,7 @@ export class AutomationSnapshotService {
         inventory: { select: { id: true, claimedAt: true, disabledAt: true } },
         certificates: { where: { purpose: "mqtt", status: "active", revokedAt: null }, select: { inventoryId: true } },
         automationProtocolDeclarations: { orderBy: [{ assignmentVersion: "desc" }, { declarationRevision: "desc" }],
-          take: 1, select: { assignmentVersion: true, maxSnapshotVersion: true } },
+          take: 1, select: { assignmentVersion: true, maxSnapshotVersion: true, temporaryControlVersion: true, bioConfigurationReadback: true, durableFixtureLease: true } },
         site: { select: { timeZone: true } },
         automationConfiguration: { select: { desiredRevision: true, appliedRevision: true } }
       }
@@ -57,9 +73,9 @@ export class AutomationSnapshotService {
     if (!gateway) throw new NotFoundException("gateway not found");
     const declaration = gateway.automationProtocolDeclarations?.[0];
     const version = declaration?.assignmentVersion === gateway.assignmentVersion
-      && declaration?.maxSnapshotVersion === 2 && gateway.inventory?.claimedAt
+      && gateway.inventory?.claimedAt
       && !gateway.inventory.disabledAt && gateway.certificates?.some(certificate =>
-        certificate.inventoryId === gateway.inventory?.id) ? 2 : 1;
+        certificate.inventoryId === gateway.inventory?.id) ? declaredAutomationVersion(declaration) : 1;
     const desiredRevision = (gateway.automationConfiguration?.desiredRevision ?? 0) + 1;
     if (!Number.isSafeInteger(desiredRevision)) {
       throw new InternalServerErrorException("automation revision exhausted");
@@ -104,6 +120,15 @@ export class AutomationSnapshotService {
         enabledTargetBio.set(fixtureId, isBio);
       }
     }
+    const holidayDatasets = new Map<number, HolidayDatasetSnapshot>();
+    if (version === 3) {
+      // Import the pure reader lazily: HolidayDatasetService consumes this class,
+      // so a static reverse import would corrupt Nest constructor metadata.
+      const { loadHolidayCoverage } = await import("./holiday-dataset.service");
+      for (const schedule of schedules.filter(s => s.excludeHolidays)) {
+        for (const dataset of await loadHolidayCoverage(tx, schedule.activeFrom.toISOString().slice(0, 10), schedule.activeUntil.toISOString().slice(0, 10))) holidayDatasets.set(dataset.year, dataset);
+      }
+    }
     const snapshotWithoutHash = {
       schemaVersion: version,
       siteId: gateway.siteId,
@@ -111,16 +136,17 @@ export class AutomationSnapshotService {
       revision: desiredRevision,
       timeZone: gateway.site.timeZone,
       schedules: schedules
-        .map(toLightingScheduleSnapshot)
+        .map(schedule => version === 3 ? { ...toLightingScheduleSnapshot(schedule), excludeWeekends: schedule.excludeWeekends, excludeHolidays: schedule.excludeHolidays } : toLightingScheduleSnapshot(schedule))
         .sort((left, right) => compareAutomationIds(left.id, right.id)),
       vehicleEventRules: eventRules
-        .filter(rule => version === 2 || rule.sensorProtocol !== "bio_usb_pulse")
+        .filter(rule => version !== 1 || rule.sensorProtocol !== "bio_usb_pulse")
         .map(rule => version === 1 ? toVehicleEventRuleSnapshot(rule) : {
           ...toVehicleEventRuleSnapshot(rule),
           sensorProtocol: rule.sensorProtocol === "bio_usb_pulse" ? "bio-usb-pulse" : "bluez-stateful"
         })
         .sort((left, right) => compareAutomationIds(left.id, right.id)),
-      generatedAt: this.clock.now().toISOString()
+      generatedAt: this.clock.now().toISOString(),
+      ...(version === 3 ? { holidayDatasets: [...holidayDatasets.values()].sort((a,b) => a.year-b.year) } : {})
     };
     const payloadHash = canonicalPayloadHash(snapshotWithoutHash);
     const payload = automationSnapshotSchema.parse({ ...snapshotWithoutHash, payloadHash });
@@ -147,10 +173,10 @@ export class AutomationSnapshotService {
       data: {
         gatewayId,
         revision: desiredRevision,
-        automationAssignmentVersion: version === 2 ? gateway.assignmentVersion : null,
+        automationAssignmentVersion: version !== 1 ? gateway.assignmentVersion : null,
         // Capture under the caller's membership lock with the snapshot. Never
         // rebuild this historical attribution from a Fixture at ingest time.
-        automationSourceBindings: version === 2 ? Object.fromEntries(eventRules
+        automationSourceBindings: version !== 1 ? Object.fromEntries(eventRules
           .filter(rule => rule.sensorProtocol === "bio_usb_pulse")
           .flatMap(rule => rule.sources.map(source => [source.fixtureId, source.fixture.meshNodeId]))) : Prisma.DbNull,
         payloadHash,
