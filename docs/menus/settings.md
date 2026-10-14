@@ -1,6 +1,7 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
 - 2026-10-14 공통 센서준비UI: 기존조명ID/기본밝기를 유지한 등록연결확인query/GET/검증apply를 제어의 공통준비패널에 연결했다. 현재 gateway.assignmentVersion을 기존 dashboard/조명page에 추가하고 구형메타데이터·권한/범위변화는 fail-closed한다. 새등록·schema/권한/PKI 변경은 없고 실제적용/센서모드준비는 승인된 후속단계다.
+- 후속17:41KST: 공통UI는메인/API에반영됐다. 현재MQTT CRL만료/issuer Vault중지로 실제등록apply·센서SET은0이며 ID/기본밝기/권한/schema를보존한다. 사용자가CRL갱신을승인했고 기존Vault기동확인 뒤 같은issuer/Root/폐기내역을검증한다. 센서준비 완료로 표시하지 않는다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 후보 슬롯 제거
 
