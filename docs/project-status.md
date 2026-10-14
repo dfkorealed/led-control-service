@@ -2,14 +2,15 @@
 
 기준일: 2026-10-14
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 서면 설계 검토 대기
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 설계 승인 완료·실행 계획 검토 대기
 
 - 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성했다. 제품/API/DB/MQTT 변경은 아직 미구현이다.
 - 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 문서만 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing dirty 변경을 보존한다.
 - 신규 기능은 BIO 센서 조명만 지원하고 기존 native 코드·등록·데이터를 자동 삭제/변환하지 않는다.12개 UI 합의와 스케줄/달력/이벤트 추가 위치 통일을 유지한다.
 - 제안은 독립 TemporaryControlSession·Gateway durable single-owner·최신 자동 운전 복귀다. legacy 영구 명령 TTL 재사용/과거 밝기 단순 복원은 제외한다.
 - 달력은 발생일 대체 보기·일정별 주말/휴일 제외 기본false다. 서버/Gateway가 검증 dataset/coverage를 공유하며 목업6날짜를 제품화하지 않는다.
-- 현재 서면 설계 검토 대기이며 detailed writing-plans는 아직 없다. 설계 승인→계획 검토/실행 방식 승인→backend 공유 계약·Prisma→engine/Gateway→기존 UI 담당→최소 QA 순서다.
+- 사용자가 서면 설계 커밋 `91bf922e`를 승인했다. [상세 실행 계획](superpowers/plans/2026-10-14-bio-control-operations.md)은 9개 순차 작업과 최소 관련 검증·공유 계약 초안을 제안하며 사용자 검토 대기다. 구현 체크리스트는 모두 pending이고 제품은 미구현이다.
+- 실행 방식은 총괄 오케스트레이터→backend 공유 계약·Prisma→engine/Gateway→기존 ‘제어 UI 개선 담당자’→최소 QA로 지정됐다. 계획 검토 전에는 구현을 시작하거나 해당 사용자 채팅에 제품 구현을 전달하지 않는다.
 - 이번 제품 테스트·설치·빌드·DB/provider 호출·실장비/운영 변경은0이다. 문서 diff/실경로만 검증한다.
 - 로컬 소프트웨어 병합과 운영 migration/Pi 배포/HIL/PKI/재시작/remote 승인은 별개다. 총괄이 최종 검토/커밋한다.
 
