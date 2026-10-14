@@ -8,6 +8,15 @@
 
 **Tech Stack:** React, NestJS/Prisma/PostgreSQL, MQTT, Raspberry Pi BIO Gateway.
 
+## 10월14일 모든 조명 공통 준비 UI 보완
+
+- [x] 사용자 `진행해줘`로 기존 공통 패널의 등록 연결 확인→센서 사용 설정 설계를 승인했다. 센서모드 전환의 자체점등 가능성을 설명했고 실제 이벤트 활성화/움직임 시험은 하지 않는다. 로컬API만 검증 후 정상 재기동하는 추가 승인도 받았다.
+- [x] 별도 `codex/sensor-common-ui-20261014`에서 기존 등록 재확인 POST/GET/apply를 공통 컴포넌트로 연결한다. 현재 gateway.assignmentVersion만 기존 dashboard/조명 page 응답에 추가하며 버전이 없거나 권한/online/범위가 바뀌면 요청을 차단한다. 새API·공유MQTT·schema·권한 변경은 없다.
+- [x] 버튼 부재·조회 버전 누락·지연 조회 완료 후 pending 잔류를 RED로 확인하고 GREEN으로 보완했다. 관련Web122/122, API36/36, 타입 포함Web빌드와APItypecheck, mock Chromium320/390/1024/1440px6/6이다. 조회정보/ID·기본밝기 보존·등록apply와 센서자격 분리, 중복POST/유실응답·권한회수·만료proof 차단을 확인했다. 전체suite/HIL 완료로 확대하지 않는다.
+- [x] API빌드/typecheck exit0, 직접diff리뷰·메뉴문서·diff check를 확인했다. 현재API는 동일root/apps/api watcher3493(전날08:52시작)의 child19395이며 정상ready200이다. 새권한/schema/계약/DB강제변경 없이 기존 API를 소비하고 구형버전은 fail-closed한다. 사용자 단독진행 요청에 따라 독립에이전트리뷰는 하지 않았다.
+- [ ] 메인에 반영하고 승인된 정상 API watcher 적용을 확인한다. 사용자AGENTS/landing·다른메인작업/환경/PKI를 보존한다.
+- [ ] 현재 로그인 UI에서 온라인조명의 정상등록재확인·필요한센서사용설정을 수행하고 현재 sourceEligible와 자유로운 source/target 선택을 확인한다. 오프라인/미검증조명 강제허용·규칙활성화/움직임 START는 하지 않는다.
+
 ## 10월14일 직접 UI 시험 준비 재개
 
 - [x] 현재 로그인 UI의 비활성 규칙/준비 차단을 확인한다. 조명4대 오프라인, 기존 A→B100%/60초/적용됨이다. 서버 ready200/의존성5up, strict SSH 정상이다. Mac 주소는 전날과 다르고 Apple NTP 읽기 offset +0.007670±0.025955초로 현재 시간 동기화 변경은 불필요하다.

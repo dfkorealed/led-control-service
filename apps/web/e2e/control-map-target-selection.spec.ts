@@ -168,6 +168,50 @@ for (const width of [320, 1440]) {
   });
 }
 
+for (const width of [320, 1440]) {
+  test(`BIO registration connection ${width}px repairs a current binding without preparing or selecting a sensor`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installControlMapRoutes(page, { commonPreparation: true });
+    let applied = false;
+    const liveFixtures = () => fixtures.map((item, index) => ({ ...item, name: ["서쪽 출입등", "동쪽 통로등", "주차 안내등"][index],
+      gateway: { ...item.gateway!, assignmentVersion: 3 },
+      bioSensorPreparation: { preparationCandidate: index !== 0 || applied, status: "unverified", commandId: null, profileKey: null, observedAt: null,
+        blockedReasons: index === 0 && !applied ? ["binding_changed" as const] : ["mode_unverified" as const] },
+      vehicleEventSource: { sensorProtocol: "bio-usb-pulse" as const, readiness: "off" as const, capabilityEvidence: "off" as const,
+        sourceEligible: false, targetEligible: true, blockReasons: [], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
+    }));
+    await page.route(`**/api/sites/${ids.site}/dashboard**`, route => route.fulfill({ json: dashboardResponse(liveFixtures(), [], "admin") }));
+    await page.route(`**/api/sites/${ids.site}/floors/${ids.floor}/fixtures**`, route => route.fulfill({ json: { items: liveFixtures(), nextCursor: null } }));
+    const commandId = "99999999-9999-4999-8999-999999999951";
+    const proof = () => ({ commandId, siteId: ids.site, gatewayId: ids.gateway, fixtureId: ids.fixture, status: "observed", observedMode: "force-off",
+      requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30_000).toISOString(), applyDeadlineAt: new Date(Date.now() + 120_000).toISOString(), supersededAt: null, appliedAt: applied ? new Date().toISOString() : null });
+    const posts: Array<{ path: string; input: Record<string, unknown> }> = [];
+    await page.route("**/api/registration-sessions/bio-revalidations**", route => {
+      if (route.request().method() === "POST") {
+        const path = new URL(route.request().url()).pathname;
+        posts.push({ path, input: route.request().postDataJSON() });
+        if (path.endsWith("/apply")) applied = true;
+      }
+      return route.fulfill({ json: proof() });
+    });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    await page.getByRole("button", { name: "이벤트 추가", exact: true }).click();
+    await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+    await marker(page.getByRole("dialog", { name: "이벤트 추가", exact: true }), "서쪽 출입등").click();
+    const panel = page.getByRole("region", { name: "서쪽 출입등 센서 준비", exact: true });
+    await panel.getByRole("button", { name: "등록 연결 확인", exact: true }).scrollIntoViewIfNeeded();
+    await expect(panel.getByRole("button", { name: "센서 사용 설정", exact: true })).toBeDisabled();
+    await panel.getByRole("button", { name: "등록 연결 확인", exact: true }).click();
+    await expect(panel.getByRole("button", { name: "센서 사용 설정", exact: true })).toBeEnabled();
+    await expect(panel.getByRole("button", { name: "감지 센서로 선택", exact: true })).toBeDisabled();
+    expect(posts).toHaveLength(2);
+    expect(posts[0].input).toEqual({ siteId: ids.site, gatewayId: ids.gateway, fixtureId: ids.fixture, expectedAssignmentVersion: 3, clientRequestId: expect.any(String) });
+    expect(posts[1].path).toBe(`/api/registration-sessions/bio-revalidations/${commandId}/apply`);
+    await expectNoHorizontalOverflow(page);
+    if (width < 1024) await expectMinimumTouchTargetsAfterScrolling(page, "[data-dialog-surface]");
+  });
+}
+
 test("BIO OFF remains inspectable on the map while preparation actions stay reachable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installControlMapRoutes(page, { bioReadiness: "off" });

@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-14 공통 등록 연결 확인 UI
+
+### 구현 완료
+
+- 기존 센서 준비 패널에서 등록연결 재확인이 필요한 조명은 공통 `등록 연결 확인` 버튼으로 기존 서버의 query→현재proof GET→검증/감사 apply를 사용한다. A/B ID를 고정하지 않고 현재 현장/조명/gateway/assignmentVersion에 결속한다. 권한·online·버전이 없거나 바뀌면 차단하며 응답유실 시 중복요청/SET을 자동 생성하지 않는다.
+- 등록확인 완료는 센서사용 가능 판정이 아니다. dashboard 재조회 뒤 별도 센서사용설정/준비확인과 현재 sourceEligible를 통과해야 선택한다. 기본밝기/ID와 규칙 비활성을 보존하며 최대5회 자동GET 후 수동결과조회를 제공한다.
+
+### 미구현
+
+- 제품변경의 실제메인/API 적용과 온라인조명 준비는 검증 후 진행중이다. 오프라인조명의 전원/연결, 실제 감지·유지·복귀 시험은 이 소프트웨어회귀의 완료범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 조회 응답의 현재 assignmentVersion을 소비하므로 구형API 응답은 재확인 버튼을 차단한다. 임의버전1/ready를 대체하지 않으며 새적용 뒤 현재자격을 확인해야 한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/automation/components/BioRegistrationConnectionCheck.tsx`, `BioSensorPreparationPanel.tsx`, `apps/web/src/api/{registration,queries}.ts`, API `sites/sites.service.ts`·`fixtures/fixtures.service.ts`, 관련unit/Chromium회귀.
+
+### 갱신 규칙
+
+- 등록확인·센서준비·규칙명시적활성화·실제움직임시험을 구분한다. unit/mock검증을 실장비사용 가능으로 승격하지 않는다.
+
 - 2026-10-14 모든조명 UI시험 후속: 일반 이벤트추가/전체조명목록에서 모든조명의 준비상태를 볼 수 있다. 현재B1-L006은 approved fingerprint일치지만needs_setup, B1-L002는 완료등록의 발견상태가discovered로낮아져binding_changed/후보false다. 공통준비패널의 정상등록연결확인 UI 보완과 센서모드설정 승인을대기한다. 오프라인조명/미검증센서를강제허용하지 않고 실제시험완료로표시하지 않는다.
 
 - 2026-10-14 후속09:14KST: 새 승인으로 동일image/등록/밝기/인증/센서 설정과 fresh 암호화 백업을 보존해 주소 교정/약27초 중단 뒤 MQTT·USB 통신을 복구했다. A의 정상 UI query1개는 식별 응답 없이unverified이며 현재online은B1-L002/B1-L006이다. 기존A(B1-L001)/B(B1-L004)는오프라인이므로 전원/연결 확인 또는 새 대상의 사용자 선택 전 시험은 불가하다. 규칙100%/60초/비활성/적용됨·활성화 차단을 유지하며 임의 조명 교체·SET·추가query·시험은 하지 않았다.

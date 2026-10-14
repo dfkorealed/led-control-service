@@ -127,6 +127,7 @@ export class FixturesService {
             ? {
                 id: fixture.meshNode.gateway.id,
                 name: fixture.meshNode.gateway.name,
+                assignmentVersion: fixture.meshNode.gateway.assignmentVersion,
                 connectionStatus: gatewayOnline ? "online" : "offline"
               }
             : null,

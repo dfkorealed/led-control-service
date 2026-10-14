@@ -2,6 +2,13 @@
 
 기준일: 2026-10-14
 
+## 2026-10-14 모든 조명 공통 센서 준비 UI — 구현 검증, 실제 적용 준비
+
+- 사용자는 A/B 고정 대신 모든조명의 자유로운UI시험을 요청하고 공통 등록연결확인→센서사용설정의 bounded설계에 `진행해줘`로 승인했다. 로컬API만 검증 후 정상재기동하는 승인도 받았으며 Gateway/브로커재시작·DB/schema/인증·밝기변경·이벤트활성화/움직임시험으로 확대하지 않는다.
+- 최신메인833121fb 기반 `codex/sensor-common-ui-20261014`에서 기존정상 POST/GET/apply를 재사용한다. 기존 dashboard/조명page의 gateway에 현재assignmentVersion만 추가하며 UI는 이를 추정하지 않는다. 공통컴포넌트는 scope/permission/online 변화·잘못된proof·만료를 차단하고 유실POST는 같은identity, 유실apply는 GET으로 재개한다. 등록repair만으로 센서자격/밝기/규칙ON을 합성하지 않는다.
+- RED→GREEN: API메타데이터2건과 UI버튼/지연continuation회귀를 확인했다. 관련Web3파일122/122, API2파일36/36, 타입포함Webbuild0/APItypecheck0, mockChromium6/6이다. 최초테스트 CLI 전달/ByRole exact 타입오류와 지연타이머 RED를 원로그에 보존하고 정상인수/타입/소프트웨어회귀로 구분한다. API빌드/직접diff리뷰/메인반영과 실제UI준비는 진행중이다. 전체unit·실제감지HIL 완료로 확대하지 않는다.
+- APIbuild/typecheck도exit0이며 직접diff리뷰/문서/diff check를 확인했다. 현재root/apps/api의 동일watcher3493·child19395·ready200을 읽기로 확인했고 승인된 정상watcher 적용만 수행한다. 사용자 단독진행 요청대로 별도리뷰에이전트/다른채팅메시지는0이다. 메인반영/실제UI준비는 다음단계다.
+
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 
 - 사용자 승인으로 저장 옆 초기화 명령에 요소만/조명도 미배치 두 mode와 서버 즉시 저장·현재층 한정·크기/격자/등록/제어 보존·기록복구를 구현한다. CAD는 일반 도형만 적용하고 조명 후보 슬롯 기능을 제거한다. 실제 조명 심볼 도형은 보존한다.

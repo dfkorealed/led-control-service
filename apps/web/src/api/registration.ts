@@ -1,7 +1,24 @@
-import type { RegisterFixtureBatchInput } from "@led-control/shared";
+import type { RegisterFixtureBatchInput, BioRegistrationRevalidationRequest } from "@led-control/shared";
 import { apiGet, apiPost } from "./client";
 
 export type { RegisterFixtureBatchInput } from "@led-control/shared";
+
+export interface BioRegistrationRevalidationView {
+  commandId: string; siteId: string; gatewayId: string; fixtureId: string;
+  status: "pending" | "observed" | "unknown" | "timed_out";
+  observedMode: "sensor" | "force-on" | "force-off" | null;
+  requestedAt: string; expiresAt: string; applyDeadlineAt: string;
+  supersededAt: string | null; appliedAt: string | null;
+}
+export function requestBioRegistrationRevalidation(input: BioRegistrationRevalidationRequest) {
+  return apiPost<BioRegistrationRevalidationView>("/registration-sessions/bio-revalidations", input, { timeoutMs: 8_000 });
+}
+export function getBioRegistrationRevalidation(commandId: string) {
+  return apiGet<BioRegistrationRevalidationView>(`/registration-sessions/bio-revalidations/${encodeURIComponent(commandId)}`, { timeoutMs: 8_000 });
+}
+export function applyBioRegistrationRevalidation(commandId: string) {
+  return apiPost<BioRegistrationRevalidationView>(`/registration-sessions/bio-revalidations/${encodeURIComponent(commandId)}/apply`, {}, { timeoutMs: 8_000 });
+}
 
 export type RegistrationEligibility = "available" | "registered_in_site" | "registered_elsewhere";
 

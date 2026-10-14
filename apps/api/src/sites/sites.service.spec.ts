@@ -147,7 +147,7 @@ describe("SitesService", () => {
         bioControlMode: "sensor", bioConfiguredBrightness: null, bioRawHighBrightness: 127,
         healthFaultCodes: [], healthLastSeenAt: new Date("2026-07-01T00:00:01.000Z"),
         meshNode: {
-          gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() },
+          gateway: { id: "gateway-1", name: "Gateway B2", assignmentVersion: 3, lastHeartbeatAt: new Date() },
           vehicleSensorCapabilityStatus: "supported",
           vehicleSensorCapabilityVerifiedAt: new Date("2026-08-31T00:00:00.000Z")
         }
@@ -199,7 +199,7 @@ describe("SitesService", () => {
       bioControlMode: "sensor",
       bioConfiguredBrightness: null,
       bioRawHighBrightness: 127,
-      gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
+      gateway: { id: "gateway-1", name: "Gateway B2", assignmentVersion: 3, connectionStatus: "online" },
       vehicleSensorCapabilityStatus: "supported",
       vehicleSensorCapabilityVerifiedAt: "2026-08-31T00:00:00.000Z",
       controllable: true,
