@@ -6,7 +6,7 @@ import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache, principalKey } from "../../api/principal-cache";
 import { useDashboard, useSites, type SiteCapabilities } from "../../api/queries";
 import { KindaLogo } from "../../components/brand/KindaLogo";
-import {
+import { LoadingState,
   Button,
   IconTooltipButton,
   ConfirmDialog,
@@ -22,7 +22,7 @@ import {
   type SessionStatusCenterHandle,
   type SessionStatusContextItem,
   type SessionStatusItem
-} from "../../components/ui";
+ } from "../../components/ui";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import {
   blockActiveCommandSession,
@@ -108,6 +108,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   const {
     data: dashboard,
     isLoading: isDashboardLoading,
+    isPaused: isDashboardPaused,
     error: dashboardError,
     refetch: refetchDashboard
   } = useDashboard(siteId);
@@ -235,7 +236,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
     if (isDashboardLoading) {
       gate = (
         <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
-          <FeedbackState tone="info" icon={LoaderCircle} title="설치 상태를 확인하는 중입니다." />
+          <LoadingState tone="info" title="설치 상태를 확인하는 중입니다." />
         </section>
       );
     } else gate = (
@@ -253,7 +254,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
     if (isDashboardLoading) {
       gate = (
         <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
-          <FeedbackState tone="info" icon={LoaderCircle} title="현장 권한을 확인하는 중입니다." />
+          <LoadingState tone="info" title="현장 권한을 확인하는 중입니다." />
         </section>
       );
     } else gate = (
@@ -284,7 +285,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
   const summaryValue: CustomerSiteSummary | null = summaryScope ? {
     scope: summaryScope,
     siteName: sitesQuery.data!.find(site => site.id === summaryScope.siteId)!.name,
-    ...(dashboardError ? { state: "error" as const } : dashboard?.site.id !== summaryScope.siteId || isDashboardLoading ? { state: "loading" as const } : {
+    ...(dashboardError ? { state: "error" as const } : dashboard?.site.id !== summaryScope.siteId || isDashboardLoading ? { state: "loading" as const, isPaused: isDashboardPaused } : {
       state: "ready" as const,
       counts: { totalFixtures: dashboard.summary.totalFixtures ?? null, onlineFixtures: dashboard.summary.onlineFixtures ?? null,
         faultFixtures: dashboard.summary.faultFixtures ?? null, offlineFixtures: dashboard.summary.offlineFixtures ?? null }

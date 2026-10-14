@@ -27,6 +27,16 @@ function renderSettings(gatewayCount: number, fixtureCount: number, role: "admin
 }
 
 describe("SettingsView 설치 이어가기", () => {
+  it("distinguishes active dashboard loading from installation pending without removing cached cards", () => {
+    vi.mocked(useDashboard).mockReturnValue({ data: undefined, isLoading: true } as ReturnType<typeof useDashboard>);
+    const view = render(withQueries(<MemoryRouter><SettingsView userRole="viewer" capabilities={{ read: true, control: false, manage: false, commission: false }} /></MemoryRouter>));
+    expect(screen.getByRole("status")).toHaveTextContent("설정 정보를 불러오는 중");
+    expect(screen.getByRole("status").querySelector("svg")).toHaveClass("animate-spin");
+    vi.mocked(useDashboard).mockReturnValue({ data: mockDashboard, isLoading: false, isFetching: true } as ReturnType<typeof useDashboard>);
+    view.rerender(withQueries(<MemoryRouter><SettingsView userRole="viewer" capabilities={{ read: true, control: false, manage: false, commission: false }} /></MemoryRouter>));
+    expect(screen.queryByText("설정 정보를 불러오는 중")).toBeNull();
+    expect(screen.getByRole("link", { name: "맵 관리" })).toBeInTheDocument();
+  });
   beforeEach(() => { vi.mocked(apiGet).mockResolvedValue({ users: [], count: 7, limit: 100 }); });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 

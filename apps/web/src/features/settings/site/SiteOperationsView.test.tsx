@@ -331,7 +331,18 @@ describe("SiteOperationsView", () => {
     }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "B1 층 수정" })).not.toBeInTheDocument());
+    let finishRestore!: () => void;
+    const restorePending = new Promise(resolve => { finishRestore = () => resolve({ ...settings.floors[2], status: "active" }); });
+    siteApi.restoreFloor.mockReturnValueOnce(restorePending);
     fireEvent.click(screen.getByRole("button", { name: "구 1층 복구" }));
+    try {
+      await waitFor(() => expect(siteApi.restoreFloor).toHaveBeenCalled());
+      const restoring = screen.getByRole("button", { name: "구 1층 복구" });
+      expect(restoring).toBeDisabled();
+      expect(restoring.querySelector("svg")).toHaveClass("animate-spin");
+      expect(restoring).toHaveTextContent("복구 중");
+      expect(screen.getByRole("button", { name: "B1 수정" })).toBeDisabled();
+    } finally { finishRestore(); }
     await waitFor(() => expect(siteApi.restoreFloor).toHaveBeenCalledWith("site-1", "floor-archived", "2026-09-12T00:00:00.000Z"));
   });
 

@@ -19,7 +19,7 @@ import type { AuthUser } from "../../../api/auth";
 import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../../components/ui";
+import { LoadingState, Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem  } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { VehicleEventDialog } from "./VehicleEventDialog";
 import { EventSensorStatus } from "./components/EventSensorStatus";
@@ -486,9 +486,9 @@ export function VehicleEventControlPanel({
         hasNextPage={!isSearchPending && (currentPageIndex < (rulesQuery.data?.pages.length ?? 0) - 1 || Boolean(currentPage?.nextCursor))}
         isFetchingNextPage={rulesQuery.isFetchingNextPage}
         onFilterChange={changeFilter} onPrevious={() => changePage(currentPageIndex - 1)} onNext={() => void loadNextPage()} /> : null}
-      <AutomationRuleWorkspace footer={!hasGlobalContract && rulesQuery.hasNextPage && !isAuthBlocked ? <Button variant="secondary" type="button" disabled={rulesQuery.isFetchingNextPage} onClick={() => void loadNextPage()}>{rulesQuery.isFetchingNextPage ? "불러오는 중" : "더 보기"}</Button> : undefined}>
-      {rulesQuery.isLoading ? <FeedbackState icon={Clock3} title="이벤트 규칙을 불러오는 중입니다." /> : null}
-      {isSearchPending ? <FeedbackState icon={Clock3} title="검색 조건을 적용 중입니다." /> : null}
+      <AutomationRuleWorkspace footer={!hasGlobalContract && rulesQuery.hasNextPage && !isAuthBlocked ? <Button variant="secondary" type="button" disabled={rulesQuery.isFetchingNextPage} isLoading={rulesQuery.isFetchingNextPage} loadingLabel="불러오는 중" onClick={() => void loadNextPage()}>더 보기</Button> : undefined}>
+      {rulesQuery.isLoading ? <LoadingState title="이벤트 규칙을 불러오는 중입니다." /> : null}
+      {isSearchPending ? <LoadingState title="검색 조건을 적용 중입니다." /> : null}
       {queryFailure && !isNonBlockingQueryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} buttonRef={authRetryRef} /> : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError && !isAuthBlocked && !isSearchPending ? (
         rules.length > 0 ? <AutomationRuleTable caption="차량 이벤트 목록" rows={rules} columns={columns} getRowKey={row => row.id} /> : <FeedbackState icon={CarFront}

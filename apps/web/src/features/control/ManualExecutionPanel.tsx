@@ -1,12 +1,13 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ManualAuxiliaryContent, manualCompactButtonHitClassName, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
-import { Button, NumberField, Slider, Text } from "../../components/ui";
+import { Button, LoadingSpinner, NumberField, Slider, Text } from "../../components/ui";
 
 export interface ManualExecutionPanelProps {
   brightness: number;
   controlsLocked: boolean;
   canSubmit: boolean;
   applyLabel: string;
+  isSubmitting?: boolean;
   onBrightnessChange: (value: number) => void;
   onSubmit: () => void;
   /** Manual mobile presentation only; desktop/default consumers keep all controls expanded. */
@@ -20,7 +21,7 @@ export interface ManualExecutionPanelProps {
 }
 
 /** Draft presentation only: the parent retains command ownership and eligibility. */
-export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus, executionMode = "basic", onExecutionModeChange, temporaryContent, temporaryActive = false }: ManualExecutionPanelProps) {
+export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, isSubmitting = false, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus, executionMode = "basic", onExecutionModeChange, temporaryContent, temporaryActive = false }: ManualExecutionPanelProps) {
   const [inlineMoreOpen, setMoreOpen] = useState(false);
   const auxiliary = useManualAuxiliary();
   const moreOpen = compact && auxiliary ? auxiliary.active === "more" : inlineMoreOpen;
@@ -66,12 +67,18 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
 
   // One editable input stays mounted while auxiliary content is disclosed.
   // Blur/Enter and the first invalid Apply guard remain owned by this draft.
-  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? `${manualCompactButtonHitClassName} px-2 text-caption` : "max-compact:scroll-mb-shell-navigation-safe"}
-    aria-label={applyLabel} onClick={() => {
+  // Compact has a fixed four-column budget. Keep its shared spinner out of
+  // normal flow so HTTP pending never widens Apply and steals slider width.
+  // Preserve the common button's busy/disabled contract in this compact slot.
+  const apply = <Button ref={applyRef} variant="primary" type="button" className={compact ? `${manualCompactButtonHitClassName} relative px-2 text-caption` : "max-compact:scroll-mb-shell-navigation-safe"}
+    isLoading={isSubmitting && !compact} loadingLabel="명령 전송 중" aria-busy={isSubmitting || undefined} aria-label={applyLabel} onClick={() => {
       if (invalidApplyAttempt.current) { invalidApplyAttempt.current = false; return; }
       if (!rawValid.current || restoring.current || !canSubmit) return;
       onSubmit();
-    }} disabled={!canSubmit || invalidDraft} data-control-submit="">{compact ? "적용" : applyLabel}</Button>;
+    }} disabled={isSubmitting || !canSubmit || invalidDraft} data-control-submit="">{compact ? <>
+      {isSubmitting ? <LoadingSpinner className="absolute left-1 size-3" /> : null}
+      <span className={isSubmitting ? "translate-x-1.5" : undefined}>적용</span>
+    </> : applyLabel}</Button>;
   const moreBody = <>
       {onExecutionModeChange ? <div role="group" aria-label="실행 방식" className="flex flex-wrap gap-1">
         <Button type="button" variant={executionMode === "basic" ? "secondary" : "ghost"} aria-pressed={executionMode === "basic"} disabled={controlsLocked} onClick={() => onExecutionModeChange("basic")}>기본 밝기 변경</Button>

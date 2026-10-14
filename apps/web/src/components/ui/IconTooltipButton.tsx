@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttribut
 import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 import { IconButton } from "./IconButton";
+import { LoadingSpinner } from "./LoadingIndicator";
 
 export interface IconTooltipButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> {
   icon: LucideIcon;
@@ -98,7 +99,7 @@ export const IconTooltipButton = forwardRef<HTMLButtonElement, IconTooltipButton
         aria-busy={isLoading || undefined}
         disabled={disabled || isDisabled || isLoading}
       >
-        <Icon size={18} aria-hidden="true" />
+        {isLoading ? <LoadingSpinner /> : <Icon size={18} aria-hidden="true" />}
       </IconButton>
       {isTooltipOpen ? (
         <span id={tooltipId} className="absolute top-full left-1/2 z-60 mt-2 -translate-x-1/2 rounded-control bg-surface-inverse px-2 py-1.5 text-caption font-bold whitespace-nowrap text-content-inverse shadow-popover" role="tooltip">

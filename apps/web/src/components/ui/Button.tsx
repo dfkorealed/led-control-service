@@ -3,6 +3,7 @@ import type { ButtonProps as AriaButtonProps } from "react-aria-components";
 import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
 import { CustomerThemeContext } from "./theme/CustomerThemeProvider";
+import { LoadingSpinner } from "./LoadingIndicator";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
   variant?: "landingHeader" | "landingConceptDismiss" | "landingConceptSubmit" | "landingConceptHeaderContact" | "landingConceptHeroContact" | "landingConceptReplay" | "landingReportFormat" | "landingMapTool" | "landingMapCancel" | "landingMapMarker" | "landingReplay" | "landingFixture" | "primary" | "secondary" | "ghost" | "danger" | "link" | "landingCta" | "landingHeaderContact" | "landingHeroContact" | "landingPlanPrimary" | "landingPlanSecondary";
@@ -92,5 +93,5 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       });
       if (!propagate) event.stopPropagation();
     }}
-  >{isLoading ? loadingLabel : children}</button>;
+  >{isLoading ? <><LoadingSpinner />{loadingLabel}</> : children}</button>;
 });

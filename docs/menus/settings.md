@@ -1,5 +1,28 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-14 공통 로딩 표시 적용
+
+### 구현 완료
+
+- 설정 초기조회·현장/층 조명/구역/사용자·도면 목록·MFA/세션·센서 정책·편집 선택/버전 기록/맵 준비와 다음 페이지·등록 세션 완료/취소/제외·저장/삭제 요청에 공통 표시를 적용했다. 미등록/설치 대기 안내와 실제 조회 중을 구별한다.
+- 맵 first-paint overlay·이력 복구·식별 요청/장비 자체 만료 문구와 CAD 단계별 progress를 보존한다. 사용자/권한/schema·API 조회/복구·등록 요청의 로직은 바꾸지 않는다.
+
+### 미구현
+
+- 실제 등록/맵 초기화·실장비 식별·설정/HIL·실기기 WebView 시험은 수행하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- local HTTP 요청만 busy로 표시하고 네트워크 paused/미등록·장비 미확정/승인 필요를 무한 spinner로 바꾸지 않는다. 캐시 있는 재조회에는 전체 overlay를 추가하지 않는다. 층 복구는 `restoreMutation.variables.id` 대상행에만 spinner/복구 중을 표시하고 다른 행의 기존 disabled 잠금은 유지한다. 최종 자동검증/기존 실패는 상태판을 따른다.
+
+### 관련 파일
+
+- `features/settings/{SettingsView,floor-plans,site,users,security}`의 로딩 소비자, `features/floor-editor/{FloorEditorView,MapDocumentInitialization,FixtureIdentifyPanel}.tsx`, `features/registration/RegistrationPanel.tsx`, 공통 loading/Button/ConfirmDialog.
+
+### 갱신 규칙
+
+- 편집기·등록 기능 변경 시 실제 장비 도메인 상태와 단순 UI 요청 loading을 분리하고 접근성·오류/paused·카메라/초안/포커스를 함께 검증한다.
+
 - 2026-10-14 공통 센서준비UI: 기존조명ID/기본밝기를 유지한 등록연결확인query/GET/검증apply를 제어의 공통준비패널에 연결했다. 현재 gateway.assignmentVersion을 기존 dashboard/조명page에 추가하고 구형메타데이터·권한/범위변화는 fail-closed한다. 새등록·schema/권한/PKI 변경은 없고 실제적용/센서모드준비는 승인된 후속단계다.
 - 후속17:41KST: 공통UI는메인/API에반영됐다. 현재MQTT CRL만료/issuer Vault중지로 실제등록apply·센서SET은0이며 ID/기본밝기/권한/schema를보존한다. 사용자가CRL갱신을승인했고 기존Vault기동확인 뒤 같은issuer/Root/폐기내역을검증한다. 센서준비 완료로 표시하지 않는다.
 - 후속17:55KST: 승인된기존Vault기동·새서명CRL교체/broker SIGHUP을완료했다. 기존Root/폐기2건/credential/권한은보존하며 새만료10월17일17:55:21KST다. 실제등록재확인POST500은서버DB시각증거provider미등록의별도과제이며 등록apply/센서SET0이다. API/broker/Gateway재시작0, DBschema변경0이다.

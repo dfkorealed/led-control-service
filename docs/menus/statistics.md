@@ -1,5 +1,27 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-14 공통 로딩 표시 적용
+
+### 구현 완료
+
+- 초기 통계·사용량 추이/절감 비교/분석 순위/히트맵·보고서 목록과 생성 dialog 대상 조회에 공통 로딩을 적용했다. 기존 다운로드·CSV 내보내기/접수 버튼은 공통 Button을 통해 동일 spinner를 사용한다.
+
+### 미구현
+
+- 실제 서버 보고서 생성·파일 전달·실장비 전력 수집은 이번 표시 검증에 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 보고서 큐/단계별 생성 진행률과 취소·파일 만료·사용량 데이터 공백은 domain 상태로 유지한다. 오류/빈 대상은 spinner가 아니고 캐시 재조회에서 기존 데이터를 지우는 overlay를 추가하지 않는다. 최초 분석 summary/ranking의 paused는 연결 대기이며 online 재개 때만 애니메이션을 표시한다.
+
+### 관련 파일
+
+- `features/statistics/StatisticsOverviewPage.tsx`, `analysis/{StatisticsAnalysisPage,EnergyHeatmap}.tsx`, `reports/{ReportJobList,ReportCreateDialog}.tsx`, `components/ui/{LoadingState,LoadingIndicator,Button}.tsx`.
+
+### 갱신 규칙
+
+- 대상조회/파일 요청 loading과 실제 보고서 생성 진행률을 구분하고 disabled·실패·빈 결과·캐시/포커스 보존을 함께 검사한다.
+
 ## 2026-10-11 신규 조작 의견 — 현장명 단순화
 
 ### 구현 완료

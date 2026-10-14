@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { Button } from "./Button";
 import { Card } from "./Card";
+import { LoadingIndicator } from "./LoadingIndicator";
 
 export interface AppRecoveryStateProps {
   variant: "service_unavailable" | "forbidden" | "chunk_error";
@@ -33,7 +34,7 @@ export function AppRecoveryState({ variant, onRetry, onReload, onRelogin, isPend
         {variant === "chunk_error" && <Button variant="primary" disabled={isPending} onClick={onReload}>새로고침</Button>}
         <Button disabled={isPending} onClick={onRelogin}>다시 로그인</Button>
       </div>
-      {isPending && <p className="mt-3 mb-0 text-body-sm text-content-secondary" role="status">복구하는 중입니다.</p>}
+      {isPending && <LoadingIndicator className="mt-3">복구하는 중입니다.</LoadingIndicator>}
     </Card>
   </main>;
 }

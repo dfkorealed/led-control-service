@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getBioSensorPreparation, requestBioSensorPreparation, type BioSensorPreparationOperation, type VehicleEventSourceBlockReason } from "../../../api/automation";
 import type { DashboardFixture } from "../../../api/queries";
-import { Button, Card, Text } from "../../../components/ui";
+import { Button, Card, LoadingIndicator, Text } from "../../../components/ui";
 import { BioRegistrationConnectionCheck } from "./components/BioRegistrationConnectionCheck";
 
 export const bioSensorReasonLabels: Record<VehicleEventSourceBlockReason, string> = {
@@ -117,6 +117,7 @@ export function BioSensorPreparationPanel({ siteId, fixture, disabled, canPrepar
       {onRefreshSource ? <Button type="button" variant="secondary" disabled={disabled || pending} onClick={() => void refresh(generation.current)}>준비 상태 다시 조회</Button> : null}
       {onSelectSource ? <Button type="button" disabled={disabled || pending || awaitingProjection || !eligible} onClick={() => onSelectSource(fixture.id)}>감지 센서로 선택</Button> : null}
     </div>
+    {pending ? <LoadingIndicator>센서 준비 요청을 확인하는 중입니다.</LoadingIndicator> : null}
     {error ? <Text role="alert" tone="danger">{error}</Text> : null}
   </Card>;
 }

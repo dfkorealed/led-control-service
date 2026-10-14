@@ -1115,6 +1115,7 @@ describe("StatisticsReportsPage", () => {
     await chooseSelect("범위", "조명", dialog);
 
     expect(within(dialog).getByRole("status")).toHaveTextContent("대상을 불러오는 중입니다.");
+    expect(within(dialog).getByRole("status").querySelector("svg")).toHaveClass("animate-spin");
     expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "보고서 요청" })).toBeDisabled();
   });

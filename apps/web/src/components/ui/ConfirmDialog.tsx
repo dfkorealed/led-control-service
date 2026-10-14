@@ -33,7 +33,7 @@ export function Confirmation({ confirmLabel, cancelLabel = "취소", tone, destr
   return <DialogBase {...props} ref={rootRef} isPending={isPending} initialFocusRef={initialFocusRef ?? cancel} onClose={dismiss}
     actions={<>
       <Button ref={cancel} type="button" variant="secondary" disabled={isPending} onClick={dismiss}>{cancelLabel}</Button>
-      <Button type="button" variant={tone ?? (destructive ? "danger" : "primary")} disabled={isPending || disabled || confirmDisabled}
-        onClick={() => { if (!isPending && !disabled && !confirmDisabled) onConfirm(); }}>{isPending ? "처리 중" : confirmLabel}</Button>
+      <Button type="button" variant={tone ?? (destructive ? "danger" : "primary")} disabled={isPending || disabled || confirmDisabled} isLoading={isPending} loadingLabel="처리 중"
+        onClick={() => { if (!isPending && !disabled && !confirmDisabled) onConfirm(); }}>{confirmLabel}</Button>
     </>} />;
 }

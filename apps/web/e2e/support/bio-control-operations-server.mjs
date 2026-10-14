@@ -24,7 +24,7 @@ function schedule() { return { id: id(30), name: 'BIO 야간', status: 'enabled'
   fixtureIds: fixtures.slice(0,2), excludeWeekends: false, excludeHolidays: false, gatewayId: gateway, targets: fixtures.slice(0,2).map(fixtureId => ({ fixtureId })), targetCount: 2,
   desiredRevision: 3, appliedRevision: 3, syncStatus: 'APPLIED', nextOccurrence: null, lastExecution: null, createdById: user.id, updatedById: user.id, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' }; }
 let state;
-function reset() { state = { rows: [schedule()], session: null, phase: 'holding', requests: [], revision: 0, posts: [], ends: [] }; }
+function reset() { state?.releaseBasic?.(); state = { rows: [schedule()], session: null, phase: 'holding', requests: [], revision: 0, posts: [], ends: [], basicPosts: [], basicGate: null, releaseBasic: null }; }
 reset();
 function projectedCalendar(from,to) {
   return { from,to,timeZone:'Asia/Seoul',complete:true,revisionKey:`sha256:${String(state.revision % 10).repeat(64)}`,holidayCoverage:[],
@@ -55,8 +55,15 @@ const api = createServer(async (request,response) => {
   try {
     const url=new URL(request.url,`http://127.0.0.1:${apiPort}`),path=url.pathname,method=request.method;
     if(path==='/__fixture/reset' && method==='POST') { reset();return reply(response,{ok:true}); }
+    if(path==='/__fixture/basic-gate' && method==='POST') {
+      const input=await body(request);
+      if(input.action==='hold') state.basicGate=new Promise(resolve=>{state.releaseBasic=resolve;});
+      else if(input.action==='release') { state.releaseBasic?.(); state.releaseBasic=null; }
+      else return reply(response,{message:'basic gate action'},400);
+      return reply(response,{ok:true});
+    }
     if(path==='/__fixture/phase' && method==='POST') { const input=await body(request); if(!['holding','partial','unknown','releasing','restored'].includes(input.phase)) return reply(response,{message:'phase'},400);state.phase=input.phase;return reply(response,{ok:true}); }
-    if(path==='/__fixture/state') return reply(response,{requests:state.requests,posts:state.posts,ends:state.ends});
+    if(path==='/__fixture/state') return reply(response,{requests:state.requests,posts:state.posts,ends:state.ends,basicPosts:state.basicPosts});
     state.requests.push(`${method} ${path}`);
     if(path==='/auth/me') return reply(response,{user});
     if(path==='/sites') return reply(response,[{id:site,name:'BIO 테스트 현장',customerName:'테스트 고객'}]);
@@ -64,6 +71,12 @@ const api = createServer(async (request,response) => {
     if(path===`/sites/${site}/floors/${floor}/map-snapshot`) return reply(response,{floorId:floor,revision:1,width:1200,height:800,floorPlan:null,objects:[]});
     if(path==='/registration-sessions/active') return reply(response,[]);
     if(path==='/commands' || path==='/commands/verification-cases') return reply(response,{items:[],nextCursor:null,generatedAt:new Date().toISOString(),retainedFrom:'2026-07-15T00:00:00Z',retentionEnabled:false});
+    if(path==='/commands/dimming' && method==='POST') {
+      state.basicPosts.push(await body(request)); await state.basicGate;
+      // Deliberately uncertain HTTP reply: device waiting must keep its lock,
+      // but it must not keep animating an already finished HTTP transmission.
+      return reply(response,{message:'Isolated fixture response unavailable'},503);
+    }
     if(path===`/sites/${site}/temporary-controls` && method==='POST') {
       const input=temporaryControlCreateSchema.parse(await body(request));state.posts.push(input);
       if(state.session && state.posts[0].clientRequestId!==input.clientRequestId && !['restored','rejected','cancelled'].includes(state.phase)) return reply(response,{code:'temporary_control_conflict'},409);
@@ -93,5 +106,5 @@ const web=await createViteServer({root:fileURLToPath(new URL('../..',import.meta
   server:{host:'127.0.0.1',port,strictPort:true,proxy:{'/api':{target:`http://127.0.0.1:${apiPort}`,rewrite:path=>path.replace(/^\/api/,'')}}}});
 await web.listen();
 let closing=false;
-async function close(){if(closing)return;closing=true;await web.close();await new Promise(resolve=>api.close(resolve));process.exit(0);}
+async function close(){if(closing)return;closing=true;state.releaseBasic?.();await web.close();await new Promise(resolve=>api.close(resolve));process.exit(0);}
 process.on('SIGTERM',()=>void close());process.on('SIGINT',()=>void close());

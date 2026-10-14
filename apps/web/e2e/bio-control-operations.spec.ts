@@ -98,3 +98,33 @@ test("schedule_switch_save_cancel_focus", async ({ page }) => {
   await expect(dialog).toBeHidden(); await expect(page.getByRole("button", { name: "BIO 야간 작업" })).toBeFocused();
   await page.getByRole("button", { name: "BIO 야간 작업" }).click(); await page.getByRole("menuitem", { name: "수정", exact: true }).click(); await expect(weekend).toBeChecked();
 });
+
+test("mobile_320_basic_http_spinner_preserves_frame_and_map", async ({ page }, info) => {
+  await openManual(page, { width: 320, height: 600 }); await chooseZone(page);
+  const close = page.getByRole("button", { name: "보조 패널 닫기" });
+  if (await close.isVisible()) await close.click();
+  await rememberMap(page);
+  const apply = page.locator("[data-control-submit]");
+  await expect(apply).toBeEnabled();
+  const before = await apply.boundingBox(); expect(before).not.toBeNull();
+  expect((await page.request.post("/api/__fixture/basic-gate", { data: { action: "hold" } })).ok()).toBe(true);
+  try {
+    await apply.click();
+    await expect(apply.locator("svg.animate-spin")).toBeVisible();
+    await expect(apply).toBeDisabled(); await expect(apply).toContainText("적용");
+    await expect.poll(async () => (await (await page.request.get("/api/__fixture/state")).json()).basicPosts.length).toBe(1);
+    const during = await apply.boundingBox(); expect(during).not.toBeNull();
+    await info.attach("basic-http-button-frame", { body: JSON.stringify({ before, during }), contentType: "application/json" });
+    await page.screenshot({ path: info.outputPath("basic-http-pending.png") });
+    await sameMap(page); await noOverflow(page);
+    expect(Math.abs(during!.width - before!.width)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(during!.height - before!.height)).toBeLessThanOrEqual(0.5);
+  } finally {
+    expect((await page.request.post("/api/__fixture/basic-gate", { data: { action: "release" } })).ok()).toBe(true);
+  }
+  await expect(apply.locator("svg.animate-spin")).toHaveCount(0);
+  await expect(apply).toBeDisabled();
+  await sameMap(page); await noOverflow(page);
+  const recorded = await (await page.request.get("/api/__fixture/state")).json();
+  expect(recorded.basicPosts).toHaveLength(1); expect(recorded.posts).toHaveLength(0); expect(recorded.ends).toHaveLength(0);
+});

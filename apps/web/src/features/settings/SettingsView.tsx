@@ -1,20 +1,21 @@
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard, type SiteCapabilities } from "../../api/queries";
 import { useSiteUsers } from "../../api/site-users";
-import { NavigationCard } from "../../components/ui";
+import { LoadingState, NavigationCard } from "../../components/ui";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { TestDataToolsPanel } from "./TestDataToolsPanel";
 import { settingsActionLinkClass } from "./settings-action-link";
 import { buildSettingsCards } from "./settings-card-model";
 
 export function SettingsView({ userRole, siteId, capabilities }: { userRole: "operator" | "admin" | "viewer"; siteId?: string; capabilities: SiteCapabilities }) {
-  const { data } = useDashboard(siteId);
+  const { data, isLoading } = useDashboard(siteId);
   const location = useLocation();
   // A disabled query must not receive even a stale route site ID. Counts are
   // available only to a manager of the loaded, fully installed site.
   const usersSiteId = capabilities.manage && data?.site.installationStatus === "installed" ? data.site.id : undefined;
   const usersQuery = useSiteUsers(usersSiteId);
 
+  if (isLoading && !data) return <LoadingState title="설정 정보를 불러오는 중" />;
   if (!data?.site.id) {
     return <section className="grid gap-5"><InstallationPending /></section>;
   }

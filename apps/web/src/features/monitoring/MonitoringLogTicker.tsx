@@ -1,6 +1,6 @@
 import type { MonitoringActivityItem } from "@led-control/shared";
 import { useMemo, type RefObject } from "react";
-import { RecentActivityTicker, Text } from "../../components/ui";
+import { LoadingIndicator, RecentActivityTicker, Text  } from "../../components/ui";
 import { monitoringActivityRows } from "./monitoring-activity-presentation";
 import { formatMonitoringTimestamp } from "./monitoring-time";
 
@@ -10,6 +10,7 @@ interface MonitoringLogTickerProps {
   generatedAt: string | null;
   retainedFrom: string | null;
   isPending: boolean;
+  isPaused?: boolean;
   error: unknown;
   isRefetchError: boolean;
   timeZone: string;
@@ -18,7 +19,7 @@ interface MonitoringLogTickerProps {
   triggerRef?: RefObject<HTMLButtonElement>;
 }
 
-export function MonitoringLogTicker({ scopeKey = "", items, generatedAt, isPending, error, isRefetchError, timeZone, onOpen, onRetry, triggerRef }: MonitoringLogTickerProps) {
+export function MonitoringLogTicker({ scopeKey = "", items, generatedAt, isPending, isPaused = false, error, isRefetchError, timeZone, onOpen, onRetry, triggerRef }: MonitoringLogTickerProps) {
   // The activity query owns the server-clock retention deadline for these items.
   // Validated activity DTOs contain only serializable values. Equivalent query
   // snapshots share a presentation identity; changed event fields, expiry and
@@ -40,7 +41,7 @@ export function MonitoringLogTicker({ scopeKey = "", items, generatedAt, isPendi
     className="min-w-0"
     data-monitoring-log-ticker=""
   >
-    <RecentActivityTicker title="최근 활동" scopeKey={scopeKey} items={rows} emptyContent={<Text variant="body-sm" className="min-w-0 break-words">{copy}</Text>}
+    <RecentActivityTicker title="최근 활동" scopeKey={scopeKey} items={rows} emptyContent={isPending ? <LoadingIndicator isPaused={isPaused}>{copy}</LoadingIndicator> : <Text variant="body-sm" className="min-w-0 break-words">{copy}</Text>}
       onOpen={onOpen} onRetry={error ? onRetry : undefined} triggerRef={triggerRef} triggerHasPopup="dialog" />
     {stale ? <Text variant="caption" tone="secondary">활동 갱신에 실패했습니다. 마지막 조회: {generatedAt ? formatMonitoringTimestamp(generatedAt, timeZone) : "확인 불가"}</Text> : null}
   </section>;

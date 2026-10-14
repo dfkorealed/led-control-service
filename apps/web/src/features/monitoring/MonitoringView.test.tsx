@@ -174,6 +174,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText("ATLAS / OPERATIONS")).not.toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText(isLoading ? "모니터링 현황을 불러오는 중" : "현황 데이터를 불러오지 못했습니다.")).toBeInTheDocument();
+    if (isLoading) expect(screen.getByText("모니터링 현황을 불러오는 중").closest('[role="status"]')?.querySelector("svg")).toHaveClass("animate-spin", "motion-reduce:animate-none");
   });
 
   it("shares search and list entry state while returning focus to the actual opener", async () => {
@@ -1394,6 +1395,21 @@ describe("MonitoringView refresh", () => {
     expect(floorMetric("전체 조명")).toHaveTextContent("1");
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
+  });
+
+  it("shows a paused first floor-fixture read as connectivity waiting, then resumes its spinner", () => {
+    const source = { ...queryMocks.useFloorFixtures(), data: undefined, error: null, isPending: true };
+    queryMocks.useFloorFixtures.mockReturnValue({ ...source, isLoading: false, isFetching: false, isPaused: true });
+    const view = render(<MonitoringView siteId="site-1" />);
+    const waiting = screen.getByText("네트워크 연결을 기다리고 있습니다.").closest('[role="status"]');
+    expect(waiting).not.toHaveAttribute("aria-busy", "true");
+    expect(waiting?.querySelector("svg")).not.toHaveClass("animate-spin");
+    expect(screen.queryByText(/조명 상태를 불러오는 중/)).toBeNull();
+    queryMocks.useFloorFixtures.mockReturnValue({ ...source, isLoading: true, isFetching: true, isPaused: false });
+    view.rerender(<MonitoringView siteId="site-1" />);
+    const loading = screen.getByText("B1 조명 상태를 불러오는 중").closest('[role="status"]');
+    expect(loading).toHaveAttribute("aria-busy", "true");
+    expect(loading?.querySelector("svg")).toHaveClass("animate-spin");
   });
 
   it("층 전환 중에는 이전 층 KPI나 빈 fixture 지도를 표시하지 않는다", async () => {

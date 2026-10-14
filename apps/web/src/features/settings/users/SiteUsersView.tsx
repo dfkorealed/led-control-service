@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { CircleAlert, CircleCheck, Clock3, Plus, Search, UserCheck } from "lucide-react";
 import { ApiError } from "../../../api/client";
 import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary, type SiteUsersResponse } from "../../../api/site-users";
-import { Button, DataGrid, FeedbackState, FilterPanel, RowActions, SearchField, SelectBox, StatusBadge, StatusDetailButton, formatTimestamp, type DataGridColumn } from "../../../components/ui";
+import { LoadingState, Button, DataGrid, FeedbackState, FilterPanel, RowActions, SearchField, SelectBox, StatusBadge, StatusDetailButton, formatTimestamp, type DataGridColumn  } from "../../../components/ui";
 import { DeleteSiteUserDialog } from "./DeleteSiteUserDialog";
 import { ResetSiteUserPasswordDialog } from "./ResetSiteUserPasswordDialog";
 import { SiteUserFormDialog } from "./SiteUserFormDialog";
@@ -208,7 +208,7 @@ function SiteUsersWorkspace({ siteId }: { siteId?: string }) {
     {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError} /> : null}
     {refreshError && !data ? <FeedbackState tone="danger" icon={CircleAlert} title={refreshError} action={<Button type="button" onClick={() => { setRefreshError(""); void usersQuery.refetch(); }}>목록 다시 시도</Button>} /> : null}
 
-    {usersQuery.isLoading && !data ? <FeedbackState tone="neutral" icon={Clock3} title="사용자 목록을 불러오는 중입니다." /> : null}
+    {usersQuery.isLoading && !data ? <LoadingState tone="neutral" title="사용자 목록을 불러오는 중입니다." /> : null}
     {usersQuery.error && !data ? <FeedbackState tone="danger" icon={CircleAlert} title="사용자 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void usersQuery.refetch()}>목록 다시 시도</Button>} /> : null}
 
     {data ? <>

@@ -13,7 +13,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft } from "../../components/ui";
+import { LoadingState, Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft  } from "../../components/ui";
 import { StatisticsOperationalInfo } from "./StatisticsOperationalInfo";
 import { draftToDate } from "../../components/ui/date/useDateDraft";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
@@ -80,8 +80,7 @@ export function StatisticsOverviewPage() {
     return (
       <section className="grid min-w-0 gap-6">
         {pageHeader}
-        <FeedbackState
-          icon={Activity}
+        <LoadingState
           title="전력 통계를 불러오는 중"
           description="선택한 현장의 상태 기반 사용량을 집계하고 있습니다."
         />
@@ -141,7 +140,7 @@ export function StatisticsOverviewPage() {
   );
   const chart = activeSeries.isLoading ? (
     <div className="grid min-h-64 place-items-center">
-      <FeedbackState icon={Activity} title="사용량 추이를 불러오는 중" />
+      <LoadingState title="사용량 추이를 불러오는 중" />
     </div>
   ) : activeSeries.isError || !activeSeries.data ? (
     <div className="grid min-h-64 place-items-center">
@@ -318,7 +317,7 @@ function ComparisonSection({
 }) {
   let content;
   if (query.isLoading) {
-    content = <FeedbackState icon={Activity} title="절감 비교를 불러오는 중" />;
+    content = <LoadingState title="절감 비교를 불러오는 중" />;
   } else if (query.isError || !query.data) {
     content = (
       <FeedbackState

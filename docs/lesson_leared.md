@@ -1,5 +1,13 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-14 / 공통 로딩은 실제 요청·일시 중지·도메인 대기를 구분한다
+
+- React Query `isPending`만으로 애니메이션을 시작하지 않는다. 최초 offline의 `pending/paused`는 연결 대기이고, 미완성 날짜로 비활성화한 새 query의 `pending/idle`은 입력 안내다. actual Query `onlineManager` 재개·cached현장→새현장과 표시에 전달한 metadata를 함께 검사한다.
+- 재사용 spinner는 그림만 담당하고 버튼/상태 host가 이름·busy/live 정책을 소유한다. `MapLoadingHost`의 접근 가능한 외부 portal·첫 paint/visit fencing, native 문의 제출의 focusable `aria-disabled`와 command/장비 미확정의 의미는 그대로 유지한다.
+- 테스트가 owned deferred 요청 중간에 실패해도 `finally`에서 요청을 settle하여 cleanup이 정체되지 않게 한다. 원 RED assertion·기존 native submit/중복 guard를 없애거나 timeout을 늘려 종료 문제를 숨기지 않는다.
+- 브라우저의 첫 오류 HTTP response가 query retry 종료는 아니다. 실제 마지막 response/상태 전환을 기다린 뒤 원 기대 문구를 검사하고 제품의 retry/timeout을 테스트 편의로 바꾸지 않는다. Playwright matcher와 실제 viewport test ID를 DOM/도구 API로 확인한다.
+- 중간 전체 suite의 CAD preview-ready 추가 실패는 focused/최종 전체의 미재현과 따로 보존한다. 미재현만으로 기존 baseline/환경 원인을 확정하거나 전체 GREEN으로 축약하지 않는다. Web fixture 성공은 실장비/HIL 완료가 아니다.
+
 ## 2026-10-14 / 사용자 맵 초기화와 bootstrap·후보 슬롯을 구분한다
 
 - **이력 보존**: 기존 bootstrap reset은 역사적 호환을 위해 이력/정본을 제거한다. 사용자용 clear는 별도 명령으로 권한/lease/revision/replay를 재사용하되 이전 snapshot pin과 최근30개 이력을 보존하고 복구를 실제 임시PG로 검증한다. 위치 유지 옵션에서 조명 좌표나 검증 시각을 부수적으로 초기화하지 않는다.

@@ -1,9 +1,9 @@
 import { type ReactElement } from "react";
-import { Heading, Text } from "../../components/ui";
+import { Heading, LoadingIndicator, Text } from "../../components/ui";
 import { cn } from "../../components/ui/utils/cn";
 
 export interface CustomerShellScope { principalKey: string; siteId: string; pathname: string }
-export type CustomerSiteSummary = { scope: CustomerShellScope; siteName: string; state: "loading" | "error" }
+export type CustomerSiteSummary = { scope: CustomerShellScope; siteName: string; state: "loading" | "error"; isPaused?: boolean }
   | { scope: CustomerShellScope; siteName: string; state: "ready"; counts: { totalFixtures: number | null; onlineFixtures: number | null; faultFixtures: number | null; offlineFixtures: number | null } };
 
 export function CustomerHeaderSummarySlot({ currentScope, value, className, compact = false }: { compact?: boolean; currentScope: CustomerShellScope; value: CustomerSiteSummary | null; className?: string }): ReactElement | null {
@@ -15,6 +15,6 @@ export function CustomerHeaderSummarySlot({ currentScope, value, className, comp
       {([ ["totalFixtures", "전체"], ["onlineFixtures", "온라인"], ["faultFixtures", "장애"], ["offlineFixtures", "오프라인"] ] as const).map(([key, label]) => <div key={key} className="grid min-w-0 justify-items-center gap-0.5">
         <dt className="row-start-2 text-caption text-content-secondary">{label}</dt><dd className={cn("m-0 row-start-1 wrap-anywhere text-body-lg font-bold tabular-nums", key === "onlineFixtures" ? "text-status-success-foreground" : key === "faultFixtures" ? "text-status-danger-foreground" : "text-content-primary")}>{value.counts[key] === null ? "—" : `${value.counts[key]}대`}</dd>
       </div>)}
-    </dl> : <Text role="status" variant="body-sm" tone="secondary">{value.state === "loading" ? "현장 집계 확인 중" : "현장 집계 확인 불가"}</Text>}
+    </dl> : value.state === "loading" ? <LoadingIndicator isPaused={value.isPaused}>현장 집계 확인 중</LoadingIndicator> : <Text role="status" variant="body-sm" tone="secondary">현장 집계 확인 불가</Text>}
   </section>;
 }

@@ -1,4 +1,5 @@
 import { CircleAlert } from "lucide-react";
+import { LoadingIndicator } from "./LoadingIndicator";
 import { useId, useRef, useState } from "react";
 import { Button } from "./Button";
 import { Popover } from "./overlays/Popover";
@@ -38,7 +39,7 @@ export function StatusDetailButton({ label, description, action, variant = "warn
       <div className="grid gap-3">
         <Text as="strong" variant="body-sm" weight="bold">{label}</Text>
         <Text variant="body-sm" tone="secondary">{description}</Text>
-        {action?.isBusy ? <Text as="span" variant="body-sm" tone="secondary" role="status">확인 중</Text> : null}
+        {action?.isBusy ? <LoadingIndicator>확인 중</LoadingIndicator> : null}
         {action && !action.isBusy ? <Button type="button" size="sm" className="justify-self-start" onClick={() => {
           setIsOpen(false);
           action.onClick(triggerRef.current);

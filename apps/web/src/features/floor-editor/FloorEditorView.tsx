@@ -6,7 +6,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { mapDocumentRefSchema } from "@led-control/shared/map-document-contracts";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, UnderlineTabs, UnderlineTabPanel, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
+import { LoadingIndicator, Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, UnderlineTabs, UnderlineTabPanel, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem  } from "../../components/ui";
 import { MapCameraControls } from "../../components/ui/maps/MapCameraControls";
 import {
   listFloorEditorRevisions,
@@ -682,7 +682,7 @@ export function FloorEditorView({
             ? <MapSelectionProperties key={JSON.stringify([map.selectionKey, map.bounds])} editor={map} readOnly={readOnly || isMutationPending} />
             : map.selection.length
             ? <MapElementPropertiesPanel selection={map.selection} gridSize={snap ? map.mapBounds?.gridSize : undefined} mapBounds={map.mapBounds ?? undefined} readOnly={readOnly || isMutationPending} locked={map.locked} onChange={map.commit} onDelete={map.requestRemove} onError={map.reportError} />
-            : map.loadingSelection ? <Text role="status">선택을 불러오는 중</Text> : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} mapEditor={map} />)}
+            : map.loadingSelection ? <LoadingIndicator>선택을 불러오는 중</LoadingIndicator> : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} mapEditor={map} />)}
           {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
           </UnderlineTabPanel>
           <UnderlineTabPanel tabsId={panelTabsId} value="placement" activeValue={panelTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -765,7 +765,7 @@ function RevisionPanel({
         <Text variant="overline" tone="secondary">버전</Text>
         <Heading as="h3" variant="card-title">변경 기록</Heading>
       </div>
-      {isLoading ? <Text variant="body-sm" tone="secondary" role="status">버전 기록을 불러오는 중</Text> : null}
+      {isLoading ? <LoadingIndicator>버전 기록을 불러오는 중</LoadingIndicator> : null}
       {isError ? (
         <div className="grid gap-2" role="alert">
           <Text variant="body-sm" tone="danger">버전 기록을 불러오지 못했습니다.</Text>
@@ -800,8 +800,8 @@ function RevisionPanel({
         </ol>
       ) : null}
       {!isError && hasNextPage ? (
-        <Button variant="secondary" disabled={isFetchingNextPage} onClick={onLoadMore}>
-          {isFetchingNextPage ? "불러오는 중" : "이전 버전 더 보기"}
+        <Button variant="secondary" disabled={isFetchingNextPage} isLoading={isFetchingNextPage} loadingLabel="불러오는 중" onClick={onLoadMore}>
+          이전 버전 더 보기
         </Button>
       ) : null}
     </section>

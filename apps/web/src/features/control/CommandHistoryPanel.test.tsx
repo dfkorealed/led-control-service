@@ -16,6 +16,28 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it("does not animate an unqueried disabled history after a partial date and a new search", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null }) });
+    vi.stubGlobal("fetch", fetch);
+    const { client } = renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "전체 보기" }));
+    const drawer = screen.getByRole("dialog", { name: "명령 이력" });
+    await within(drawer).findByText("명령 이력이 없습니다.");
+    openHistoryFilters();
+    editHistoryDateSegment(0, 2026);
+    fireEvent.click(screen.getByRole("button", { name: "필터 닫기" }));
+    const reads = fetch.mock.calls.length;
+    fireEvent.change(screen.getByRole("searchbox", { name: "명령 이력 검색" }), { target: { value: "unqueried-filter" } });
+    await waitFor(() => {
+      const disabled = client.getQueryCache().getAll().find(query => query.queryKey[0] === "command-history" && JSON.stringify(query.queryKey).includes("unqueried-filter"));
+      expect(disabled?.state.status).toBe("pending");
+      expect(disabled?.state.fetchStatus).toBe("idle");
+    });
+    expect(drawer).toHaveTextContent("시작일과 종료일을 올바른 순서로 완성해 주세요.");
+    expect(within(drawer).queryByText("명령 이력을 불러오는 중입니다.")).toBeNull();
+    expect(fetch.mock.calls.length).toBe(reads);
+    client.clear();
+  });
   it("fidelity labels the control history ticker while keeping UUID detail selection", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
       generatedAt: "2026-09-25T00:00:00Z", retainedFrom: "2026-06-25T00:00:00Z", retentionEnabled: false,

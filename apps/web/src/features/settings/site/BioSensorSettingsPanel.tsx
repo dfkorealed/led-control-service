@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBioSensorPolicy, saveBioSensorPolicy, vehicleEventRuleQueryKey } from "../../../api/automation";
 import { useControlDashboard } from "../../../api/queries";
-import { Button, Card, Checkbox, Heading, SelectBox, Text, TextField } from "../../../components/ui";
+import { LoadingIndicator, Button, Card, Checkbox, Heading, SelectBox, Text, TextField  } from "../../../components/ui";
 import { BioSensorPreparationPanel } from "../../control/automation/BioSensorPreparationPanel";
 
 export function BioSensorSettingsPanel({ siteId, ownerUserId, canPrepare }: { siteId: string; ownerUserId: string; canPrepare: boolean }) {
@@ -39,7 +39,7 @@ export function BioSensorSettingsPanel({ siteId, ownerUserId, canPrepare }: { si
     <Card className="grid gap-3 p-4">
       <Heading as="h3" variant="card-title">센서 운영 정책</Heading>
       <Text>기본 OFF · 현장 대응 정책과 승인된 호환 프로파일이 모두 확인되어야 사용할 수 있습니다. 저장만으로 센서가 사용 가능 상태가 되지 않습니다.</Text>
-      {policy.isPending ? <Text role="status">센서 운영 정책을 불러오는 중입니다.</Text> : null}
+      {policy.isPending ? <LoadingIndicator isPaused={policy.isPaused}>센서 운영 정책을 불러오는 중입니다.</LoadingIndicator> : null}
       {policy.error ? <><Text role="alert" tone="danger">센서 운영 정책을 불러오지 못했습니다.</Text><Button type="button" variant="secondary" onClick={() => void policy.refetch()}>정책 다시 조회</Button></> : null}
       {policy.data ? <form className="grid gap-3" onSubmit={submit} noValidate>
         <Checkbox label="현장 이벤트 운영 허용" isSelected={enabled} isDisabled={pending} onChange={setEnabled} />
@@ -48,7 +48,7 @@ export function BioSensorSettingsPanel({ siteId, ownerUserId, canPrepare }: { si
           <TextField label="최대 대응 시간 (초)" inputMode="numeric" value={seconds} onChange={setSeconds} isDisabled={pending} />
           <TextField label="연결 이상 시 조치" value={action} onChange={setAction} isDisabled={pending} />
         </div>
-        <Button type="submit" disabled={pending}>센서 운영 정책 저장</Button>
+        <Button type="submit" disabled={pending} isLoading={pending} loadingLabel="저장 중">센서 운영 정책 저장</Button>
       </form> : null}
       {error ? <Text role="alert" tone="danger">{error}</Text> : null}
       {notice ? <Text role="status">{notice}</Text> : null}

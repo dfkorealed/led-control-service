@@ -2,7 +2,7 @@ import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control
 import { ArrowLeft, CircleCheck, Clock3, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Dashboard } from "../../../api/queries";
-import { Button, ConfirmDialog, DataGrid, Heading, StatusBadge, Text, TextField, type DataGridColumn } from "../../../components/ui";
+import { LoadingIndicator, Button, ConfirmDialog, DataGrid, Heading, StatusBadge, Text, TextField, type DataGridColumn  } from "../../../components/ui";
 import { humanizeDeviceResponseMessage } from "../control-copy";
 import { FixtureGroupMapEditor, fixtureGroupMembershipError, type FixtureGroupEditorValue } from "../target-selection/FixtureGroupMapEditor";
 import type { useFixtureGroupsWorkspace } from "./useFixtureGroupsWorkspace";
@@ -65,7 +65,7 @@ export function FixtureGroupsContent({ siteId, dashboard, workspace }: {
               ) : null}
             </div>
 
-            {groupsQuery.isLoading ? <Text tone="muted" role="status">구역을 불러오는 중입니다.</Text> : null}
+            {groupsQuery.isLoading ? <LoadingIndicator>구역을 불러오는 중입니다.</LoadingIndicator> : null}
             {groupsQuery.error ? (
               <div className="grid gap-2" role="alert">
                 <Text tone="danger">구역 목록을 불러오지 못했습니다.</Text>

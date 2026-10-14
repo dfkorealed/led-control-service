@@ -1,7 +1,7 @@
 import type { EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
 import { CircleAlert, FileWarning, LoaderCircle } from "lucide-react";
 import { type Ref } from "react";
-import { Button, DataGrid, FeedbackState, StatusDetailButton, Text, type DataGridColumn } from "../../../components/ui";
+import { LoadingState, Button, DataGrid, FeedbackState, StatusDetailButton, Text, type DataGridColumn  } from "../../../components/ui";
 import { ReportJobStatus } from "./ReportJobStatus";
 import { reportJobViewModel, type ReportJobRenderItem } from "./report-job-view-model";
 
@@ -74,7 +74,7 @@ export function ReportJobList({
   ];
 
   return <section ref={focusTargetRef} tabIndex={-1} className="grid min-w-0 gap-3" aria-label="요청한 보고서" aria-busy={isBusy || undefined}>
-    {isLoading ? <FeedbackState icon={LoaderCircle} title="보고서 목록을 불러오는 중" /> : null}
+    {isLoading ? <LoadingState title="보고서 목록을 불러오는 중" /> : null}
     {!isLoading && isError ? <FeedbackState tone="danger" icon={CircleAlert} title="보고서 목록을 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => onRetry(null)}>다시 시도</Button>} /> : null}
     {!isLoading && !isError && !items.length ? <FeedbackState icon={FileWarning} title="요청한 보고서가 없습니다."
       aria-label="보고서 빈 목록" description="기간과 범위를 선택해 표준 에너지 사용량 보고서를 요청하세요."

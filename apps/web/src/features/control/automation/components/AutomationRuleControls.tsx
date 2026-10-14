@@ -60,8 +60,8 @@ export function AutomationRuleControls({ label, filter, filteredTotal, pageIndex
       </Text>
       <div className="flex items-center gap-2">
         <Button type="button" variant="secondary" size="sm" disabled={!canMove || pageIndex === 0} onClick={onPrevious}>이전</Button>
-        <Button type="button" variant="secondary" size="sm" disabled={!canMove || !hasNextPage || isFetchingNextPage} onClick={onNext}>
-          {isFetchingNextPage ? "불러오는 중" : "다음"}
+        <Button type="button" variant="secondary" size="sm" disabled={!canMove || !hasNextPage || isFetchingNextPage} isLoading={isFetchingNextPage} loadingLabel="불러오는 중" onClick={onNext}>
+          다음
         </Button>
       </div>
     </div>

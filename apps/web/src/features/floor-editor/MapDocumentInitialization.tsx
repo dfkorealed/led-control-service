@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
-import { Button, FeedbackState } from "../../components/ui";
+import { Button, FeedbackState, LoadingState } from "../../components/ui";
 import { canInitializeEmptyFloor, resetFloorEditorDocument } from "../../api/floor-editor-reset";
 import { getFloorEditorState } from "../../api/floor-editor";
 import type { FloorEditorState } from "./editor-types";
@@ -44,10 +44,11 @@ export function MapDocumentInitialization({ state, readOnly, leaseToken, leaseFe
   useEffect(() => () => { busy.current?.(false); }, []);
   if (state.floor.mapDocument) return null;
   const empty = canInitializeEmptyFloor(state);
+  if (status === "pending") return <LoadingState className="shrink-0 p-2" title="새 맵을 준비하고 있습니다." />;
   return <>
     <FeedbackState icon={TriangleAlert} tone={status === "error" ? "danger" : "warning"}
       className="shrink-0 p-2 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-1 [&>div]:items-center [&>div]:justify-between [&>div]:gap-2 [&>svg]:hidden compact:[&>svg]:block"
-      title={!empty ? "이전 형식 맵은 초기화할 수 없습니다. 공통 맵 전환이 필요합니다." : status === "pending" ? "새 맵을 준비하고 있습니다." : status === "error" ? "맵을 준비하지 못했습니다." : "편집할 맵을 준비해주세요."}
-      action={empty ? <Button disabled={readOnly || !leaseToken || !leaseFence || status === "pending"} onClick={() => void initialize()}>다시 시도</Button> : undefined} />
+      title={!empty ? "이전 형식 맵은 초기화할 수 없습니다. 공통 맵 전환이 필요합니다." : status === "error" ? "맵을 준비하지 못했습니다." : "편집할 맵을 준비해주세요."}
+      action={empty ? <Button disabled={readOnly || !leaseToken || !leaseFence} onClick={() => void initialize()}>다시 시도</Button> : undefined} />
   </>;
 }
