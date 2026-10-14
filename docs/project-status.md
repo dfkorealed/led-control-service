@@ -2,7 +2,7 @@
 
 기준일: 2026-10-14
 
-## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증 완료, 로컬 머지 대기
+## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 
 - 사용자 승인으로 저장 옆 초기화 명령에 요소만/조명도 미배치 두 mode와 서버 즉시 저장·현재층 한정·크기/격자/등록/제어 보존·기록복구를 구현한다. CAD는 일반 도형만 적용하고 조명 후보 슬롯 기능을 제거한다. 실제 조명 심볼 도형은 보존한다.
 - 기존 공통 맵 계획 R1–R4를 최신화했다. `6f89ad1a` 기반 별도 `codex/map-clear-no-slots-20261014`에서 backend 두 독립 범위→Web 계약 소비→QA/전체 gate→로컬 머지를 진행한다. 기존 사용자 AGENTS/landing 변경·현재 DB/맵/장비·실행 서버는 보존하며 운영 초기화/장비/remote 작업0이다.
@@ -13,6 +13,8 @@
 - R2 P2는 `7a2f6e7f`에서 두 apply의 잠금 후 첫 변경 전에 모든 지역의 빈 digest를 검사하도록 보완했다. REDunit5/PG3→집중59/59·freshPG25/25, 독립 scoped QA ReadyYes/추가P1/P2없음이다. 총괄 최종 전체API는265suites/3,302PASS/1,247환경SKIP/FAIL0(exit0,134.186s)이다. Web 및 전체브라우저/최종메인반영은 아직이다.
 - R3는 `b0ef77f7`에 저장 옆 버튼·공통 Radio/Modal의 두 선택·명령 재전송/이탈/stale guard·CAD 후보UI/마커 제거를 구현했다. Web 관련203/203·전체3,737PASS/동일Control5FAIL/3SKIP·타입 포함build/UI0을 확인했다. 최종 wholebranch QA ReadyYes/추가P1/P2없음, 독립 최신 Chromium13/13(exit0,51.8s)으로 초기화→reload→기록복구·모바일·취소/재시도·CAD도형 편집을 확인했다. fixture browser와 임시PG를 실백엔드 브라우저/HIL로 혼용하지 않는다.
 - 메인의 별도 BIO 문서 후속을 `3de37d84`에 병합하며 상단 충돌3개는 양쪽 기록을 모두 보존했다. API/Web 제품은검증source ec821c63와diff0이다. 실제 고객 맵 초기화/DB수정·장비/인증/remote작업0이며 로컬머지/실행응답확인은다음관문이다.
+- 사용자 승인대로 `5ca0a40b`→`9f930a71`을 로컬 `codex/mvp1-cloud-web`에 ff-only 반영했다. 머지 후 Web192/192·API69/69·타입 포함Webbuild0·APItype0을 새로 확인했다. 기존 AGENTS/LandingPage/landing 문서의 SHA/dirty 변경은 동일하며 제품 차이는 기존 LandingPage뿐이다. 원격 push·schema migration·실제 현장 맵 초기화/DB직접쓰기·장비/PKI 변경은 하지 않았다.
+- 로컬 개발 watcher는 API24883→19395로 자동 재기동했고 same-origin ready의5개 dependency는 모두up이다. 새 clear의 비로그인 POST401을 확인했으며 실제 현장에 초기화 요청을 보내지 않았다. 격리 검증 단계의 서버미변경 기록과 승인된 메인 반영에 따른 자동 재기동을 구분한다. 원 RED/fixture 실패/최종 로그·R4화면을 ROOT `.local/map-clear-no-slots-20261014`와 feature worktree에 보존한다. 위 진행중/No 문장은 실행 당시 이력이다.
 
 ## 2026-10-14 사용자 직접 UI 시험 준비 재개 — 현재 차단 원인 확인 중
 
