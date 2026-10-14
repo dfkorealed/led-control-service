@@ -849,8 +849,15 @@ function validateTemporaryResult(session: PersistedTemporarySession, result: Tem
   if (!target || result.sessionId !== command.sessionId || result.siteId !== command.siteId || result.gatewayId !== command.gatewayId ||
     result.assignmentVersion !== command.assignmentVersion || result.admissionRevision !== command.admissionRevision ||
     result.originCommandHash !== command.payloadHash || result.originSequence !== command.sequence ||
+    result.sessionRevision > session.sessionRevision ||
     result.targetGeneration !== (result.sessionRevision === 1 ? target.snapshot.applyGeneration : target.snapshot.releaseGeneration)) {
     throw new Error("invalid temporary result attribution");
+  }
+  // Revision1 confirmation proves the immutable requested apply, not merely a
+  // syntactically valid configuration. Zero changes mode only and preserves high.
+  if (result.sessionRevision === 1 && result.applyConfirmed && (!target.preState ||
+    !isDeepStrictEqual(result.configurationReadback, bioEventConfiguration(target.preState, command.brightness)))) {
+    throw new Error("invalid temporary apply configuration");
   }
 }
 
@@ -864,11 +871,26 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
     state.temporaryEndTombstones = parseFixtureRecord(temporaryEndTombstones, parseTemporaryEnd);
     for (const [id, end] of Object.entries(state.temporaryEndTombstones)) {
       if (id !== end.sessionId) throw new Error("invalid temporary tombstone identity");
-      const start = state.temporarySessions[id]?.command;
+      const session = state.temporarySessions[id];
+      const start = session?.command;
       if (start && (end.originCommandHash !== start.payloadHash || end.originSequence !== start.sequence ||
         end.siteId !== start.siteId || end.gatewayId !== start.gatewayId || end.assignmentVersion !== start.assignmentVersion ||
         end.admissionRevision !== start.admissionRevision || end.endsAt !== start.endsAt || !isDeepStrictEqual(end.targets, start.targets))) {
         throw new Error("invalid temporary tombstone origin");
+      }
+      for (const target of end.targets) {
+        const lease = state.fixtureLeases[target.fixtureId];
+        const exact = lease && isDeepStrictEqual(lease.identity, target);
+        const reserved = exact && lease.sessionId === id && lease.lastGeneration === target.releaseGeneration;
+        // A known RF0-settled start may accept end after clearing its owner at
+        // revision1. Its validated terminal evidence still retains the full pair.
+        const settled = exact && session && ["restored", "rejected", "cancelled"].includes(session.state) &&
+          lease.sessionId === null && lease.phase === session.state && lease.lastGeneration ===
+          (session.sessionRevision === 1 ? target.applyGeneration : target.releaseGeneration);
+        const newerFence = lease && BigInt(lease.applyGeneration) > BigInt(target.releaseGeneration);
+        // Iterating only existing leases misses a deleted reservation on restart.
+        // End-only metadata is never evidence that RF0 or restoration was proved.
+        if (!reserved && !settled && !newerFence) throw new Error("invalid temporary tombstone fence");
       }
     }
     for (const [id, session] of Object.entries(state.temporarySessions)) {
@@ -881,7 +903,12 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
         if (!["restored", "rejected", "cancelled"].includes(session.state) && lease.sessionId !== id) {
           throw new Error("unresolved temporary target lost owner");
         }
-        for (const result of [target.applyResult, target.releaseResult]) if (result) validateTemporaryResult(session, result);
+        for (const [slot, revision] of [["applyResult", 1], ["releaseResult", 2]] as const) {
+          const result = target[slot];
+          if (!result) continue;
+          if (result.sessionRevision !== revision) throw new Error("invalid temporary result slot");
+          validateTemporaryResult(session, result);
+        }
       }
     }
     for (const [fixtureId, lease] of Object.entries(state.fixtureLeases)) {

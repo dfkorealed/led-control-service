@@ -2,7 +2,7 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import type { StartTemporaryControlCommand, EndTemporaryControlCommand } from "@led-control/shared";
+import type { StartTemporaryControlCommand, EndTemporaryControlCommand, TemporaryControlResult } from "@led-control/shared";
 import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
 import { FileAutomationStateStore, parseAutomationState } from "./automation-state-store";
@@ -17,6 +17,10 @@ function endCommand(command: StartTemporaryControlCommand): EndTemporaryControlC
   const payload = { ...base, kind: "end" as const, sessionRevision: 2 as const,
     originCommandHash: payloadHash, originSequence: command.sequence };
   return { ...payload, payloadHash: bioEnvelopeHash(payload) };
+}
+function rehashResult(result: TemporaryControlResult): TemporaryControlResult {
+  const { resultHash: _hash, ...payload } = result;
+  return { ...payload, resultHash: bioEnvelopeHash(payload) };
 }
 afterEach(async () => { await Promise.all(dirs.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 type Control = BioOperationControl & { beforeMutation(stage: "high_brightness" | "mode"): Promise<void> };
@@ -212,4 +216,63 @@ it("fences the reserved release generation even after an RF0 apply settled", asy
   const successor = { ...successorPayload, payloadHash: bioEnvelopeHash(successorPayload) };
   await h.runtime.accept(endCommand(successor));
   expect(h.lease()).toMatchObject({ sessionId: successor.sessionId, lastGeneration: "9007199254740996", phase: "releasing" });
+});
+
+it.each(["missing", "cleared_without_proof", "regressed"] as const)("rejects end-only tombstone with %s safety reservation", async invalid => {
+  const h = await harness(); await h.runtime.accept(endCommand(h.command));
+  const state = h.store.read(); const lease = state.fixtureLeases[fixtureId]!;
+  if (invalid === "missing") delete state.fixtureLeases[fixtureId];
+  else {
+    lease.sessionId = null; lease.phase = "restored";
+    if (invalid === "regressed") {
+      lease.identity.applyGeneration = "1"; lease.identity.releaseGeneration = "2";
+      lease.applyGeneration = "1"; lease.releaseGeneration = "2"; lease.lastGeneration = "2";
+    }
+  }
+  expect(() => parseAutomationState(state)).toThrow();
+});
+
+it("retains an old end-only tombstone when a strictly newer non-overlapping fence is preserved", async () => {
+  const h = await harness(); await h.runtime.accept(endCommand(h.command));
+  const state = h.store.read(); const lease = state.fixtureLeases[fixtureId]!;
+  lease.sessionId = null; lease.phase = "restored";
+  lease.identity.applyGeneration = "9007199254740995"; lease.identity.releaseGeneration = "9007199254740996";
+  lease.applyGeneration = "9007199254740995"; lease.releaseGeneration = "9007199254740996"; lease.lastGeneration = "9007199254740996";
+  expect(parseAutomationState(state).temporaryEndTombstones).toEqual(state.temporaryEndTombstones);
+});
+
+it.each(["apply_slot", "release_slot", "future_outbox"] as const)("rejects validly hashed temporary evidence in %s", async invalid => {
+  const h = await harness(); await h.runtime.accept(h.command);
+  if (invalid !== "future_outbox") await h.runtime.accept(endCommand(h.command));
+  const state = h.store.read(); const target = state.temporarySessions[sessionId]!.targets[fixtureId]!;
+  if (invalid === "release_slot") {
+    target.releaseResult = rehashResult({ ...target.applyResult!, kind: "observation", applyConfirmed: false });
+  } else {
+    const future = rehashResult({ ...target.applyResult!, kind: "observation", sessionRevision: 2,
+      targetGeneration: target.snapshot.releaseGeneration });
+    if (invalid === "apply_slot") target.applyResult = future;
+    else state.temporaryResultOutbox[future.eventId] = future;
+  }
+  expect(() => parseAutomationState(state)).toThrow();
+});
+
+it("rejects future release-slot evidence while its owner is still revision1", async () => {
+  const h = await harness(); await h.runtime.accept(h.command);
+  const state = h.store.read(); const target = state.temporarySessions[sessionId]!.targets[fixtureId]!;
+  target.releaseResult = rehashResult({ ...target.applyResult!, kind: "observation", sessionRevision: 2,
+    applyConfirmed: false, targetGeneration: target.snapshot.releaseGeneration });
+  expect(() => parseAutomationState(state)).toThrow();
+});
+
+it.each([
+  { brightness: 80, high: 10, mode: "force-on" as const },
+  { brightness: 80, high: 80, mode: "sensor" as const },
+  { brightness: 0, high: 0, mode: "force-off" as const },
+  { brightness: 0, high: 30, mode: "force-on" as const }
+])("rejects holding confirmation mismatching requested $brightness with $high/$mode", async ({ brightness, high, mode }) => {
+  const h = await harness(brightness); await h.runtime.accept(h.command);
+  const state = h.store.read(); const target = state.temporarySessions[sessionId]!.targets[fixtureId]!;
+  target.applyResult = rehashResult({ ...target.applyResult!, configurationReadback: {
+    configuredHighBrightnessPercent: high, bioMode: mode } });
+  expect(() => parseAutomationState(state)).toThrow();
 });
