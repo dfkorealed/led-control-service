@@ -137,6 +137,18 @@ export function parseAutomationSnapshot(value: unknown, scope: AutomationScope):
   if (canonicalPayloadHash(withoutHash) !== payloadHash) {
     throw new AutomationConfigStoreError("snapshot_hash_mismatch", "snapshot_hash_mismatch");
   }
+  if (parsed.data.schemaVersion === 3) {
+    for (const dataset of parsed.data.holidayDatasets) {
+      if (dataset.dates.some((entry, index) => (index > 0 && dataset.dates[index - 1]!.date >= entry.date) ||
+        entry.names.some((name, index) => index > 0 && entry.names[index - 1]! >= name))) {
+        throw new AutomationConfigStoreError("snapshot_invalid", "holiday dataset ordering is not canonical");
+      }
+      const { revision: _revision, fetchedAt: _fetchedAt, payloadHash: holidayHash, ...semantic } = dataset;
+      if (canonicalPayloadHash(semantic) !== holidayHash) {
+        throw new AutomationConfigStoreError("snapshot_hash_mismatch", "holiday_dataset_hash_mismatch");
+      }
+    }
+  }
   return parsed.data as AutomationSnapshot;
 }
 

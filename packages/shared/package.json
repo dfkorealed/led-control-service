@@ -9,6 +9,20 @@
     "dist"
   ],
   "exports": {
+    "./temporary-control-contracts": {
+      "types": "./dist/esm/temporary-control-contracts.d.ts",
+      "browser": "./dist/esm/temporary-control-contracts.js",
+      "require": "./dist/temporary-control-contracts.js",
+      "import": "./dist/esm/temporary-control-contracts.js",
+      "default": "./dist/temporary-control-contracts.js"
+    },
+    "./holiday-calendar-contracts": {
+      "types": "./dist/esm/holiday-calendar-contracts.d.ts",
+      "browser": "./dist/esm/holiday-calendar-contracts.js",
+      "require": "./dist/holiday-calendar-contracts.js",
+      "import": "./dist/esm/holiday-calendar-contracts.js",
+      "default": "./dist/holiday-calendar-contracts.js"
+    },
     "./mobile-webview-contracts": {
       "types": "./dist/esm/mobile-webview-contracts.d.ts",
       "browser": "./dist/esm/mobile-webview-contracts.js",

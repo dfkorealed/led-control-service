@@ -8,6 +8,7 @@ import type {
   ProvisioningScanStartPayload
 } from "@led-control/shared";
 import type { BioSourceTargetGuard } from "../automation/bio-source-target-guard";
+import type { BioTemporaryApplyControl, BioTemporaryTargetPort } from "../automation/bio-temporary-control-runtime";
 import type {
   BleMeshAdapter,
   BleMeshCommandReport,
@@ -70,6 +71,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   readonly vehicleSensorCloudSupported = false;
   private readonly now: () => Date;
   private sourceTargetGuard?: BioSourceTargetGuard;
+  private temporaryLeaseGuard?: (fixtureId: string) => boolean;
+  private readonly temporaryControls = new WeakSet<object>();
   private readonly discoveredByUuid = new Map<string, BioDiscoveredDevice>();
   private readonly virtualGroups = new Map<number, Set<string>>();
   private readonly discoveryQueue = new SerialTaskQueue();
@@ -89,12 +92,45 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   }
 
   setBioSourceTargetGuard(guard: BioSourceTargetGuard) { this.sourceTargetGuard = guard; }
+  setBioTemporaryLeaseGuard(guard: (fixtureId: string) => boolean) { this.temporaryLeaseGuard = guard; }
+
+  /** Explicit owner-only port. Product wiring gives this port to the temporary
+   * runtime; ordinary control cannot bypass a lease by adding public flags. */
+  temporaryTargetPort(): BioTemporaryTargetPort {
+    return {
+      read: (id, control) => this.readBioState(id, control),
+      apply: async (id, brightness, control) => {
+        const owned = this.temporaryControl(id, control);
+        const verified = await this.bioConfigurationTarget(id, owned);
+        if (!this.client.readConfiguration) throw new BioUsbError("NOT_READY", "BIO configuration read unavailable");
+        await this.client.readConfiguration(verified, owned);
+        return this.client.setOutput(verified, brightness, { ...owned, ...this.guardedWriteControl(id, owned) });
+      },
+      restore: (id, target, configuration, control) => this.restoreBioState(id, target, configuration, this.temporaryControl(id, control))
+    };
+  }
+
+  private temporaryControl(fixtureId: string, control: BioTemporaryApplyControl): BioTemporaryApplyControl {
+    if (!control.beforeWrite || !control.mayStartWrite || !control.beforeMutation) throw new Error("temporary_owner_control_required");
+    const assertLease = () => {
+      if (!this.temporaryLeaseGuard?.(fixtureId)) throw new Error("temporary_fixture_lease_unavailable");
+      if (this.sourceTargetGuard?.([fixtureId])) throw new Error("bio_source_target_forbidden");
+    };
+    assertLease();
+    const owned: BioTemporaryApplyControl = { ...control,
+      beforeWrite: async () => { assertLease(); await control.beforeWrite!(); assertLease(); },
+      mayStartWrite: () => { assertLease(); return control.mayStartWrite!(); } };
+    this.temporaryControls.add(owned);
+    return owned;
+  }
 
   private guardedWriteControl(fixtureId: string, control?: Partial<CommandWriteControl>): CommandWriteControl | undefined {
-    if (!this.sourceTargetGuard && !control?.mayStartWrite && !control?.onWriteStarted) return undefined;
+    if (!this.sourceTargetGuard && !this.temporaryLeaseGuard && !control?.mayStartWrite && !control?.onWriteStarted) return undefined;
+    const temporaryOwner = control !== undefined && this.temporaryControls.has(control);
     // Let the command coordinator latch its durable refusal before the adapter
     // applies its own guard; short-circuiting it would lose the source reason.
-    return { mayStartWrite: () => control?.mayStartWrite?.() !== false && !this.sourceTargetGuard?.([fixtureId]),
+    return { mayStartWrite: () => control?.mayStartWrite?.() !== false && !this.sourceTargetGuard?.([fixtureId]) &&
+      (temporaryOwner || !this.temporaryLeaseGuard?.(fixtureId)),
       onWriteStarted: () => control?.onWriteStarted?.() };
   }
 
@@ -161,7 +197,9 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       },
       mayStartWrite: () => {
         assertTransport();
-        const allowed = control.mayStartWrite?.() !== false;
+        // The source-mode exception does not grant access to a temporarily
+        // owned target. Read-only query still uses the independent GET path.
+        const allowed = control.mayStartWrite?.() !== false && !this.temporaryLeaseGuard?.(identity.fixtureId);
         // The synchronous permit can itself revoke/abort this owner.
         assertTransport();
         return allowed;

@@ -2,7 +2,8 @@ import { BadRequestException } from "@nestjs/common";
 import {
   encodeScheduleListCursor,
   parseCreateScheduleInput,
-  parseScheduleListQuery
+  parseScheduleListQuery,
+  parseUpdateScheduleInput
 } from "./schedule.dto";
 
 const SITE_ID = "00000000-0000-4000-8000-000000000010";
@@ -28,6 +29,21 @@ const input = {
 };
 
 describe("schedule DTO validation", () => {
+  it("defaults each exclusion to false and accepts independent explicit booleans", () => {
+    expect(parseCreateScheduleInput(input)).toMatchObject({ excludeWeekends: false, excludeHolidays: false });
+    expect(parseCreateScheduleInput({ ...input, excludeWeekends: true })).toMatchObject({ excludeWeekends: true, excludeHolidays: false });
+    expect(parseCreateScheduleInput({ ...input, excludeHolidays: true })).toMatchObject({ excludeWeekends: false, excludeHolidays: true });
+  });
+
+  it("preserves PATCH omission rather than resetting saved exclusions", () => {
+    expect(parseUpdateScheduleInput({ name: "Rename" })).toEqual({ name: "Rename" });
+    expect(parseUpdateScheduleInput({ excludeHolidays: false })).toEqual({ excludeHolidays: false });
+  });
+
+  it.each(["true", 1, null])("rejects non-boolean exclusions %s", value => {
+    expect(() => parseCreateScheduleInput({ ...input, excludeWeekends: value })).toThrow(BadRequestException);
+    expect(() => parseUpdateScheduleInput({ excludeHolidays: value })).toThrow(BadRequestException);
+  });
   it("rejects equal local times on create", () => {
     expect(() => parseCreateScheduleInput({
       ...input,

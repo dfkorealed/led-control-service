@@ -33,6 +33,27 @@ function schedule(
 }
 
 describe("schedule overlap", () => {
+  it("excludes the same weekend start dates used by next and calendar", () => {
+    const left = { ...schedule("left", { activeFrom: "2026-10-04T00:00:00Z", activeUntil: "2026-10-04T14:59:59Z" }), excludeWeekends: true, excludeHolidays: false };
+    const right = schedule("right", { activeFrom: "2026-10-04T00:00:00Z", activeUntil: "2026-10-04T14:59:59Z" });
+    expect(schedulesOverlap(left, right, "Asia/Seoul")).toBe(false);
+  });
+
+  it("rejects unknown holiday starts and removes overlaps after a late holiday revision", () => {
+    const left = { ...schedule("left", { activeFrom: "2026-10-05T00:00:00Z", activeUntil: "2026-10-05T14:59:59Z" }), excludeWeekends: false, excludeHolidays: true };
+    const right = schedule("right", { activeFrom: left.activeFrom, activeUntil: left.activeUntil });
+    const dataset = { country: "KR" as const, source: "kasi" as const, year: 2026, revision: "2026-1", fetchedAt: "2026-10-01T00:00:00Z", coverageFrom: "2026-01-01", coverageUntil: "2026-12-31", payloadHash: `sha256:${"a".repeat(64)}`, dates: [] };
+    expect(schedulesOverlap(left, right, "Asia/Seoul")).toBe(false);
+    expect(schedulesOverlap(left, right, "Asia/Seoul", [dataset])).toBe(true);
+    expect(schedulesOverlap(left, right, "Asia/Seoul", [{ ...dataset, revision: "2026-2", dates: [{ date: "2026-10-05", names: ["임시공휴일"] }] }])).toBe(false);
+  });
+
+  it("keeps a weekday's overnight overlap on an excluded weekend end date", () => {
+    const left = { ...schedule("left", { activeFrom: "2026-10-02T00:00:00Z", activeUntil: "2026-10-02T23:59:59Z", localStartTime: "23:00", localEndTime: "02:00" }), excludeWeekends: true, excludeHolidays: false };
+    const right = schedule("right", { activeFrom: "2026-10-03T00:00:00Z", activeUntil: "2026-10-03T23:59:59Z", localStartTime: "01:00", localEndTime: "03:00" });
+    expect(schedulesOverlap(left, right, "UTC")).toBe(true);
+  });
+
   it("requires a common fixture and enabled rules", () => {
     const left = schedule("left");
 

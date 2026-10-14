@@ -1,4 +1,7 @@
 export const mqttTopics = {
+  temporaryControlCommand: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/temporary-control/command`,
+  temporaryControlResult: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/temporary-control/result`,
+  temporaryControlIngested: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/temporary-control/ingested`,
   dimmingCommand: (siteId: string) => `sites/${siteId}/commands/dimming`,
   fixtureState: (siteId: string) => `sites/${siteId}/events/fixture-state`,
   commandAck: (siteId: string) => `sites/${siteId}/events/command-ack`,

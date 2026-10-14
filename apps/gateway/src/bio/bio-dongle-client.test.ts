@@ -955,6 +955,32 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it.each(["apply", "restore"] as const)("durably prepares each %s mutation inside the USB guard and blocks mode after storage failure", async kind => {
+    const h = harness(); await ready(h);
+    const stages: string[] = [];
+    let writesStarted = 0;
+    const control = {
+      beforeMutation: async (stage: "high_brightness" | "mode") => {
+        stages.push(stage);
+        if (stage === "mode") throw new Error("ENOSPC");
+        expect(commandBodies(h.device)).toEqual([]);
+      },
+      onWriteStarted: () => { writesStarted++; }
+    };
+    const operation = kind === "apply" ? h.client.setOutput(verifiedTarget, 60, control)
+      : h.client.restoreConfiguration(verifiedTarget, { configuredHighBrightnessPercent: 60, bioMode: "sensor" }, control);
+    const result = operation.catch(error => error);
+    await flush();
+    expect(stages).toEqual(["high_brightness"]);
+    expect(commandBodies(h.device)).toEqual(["cd13c6"]);
+    h.device.receive("55aa1101002055"); await flush();
+    expect(await result).toMatchObject({ message: "ENOSPC" });
+    expect(stages).toEqual(["high_brightness", "mode"]);
+    expect(commandBodies(h.device)).toEqual(["cd13c6"]);
+    expect(writesStarted).toBe(1);
+    await h.client.close();
+  });
+
   it("vetoes force-on after brightness submission when the cached proof expires", async () => {
     const h = harness(); await ready(h);
     let allowed = true;

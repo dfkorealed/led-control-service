@@ -6,6 +6,8 @@
     "outDir": "dist/esm"
   },
   "include": [
+    "src/temporary-control-contracts.ts",
+    "src/holiday-calendar-contracts.ts",
     "src/bio-sensor-profile-contracts.ts",
     "src/mobile-webview-contracts.ts",
     "src/map-display-contracts.ts",

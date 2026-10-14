@@ -3,7 +3,7 @@ import {
   automationActionV1Schema,
   type DimmingTarget,
   dimmingTargetSchema,
-  type LightingScheduleSnapshotV1,
+  type LightingScheduleSnapshotV3,
   scheduleRecurrenceV1Schema
 } from "@led-control/shared";
 import { z } from "zod";
@@ -14,7 +14,7 @@ import {
   parseAutomationListQuery
 } from "./automation-list.dto";
 
-export type CreateScheduleInput = Omit<LightingScheduleSnapshotV1, "id" | "fixtureIds"> & {
+export type CreateScheduleInput = Omit<LightingScheduleSnapshotV3, "id" | "fixtureIds"> & {
   target: DimmingTarget;
 };
 
@@ -31,6 +31,8 @@ const createScheduleSchema = z.object({
   localEndTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
   recurrence: scheduleRecurrenceV1Schema,
   action: automationActionV1Schema,
+  excludeWeekends: z.boolean().default(false),
+  excludeHolidays: z.boolean().default(false),
   target: dimmingTargetSchema
 }).strict().superRefine((schedule, context) => {
   if (Date.parse(schedule.activeFrom) > Date.parse(schedule.activeUntil)) {

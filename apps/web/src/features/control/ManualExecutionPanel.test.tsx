@@ -118,3 +118,15 @@ describe("ManualExecutionPanel", () => {
     expect(screen.getByRole("button", { name: "적용" })).toBeDisabled(); expect(submit).not.toHaveBeenCalled();
   });
 });
+
+it("keeps the execution row mounted while the compact More exposes the new execution mode", () => {
+  const change = vi.fn();
+  const view = render(<ManualExecutionPanel brightness={70} controlsLocked={false} canSubmit applyLabel="적용 대상" compact
+    executionMode="basic" onExecutionModeChange={change} temporaryContent={<p>기간 선택</p>} onBrightnessChange={vi.fn()} onSubmit={vi.fn()} />);
+  const row = document.querySelector("[data-control-execution-row]");
+  fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+  fireEvent.click(screen.getByRole("button", { name: "시간제 제어" })); expect(change).toHaveBeenCalledWith("temporary");
+  view.rerender(<ManualExecutionPanel brightness={70} controlsLocked={false} canSubmit applyLabel="적용 대상" compact
+    executionMode="temporary" onExecutionModeChange={change} temporaryContent={<p>기간 선택</p>} onBrightnessChange={vi.fn()} onSubmit={vi.fn()} />);
+  expect(document.querySelector("[data-control-execution-row]")).toBe(row);
+});

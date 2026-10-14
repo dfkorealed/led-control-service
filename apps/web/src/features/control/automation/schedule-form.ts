@@ -1,6 +1,6 @@
 import type {
   AutomationRuleStatus,
-  LightingScheduleSnapshotV1,
+  LightingScheduleSnapshot,
   ScheduleRecurrenceKind,
   ScheduleRecurrenceV1
 } from "@led-control/shared";
@@ -11,6 +11,8 @@ import {
 } from "../control-selection";
 
 export interface ScheduleFormValues {
+  excludeWeekends: boolean;
+  excludeHolidays: boolean;
   name: string;
   activeFromDate: string;
   activeUntilDate: string;
@@ -48,6 +50,8 @@ export function createEmptyScheduleForm(timeZone: string, now = new Date()): Sch
   const today = dateInTimeZone(now.toISOString(), timeZone);
   return {
     name: "조명 스케줄",
+    excludeWeekends: false,
+    excludeHolidays: false,
     activeFromDate: today,
     activeUntilDate: today,
     localStartTime: "18:00",
@@ -64,11 +68,13 @@ export function createEmptyScheduleForm(timeZone: string, now = new Date()): Sch
 }
 
 export function scheduleToFormValues(
-  schedule: LightingScheduleSnapshotV1,
+  schedule: LightingScheduleSnapshot & { excludeWeekends?: boolean; excludeHolidays?: boolean },
   timeZone: string
 ): ScheduleFormValues {
   return {
     name: schedule.name,
+    excludeWeekends: schedule.excludeWeekends ?? false,
+    excludeHolidays: schedule.excludeHolidays ?? false,
     activeFromDate: dateInTimeZone(schedule.activeFrom, timeZone),
     activeUntilDate: dateInTimeZone(schedule.activeUntil, timeZone),
     localStartTime: schedule.localStartTime,
@@ -156,6 +162,8 @@ export function scheduleFormToInput(
 
   return {
     name: values.name.trim(),
+    excludeWeekends: values.excludeWeekends,
+    excludeHolidays: values.excludeHolidays,
     status,
     activeFrom: siteCalendarDateToIso(values.activeFromDate, timeZone),
     activeUntil: siteCalendarDateToIso(values.activeUntilDate, timeZone),

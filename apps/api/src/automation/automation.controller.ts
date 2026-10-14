@@ -1,14 +1,25 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Header, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { SchedulesService } from "./schedules.service";
 import { VehicleEventRulesService } from "./vehicle-event-rules.service";
+import { ScheduleCalendarService } from "./schedule-calendar.service";
 
 @UseGuards(SessionAuthGuard)
 @Controller("sites/:siteId/automation/schedules")
 export class AutomationController {
-  constructor(private readonly schedules: SchedulesService) {}
+  constructor(private readonly schedules: SchedulesService, private readonly calendars: ScheduleCalendarService) {}
+
+  @Get("calendar")
+  @Header("Cache-Control", "private, no-store")
+  calendar(
+    @Param("siteId") siteId: string,
+    @Query() range: { from: string; to: string },
+    @CurrentUser() actor: AuthenticatedUser
+  ) {
+    return this.calendars.get(siteId, actor, range);
+  }
 
   @Get()
   list(

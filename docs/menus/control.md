@@ -1,11 +1,292 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 최종 리뷰: 전달 만료·이벤트 보류·서울 연도 경계
+
+### 구현 완료
+
+- 시간제 Start의 전달 권위는 원 command/hash/startedAt/endsAt와 분리해 큐와 실행기까지 전달한다. 비동기 clock/preflight·저장 이후와 최종 native 제출에서 전달/세션 만료의 기존 2,000ms 여유, 같은 부팅 monotonic deadline, 최근 신뢰 clock sample을 검사한다. 만료 후 새 적용 SET은 차단하고 이미 필요한 종료·복귀는 계속 처리한다. 재전송은 원 종료 시각을 연장하지 않는다.
+- 임시 lease 때문에 적용하지 않은 이벤트 대상은 activation의 `skippedFixtureIds`에 미변경 근거를 영속 보존한다. 종료 시 RF/readback을 만들지 않고 기존 wire의 superseded/null로 처리해 이벤트 소유권을 닫는다. 과거 uncertain mutation은 건드리지 않으며, 진행 중 lease 해제 후 적용할 때는 capture 전에 skip 근거를 영속 제거한다. 재시작·명시 종료와 이후 스케줄 실행을 검증했다.
+- 공휴일 변경 승격의 영향 Gateway를 서울 civil year 경계로 선택해 1월 1일만 포함하는 일정도 최신 dataset/revision/outbox를 받는다. 실제 자기 소유 PostgreSQL에서 pointer·revision·outbox의 같은 transaction 승격과 실패 시 전체 rollback을 확인했다.
+- NB1의 historical skip 검사는 완료된 A의 RF0 근거와 이후 다른 activation의 capture를 구별한다. 진행 중 skip의 과거 미해결 mutation 차단과 같은 activation의 모순 차단은 유지하며, 완료된 A의 proof는 삭제하지 않는다. 실제 A 미적용·완료→임시 settlement→snapshot 규칙 B 교체→새 pulse→정상 preState capture·70% 설정 및 파일 재시작을 직접 검증했다.
+
+### 미구현
+
+- 운영 배포·실제 DB migration·clock attestor/provider/ACL 연결·실장비 USB/RF/HIL은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 확인은 지정 Gateway 5개 파일 164개 테스트, API의 지정 snapshot/promotion/rollback 16개 테스트와 두 package 타입 검사 범위다. 전체 suite·build·광출력·전원 장애 복귀의 완료 증거로 확대하지 않는다. 최종 리뷰의 별도 Minor 및 기존 Web ControlView 실패는 이 수정 범위 밖의 제한으로 남긴다.
+- NB1 추가 수리 검증은 기존 store/production integration 두 파일 96개 테스트와 Gateway 타입 검사에 한정한다. 이전 164개/API/Web/build 전체를 재검증한 결과가 아니며, 총괄의 승인된 한정 재검토와 별도 운영 관문은 남아 있다.
+
+### 관련 파일
+
+- Gateway `automation/{temporary-control-mqtt,bio-temporary-control-runtime,bio-pulse-scheduler,automation-state-store}.ts` 및 직접 관련 MQTT/임시 적용·복귀/production integration/store 테스트.
+- API `automation/automation-snapshot.service.ts`, `automation/{automation-snapshot.service,holiday-dataset.service}.spec.ts`.
+
+### 갱신 규칙
+
+- 전달 권위·clock guard·skip 증거·서울 연도 경계를 바꾸면 동일 caller/consumer의 지연·부분 쓰기·재시작·transaction rollback 회귀와 이 문서를 함께 갱신한다. 운영·HIL 완료는 별도 증거가 필요하다.
+
+## 2026-10-15 Web BIO 시간제 제어·통합 이력·선택 연결
+
+### 구현 완료
+
+- 기존 기본 밝기 요청은 별도 영구 제어 경로로 유지한다. BIO 설정이 확인된 대상의 시간제 실행은 기본/시간제 선택,15/30/60/120분 preset, 정수1~1440분 입력, 고정 대상/밝기/기간 미리보기와 별도 시작 API를 사용한다. PC 기존350px 실행 패널과 모바일4열 실행행/More를 유지하며 기간 입력은 밝기 raw 검증 영역 밖에 있다.
+- root ControlView의 별도 시간제 owner가 접수/적용/유지/부분/불확정/복귀/복귀 미확인/서버 완료를 소비한다. 최소 복구 식별자를 영구 Command 저장소와 분리 보존하고 재시작은 GET, 응답 유실 POST는 명시적인 동일 요청 확인으로만 재조회한다. 자동 새 시작/기간 연장/영구 제어 fallback은 없다. 입력·대상과 추가 적용은 unresolved 동안 잠근다.
+- 종료는 사용자 확인 뒤 별도 end API로 요청하며 lost End의 clientRequestId를 재사용한다. 서버 immutable startedAt/endsAt와 대상별 설정/부분 변경·복귀 evidence를 표시한다. 카운트다운0/HTTP202는 복귀 확인이 아니며 이전 GET가 종료 revision을 되돌리지 않는다. 권한/site/principal 변경은 이전 요청 응답을 현재 scope에 표시하지 않는다.
+- 시작 응답이 유실된 뒤 명시적 재확인의 4xx는 과거 미접수 증거로 취급하지 않는다. 원 clientRequestId/body와 안전 잠금을 유지하고 권한 회복 후 같은 요청으로 복구한다. 시간제 미리보기는 hook과 같은 사용자·역할·제어 권한·유효 현장 범위에 결속해 범위 변경 때 폐기하고 표시·확인 단계에서도 재검사한다.
+- 수동 이력의 유일한 node를 workspace 최하단 전체폭으로 옮겼다. 기본/시간제 중 최신 한 건과 전체보기 한 개를 같은 ticker/Drawer로 표시하고 내부 종류별 조회·cursor·상세를 분리한다. 시간제 DTO를 Command로 cast하지 않는다. 원래 기본 상세와 관측/재송신/미확정 복구 기능은 유지하되 확인 필요한 명령 footer 버튼을 제거하고 Drawer에서 기존 복구 경로에 접근한다.
+- 저장된 구역 선택 옵션을 실제 대상 목록 앞에 배치하고 기존 resolve/onChange→2대 멤버→실제 지도 강조→실행 대상 경로를 유지한다. 새 셸·지도·업무 모드·휴일 관리 기능은 만들지 않았다.
+- 스케줄 Switch의 실제 focus 경계에서 해당 Dialog 배경만 스크롤하지 않게 제한하고 visible field 전체를 내부에서 노출한다. 닫을 때 원 inline 경계를 복원하며 공통 Dialog/전역 CSS/다른 overlay에는 적용하지 않는다.
+
+### 미구현
+
+- 운영 DB migration·실제 API/Gateway 배포·clock attestor/provider 설정·물리 장비 USB/RF/HIL은 실행하지 않았다. 로컬 제품 병합 및 운영 반영은 총괄 후속 관문이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 서버 historical settlement/설정 readback은 현재 광출력 증거가 아니다. 불확정·partialMutation·복귀 실패는 잠금을 유지하며 브라우저 시간이 끝나도 복귀 성공을 합성하지 않는다. 장치/Gateway 전원 차단 중 정확한 복귀 시각은 보장하지 않는다.
+- Web 검증은 직접 unit과 실제 React→자기 fixture HTTP의 승인4개 E2E 경계다. fixture 성공을 실제 DB/브로커/장비 검증으로 확대하지 않는다. 기존 ControlView 알려진 실패와 Task8 deferred Minor는 최종 보고서/총괄 리뷰에서 별도로 기록한다.
+
+### 관련 파일
+
+- `apps/web/src/api/temporary-controls.ts`, `features/control/{useTemporaryControlSession,TemporaryControlPanel,TemporaryControlHistory,ControlView,ManualExecutionPanel,CommandHistoryPanel}`, `target-selection/SpatialTargetSelector`, `automation/ScheduleDialog`와 직접 관련 테스트.
+- `apps/web/e2e/bio-control-operations.spec.ts`, `apps/web/playwright.bio-control-operations.config.ts`, `apps/web/e2e/support/bio-control-operations-server.mjs`.
+
+### 갱신 규칙
+
+- 시간제 DTO/복구 식별자/절대 시각/부분 설정/권한·세대·이력 종류를 바꾸면 직접 회귀와 이 문서를 함께 갱신한다. fixture/실장비·software/local merge/운영 적용은 각 증거가 있을 때 분리 기록한다.
+
+
+## 2026-10-15 Web 서버 달력·일정별 제외·공통 추가 행
+
+### 구현 완료
+
+- 스케줄 목록/달력의 왼쪽 보기 전환과 오른쪽 추가 버튼, 이벤트의 오른쪽 추가 버튼을 같은 공통 상단행으로 연결한다. 화면별 추가 버튼은 한 개이며 권한·로딩·변경 잠금과 원본 Dialog 포커스 복귀를 유지한다. 검색/필터/페이지 이동은 목록에서만 보이고 스케줄 필터 초기화만 제거한다. 이벤트 필터 초기화는 유지한다.
+- 달력은 전용 서버 API의 `complete:true`·revision·전체 schedules·occurrences를 소비하며 목록 검색/페이지에서 합성하지 않는다. 현장 시간대의 표시 월과 앞뒤 월 spill을 포함한 1~42일을 조회한다. 서버 발생 시작일만 정렬·중복 제거하고 빈 날짜/주 경계에서 띠를 분할하며 이름·반복·시간/야간 +1일을 표시한다. 띠 클릭은 서버 snapshot으로 기존 ScheduleDialog를 연다.
+- 조회 요청은 현장/사용자 scope·generation·기간별 key와 AbortSignal로 분리한다. incomplete/범위·시간대 불일치/권한·coverage·저장 오류는 빈 달력 성공으로 바꾸지 않는다. 권한 상실 시 캐시와 편집/삭제를 차단하며 목록 복구에서도 달력 권한을 다시 조회한다. 일정 저장/활성/삭제 후 목록·달력·다음 실행을 함께 재조회한다.
+- 원본 시간 입력 helper 아래 공통 주말 제외/휴일 제외 Switch를 추가한다. 신규/옛 응답 기본 false, 저장값 재열기·취소/Escape·다른 일정/신규 draft 격리를 유지하고 저장 시 두 값을 명시 전달한다. 휴일 제외는 Asia/Seoul 조건을 표시하고 서버 BIO/V3/coverage 거절 이유를 폼에서 안내한다. visible Switch label 포커스는 Dialog 내부에서 노출한다.
+
+### 미구현
+
+- 시간제 세션 UI·수동 이력 footer·저장구역 연결과 지정 브라우저 검증은 위 Task9에 이어 연결했다. 기존 영구 제어는 유지한다.
+- 운영 API/Gateway 배포·실제 DB migration·provider 연결·실장비 USB/RF/HIL은 이번 Web 작업에 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 검증은 제품 React/API 소비 함수와 격리된 HTTP/Query 응답의 지정 unit 경계다. 실제 장비 성공 또는 모바일의 실제 렌더링/스크롤 측정을 뜻하지 않는다. 실제 320×600/390×844 배치·지도 identity·띠/모달 스크롤 검증은 Task9의 승인된 최소 E2E에 남긴다.
+- 실행일 제외의 BIO/V3 자격과 완전 공휴일 coverage는 서버가 검증한다. 미지원·불명확 정보에서 제외값을 false로 바꾸거나 영구 제어로 우회하지 않는다. 브라우저는 반복/공휴일 평가기를 새로 구현하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/api/automation.ts`, `features/control/automation/{ScheduleControlPanel,VehicleEventControlPanel,ScheduleDialog,schedule-form,automation-presenters}`, `automation/components/{AutomationRuleHeader,ScheduleCalendar,calendar-segments,AutomationRuleControls}`와 직접 관련 8개 테스트 파일.
+
+### 갱신 규칙
+
+- 공통 추가 위치·서버 완전성·scope/권한·제외 draft·API flags를 바꾸면 같은 소유 unit 검증과 이 문서를 갱신한다. 시간제/브라우저/운영/HIL 완료는 해당 후속 증거가 있을 때 별도로 기록한다.
+
+
+## 2026-10-15 Gateway 최신 BIO 자동 복귀·V3·durable 결과 수신 확인
+
+### 구현 완료
+
+- 실제 BIO bootstrap에 임시 owner port/lease guard, 적용 완료된 V3·assignment·정확한 fixture/native UUID/address·독립 source 건강 권위를 연결했다. 센서 자격·telemetry wire는 기존 version2를 유지한다. canonical MeshNode ID는 API 원명령/lease/proof로 묶으며 로컬 discovered-node ID와 혼동하지 않는다.
+- 종료/오프라인 만료는 예약 release generation의 durable intent 이후 독립 GET, 현재 event > schedule > normal 목표, 각 SET 직전 권위 재검사와 mutation intent 저장, 별도 full GET, durable 결과 순서로 처리한다. 같은 snapshot에서도 시간 경계가 지나면 목표를 다시 평가하고 과거 pulse/preState를 재생하지 않는다.
+- Normal은 overlay 없는 독립 GET에서 확인한 full mode/high 설정만 사용한다. 신원/network/assignment/base marker와 capture 시점 revision을 검사하며, 증거 없는 신규 임시 SET은 RF0 거절한다. 기존 변경 가능 대상은 recovery_pending/lease를 유지한다. 영구 제어·인증된 ensure_sensor는 SET 전에 이 증거를 무효화하며 일반 scheduler도 sensor 설정을 scalar force-on/off로 덮지 않는다.
+- V3 전체 공휴일 dataset의 내용 hash·정렬을 config 경계에서 검증하고 기존 공통 평가기를 실행에 사용한다. 원명령 hash와 UUID delivery hash/window를 분리 검증하며 MQTT PUBACK는 복귀 성공이 아니다. Exact APPLIED terminal receipt는 직렬화된 runtime에서 관측한 시점에 같은 admission/target/release pair의 서버 settlement로 보존한다. ACK 대기 중 최신 목표가 바뀌어도 이미 수락된 과거 event를 버리지 않고 일치하는 old lease만 해제한다. 과거 서버 settlement는 현재 광출력/readback 증거가 아니며, 일반 자동 경로가 독립 GET으로 최신 목표를 재조정한다. 거절된 immutable event는 새 독립 재검증/새 event로 갱신하고 successor나 이미 settlement된 대상을 되돌리지 않는다.
+- 유효한 full normal 증거가 있으면 scalar baseline 없이도 기존 event/schedule 후보를 사용한다. 적용 완료 snapshot·source·신원/network·mapping epoch·lease를 GET/SET 경계에서 검사하고 시간 경계도 공통 평가기로 재확인한다. 신뢰된 bootstrap hook이 없거나 activation 중이면 full-configuration SET을 보류하며 generic scalar SET으로 우회하지 않는다. 기존 mapping onChange를 최종 native 제출까지 확인하고 종료 시 구독을 해제한다.
+- 시작 전 종료와 이미 RF0 거절된 시작에도 원 Start를 꾸미지 않고 revision2 RF0를 보존한다. Outbox 정리 후 최소 proof/fence는 남고, 늦은 시작/종료/ACK가 후속 owner를 되찾지 않는다. 동일 부팅 monotonic과 재시작 후 원 absolute 만료를 사용하며 재전송·drain은 제한된 대기/재시도로 동작한다.
+
+### 미구현
+
+- Web 달력·제외 설정은 위 Task8에 연결했으며 임시 제어 UI·센서 준비 연결은 후속 범위다. 운영 배포, 실제 브로커/USB/RF/HIL, 공휴일 provider 실호출은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 검증은 지정 Gateway cohort와 self-owned file/fake USB에 한정한다. Configuration GET은 센서 광출력 증거가 아니다. 신규 임시 제어에 독립 normal 권위가 없고 자동 overlay가 활성인 경우 안전하게 거절하며, 기존 불확정 복귀는 권위가 회복될 때까지 잠금을 유지한다.
+
+### 관련 파일
+
+- `apps/gateway/src/index.ts`, `automation/{bio-temporary-control-runtime,bio-temporary-release,temporary-control-mqtt,temporary-control-result-outbox,automation-config-store,automation-state-store,schedule-runtime,automation-runtime}.ts`, 기존 BIO source/product/provider 및 지정 테스트.
+
+### 갱신 규칙
+
+- 최신 목표·각 RF 경계·receipt 순서·독립 normal 권위·대상별 ACK/fence를 바꾸면 같은 범위의 race/restart 회귀를 함께 갱신한다. Web/운영/HIL 완료는 별도 증거가 있어야 기록한다.
+
+## 2026-10-15 Gateway BIO 시간제 소유권·부분 쓰기 기반
+
+### 구현 완료
+
+- 기존 V9 자동 운전 원장·native 필드를 보존하는 V10 상태에 immutable 시작, 대상별 정상 configuration preState, apply/release generation 쌍, 임시 fixture lease, 결과 outbox와 종료 tombstone을 저장한다. 중복·재시작은 endsAt을 연장하지 않고, 시작보다 먼저 받은 종료는 같은 durable transaction에 안전 소유권을 예약하여 늦은 시작의 RF를 막는다.
+- BIO 밝기·모드 각 SET 직전에 변경 가능 intent를 durable 저장하고 소유권·신원·clock·deadline을 다시 검사한다. 설정의 독립 GET으로 전체 성공·밝기만 변경·mode만 변경·unknown을 구분하며, 첫 제출 전 중단이 확실한 RF0와 이미 제출했거나 재시작 중단된 unknown을 구분한다. ENOSPC는 다음 RF를 허용하지 않는다.
+- 일반 BIO 제어·복구·센서 모드 SET 및 자동 target 쓰기는 같은 임시 lease를 검사한다. 선택 target의 쓰기만 보류하며 pulse 수신·건강·자동 발생 원장은 유지한다. 임시 출력은 baseline 승격·영구 suppression·retireManualTargets로 처리하지 않고 설정 활성화 rollback도 별도 임시 원장을 되돌리지 않는다.
+- 절대 만료와 명시 종료는 예약한 release generation으로 revision2 intent부터 저장한다. 실제 복귀가 확인되기 전에는 unknown/부분 변경 소유권을 해제하거나 restored로 표시하지 않는다.
+
+### 미구현
+
+- Task6 당시 보류했던 current V3·공휴일 검증·MQTT ACK·최신 자동 복귀/실제 bootstrap은 위 Task7 기록에서 연결했다. Web 연결은 후속 작업이다.
+- 운영 배포·실제 USB/RF/HIL 검증은 수행하지 않았다. 센서 configuration GET은 광출력 증거가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- Task7에서 현재 V3/assignment·UUID/address/source 권위·lease guard와 최신 목표/독립 GET/durable 결과 ACK를 연결했다. 과거 preState의 무조건 재생은 허용하지 않는다.
+- 검증은 지정 Gateway 다섯 파일의 메모리·fake USB·자기 소유 임시 파일 테스트와 package typecheck 범위다. 전체 서비스/실장비 완료를 의미하지 않는다.
+
+### 관련 파일
+
+- `apps/gateway/src/automation/{bio-temporary-control-runtime,automation-state-store,bio-pulse-scheduler,schedule-runtime}.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts` 및 지정 다섯 테스트 파일.
+
+### 갱신 규칙
+
+- 임시 lease·mutation intent·RF0·재시작·만료·종료 tombstone 변경 시 부분 쓰기/unknown 유지와 실제 write 경계 회귀를 함께 갱신한다. 실제 자동 복귀·MQTT ACK·V3/Web 연결은 해당 검증 근거가 확보된 단계에서 별도 완료 기록한다.
+
+## 2026-10-15 BIO 일정 제외·공통 달력 평가기·완전 달력 API
+
+### 구현 완료
+
+- 공통 engine의 기존 Temporal 발생 후보 iterator 한곳에서 일정별 주말/한국 공휴일 제외를 적용한다. 발생 목록·현재/다음 발생·겹침 검사·달력 projection이 같은 시작일 판정을 사용하고, 기존 V1 및 두 flag가 false인 일정은 기존 동작을 유지한다.
+- 주말은 현장 시작일의 ISO 토/일이며 한국 휴일은 Asia/Seoul의 검증된 KR/kasi 전체연도 dataset으로 판정한다. 없는/부분/중복 coverage와 다른 TZ의 휴일 제외는 `coverage_unknown`으로 신규 시작을 차단한다. 제외된 once는 이월하지 않으며 31일·윤일·야간·Temporal DST 규칙을 유지한다.
+- 달력 projection은 양끝 포함 최대42일의 모든 일정 시작일을 반환하며 목록 페이지 크기로 자르지 않는다. 야간 종료는 조회 마지막 날이나 미지원 다음 연도를 넘어도 원 시각을 유지하고, 최신 dataset revision을 전달하면 다음 발생과 겹침도 같은 내용으로 다시 평가한다.
+- 일정 create의 두 제외 flag는 독립 boolean이며 기본 false다. PATCH에서 생략한 flag는 저장값을 보존하고 변경은 기존 desired revision/snapshot 발행 경로로 저장한다. true 제외에는 현재 선언·필수 capability를 갖춘 V3와 BIO 대상이 필요하며, 휴일 제외는 Asia/Seoul의 전체 active 기간 coverage를 저장·활성화 시 재검증한다. false/native 일정은 새 qualification이나 공휴일 cache를 요구하지 않는다.
+- `GET /sites/:siteId/automation/schedules/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD`는 SessionAuthGuard와 현장 read 검사 후 하나의 RepeatableRead transaction에서 모든 일정·Gateway desired/applied revision/hash·검증된 dataset을 조회한다. 양끝 포함 최대42일이며 filter/page/cursor/limit 인수는400이다. 101개 일정도 완전 단일 응답이며 조회는 `private, no-store`다. revisionKey는 같은 read view의 현장·Gateway·일정·dataset revision/hash를 묶는다.
+- API next/overlap과 V3 snapshot은 같은 공휴일 cache reader 및 engine을 소비한다. 달력에는 조회 범위 안의 실제 시작 후보가 있을 때만 holiday coverage가 필요하며, 범위 밖 once·disabled·false/native 일정 및 이미 수용된 야간 종료 때문에 다음 연도 coverage를 요구하지 않는다. 필요한 coverage가 없거나 손상되면409, 저장소 불가면503이고 `complete:true` 빈 달력으로 합성하지 않는다. true flag를 V1/V2 snapshot으로 조용히 제거하는 downgrade도409이다.
+
+### 미구현
+
+- Gateway의 검증된 V3 dataset 소비 및 기존 Web 화면 연결은 후속 단계다. API/engine 완료만으로 현재 화면에서 사용할 수 있다고 표시하지 않는다.
+- 운영 provider/DB/장비 연결 및 HIL은 수행하지 않았다. engine은 API cache/Gateway accepted V3 경계에서 canonical 내용/hash 검증을 끝낸 dataset을 입력받는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 알 수 없는 시작을 engine이 생략한 결과만으로 완전 달력을 증명할 수 없다. API는 먼저 engine의 실제 시작 후보를 확인하고 필요한 전체연도 coverage를 같은 transaction에서 검증한다. 이미 시작한 장비 동작의 end/release 유지·복구는 후속 Gateway 실행기가 보존해야 한다.
+- 검증 범위는 지정 engine/API 각4개 테스트 파일, 관련 controller 1개 fixture와 package typecheck다. 실제 HTTP 경로·101개·공휴일 승격·범위/권한/오류는 격리된 메모리 DB 경계와 로컬 HTTP fixture로 검증하며 실제 조명 동작·운영 DB 동시성·UI 또는 전체 서비스 회귀 완료의 증거로 확대하지 않는다.
+
+### 관련 파일
+
+- `packages/automation-engine/src/{schedule-exclusions,schedule-calendar,recurrence,overlap,index}.ts` 및 해당 테스트 파일.
+- `apps/api/src/automation/{schedule-calendar.service,schedules.service,automation-snapshot.service,automation.controller,automation.module}.ts`, `dto/schedule.dto.ts` 및 직접 관련 테스트 파일.
+
+### 갱신 규칙
+
+- 시작일 제외·coverage·달력 범위·야간/DST 계약 변경 시 next/active/overlap/calendar의 일치 회귀를 함께 갱신한다. API/Gateway/Web 및 운영 연결은 각 단계의 실제 검증 근거로 별도 완료 기록한다.
+
+## 2026-10-15 BIO 시간제 제어 API·전달·결과 소비
+
+### 구현 완료
+
+- 현장별 시간제 시작·종료(202 접수), 단건·목록(private, no-store), 현재 권한 재검증, strict 입력·단일 Gateway·BIO 신원·활성 센서 source·기존 불확정 명령·임시 lease 충돌 검사를 연결했다. 실제 접수는 현재 assignment의 적용 확인된 V3 snapshot과 정확한 ACK/hash 및 기존 `CommandDbClockHealth`의 신뢰된 DB UTC sample이 있어야 한다. 같은 요청은 최소 fingerprint로 기존 세션을 반환하고 기간을 연장하지 않는다.
+- 시작 transaction에서 고정 대상과 apply/release generation 쌍, 원 command hash/sequence, operation receipt, outbox를 원자 저장한다. 종료·만료는 이미 예약한 release generation을 재사용해 intent부터 기록한다. 기본 영구 SET도 같은 임시 lease를 검사한다.
+- 독립 temporary-control MQTT 경로에서 30초 worker lease, 10초 publish timeout, CAS와 최대 60초 재시도를 적용한다. 시작 전달 window는 고정 endsAt 이내이고 종료는 별도 window다. 10회/15분 전달 batch가 끝나도 영속 release intent와 미해결 lease는 남겨 다음 batch에서 재시도한다. PUBACK은 RF 성공이 아니다.
+- 결과의 원 admission·assignment·대상·generation·hash 및 최신 적용 V3 restoration revision/hash를 검증하고 receipt→대상 증거→owner 해결→ingested ACK를 한 transaction에 저장한다. 부분 쓰기/unknown은 유지하고 과거 결과가 새 소유자를 해제하지 않는다. 정상 BIO mode의 재평가·독립 GET은 후속 Gateway 실행기 책임이며 센서 mode를 광출력 확인으로 표시하지 않는다.
+- V3 선언·스냅샷·ACK와 공휴일 승격 hook을 연결했다. 완전 dataset pointer 및 관련 desired revision/outbox가 함께 commit/rollback한다. BIO 센서 telemetry·capability wire2와 V2 호환을 유지한다.
+- 기존 `COMMAND_DETAIL_REDACTION_ENABLED` ON/OFF와 DB UTC 3개월 경계를 사용해 terminal 상세만 정리한다. 최소 operation fingerprint, 결과 receipt/hash, fixture counter와 release tombstone은 삭제하지 않으며 정리 후 재시도도 원 세션을 반환한다.
+
+### 미구현
+
+- Gateway 임시 apply·재시작 관측·만료 intent 및 V3/MQTT·최신 자동 목표 복귀는 위 기록에서 구현했다. 기존 Web 화면 연결은 후속 작업이다. 달력 API는 위 기록에서 구현했다. 이 단계의 HTTP/MQTT/SQL 증거는 mock transport와 자기 소유 PostgreSQL 검증이다.
+- 운영 clock attestor·공휴일 provider/ServiceKey, 운영 migration·서버/Pi 배포·PKI/ACL 적용·HIL은 수행하지 않았다. 현재 production clock attestor가 없으면 새로운 시간제 시작은 503으로 차단한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 사용자 권한 취소는 새 HTTP 쓰기를 차단한다. 이미 transaction에서 접수된 원 start는 후속 권한 변화만으로 자동 취소하지 않고 원 payload/endsAt 및 clock·현재 V3·assignment·lease 검사를 유지한다. 접수된 동작 중지는 권한 있는 사용자의 명시적 end를 사용하며 안전 만료·복구는 원 actor 권한과 독립이다.
+- Gateway가 내려가 있거나 복귀 결과가 없으면 lease를 보류하고 recovery 상태를 유지한다. 카운트다운 종료나 전송 접수만으로 장비 복귀를 보장하지 않는다.
+
+### 관련 파일
+
+- `apps/api/src/temporary-controls/*`, `apps/api/src/commands/commands.service.ts`, `apps/api/src/automation/{automation-protocol-support,automation-snapshot.service,automation-mqtt-consumer.service,bio-pulse-telemetry,automation-runtime.module}.ts`, `apps/api/src/mqtt/{mqtt.service,mqtt.module,topic-scope}.ts`, `apps/api/src/app.module.ts`.
+
+### 갱신 규칙
+
+- admission·권한·generation·전달/결과/보존 조건 변경 시 실제 transaction과 stale/late 결과·상세 정리 후 replay 회귀를 함께 갱신한다. 실장비 검증과 후속 UI 완료는 별도 증거 없이 이 항목으로 승격하지 않는다.
+
+## 2026-10-14 공식 한국 공휴일 dataset 갱신 기반
+
+### 구현 완료
+
+- 공식 KASI 특일 서비스의 `getRestDeInfo` JSON 응답 adapter와 전체연도 공휴일 cache 서비스를 추가했다. 응답 성공 코드, 연도·월·날짜·Y/N, 모든 월의 totalCount·페이지·행 수를 검증하고 정상 빈 월도 증거로 저장한다. 같은 날짜의 서로 다른 휴일명은 합치고 반복 페이지·동일 행·부분 자료를 거부한다.
+- 정렬·중복 제거한 날짜/휴일명과 KR/kasi/연도/coverage의 canonical hash가 바뀐 완전 자료만 새 immutable revision을 저장한다. 기존 mutation lock 안에서 coverage pointer와 후속 snapshot 갱신 hook을 같은 transaction으로 처리하며 오류 시 이전 완전 revision을 보존한다. 내용이 같은 일일 수집은 revision을 유지하고, 과거 내용으로 되돌아와도 현재 자료와 다르면 새 revision을 만든다.
+- 최초 및 하루 간격으로 한국 날짜의 당해·다음해를 갱신하며 종료 시 timer·요청을 취소한다. 실제 key가 주입된 provider가 없으면 갱신 불가를 반환하고, 해시·12개월 페이지 증거를 재검증한 cache만 읽는다. coverage 누락/손상은409, 저장소 장애는 민감한 원문 없는503이며 알 수 없는 날짜를 평일로 만들지 않는다.
+
+### 미구현
+
+- 실제 V3 snapshot revision 갱신 소비와 공통 일정 제외·달력 평가기, 일정 제외 저장/완전 달력 API는 위 2026-10-15 기록에서 구현했다. Gateway V3 및 Web 연결은 후속 단계이며 현재 화면에서 공휴일 제외 기능을 사용할 수 있는 완료 상태가 아니다.
+- ServiceKey 설정·실제 provider 연결, 사용자 DB migration, 서버/Pi 반영, ACL reload 및 HIL은 수행하지 않았다. production module은 기본 live provider를 생성하거나 환경 변수를 읽지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공식 활용가이드와 mock JSON 응답을 기준으로 adapter를 검증했다. 실제 서비스 응답/자격 증명 연결은 별도 승인된 설정과 검증이 필요하다. HTTP 요청과 JSON body 처리는10초 deadline을 공유한다.
+- 자기 소유 PostgreSQL16, HTTP mock 및 fake clock으로 직접 관련39개 테스트를 검증했다. 실제 조명 동작·광출력이나 전체 서비스 회귀 완료로 확대하지 않는다. 기존 native/BIO 등록·설정과 보존 정책은 변경하지 않았다.
+
+### 관련 파일
+
+- `apps/api/src/automation/holiday-provider.ts`, `holiday-dataset.service.ts`, `holiday-dataset.service.spec.ts`, `automation-runtime.module.ts`.
+- 저장 구조는 위 서비스가 기존 `HolidayDataset`/`HolidayYearCoverage` 모델을 소비하며 이번 작업에서 schema/migration은 변경하지 않았다.
+
+### 갱신 규칙
+
+- provider 소프트웨어와 실제 연결, cache 검증과 snapshot/화면 소비를 구분한다. `HOLIDAY_DATASET_PROMOTION` hook과 같은 파일의 `loadHolidayCoverage(tx,from,to)`를 소비해 snapshot 서비스의 역방향 DI 순환을 만들지 않는다. 실패한 부분 자료를 coverage로 승격하거나 ServiceKey/URL query/원응답을 로그·브라우저로 보내지 않는다.
+
+## 2026-10-14 BIO 시간제 제어·달력 DB 기반
+
+### 구현 완료
+
+- 독립 시간제 session/target/영속 fixture lease, start/end idempotency receipt, 전용 outbox·결과 receipt를 저장하는 Prisma 모델과 순방향 migration을 추가했다. 같은 조명은 하나의 owner만 갖고 apply/release generation을 한 쌍으로 원자 예약한다. 미해결 삭제·재배정·옛 결과의 새 조명 적용을 차단하며 상세 정리 후에도 최소 신원·fingerprint·generation/tombstone을 보존한다.
+- 일정의 주말/공휴일 제외는 기존 행을 포함하여 기본false다. 공휴일 complete revision과 country/year coverage pointer를 분리하고 완전12개월 증거가 있는 같은 연도 dataset만 원자 승격한다.
+- DB BIO 자격은 기존V2를 유지하고 V3에는 임시 제어version1과 readback/durable lease 두 증거를 요구한다. 기존 commission-mode 검증과 V2 센서 보고 형식은 유지한다.
+
+### 미구현
+
+- API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider/cache 소프트웨어·공통 달력 평가기·완전 달력 API 및 Gateway durable 임시 apply·V3/MQTT·최신 자동 복귀는 위 후속 기록에서 구현했다. Web UI 연결은 후속 단계이며 DB/API/Gateway 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
+- 현재 사용자 DB migration·서버/장비 반영·ACL reload·HIL·ServiceKey/provider 연결은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- SQL은 귀속/소유권/세대/최초 판정 보존을 강제한다. 위 후속 서비스/API가 공휴일 canonical hash·완전 provider 페이지, 대상1~1000개·권한의 transaction admission과 최신 적용 restoration revision/hash를 검증한다. 실제 자동 목표의 재평가와 독립 readback 일치는 후속 Gateway가 담당한다.
+- 신규 SQL12/12와 직접 관련 기존V2 자격·활성화1/1을 자기 소유 PostgreSQL16에서 검증했다. 모든 변경은 소프트웨어 증거이며 실제 조명 복귀·광출력 증거가 아니다. 보존 ON/OFF 설정과 기존 native/BIO 등록·밝기는 변경하지 않았다.
+
+### 관련 파일
+
+- `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20261014090000_bio_temporary_control_calendar/migration.sql`.
+- `apps/api/src/automation/bio-control-schema.integration.spec.ts`, `docs/database-schema.md`.
+
+### 갱신 규칙
+
+- 저장 구조, API 사용 가능 상태, Gateway/화면 연결, 운영 적용을 구분한다. 최소 receipt/tombstone 삭제는 일반 상세 보존 정책에 포함하지 않는다.
+
+## 2026-10-14 BIO 시간제 제어·달력 공유 계약
+
+### 구현 완료
+
+- 시간제 시작·종료·start/end wire·대상별 결과·수신 확인·조회·목록의 strict 공유 schema를 추가했다. 밝기 정수0~100%, 기간 정수1~1440분, unique1~1000대, 예약 apply/release generation 쌍과 원 시작 귀속을 검증하며 legacy `overrideUntil`을 허용하지 않는다. BIO native UUID는12자리 소문자hex, logicalAddress는 기존0x unicast 형식이다.
+- 알려진V2/V3 자동 운전 지원 helper와 V3의 두 제외 flag·전체연도 휴일 dataset·최대42일 완전 달력 계약을 추가했다. V3 임시 제어 선언에는 readback/durable lease capability가 필수이며 수신 확인은 동일 현장·게이트웨이·ACK id·revision·hash만 일치로 판정한다. 적용/복귀 결과를 전송 성공으로 합성하지 않는다.
+- 새 MQTT 경로는 `sites/{siteId}/gateways/{gatewayId}/temporary-control/{command,result,ingested}`다. 기존 `commands/#` 권한을 상속하지 않으며 ACL renderer/publisher의 명시적 `temporaryControlScopes` 매핑에만 API write/read/write와 Gateway read/write/read를 부여한다. 매핑 없는 기본값과 production 예제에는 새 권한이 없다.
+
+### 미구현
+
+- DB session·lease·outbox·휴일 저장 구조, 시간제 제어 API, 공휴일 provider/cache 소프트웨어와 공통 달력 평가기·완전 달력 API는 위 후속 기록에서 구현했다. Gateway RF·Web UI 소비는 후속 단계다. 현재 화면에서 시간제 제어와 제외 달력을 사용할 수 있는 완료 기능이 아니다.
+- 운영 환경의 실제 현장/Gateway 매핑, ACL 반영·reload, 서버/장비 배포·재시작·HIL·ServiceKey/provider 연결은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 공유 parser는 hash 형식과 결과 귀속을 검증한다. 공휴일 canonical hash·완전12개월 provider proof는 위 서비스가 검증하며 다른 payload의 canonical hash 계산·DB immutable snapshot/현재 lease·최신 복귀 revision 검증은 후속 소비자가 담당한다. readback은 조명 설정 증거이며 실제 광출력 증거가 아니다.
+- 개발 준비는 명시적 `DEV_TEMPORARY_CONTROL_SCOPES` JSON 매핑을 검증·전달하는 소프트웨어만 제공한다. 환경 값을 설정하거나 현재 브로커 권한을 변경하지 않았다. 미설정 상태에서 신규 임시 제어 메시지는 거부된다.
+- 지정 공유5파일70/70와 새 disposable mTLS·ACL/매핑/production 계약4/4(fail/skip0), 기존 직접 ACL·준비 경로6/6을 확인했다. CJS/ESM 두 신규 subpath 로딩·shared 타입 검사·shared→engine 준비가 통과했다. 전체 서비스 테스트·운영 장비 검증 완료로 확대하지 않는다.
+
+### 관련 파일
+
+- `packages/shared/src/{temporary-control-contracts,holiday-calendar-contracts,bio-automation-version,automation-contracts,mqtt}.ts`, 각 직접 테스트, shared exports/ESM 설정.
+- `scripts/dev-runtime.mjs`, `scripts/dev-prepare.mjs`, disposable MQTT ACL 테스트, `infra/mosquitto.acl.example`, `tests/mqtt-production-config.node.mjs`.
+
+### 갱신 규칙
+
+- 공유 계약 제공과 후속 API/DB/Gateway/UI 사용 가능 상태를 구분하고, 운영 매핑·ACL 적용·RF/HIL 결과는 별도 승인·증거가 있을 때만 기록한다.
 ## 2026-10-14 공통 로딩 표시 적용
 
 ### 구현 완료
 
 - 수동/스케줄/이벤트 화면 지연 로드·대상 초기조회·구역/명령 이력/확인 필요 상세·검색조건 적용·다음 페이지·저장/삭제/승인 요청에 공통 표시를 연결했다. 수동 적용은 HTTP 전송 중만 spinner를 표시하며 compact 적용 문구·실제 버튼 높이와 입력/실행 guard를 보존한다.
 - 센서 준비/등록 연결 확인은 local 요청 처리 중만 별도 inline 상태를 표시한다. 준비 판정·장비 응답/미확정·진행 상태는 재해석하지 않는다. paused query는 연결 대기, 미완성 조회 기간은 입력 안내다.
+- BIO 시간제 UI와 통합 시 단일 이력·목록/달력 전환·권한별 미리보기/복구 식별자를 보존한다. 모바일 기본 적용은 공통 spinner를 기존 버튼 안에 배치해 HTTP 대기 전후 실행행 폭을 유지하고, 전송이 끝난 뒤 미확정 잠금은 spinner와 분리한다. 이는 자기 소유 fixture HTTP의 검증이며 실제 장비 결과는 아니다.
 
 ### 미구현
 

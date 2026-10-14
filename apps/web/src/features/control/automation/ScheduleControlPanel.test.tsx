@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   createSchedule: vi.fn(),
   deleteSchedule: vi.fn(),
   listSchedules: vi.fn(),
+  listScheduleCalendar: vi.fn(),
   updateSchedule: vi.fn()
 }));
 
@@ -97,6 +98,7 @@ describe("ScheduleControlPanel", () => {
     mocks.createSchedule.mockReset();
     mocks.deleteSchedule.mockReset();
     mocks.listSchedules.mockReset();
+    mocks.listScheduleCalendar.mockReset();
     mocks.updateSchedule.mockReset();
     mocks.listSchedules.mockResolvedValue(page([schedule()]));
     mocks.createSchedule.mockResolvedValue(schedule({ name: "새 스케줄" }));
@@ -112,6 +114,89 @@ describe("ScheduleControlPanel", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  it("renders all 101 server calendar schedules independently of list filters and opens the shared editor", async () => {
+    mocks.listScheduleCalendar.mockImplementation(async (_site, range) => {
+      const dates = range.from;
+      const schedules = Array.from({ length: 101 }, (_, i) => ({
+        id: `00000000-0000-4000-8000-${String(i + 100).padStart(12, "0")}`, name: `전체 일정 ${i}`, status: "enabled",
+        activeFrom: "2026-01-01T03:00:00.000Z", activeUntil: "2026-12-31T03:00:00.000Z", localStartTime: "18:00", localEndTime: "23:00",
+        recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+        action: { dimmingEnabled: true, brightnessPercent: 70 }, fixtureIds: [fixtureId], excludeWeekends: true, excludeHolidays: false
+      }));
+      return { ...range, complete: true, timeZone: "Asia/Seoul", revisionKey: `sha256:${"a".repeat(64)}`, holidayCoverage: [], schedules,
+        occurrences: schedules.map(row => ({ scheduleId: row.id, key: dates, localDate: dates, startsAt: `${dates}T09:00:00.000Z`, endsAt: `${dates}T14:00:00.000Z` })) };
+    });
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    const add = screen.getByRole("button", { name: "스케줄 추가" });
+    expect(screen.getByRole("group", { name: "자동화 작업" })).toContainElement(add);
+    fireEvent.click(screen.getByRole("button", { name: "달력" }));
+    await screen.findByRole("button", { name: /전체 일정 100 .*수정/ });
+    expect(document.querySelectorAll("[data-calendar-schedule]")).toHaveLength(101);
+    expect(screen.queryByRole("searchbox", { name: "스케줄 검색" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "스케줄 추가" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /전체 일정 100 .*수정/ }));
+    expect(screen.getByRole("dialog", { name: "스케줄 수정" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "주말 제외" })).toBeChecked();
+  });
+
+  it("does not display a late calendar after the current scope loses access", async () => {
+    const pending = deferred<unknown>();
+    mocks.listScheduleCalendar.mockReturnValue(pending.promise);
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "달력" }));
+    await waitFor(() => expect(mocks.listScheduleCalendar).toHaveBeenCalled());
+    mocks.listSchedules.mockRejectedValue(new ApiError("denied", 403, null));
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: scheduleQueryKey(siteId) }); });
+    expect(screen.queryByRole("button", { name: "스케줄 추가" })).not.toBeInTheDocument();
+    const range = mocks.listScheduleCalendar.mock.calls[0][1];
+    await act(async () => { pending.resolve(calendarPage(range)); });
+    expect(document.querySelector("[data-schedule-calendar]")).not.toBeInTheDocument();
+  });
+
+  it("retains true exclusion drafts and shows the coverage reason when save is rejected", async () => {
+    mocks.updateSchedule.mockRejectedValue(new ApiError("coverage", 409, { code: "holiday_coverage_unavailable" }));
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    chooseRowAction("야간 운영", "수정");
+    fireEvent.click(screen.getByRole("switch", { name: "주말 제외" }));
+    fireEvent.click(screen.getByRole("switch", { name: "휴일 제외" }));
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+    expect(await screen.findByText("적용 기간의 공휴일 정보를 확인할 수 없습니다. 설정을 저장하지 않았습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "주말 제외" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "휴일 제외" })).toBeChecked();
+    expect(mocks.updateSchedule).toHaveBeenCalledWith(siteId, schedule().id, expect.objectContaining({ excludeWeekends: true, excludeHolidays: true }));
+  });
+
+  it("invalidates calendar and list together after saving and keeps one Add across views", async () => {
+    const { queryClient } = renderPanel("admin");
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    await screen.findByText("야간 운영");
+    chooseRowAction("야간 운영", "수정");
+    fireEvent.click(screen.getByRole("switch", { name: "주말 제외" }));
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["automation-schedule-calendar", siteId] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: scheduleQueryKey(siteId) });
+  });
+
+  it("rechecks the calendar grant when recovering in list view after calendar access loss", async () => {
+    mocks.listScheduleCalendar.mockImplementation(async (_site, range) => calendarPage(range));
+    const { queryClient } = renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "달력" }));
+    // Explicitly revoke after a complete projection, then move to list for recovery.
+    await screen.findByRole("button", { name: /달력 일정 .*수정/ });
+    mocks.listScheduleCalendar.mockRejectedValue(new ApiError("denied", 403, null));
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["automation-schedule-calendar", siteId] }); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "스케줄 추가" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "목록" }));
+    mocks.listScheduleCalendar.mockImplementation(async (_site, range) => calendarPage(range));
+    fireEvent.click(screen.getByRole("button", { name: "상태 다시 조회" }));
+    expect(await screen.findByRole("button", { name: "스케줄 추가" })).toBeInTheDocument();
   });
 
   it("removes overview and schedule brightness without changing save payload", async () => {
@@ -352,7 +437,7 @@ describe("ScheduleControlPanel", () => {
 
     await screen.findByText("야간 운영");
     expect(screen.queryByRole("heading", { name: "스케줄 제어" })).not.toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "스케줄 목록 조건" })).getByRole("button", { name: "스케줄 추가" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "자동화 작업" })).getByRole("button", { name: "스케줄 추가" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
     expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
   });
@@ -657,6 +742,8 @@ describe("ScheduleControlPanel", () => {
       schedule().id,
       {
         name: "연간 야간 운영",
+        excludeWeekends: false,
+        excludeHolidays: false,
         status: "disabled",
         activeFrom: "2026-02-01T03:00:00.000Z",
         activeUntil: "2028-03-31T03:00:00.000Z",
@@ -1560,4 +1647,14 @@ async function expectScreenStatusCount(count: number) {
   const section = within(center).getByRole("heading", { name: "현재 화면 상태" }).closest("section")!;
   await waitFor(() => expect(within(section).queryAllByRole("listitem")).toHaveLength(count), { timeout: 4500 });
   if (!alreadyOpen) fireEvent.click(within(center).getByRole("button", { name: "알람센터 닫기" }));
+}
+
+function calendarPage(range: { from: string; to: string }) {
+  return { ...range, complete: true, timeZone: "Asia/Seoul", revisionKey: `sha256:${"a".repeat(64)}`, holidayCoverage: [],
+    schedules: [{ id: "00000000-0000-4000-8000-000000000011", name: "달력 일정", status: "enabled",
+      activeFrom: "2026-01-01T03:00:00.000Z", activeUntil: "2026-12-31T03:00:00.000Z", localStartTime: "18:00", localEndTime: "23:00",
+      recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+      action: { dimmingEnabled: true, brightnessPercent: 70 }, fixtureIds: [fixtureId], excludeWeekends: false, excludeHolidays: false }],
+    occurrences: [{ scheduleId: "00000000-0000-4000-8000-000000000011", key: range.from, localDate: range.from,
+      startsAt: `${range.from}T09:00:00.000Z`, endsAt: `${range.from}T14:00:00.000Z` }] };
 }

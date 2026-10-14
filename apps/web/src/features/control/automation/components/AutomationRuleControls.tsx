@@ -45,7 +45,7 @@ export function AutomationRuleControls({ label, filter, filteredTotal, pageIndex
         onChange={(query) => onFilterChange({ ...filter, query })} />}
       activeFilterCount={Number(filter.status !== "all") + Number(filter.syncStatus !== "all") + Number(filter.limit !== 10)}
       summary={<Text variant="caption" tone="secondary">활성 상태: {statusItems.find(item => item.id === filter.status)?.label} · Gateway 동기화: {syncItems.find(item => item.id === filter.syncStatus)?.label} · 페이지당 {filter.limit}개</Text>}
-      filterReset={<Button type="button" variant="secondary" size="sm" onClick={() => onFilterChange({ ...filter, status: "all", syncStatus: "all", limit: 10 })}>필터 초기화</Button>}>
+      filterReset={label === "스케줄" ? undefined : <Button type="button" variant="secondary" size="sm" onClick={() => onFilterChange({ ...filter, status: "all", syncStatus: "all", limit: 10 })}>필터 초기화</Button>}>
       <SelectBox label="활성 상태" items={statusItems} selectedKey={filter.status}
         onSelectionChange={(status) => status && onFilterChange({ ...filter, status })} />
       <SelectBox label="Gateway 동기화" items={syncItems} selectedKey={filter.syncStatus}

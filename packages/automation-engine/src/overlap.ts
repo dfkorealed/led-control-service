@@ -1,5 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
-import type { LightingScheduleSnapshotV1 } from "@led-control/shared";
+import type { HolidayDatasetSnapshot, LightingScheduleSnapshot } from "@led-control/shared";
 import {
   iterateScheduleOccurrences,
   OCCURRENCE_SPILL_LOOKBACK_DAYS,
@@ -18,7 +18,7 @@ function earlierDate(left: Temporal.PlainDate, right: Temporal.PlainDate): Tempo
   return Temporal.PlainDate.compare(left, right) <= 0 ? left : right;
 }
 
-function hasCommonFixture(left: LightingScheduleSnapshotV1, right: LightingScheduleSnapshotV1): boolean {
+function hasCommonFixture(left: LightingScheduleSnapshot, right: LightingScheduleSnapshot): boolean {
   const leftFixtures = new Set(left.fixtureIds);
   return right.fixtureIds.some((fixtureId) => leftFixtures.has(fixtureId));
 }
@@ -52,9 +52,10 @@ function intervalsOverlap(
 }
 
 export function schedulesOverlap(
-  left: LightingScheduleSnapshotV1,
-  right: LightingScheduleSnapshotV1,
-  timeZone: string
+  left: LightingScheduleSnapshot,
+  right: LightingScheduleSnapshot,
+  timeZone: string,
+  datasets?: readonly HolidayDatasetSnapshot[]
 ): boolean {
   if (left.status !== "enabled" || right.status !== "enabled" || !hasCommonFixture(left, right)) {
     return false;
@@ -79,7 +80,7 @@ export function schedulesOverlap(
   }
 
   return intervalsOverlap(
-    iterateScheduleOccurrences(left, comparisonStart, comparisonEnd, timeZone),
-    iterateScheduleOccurrences(right, comparisonStart, comparisonEnd, timeZone)
+    iterateScheduleOccurrences(left, comparisonStart, comparisonEnd, timeZone, datasets),
+    iterateScheduleOccurrences(right, comparisonStart, comparisonEnd, timeZone, datasets)
   );
 }

@@ -184,9 +184,9 @@ export function SpatialTargetSelector({
       {/* Desktop list content is size-contained by the map row even when empty.
           Manual mobile owns a bounded inline list; embedded preparation keeps
           its natural-height inspection pane and existing scroll policy. */}
-      <div className={manualWorkspace ? (compactManual ? "min-h-0 min-w-0" : "h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain tablet:[contain:size]") : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
-        {manualWorkspace ? <div key={`${siteId}:${activeFloor?.id}:${selection.mode}`} className="h-full min-h-0">{inspectionPanel}</div> : inspectionPanel}
+      <div className={manualWorkspace ? (compactManual ? "flex min-h-0 min-w-0 flex-col" : "flex h-full min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain tablet:[contain:size]") : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
         {auxiliary ? <ManualAuxiliaryContent kind="selection">{selectionChoices}</ManualAuxiliaryContent> : selectionChoices}
+        {manualWorkspace ? <div key={`${siteId}:${activeFloor?.id}:${selection.mode}`} className="min-h-0 flex-1">{inspectionPanel}</div> : inspectionPanel}
       </div>
     </div>
     <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled} returnFocusRef={listOpenerRef}

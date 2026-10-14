@@ -27,6 +27,7 @@ vi.mock("../../api/client", async (importOriginal) => ({
   apiPost: mocks.apiPost,
   apiGet: async (...args: unknown[]) => {
     const result = await mocks.apiGet(...args);
+    if (String(args[0]).includes("/temporary-controls")) return { items: [], nextCursor: null };
     return Array.isArray(result) ? result : { generatedAt: "2026-09-25T00:00:00.000Z", retainedFrom: "2026-06-25T00:00:00.000Z", retentionEnabled: false, ...result };
   },
   apiRequest: mocks.apiRequest
@@ -159,6 +160,35 @@ const dashboard: Dashboard = {
 };
 
 describe("ControlView 대상 선택", () => {
+  it("uses one full-width footer outside More and offers BIO time control without a permanent POST", async () => {
+    renderControl();
+    const history = document.querySelector("[data-command-history-panel]");
+    expect(history).not.toBeNull();
+    expect(history!.closest("[data-control-layout]")).toBeNull();
+    expect(document.querySelectorAll("[data-command-history-panel]")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "시간제 제어" })).toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it.each(["capability", "role"] as const)("discards the temporary preview across a same-user %s scope change and recovery", async change => {
+    const bioDashboard = { ...dashboard, floors: dashboard.floors.map(floor => ({ ...floor,
+      fixtures: floor.fixtures.map(fixture => ({ ...fixture, bioControlMode: "force-on" as const })) })) };
+    mocks.useControlDashboard.mockReturnValue({ data: bioDashboard, isLoading: false, error: null });
+    const view = renderControl();
+    selectFixture("B2-L001");
+    fireEvent.click(screen.getByRole("button", { name: "시간제 제어" }));
+    fireEvent.click(applyButton());
+    expect(screen.getByRole("dialog", { name: "시간제 적용 미리보기" })).toBeInTheDocument();
+    if (change === "capability") mocks.useControlDashboard.mockReturnValue({ data: { ...bioDashboard,
+      capabilities: { ...bioDashboard.capabilities, control: false } }, isLoading: false, error: null });
+    view.rerender(controlElement(dashboard.site.id, change === "role" ? "operator" : "admin"));
+    expect(screen.queryByRole("dialog", { name: "시간제 적용 미리보기" })).not.toBeInTheDocument();
+    mocks.useControlDashboard.mockReturnValue({ data: bioDashboard, isLoading: false, error: null });
+    view.rerender(controlElement(dashboard.site.id));
+    expect(screen.queryByRole("button", { name: "시간제 적용" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
@@ -683,7 +713,7 @@ describe("ControlView 대상 선택", () => {
     expect(screen.queryByRole("button", { name: "선택 대상 펼치기" })).not.toBeInTheDocument();
   });
 
-  it("rotates recent history during repeated live command polling renders without replacing its frozen request", async () => {
+  it("keeps the latest unified history during polling without replacing its frozen request", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     mocks.apiGet.mockResolvedValue({ items: [
       { ...createCommandStatus(commandIds.terminal, "completed"), createdAt: "2026-09-12T01:00:00Z", brightness: 70 },
@@ -710,8 +740,9 @@ describe("ControlView 대상 선택", () => {
     act(() => vi.advanceTimersByTime(999));
     expect(screen.getByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.terminal}`) })).toBeDisabled();
     act(() => vi.advanceTimersByTime(1));
-    const second = screen.getByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.different}`) });
-    expect(second).toBeDisabled(); fireEvent.click(second);
+    expect(screen.queryByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.different}`) })).not.toBeInTheDocument();
+    const latest = screen.getByRole("button", { name: new RegExp(`최근 명령 상세: ${commandIds.terminal}`) });
+    expect(latest).toBeDisabled(); fireEvent.click(latest);
     expect(mocks.apiPost).toHaveBeenCalledTimes(1);
     expect(mocks.apiPost.mock.calls[0][1]).toEqual(frozenRequest);
     expect(commandStore.loadActiveCommandRequest(USER_A, dashboard.site.id)).toEqual(frozenRequest);
@@ -2104,7 +2135,8 @@ describe("ControlView 대상 선택", () => {
       : { items: [], nextCursor: null });
     renderControl();
     await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith(expect.stringContaining(`originalCommandId=${commandIds.missing}`)));
-    fireEvent.click(screen.getByRole("button", { name: "확인 필요한 명령" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "최근 명령 이력" })).getByRole("button", { name: "전체 보기" }));
+    fireEvent.click(screen.getByRole("button", { name: "미확정 명령 복구" }));
     expect(await screen.findByRole("dialog", { name: "확인 필요한 명령" })).toBeInTheDocument();
     expect(applyButton()).toBeDisabled();
     expect(mocks.apiPost).not.toHaveBeenCalled();

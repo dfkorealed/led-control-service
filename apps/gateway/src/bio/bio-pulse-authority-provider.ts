@@ -55,7 +55,7 @@ export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityP
   }
   pinSnapshotBinding(context: ValidatedBioSnapshotContext, fixtureId: string) {
     const revision = context.snapshot.revision;
-    if (!this.executable.has(revision) || this.contexts.get(revision) !== context || context.snapshot.schemaVersion !== 2
+    if (!this.executable.has(revision) || this.contexts.get(revision) !== context || (context.snapshot.schemaVersion !== 2 && context.snapshot.schemaVersion !== 3)
       || !context.snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled" && rule.sourceFixtureIds.includes(fixtureId))) return null;
     const key = `${revision}:${fixtureId}`, health = this.options.monitor.snapshot(fixtureId);
     if (!health) return null;
@@ -87,7 +87,7 @@ export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityP
   releaseIdentityCurrent(binding: BioSourceBinding) { return this.releaseContext(binding) && this.options.monitor.releaseIdentityCurrent(binding); }
   private releaseContext(binding: BioSourceBinding) {
     const snapshot = this.contexts.get(binding.snapshotRevision)?.snapshot;
-    return snapshot?.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.sourceFixtureIds.includes(binding.sourceFixtureId));
+    return (snapshot?.schemaVersion === 2 || snapshot?.schemaVersion === 3) && snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.sourceFixtureIds.includes(binding.sourceFixtureId));
   }
   stop() { this.pins.clear(); for (const release of this.releases) release(); for (const fn of this.listeners) fn(); this.listeners.clear(); }
 }

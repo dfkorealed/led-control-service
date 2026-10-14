@@ -1,9 +1,12 @@
+import { scheduleCalendarResponseSchema, type ScheduleCalendarResponse } from "@led-control/shared/holiday-calendar-contracts";
+export type { ScheduleCalendarResponse } from "@led-control/shared/holiday-calendar-contracts";
 import type {
   AutomationActionV1,
   AutomationExecutionKind,
   AutomationRuleStatus,
   DimmingTarget,
   LightingScheduleSnapshotV1,
+  LightingScheduleSnapshotV3,
   ScheduleRecurrenceV1,
   VehicleEventRuleSnapshotV1,
   VehicleSensorProtocol,
@@ -56,13 +59,15 @@ export interface AutomationSiteSummary {
   syncRuleCounts: Record<AutomationSyncStatus, number>;
 }
 
-export type CreateScheduleInput = Omit<LightingScheduleSnapshotV1, "id" | "fixtureIds"> & {
+export type CreateScheduleInput = Omit<LightingScheduleSnapshotV1, "id" | "fixtureIds"> & Partial<Pick<LightingScheduleSnapshotV3, "excludeWeekends" | "excludeHolidays">> & {
   target: DimmingTarget;
 };
 
 export type UpdateScheduleInput = Partial<CreateScheduleInput>;
 
 export interface ScheduleResponse {
+  excludeWeekends?: boolean;
+  excludeHolidays?: boolean;
   id: string;
   name: string;
   status: AutomationRuleStatus;
@@ -243,6 +248,29 @@ export function listSchedules(
   return apiGet<ScheduleListResponse>(`${scheduleCollectionPath(siteId)}?${search.toString()}`);
 }
 
+export function scheduleCalendarQueryKey(siteId: string) {
+  return ["automation-schedule-calendar", siteId] as const;
+}
+
+export async function listScheduleCalendar(siteId: string, range: { from: string; to: string }, signal?: AbortSignal): Promise<ScheduleCalendarResponse> {
+  const params = new URLSearchParams({ from: range.from, to: range.to });
+  const raw = await apiGet<unknown>(`${scheduleCollectionPath(siteId)}/calendar?${params}`, { signal });
+  const parsed = scheduleCalendarResponseSchema.safeParse(raw);
+  if (!parsed.success || parsed.data.from !== range.from || parsed.data.to !== range.to) {
+    throw new ApiError("Incomplete calendar response", 502, { code: "schedule_calendar_incomplete" });
+  }
+  return parsed.data;
+}
+
+export function scheduleCalendarErrorMessage(error: unknown): string {
+  if (isAutomationListAccessDenied(error)) return automationListAccessErrorMessage(error);
+  const code = error instanceof ApiError ? errorCode(error.body) : null;
+  if (code === "holiday_coverage_unavailable") return "공휴일 정보를 확인할 수 없어 달력을 표시하지 못했습니다.";
+  if (code === "schedule_calendar_incomplete") return "완전한 달력 응답을 확인하지 못했습니다. 다시 조회해 주세요.";
+  if (error instanceof ApiError && error.status === 400) return "달력 조회 기간을 확인해 주세요. 최대 42일까지 조회할 수 있습니다.";
+  return "달력을 불러오지 못했습니다. 다시 조회해 주세요.";
+}
+
 export function createSchedule(siteId: string, input: CreateScheduleInput) {
   return apiPost<ScheduleResponse>(scheduleCollectionPath(siteId), input);
 }
@@ -315,6 +343,11 @@ export function scheduleMutationErrorMessage(error: unknown): string {
 
   if (error.status === 401) return "로그인 세션이 만료되었습니다.";
   const code = errorCode(error.body);
+  if (code === "schedule_exclusions_bio_required") return "실행일 제외는 BIO 센서 조명만 지원합니다.";
+  if (code === "schedule_exclusions_unsupported") return "Gateway가 실행일 제외 기능을 지원하지 않습니다. 적용 버전을 확인해 주세요.";
+  if (code === "schedule_holiday_timezone_unsupported") return "휴일 제외는 현장 시간대 Asia/Seoul에서 지원합니다.";
+  if (code === "holiday_coverage_unavailable") return "적용 기간의 공휴일 정보를 확인할 수 없습니다. 설정을 저장하지 않았습니다.";
+  if (code === "holiday_storage_unavailable") return "공휴일 정보를 불러오지 못해 설정을 저장하지 못했습니다.";
   if (code === "schedule_overlap") {
     return "같은 대상과 시간대에 겹치는 활성 스케줄이 있습니다.";
   }

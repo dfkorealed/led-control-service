@@ -1,9 +1,9 @@
-import type { AutomationRuleStatus } from "@led-control/shared";
+import type { AutomationRuleStatus, LightingScheduleSnapshot } from "@led-control/shared";
 import { ArrowRight } from "lucide-react";
-import { useEffect, useRef, useState, type RefObject } from "react";
-import type { CreateScheduleInput, ScheduleResponse } from "../../../api/automation";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import type { CreateScheduleInput } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
-import { Button, Checkbox, DatePicker, Heading, ModalDialog, SelectBox, Slider, Text, TextField, TimePicker, type FocusableFieldHandle } from "../../../components/ui";
+import { Button, Checkbox, DatePicker, Heading, ModalDialog, SelectBox, Slider, Switch, Text, TextField, TimePicker, type FocusableFieldHandle } from "../../../components/ui";
 import { resolveControlSelection, type ControlSelection } from "../control-selection";
 import { SpatialTargetSelector, spatialTargetDialogClassName } from "../target-selection/SpatialTargetSelector";
 import {
@@ -65,7 +65,7 @@ export function ScheduleDialog({
   onSubmit
 }: {
   open: boolean;
-  schedule: ScheduleResponse | null;
+  schedule: (LightingScheduleSnapshot & { excludeWeekends?: boolean; excludeHolidays?: boolean }) | null;
   dashboard: Dashboard;
   isPending: boolean;
   serverError: string;
@@ -74,6 +74,7 @@ export function ScheduleDialog({
   onSubmit: (input: CreateScheduleInput) => void;
 }) {
   const timeZone = dashboard.site.timeZone;
+  const dialogRef = useRef<HTMLElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const activeFromDateInputRef = useRef<FocusableFieldHandle>(null);
   const activeUntilDateInputRef = useRef<FocusableFieldHandle>(null);
@@ -95,6 +96,22 @@ export function ScheduleDialog({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pendingFocus, setPendingFocus] = useState<keyof ScheduleFormErrors | null>(null);
   const title = schedule ? "스케줄 수정" : "스케줄 추가";
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const backdrop = dialogRef.current?.closest<HTMLElement>("[data-testid=modal-backdrop]");
+    if (!backdrop) return;
+    const previous = backdrop.style.getPropertyValue("overflow");
+    const priority = backdrop.style.getPropertyPriority("overflow");
+    // This dialog already scrolls internally. Native focus/scrollIntoView must
+    // not also move its grid backdrop and push the entire dialog above the viewport.
+    backdrop.style.setProperty("overflow", "clip", "important");
+    backdrop.scrollTop = 0;
+    return () => {
+      if (previous) backdrop.style.setProperty("overflow", previous, priority);
+      else backdrop.style.removeProperty("overflow");
+    };
+  }, [open, view]);
 
   useEffect(() => {
     if (!open) return;
@@ -178,6 +195,7 @@ export function ScheduleDialog({
 
   return (
     <ModalDialog
+      ref={dialogRef}
       isOpen={open}
       title={title}
       description={`빠른 설정 · 현장 시간대 ${timeZone}`}
@@ -274,6 +292,16 @@ export function ScheduleDialog({
                 />
               </div>
               <Text variant="caption" tone="secondary">종료 시각이 더 빠르면 다음 날 종료로 실행합니다.</Text>
+              <div role="group" aria-label="실행일 제외" className="flex flex-wrap gap-2" onFocusCapture={event => {
+                // Reveal the visible switch and label inside the dialog, not only its hidden input.
+                const label = (event.target as HTMLElement).closest<HTMLElement>("[data-field]");
+                requestAnimationFrame(() => label?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+              }}>
+                <Switch label="주말 제외" isSelected={values.excludeWeekends} isDisabled={isPending} onChange={excludeWeekends => change({ excludeWeekends })} />
+                <Switch label="휴일 제외" isSelected={values.excludeHolidays} isDisabled={isPending || (timeZone !== "Asia/Seoul" && !values.excludeHolidays)}
+                  description={timeZone !== "Asia/Seoul" ? "휴일 제외는 Asia/Seoul 시간대에서 지원합니다." : undefined}
+                  onChange={excludeHolidays => change({ excludeHolidays })} />
+              </div>
             </fieldset>
 
             <section className="grid gap-3 rounded-panel border border-border-default p-4" aria-labelledby="schedule-target-heading">

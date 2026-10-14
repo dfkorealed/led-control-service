@@ -1,13 +1,16 @@
 import { Clock3, TriangleAlert } from "lucide-react";
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FocusScope, useFocusManager } from "react-aria";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { useCommandHistory, type CommandStage, type CommandStatusResponse } from "../../api/commands";
 import { ApiError } from "../../api/client";
 import { LoadingIndicator, Button, DateRangePicker, DrawerDialog, FilterPanel, LogView, PageSizeSelect, PaginationBar, RecentActivityTicker, SearchField, SelectBox, StatusBadge, Text, cn, useDateRangeDraft, type DateRangeValue  } from "../../components/ui";
 import { draftToDate, isEmptyDateDraft } from "../../components/ui/date/useDateDraft";
 import { formatControlTimestamp } from "./control-time";
 
+import type { TemporaryControlView } from "@led-control/shared/temporary-control-contracts";
+import { listTemporaryControls, getTemporaryControl, temporaryControlStateLabels, temporaryControlErrorMessage } from "../../api/temporary-controls";
+import { TemporaryControlHistory } from "./TemporaryControlHistory";
 import { commandHistoryRows, COMMAND_STAGE_LABELS, clockRefusalExplanation, isClockRefusal } from "./command-history-presentation";
 export { COMMAND_STAGE_LABELS, isClockRefusal } from "./command-history-presentation";
 
@@ -28,6 +31,8 @@ export interface CommandHistoryPanelProps {
   verificationCasesOpenerRef?: RefObject<HTMLButtonElement>;
   verificationCaseCount?: number;
   timeZone?: string;
+  temporaryEnabled?: boolean;
+  temporarySession?: TemporaryControlView | null;
 }
 
 const RecentCommandInteraction = createContext<Pick<CommandHistoryPanelProps, "onSelect" | "disabled" | "selectedCommandId"> | null>(null);
@@ -45,8 +50,11 @@ function RecentCommandButton({ row }: { row: RecentCommandPresentation }) {
   </Button>;
 }
 
-export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false, selectedCommandId, className, onOpenVerificationCases, verificationCasesOpenerRef, verificationCaseCount, timeZone = "UTC" }: CommandHistoryPanelProps) {
+export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false, selectedCommandId, className, onOpenVerificationCases, verificationCasesOpenerRef, verificationCaseCount, timeZone = "UTC", temporaryEnabled = false, temporarySession }: CommandHistoryPanelProps) {
   const [open, setOpen] = useState(false);
+  const [historyKind, setHistoryKind] = useState<"basic" | "temporary">("basic");
+  const [temporaryId, setTemporaryId] = useState<string | null>(null);
+  const [temporaryPage, setTemporaryPage] = useState(0);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState<CommandStage | "">("");
@@ -82,6 +90,23 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
 
   const latest = useCommandHistory(userId, { siteId, limit: 5 });
   const history = useCommandHistory(userId, input, open && !periodError);
+  const temporaryKey = ["temporary-control-history", userId, siteId] as const;
+  const temporaryLatest = useQuery({ queryKey: [...temporaryKey, "latest"], queryFn: ({ signal }) => listTemporaryControls(siteId, { limit: 1 }, signal), enabled: temporaryEnabled, retry: false, refetchInterval: 3000 });
+  const temporaryList = useInfiniteQuery({ queryKey: [...temporaryKey, "pages"],
+    queryFn: ({ pageParam, signal }) => listTemporaryControls(siteId, { limit: 20, ...(pageParam ? { cursor: pageParam } : {}) }, signal),
+    initialPageParam: "", getNextPageParam: page => page.nextCursor ?? undefined,
+    enabled: temporaryEnabled && open && historyKind === "temporary" && !temporaryId, retry: false });
+  const temporaryDetail = useQuery({ queryKey: [...temporaryKey, "detail", temporaryId],
+    queryFn: ({ signal }) => getTemporaryControl(siteId, temporaryId!, signal), enabled: temporaryEnabled && open && Boolean(temporaryId), retry: false, refetchOnMount: "always" });
+  const temporaryAccessDenied = [temporaryLatest.error, temporaryList.error, temporaryDetail.error].some(error => error instanceof ApiError && [401,403,404].includes(error.status));
+  const newestTemporary = !temporaryAccessDenied ? [temporarySession?.siteId === siteId ? temporarySession : null, temporaryLatest.data?.items[0]].filter((entry): entry is TemporaryControlView => Boolean(entry))
+    .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))[0] : undefined;
+  const displayedTemporaryPage = temporaryList.data?.pages[temporaryPage];
+  function selectTemporary(id: string) {
+    queryClient.removeQueries({ queryKey: [...temporaryKey, "detail", id], exact: true });
+    setTemporaryId(id); setHistoryKind("temporary"); setOpen(true);
+  }
+  useEffect(() => { if (!temporaryEnabled) return; setOpen(false); setTemporaryId(null); setHistoryKind("basic"); setTemporaryPage(0); }, [userId, siteId, temporaryEnabled]);
   const latestUnauthorized = latest.error instanceof ApiError && [401, 403].includes(latest.error.status);
   const historyUnauthorized = history.error instanceof ApiError && [401, 403].includes(history.error.status);
   const latestItems = latestUnauthorized ? undefined : latest.data?.pages[0]?.items;
@@ -92,13 +117,26 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const recentPresentation = JSON.stringify(commandHistoryRows(latestItems ?? [], timeZone).map(row => ({
     id: row.id, timestampLabel: row.timestampLabel, content: String(row.content), status: String(row.status)
   })));
-  const tickerRows = useMemo(() => (JSON.parse(recentPresentation) as RecentCommandPresentation[]).map(row => ({ ...row,
+  const permanentTickerRows = useMemo(() => (JSON.parse(recentPresentation) as RecentCommandPresentation[]).map(row => ({ ...row,
     // The one-line mobile row reserves a real 44px command target. Full date,
     // UUID and actual result remain in its accessible name and history dialog.
     timestampLabel: row.timestampLabel.split(" ")[1] ?? row.timestampLabel,
     content: <RecentCommandButton row={row} />,
     status: <span className="hidden max-w-40 truncate compact:block" title={String(row.status)}>{row.status}</span>
   })), [recentPresentation, timeZone]);
+  const temporaryPresentation = newestTemporary ? JSON.stringify({ id: newestTemporary.id, startedAt: newestTemporary.startedAt, state: newestTemporary.state,
+    brightness: newestTemporary.brightness, count: newestTemporary.targets.length, redacted: newestTemporary.detailsRedacted }) : null;
+  const tickerRows = useMemo(() => {
+    if (!temporaryEnabled) return permanentTickerRows;
+    if (latestUnauthorized || temporaryAccessDenied) return [];
+    const newestPermanent = latestItems?.[0];
+    if (!newestTemporary || (newestPermanent?.createdAt && Date.parse(newestPermanent.createdAt) > Date.parse(newestTemporary.startedAt))) return permanentTickerRows.slice(0, 1);
+    return [{ id: `temporary:${newestTemporary.id}`, timestampLabel: formatControlTimestamp(newestTemporary.startedAt, timeZone).split(" ")[1] ?? "",
+      content: <Button type="button" variant="ghost" className="min-h-11! min-w-0 max-w-full justify-start! overflow-hidden px-0! font-normal!"
+        aria-label={`최근 시간제 상세: ${newestTemporary.id}`} onClick={() => selectTemporary(newestTemporary.id)}>
+        <span className="truncate">시간제 · {newestTemporary.detailsRedacted ? "상세 보관 종료" : `${newestTemporary.brightness}% · ${newestTemporary.targets.length}개`} · {temporaryControlStateLabels[newestTemporary.state]}</span>
+      </Button> }];
+  }, [temporaryEnabled, temporaryPresentation, permanentTickerRows, latestUnauthorized, temporaryAccessDenied, timeZone]);
   const page = historyUnauthorized ? undefined : history.data?.pages[pageIndex];
   const pending = history.isPending || history.isFetching || history.isPaused;
   const canRetryHistory = !pending && !periodError;
@@ -130,18 +168,44 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
       <div className="min-w-0 flex-1">
         <RecentCommandInteraction.Provider value={{ onSelect, disabled, selectedCommandId }}>
           <RecentActivityTicker title="제어 이력" scopeKey={JSON.stringify([userId, siteId])} items={tickerRows}
-            emptyContent={latest.isPending ? <LoadingIndicator isPaused={latest.isPaused}>최근 명령을 불러오는 중입니다.</LoadingIndicator>
-              : latest.error ? <Text role="alert" tone="danger">최근 명령을 불러오지 못했습니다.</Text>
+            emptyContent={latest.isPending || (temporaryEnabled && temporaryLatest.isPending) ? <LoadingIndicator isPaused={latest.isPaused || (temporaryEnabled && temporaryLatest.isPaused)}>최근 명령을 불러오는 중입니다.</LoadingIndicator>
+              : latest.error || (temporaryEnabled && temporaryLatest.error) ? <Text role="alert" tone="danger">최근 명령을 불러오지 못했습니다.</Text>
               : <Text>명령 이력이 없습니다.</Text>}
             onOpen={() => setOpen(true)} triggerRef={openerRef} triggerHasPopup="dialog"
-            onRetry={latest.error ? () => void latest.refetch() : undefined} />
+            onRetry={latest.error || (temporaryEnabled && temporaryLatest.error) ? () => { void latest.refetch(); if (temporaryEnabled) void temporaryLatest.refetch(); } : undefined} />
         </RecentCommandInteraction.Provider>
       </div>
       {/* Keep uncertain-case recovery reachable independently of history fetching or dimming locks. */}
-      {onOpenVerificationCases ? <Button ref={verificationCasesOpenerRef} type="button" variant="ghost" className="min-h-13! min-w-13! px-2!" aria-label="확인 필요한 명령" onClick={onOpenVerificationCases}><TriangleAlert size={16} aria-hidden="true" />{verificationCaseCount ? <span aria-hidden="true">{verificationCaseCount}</span> : null}</Button> : null}
+      {onOpenVerificationCases && !temporaryEnabled ? <Button ref={verificationCasesOpenerRef} type="button" variant="ghost" className="min-h-13! min-w-13! px-2!" aria-label="확인 필요한 명령" onClick={onOpenVerificationCases}><TriangleAlert size={16} aria-hidden="true" />{verificationCaseCount ? <span aria-hidden="true">{verificationCaseCount}</span> : null}</Button> : null}
     </div>
     <DrawerDialog isOpen={open} safeArea title="명령 이력" description="현장의 최근 명령을 조회합니다." closeLabel="명령 이력 닫기" onClose={() => setOpen(false)} returnFocusRef={openerRef}
       className="flex min-h-0 max-w-status-drawer flex-col overflow-hidden" bodyClassName="min-h-0 flex-1 overflow-hidden">
+      {temporaryEnabled ? <div role="group" aria-label="이력 종류" className="flex shrink-0 flex-wrap gap-2 pb-2">
+        <Button type="button" variant={historyKind === "basic" ? "secondary" : "ghost"} aria-pressed={historyKind === "basic"} onClick={() => { setHistoryKind("basic"); setTemporaryId(null); }}>기본 이력</Button>
+        <Button type="button" variant={historyKind === "temporary" ? "secondary" : "ghost"} aria-pressed={historyKind === "temporary"} onClick={() => { setHistoryKind("temporary"); setTemporaryId(null); }}>시간제 이력</Button>
+        {onOpenVerificationCases ? <Button type="button" variant="ghost" onClick={() => { setOpen(false); onOpenVerificationCases(); }}>미확정 명령 복구</Button> : null}
+      </div> : null}
+      {historyKind === "temporary" && temporaryEnabled ? <div className="grid min-h-0 min-w-0 flex-1 content-start gap-2 overflow-y-auto overscroll-contain" aria-label="시간제 이력 목록">
+        {temporaryAccessDenied ? <Text role="alert" tone="danger">시간제 이력 조회 권한을 확인해 주세요.</Text>
+          : temporaryId ? temporaryDetail.data && !temporaryDetail.error && !temporaryDetail.isFetching
+            ? <TemporaryControlHistory session={temporaryDetail.data} timeZone={timeZone} onClose={() => setTemporaryId(null)} />
+            : <Text role={temporaryDetail.error ? "alert" : "status"}>{temporaryDetail.error ? temporaryControlErrorMessage(temporaryDetail.error) : "시간제 상세를 조회 중입니다."}</Text>
+          : temporaryList.isPending ? <Text role="status">시간제 이력을 불러오는 중입니다.</Text>
+          : temporaryList.error ? <Text role="alert" tone="danger">{temporaryControlErrorMessage(temporaryList.error)}</Text>
+          : displayedTemporaryPage?.items.length ? displayedTemporaryPage.items.map(item => <Button key={item.id} type="button" variant="secondary" className="grid min-h-11 min-w-0 justify-items-start gap-1 whitespace-normal text-left" onClick={() => selectTemporary(item.id)}>
+            <span className="max-w-full break-all">{item.id}</span><span>{temporaryControlStateLabels[item.state]} · {item.detailsRedacted ? "상세 보관 종료" : `${item.brightness}% · ${item.targets.length}개`} · {formatControlTimestamp(item.startedAt, timeZone)}</span>
+          </Button>) : <Text>시간제 이력이 없습니다.</Text>}
+        {temporaryDetail.error || temporaryList.error || temporaryAccessDenied ? <Button type="button" variant="secondary" onClick={() => {
+          void temporaryLatest.refetch(); if (temporaryId) void temporaryDetail.refetch(); else void temporaryList.refetch();
+        }}>시간제 이력 다시 조회</Button> : null}
+        {!temporaryId && !temporaryAccessDenied ? <div className="flex gap-2">
+          <Button type="button" variant="secondary" disabled={temporaryPage === 0 || temporaryList.isFetching} onClick={() => setTemporaryPage(index => index - 1)}>시간제 이전</Button>
+          <Button type="button" variant="secondary" disabled={temporaryList.isFetching || (!temporaryList.data?.pages[temporaryPage + 1] && !displayedTemporaryPage?.nextCursor)} onClick={() => {
+            if (temporaryList.data?.pages[temporaryPage + 1]) { setTemporaryPage(index => index + 1); return; }
+            const generation = paginationGeneration.current; void temporaryList.fetchNextPage().then(result => { if (generation === paginationGeneration.current && !result.isError) setTemporaryPage(index => index + 1); });
+          }}>시간제 다음</Button>
+        </div> : null}
+      </div> : <>
       <LogView label="명령 이력" filters={<FilterPanel label="명령 이력 필터" mode="popover"
         search={<SearchField label={<span className="sr-only">명령 이력 검색</span>} placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />}
         activeFilterCount={Number(!emptyPeriodDraft) + Number(Boolean(stage)) + Number(limit !== 50)}
@@ -177,6 +241,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
           {success ? page!.items.map(item => <CommandRow key={item.id} item={item} selected={selectedCommandId === item.id} disabled={disabled} timeZone={timeZone} onSelect={id => { onSelect(id); setOpen(false); }} />) : null}
         </div>
       </LogView>
+      </>}
     </DrawerDialog>
   </>;
 }

@@ -352,18 +352,50 @@ export function commandSetAclOptions(env) {
   return { setGeneration: Number(env.MQTT_SET_GENERATION) };
 }
 
-export function renderMosquittoAcl(gatewayIds, { setGeneration } = {}) {
+export function temporaryControlAclOptions(env) {
+  const raw = env.DEV_TEMPORARY_CONTROL_SCOPES?.trim();
+  if (!raw) return { temporaryControlScopes: [] };
+  try { return { temporaryControlScopes: JSON.parse(raw) }; }
+  catch { throw new Error("temporary control scopes require explicit JSON mapping"); }
+}
+
+function validateTemporaryControlScopes(scopes, identities) {
+  if (!Array.isArray(scopes) || scopes.length > MAX_DEV_GATEWAY_IDS) throw new Error("invalid temporary control scope inventory");
+  const seen = new Set();
+  for (const scope of scopes) {
+    if (!scope || typeof scope !== "object" || Object.keys(scope).sort().join(",") !== "gatewayId,siteId"
+      || typeof scope.siteId !== "string" || typeof scope.gatewayId !== "string"
+      || !CANONICAL_UUID_PATTERN.test(scope.siteId) || !CANONICAL_UUID_PATTERN.test(scope.gatewayId)
+      || scope.siteId !== scope.siteId.toLowerCase() || scope.gatewayId !== scope.gatewayId.toLowerCase()
+      || !identities.includes(scope.gatewayId) || seen.has(scope.gatewayId)) {
+      throw new Error("temporary control requires unique canonical site/Gateway bindings within census");
+    }
+    seen.add(scope.gatewayId);
+  }
+  return [...scopes].sort((left, right) => left.gatewayId.localeCompare(right.gatewayId));
+}
+
+export function renderMosquittoAcl(gatewayIds, { setGeneration, temporaryControlScopes = [] } = {}) {
   if (setGeneration !== undefined && (!Number.isInteger(setGeneration) || setGeneration <= 0 || setGeneration > 2147483647)) {
     throw new Error("invalid Set generation");
   }
   const values = Array.isArray(gatewayIds) ? gatewayIds : gatewayIds ? [gatewayIds] : [];
   const identities = normalizeGatewayIds(values, "gateway ID");
+  const scopes = validateTemporaryControlScopes(temporaryControlScopes, identities);
+  const temporaryPrefix = scope => `sites/${scope.siteId}/gateways/${scope.gatewayId}/temporary-control`;
   if (setGeneration !== undefined && identities.length === 0) throw new Error("Set cutover requires an explicit Gateway census");
   return [
     "user api-service",
     "topic write sites/health/production-probe",
     ...API_READ_SUFFIXES.map((suffix) => `topic read sites/+/gateways/+/${suffix}`),
     ...API_WRITE_SUFFIXES.map((suffix) => `topic write sites/+/gateways/+/${suffix}`),
+    // Separate namespace is essential: legacy commands/# and event grants must
+    // never confer temporary-control rights for another assigned site.
+    ...scopes.flatMap(scope => [
+      `topic write ${temporaryPrefix(scope)}/command`,
+      `topic read ${temporaryPrefix(scope)}/result`,
+      `topic write ${temporaryPrefix(scope)}/ingested`
+    ]),
     ...(setGeneration === undefined ? [
       "# Transitional legacy Set: remove both writes only during coordinated cutover.",
       "topic write sites/+/gateways/+/commands/dimming", "topic write sites/+/commands/dimming"
@@ -371,6 +403,11 @@ export function renderMosquittoAcl(gatewayIds, { setGeneration } = {}) {
     "",
     ...identities.flatMap((gatewayId) => [
       `user ${gatewayId}`,
+      ...scopes.filter(scope => scope.gatewayId === gatewayId).flatMap(scope => [
+        `topic read ${temporaryPrefix(scope)}/command`,
+        `topic write ${temporaryPrefix(scope)}/result`,
+        `topic read ${temporaryPrefix(scope)}/ingested`
+      ]),
       `topic read sites/+/gateways/${gatewayId}/commands/#`,
       `topic read sites/+/gateways/${gatewayId}/events/clock/response`,
       `topic read sites/+/gateways/${gatewayId}/events/bio-sensor-preparation-result-ack`,

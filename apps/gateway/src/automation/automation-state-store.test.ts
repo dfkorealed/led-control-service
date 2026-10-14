@@ -28,8 +28,69 @@ const ruleId = "00000000-0000-4000-8000-000000000401";
 const requestedAt = "2026-09-01T01:00:00.000Z";
 const appliedAt = "2026-09-01T01:00:01.000Z";
 
+// Break caught: active RF0 skip cannot hide prior uncertainty; completed RF0
+// history must coexist with a different later capture without erasing either.
+it("parses skipped RF0 event completion separately from later capture and preserves active uncertainty across restart", async () => {
+  const activationId = `${ruleId}:${requestedAt}`;
+  const activation = { activationId, startedAt: requestedAt, snapshotHash: `sha256:${"a".repeat(64)}`,
+    binding: { sourceFixtureId: commandId, nativeUuid: "001122334455", logicalAddress: 1, networkId: 2,
+      capabilityRevision: 1, snapshotRevision: 1, profileId: "test", firmwareFingerprint: "fw", sensorFingerprint: "sensor" },
+    targetFixtureIds: [fixtureId], brightnessPercent: 80, health: "healthy", healthReason: "qualified",
+    releaseReason: "operator_release", completed: true, retiredFixtureIds: [], skippedFixtureIds: [fixtureId], reportedResults: "" };
+  const value: any = emptyAutomationState(); value.bioActivationsByRule[ruleId] = activation;
+  expect(parseAutomationState(value).bioActivationsByRule[ruleId]).toEqual(activation);
+  for (const invalid of [undefined, null, "invalid", [fixtureId, fixtureId], [commandId]]) {
+    expect(() => parseAutomationState({ ...value, bioActivationsByRule: { [ruleId]: { ...activation, skippedFixtureIds: invalid } } })).toThrow();
+  }
+  const legacy = { ...activation, completed: false } as any; delete legacy.skippedFixtureIds;
+  expect(parseAutomationState({ ...value, bioActivationsByRule: { [ruleId]: legacy } }).bioActivationsByRule[ruleId]!.skippedFixtureIds).toEqual([]);
+  const previous = { activationId: "older-activation", sourceFixtureId: commandId, eventBrightnessPercent: 80,
+    target: { kind: "unicast", nativeUuid: "001122334466", logicalAddress: 2, networkId: 2 },
+    preState: { configuredHighBrightnessPercent: 30, bioMode: "sensor" },
+    applyResult: { status: "timed_out", attempt: 1, at: requestedAt, observed: null }, restoreResult: null };
+  value.bioTargetsByFixture[fixtureId] = previous;
+  value.bioActivationsByRule[ruleId] = { ...activation, completed: false };
+  expect(() => parseAutomationState(value)).toThrow("invalid BIO skipped mutation evidence");
+  value.bioActivationsByRule[ruleId] = { ...activation, skippedFixtureIds: [], completed: false };
+  expect(parseAutomationState(value).bioTargetsByFixture[fixtureId]).toEqual(previous);
+  for (const completed of [false, true]) {
+    value.bioActivationsByRule[ruleId] = { ...activation, completed };
+    value.bioTargetsByFixture[fixtureId] = { ...previous, activationId };
+    expect(() => parseAutomationState(value)).toThrow("invalid BIO skipped mutation evidence");
+  }
+  value.bioActivationsByRule[ruleId] = activation;
+  const later = { ...previous, activationId: "later-activation", applyResult: { ...previous.applyResult, status: "pending", at: appliedAt } };
+  value.bioTargetsByFixture[fixtureId] = later;
+  const path = await statePath(), store = new FileAutomationStateStore(path);
+  await store.initialize();
+  await store.updateDurable(() => value);
+  const restarted = new FileAutomationStateStore(path); await restarted.initialize();
+  expect(restarted.read().bioActivationsByRule[ruleId]).toEqual(activation);
+  expect(restarted.read().bioTargetsByFixture[fixtureId]).toEqual(later);
+});
+
+it("migrates only absent newly added V10 maps and rejects explicitly invalid evidence", () => {
+  const state = emptyAutomationState(); const old = { ...state } as any;
+  delete old.temporaryEndProofs; delete old.bioNormalConfigurations;
+  expect(parseAutomationState(old)).toEqual(state);
+  for (const field of ["temporaryEndProofs", "bioNormalConfigurations"] as const) {
+    for (const invalid of [undefined, null, [], "invalid"]) expect(() => parseAutomationState({ ...state, [field]: invalid })).toThrow();
+  }
+  expect(() => parseAutomationState({ ...old, temporaryEndTombstones: undefined })).toThrow();
+});
+it("migrates V9 preserving all legacy journals and starts without invented temporary ownership", () => {
+  const old = { ...emptyAutomationState(), schemaVersion: 9 } as Record<string, unknown>;
+  delete old.temporarySessions; delete old.fixtureLeases; delete old.temporaryResultOutbox;
+  delete old.temporaryEndTombstones; delete old.temporaryEndProofs; delete old.bioNormalConfigurations;
+  old.baseBrightnessByFixture = { [fixtureId]: 30 };
+  expect(parseAutomationState(old)).toEqual({ ...old, schemaVersion: 10,
+    temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {}, temporaryEndProofs: {}, bioNormalConfigurations: {} });
+});
+
 function manualV6State() {
-  const { bioPulseInbox: _bioPulseInbox, bioTargetsByFixture: _bioTargets, bioActivationsByRule: _bioActivations, ...legacy } = emptyAutomationState();
+  const { bioPulseInbox: _bioPulseInbox, bioTargetsByFixture: _bioTargets, bioActivationsByRule: _bioActivations,
+    temporarySessions: _temporarySessions, fixtureLeases: _leases, temporaryResultOutbox: _outbox,
+    temporaryEndTombstones: _ends, temporaryEndProofs: _proofs, bioNormalConfigurations: _normal, ...legacy } = emptyAutomationState();
   return {
     ...legacy,
     schemaVersion: 6,
@@ -72,7 +133,7 @@ describe("V8 BIO target configuration journal", () => {
     const v6 = manualV6State();
     const v7 = { ...v6, schemaVersion: 7, bioPulseInbox: {} };
     for (const legacy of [v6, v7]) {
-      expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 9, bioTargetsByFixture: {}, bioActivationsByRule: {} });
+      expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 10, bioTargetsByFixture: {}, bioActivationsByRule: {} });
       expect(() => parseAutomationState({ ...legacy, bioTargetsByFixture: {} })).toThrow();
     }
   });
@@ -123,7 +184,7 @@ describe("V7 BIO receipt journal", () => {
   it("migrates strict V6 state without inventing a pulse receipt", () => {
     const legacy = manualV6State();
     delete (legacy as Record<string, unknown>).bioPulseInbox;
-    expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 9, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} });
+    expect(parseAutomationState(legacy)).toMatchObject({ schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} });
     expect(() => parseAutomationState({ ...legacy, bioPulseInbox: {} })).toThrow();
   });
 
@@ -198,13 +259,14 @@ describe("V7 BIO receipt journal", () => {
 describe("V6 automation state", () => {
   it("round-trips pending controls and exact source suppressions through durable storage", async () => {
     const state = manualV6State();
-    const migrated = { ...state, schemaVersion: 9, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} };
+    const migrated = { ...state, schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {},
+      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {}, temporaryEndProofs: {}, bioNormalConfigurations: {} };
     expect(parseAutomationState(state)).toEqual(migrated);
     const path = await statePath();
     await writeJsonAtomic(path, state);
     expect(await new FileAutomationStateStore(path).initialize()).toEqual(migrated);
     expect(emptyAutomationState()).toMatchObject({
-      schemaVersion: 9, pendingManualControls: {}, manualAutomationSuppressions: {}
+      schemaVersion: 10, pendingManualControls: {}, manualAutomationSuppressions: {}
     });
     expect(emptyAutomationState()).not.toHaveProperty("manualOverrides");
   });
@@ -243,7 +305,8 @@ describe("V6 automation state", () => {
     const state = manualV6State();
     state.manualAutomationSuppressions[fixtureId]!.schedules.push({ scheduleId, occurrenceKey: "2026-09-02" });
     state.manualAutomationSuppressions[fixtureId]!.vehicleEvents.push({ ruleId, startedAt: appliedAt });
-    expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 9, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {} });
+    expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {},
+      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {}, temporaryEndProofs: {}, bioNormalConfigurations: {} });
   });
 
   it.each(["pendingManualControls", "manualAutomationSuppressions"] as const)("bounds %s to 10,000 fixtures", (field) => {
@@ -286,7 +349,7 @@ describe("V6 automation state", () => {
       }
     };
     const result = parseAutomationState(old);
-    expect(result.schemaVersion).toBe(9);
+    expect(result.schemaVersion).toBe(10);
     expect(result.baseBrightnessByFixture).toEqual({ [success]: 60, [observed]: 60, [mismatch]: 20 });
     expect(result.pendingManualControls).toEqual({
       [pending]: { sourceId: commandId, brightnessPercent: 60, requestedAt, preBrightness: 60 }
@@ -466,7 +529,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -760,7 +823,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",
@@ -814,7 +877,7 @@ describe("FileAutomationStateStore", () => {
 
     const store = new FileAutomationStateStore(path);
     await expect(store.initialize()).resolves.toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       pendingTelemetryHandoffs: [handoff]
     });
     await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toEqual({

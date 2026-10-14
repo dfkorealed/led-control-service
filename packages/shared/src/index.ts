@@ -1,4 +1,7 @@
 export * from "./command-delivery";
+export * from "./temporary-control-contracts";
+export * from "./holiday-calendar-contracts";
+export * from "./bio-automation-version";
 export * from "./automation-contracts";
 export * from "./bio-pulse-telemetry-contracts";
 export * from "./cad-import-contracts";

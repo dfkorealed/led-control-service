@@ -4,6 +4,9 @@ import { isActiveBioSourceTarget } from "./bio-source-target-guard";
 
 describe("active BIO source target protection", () => {
   it.each([
+    [3, "enabled", "bio-usb-pulse", true],
+    [3, "disabled", "bio-usb-pulse", false],
+    [4, "enabled", "bio-usb-pulse", false],
     [2, "enabled", "bio-usb-pulse", true],
     [2, "disabled", "bio-usb-pulse", false],
     [2, "enabled", "bluez-stateful", false],

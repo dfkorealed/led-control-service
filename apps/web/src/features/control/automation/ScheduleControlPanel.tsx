@@ -1,4 +1,5 @@
-import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import type { LightingScheduleSnapshot } from "@led-control/shared";
 import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared/automation-contracts";
 import { CalendarPlus, Clock3, Eye, Power, PowerOff, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +10,8 @@ import {
   isAutomationListAccessDenied,
   isScheduleUnauthorized,
   listSchedules,
+  listScheduleCalendar,
+  scheduleCalendarQueryKey,
   scheduleMutationErrorMessage,
   scheduleQueryErrorMessage,
   scheduleQueryKey,
@@ -24,6 +27,9 @@ import type { Dashboard } from "../../../api/queries";
 import { LoadingState, Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem  } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { ScheduleDialog } from "./ScheduleDialog";
+import { AutomationRuleHeader } from "./components/AutomationRuleHeader";
+import { ScheduleCalendar } from "./components/ScheduleCalendar";
+import { calendarMonthInTimeZone, calendarMonthRange } from "./components/calendar-segments";
 import { AutomationRuleControls } from "./components/AutomationRuleControls";
 import { AutomationRuleWorkspace } from "./components/AutomationWorkspaceSurface";
 import { automationListRequest, useAutomationListState } from "./components/useAutomationListState";
@@ -55,7 +61,7 @@ export function ScheduleControlPanel({
   const mounted = useRef(true);
   const publishedToastIds = useRef(new Set<string>());
   const expiredPrincipalGeneration = useRef<number | null>(null);
-  const [editingSchedule, setEditingSchedule] = useState<ScheduleResponse | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<(LightingScheduleSnapshot & { excludeWeekends?: boolean; excludeHolidays?: boolean }) | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<ScheduleResponse | null>(null);
@@ -68,6 +74,9 @@ export function ScheduleControlPanel({
   const [lastRefreshSuccess, setLastRefreshSuccess] = useState<{ scope: string; at: number } | null>(null);
   const [visiblePollFailure, setVisiblePollFailure] = useState<{ scope: string; error: unknown } | null>(null);
   const canManage = role === "admin";
+  const [view, setView] = useState<"list" | "calendar">("list");
+  const [calendarMonth, setCalendarMonth] = useState(() => calendarMonthInTimeZone(dashboard?.site.timeZone ?? "UTC"));
+  const calendarRange = useMemo(() => calendarMonthRange(calendarMonth), [calendarMonth]);
   const { filter, appliedQuery, pageIndex, isSearchPending, changeFilter, changePage } = useAutomationListState(operationScopeKey);
   const listScopeKey = JSON.stringify([operationScopeKey, appliedQuery, filter.status, filter.syncStatus, filter.limit]);
   const currentListScope = useRef(listScopeKey);
@@ -91,6 +100,13 @@ export function ScheduleControlPanel({
   const currentPage = schedulesQuery.data?.pages[currentPageIndex];
   const schedules = hasGlobalContract ? currentPage?.items ?? [] : schedulesQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const visiblePollError = visiblePollFailure?.scope === listScopeKey ? visiblePollFailure.error : null;
+  const calendarQuery = useQuery({
+    queryKey: [...scheduleCalendarQueryKey(siteId), operationScopeKey, currentScopeGeneration, calendarRange.from, calendarRange.to],
+    queryFn: ({ signal }) => listScheduleCalendar(siteId, calendarRange, signal),
+    enabled: view === "calendar" && !isAutomationListAccessDenied(schedulesQuery.error) && !isAutomationListAccessDenied(visiblePollError),
+    retry: false,
+    refetchInterval: query => query.state.error ? false : 3000
+  });
   const pollingPageIndex = hasGlobalContract ? currentPageIndex : Math.max(0, (schedulesQuery.data?.pages.length ?? 1) - 1);
   const pollingPage = schedulesQuery.data?.pages[pollingPageIndex];
   const visibleCursor = String(schedulesQuery.data?.pageParams[pollingPageIndex] ?? "");
@@ -125,7 +141,8 @@ export function ScheduleControlPanel({
   });
   // A current list access denial wins over an older visible-page transient error.
   const accessError = isAutomationListAccessDenied(schedulesQuery.error) ? schedulesQuery.error
-    : isAutomationListAccessDenied(visiblePollError) ? visiblePollError : null;
+    : isAutomationListAccessDenied(visiblePollError) ? visiblePollError
+    : isAutomationListAccessDenied(calendarQuery.error) ? calendarQuery.error : null;
   const effectiveError = accessError ?? visiblePollError ?? schedulesQuery.error;
   const retryRefresh = () => (schedulesQuery.data?.pages.length ?? 0) > 1
     ? refreshVisiblePage() : schedulesQuery.refetch();
@@ -136,7 +153,10 @@ export function ScheduleControlPanel({
     ? {
         message: automationListAccessErrorMessage(accessError),
         retryLabel: accessError === schedulesQuery.error && schedulesQuery.isLoadingError ? "다시 시도" : "상태 다시 조회",
-        retry: accessError === schedulesQuery.error ? () => schedulesQuery.refetch() : retryRefresh
+        // A calendar denial also blocks list management; recovery must recheck that grant.
+        retry: accessError === calendarQuery.error
+          ? () => Promise.allSettled([calendarQuery.refetch(), schedulesQuery.refetch()])
+          : accessError === schedulesQuery.error ? () => schedulesQuery.refetch() : retryRefresh
       }
     : schedulesQuery.isLoadingError
     ? {
@@ -252,6 +272,8 @@ export function ScheduleControlPanel({
     setFailedRefreshScope(null);
     setLastRefreshSuccess(null);
     setVisiblePollFailure(null);
+    setView("list");
+    setCalendarMonth(calendarMonthInTimeZone(dashboard?.site.timeZone ?? "UTC"));
     setScheduleDialogOpen(false);
     setEditingSchedule(null);
     setDeleteCandidate(null);
@@ -283,7 +305,7 @@ export function ScheduleControlPanel({
 
   useEffect(() => {
     expirePrincipal(effectiveError, operationScopeKey, currentScopeGeneration);
-  }, [currentScopeGeneration, effectiveError, operationScopeKey, schedulesQuery.errorUpdatedAt]);
+  }, [currentScopeGeneration, effectiveError, operationScopeKey, schedulesQuery.errorUpdatedAt, calendarQuery.errorUpdatedAt]);
 
   useEffect(() => {
     if (!isAuthBlocked) return;
@@ -324,6 +346,7 @@ export function ScheduleControlPanel({
 
   function invalidate(operationSiteId: string) {
     void queryClient.invalidateQueries({ queryKey: scheduleQueryKey(operationSiteId) });
+    void queryClient.invalidateQueries({ queryKey: scheduleCalendarQueryKey(operationSiteId) });
     void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   }
 
@@ -363,7 +386,7 @@ export function ScheduleControlPanel({
     setScheduleDialogOpen(true);
   }
 
-  function beginEdit(schedule: ScheduleResponse, opener: HTMLElement) {
+  function beginEdit(schedule: LightingScheduleSnapshot & { excludeWeekends?: boolean; excludeHolidays?: boolean }, opener: HTMLElement) {
     setEditingSchedule(schedule);
     dialogReturnFocusRef.current = opener;
     setMutationError("");
@@ -473,18 +496,23 @@ export function ScheduleControlPanel({
       aria-labelledby="control-mode-schedule"
       data-control-automation-panel="schedule"
     >
-      {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="스케줄" filter={filter}
-        actions={toolbarActions}
+      <AutomationRuleHeader view={view} onViewChange={setView} addAction={toolbarActions} />
+      {view === "list" && hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="스케줄" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : schedules.length}
         hasNextPage={!isSearchPending && (currentPageIndex < (schedulesQuery.data?.pages.length ?? 0) - 1 || Boolean(currentPage?.nextCursor))}
         isFetchingNextPage={schedulesQuery.isFetchingNextPage}
-        onFilterChange={changeFilter} onPrevious={() => changePage(currentPageIndex - 1)} onNext={() => void loadNextPage()} /> : toolbarActions ? (
-          // Legacy list responses still expose the sole creation/focus target.
-          <section aria-label="스케줄 목록 조건" className="flex min-w-0 flex-wrap items-center justify-end gap-2">{toolbarActions}</section>
-        ) : null}
+        onFilterChange={changeFilter} onPrevious={() => changePage(currentPageIndex - 1)} onNext={() => void loadNextPage()} /> : null}
 
-      <AutomationRuleWorkspace footer={!hasGlobalContract && schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError && !isAuthBlocked ? (
+      {view === "calendar" && !isAuthBlocked ? <ScheduleCalendar month={calendarMonth} timeZone={dashboard?.site.timeZone ?? "UTC"}
+        calendar={calendarQuery.data} isPending={calendarQuery.isPending} error={calendarQuery.error}
+        canManage={canManage} actionsDisabled={isMutating || !dashboard} onMonthChange={setCalendarMonth} onEdit={beginEdit}
+        onRetry={() => void calendarQuery.refetch()} retryRef={authRetryRef} /> : null}
+      {view === "calendar" && isAuthBlocked ? <FeedbackState icon={TriangleAlert} liveRole="alert" tone="danger" title={automationListAccessErrorMessage(accessError)}
+        action={<Button ref={authRetryRef} type="button" variant="secondary" onClick={() => {
+          void calendarQuery.refetch(); void schedulesQuery.refetch();
+        }}>달력 다시 조회</Button>} /> : null}
+      {view === "list" ? <AutomationRuleWorkspace footer={!hasGlobalContract && schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError && !isAuthBlocked ? (
         <Button variant="secondary" type="button" disabled={schedulesQuery.isFetchingNextPage} isLoading={schedulesQuery.isFetchingNextPage} loadingLabel="불러오는 중" onClick={() => void loadNextPage()}>
           스케줄 더 보기
         </Button>
@@ -510,7 +538,7 @@ export function ScheduleControlPanel({
         />
       ) : null}
 
-      </AutomationRuleWorkspace>
+      </AutomationRuleWorkspace> : null}
 
       {dashboard ? (
         <ScheduleDialog

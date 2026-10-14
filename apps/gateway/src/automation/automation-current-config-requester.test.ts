@@ -13,6 +13,19 @@ import { automationScope, automationSnapshot } from "./automation-test-fixtures"
 describe("AutomationCurrentConfigRequester", () => {
   afterEach(() => vi.useRealTimers());
 
+  it("declares exact V3 temporary configuration capabilities with a durable revision", async () => {
+    const requester = new AutomationCurrentConfigRequester(automationScope, {
+      protocolSupport: { assignmentVersion: 4, maxSnapshotVersion: 3, nextRevision: async () => 8 } as never
+    });
+    const delivered: unknown[] = [];
+    try {
+      await requester.connect(async (_topic, value) => { delivered.push(value); });
+      expect(delivered).toEqual([expect.objectContaining({ schemaVersion: 3, maxSnapshotVersion: 3,
+        assignmentVersion: 4, declarationRevision: 8, temporaryControlVersion: 1,
+        bioConfigurationReadback: true, durableFixtureLease: true })]);
+    } finally { requester.disconnect(); }
+  });
+
   it.each(["reject", "timeout"])("retries the same V2 declaration after an older snapshot arrives while publish will %s", async (failure) => {
     vi.useFakeTimers();
     let rejectPublish!: (error: Error) => void;

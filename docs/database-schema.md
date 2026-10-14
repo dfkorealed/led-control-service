@@ -2,6 +2,29 @@
 
 작성일: 2026-10-04
 
+## 2026-10-14 BIO 시간제 제어·휴일 저장 구조 — 소프트웨어, 운영 미적용
+
+순방향 `20261014090000_bio_temporary_control_calendar`는 기존 등록/native/BIO 설정·이력·보존 ON/OFF 설정을 변경하지 않고 아래 저장 구조를 추가한다. `LightingSchedule.excludeWeekends/excludeHolidays`는 모두 `NOT NULL DEFAULT false`다. 자기 소유 PostgreSQL16에서 기존138개 migration과 등록/일정을 먼저 만들고139번째 migration을 적용해 보존을 대조했다. 현재 사용자 DB에는 적용하지 않았다.
+
+| 테이블 | 저장 계약·수명 |
+| --- | --- |
+| `TemporaryControlSession` | `id`, site/Gateway/actor, assignment/admission revision, 원 start sequence/hash, 불변 startedAt/endsAt/duration, nullable brightness, state/sessionRevision/reason, releaseIntentAt/terminalAt/detailsRedacted. site–Gateway 복합 FK RESTRICT, 전체 분 단위1~1440분·밝기0~100·절대 종료 검증. 최소 세션 정본은 삭제하지 않고 종료 상세만 정리한다. |
+| `TemporaryControlLease` | fixtureId 영구 PK, liveFixtureId nullable unique FK, site/Gateway/node/nativeUuid12hex/logicalAddress, nullable ownerSessionId, lastGeneration와 releaseTombstoneGeneration. liveFixture FK는 종료 후 삭제 시 SET NULL이며 미해결 삭제·신원 교체는 trigger가 거부한다. 최초 counter0, 같은 fixture 다음 쌍은1/2→3/4이며 예전 PK 재사용/새 신원에 counter 복사를 거부한다. |
+| `TemporaryControlTarget` | `(sessionId,fixtureId)` PK, site/Gateway 복합 FK, 불변 node/native/address와 apply/release generation. session 내 node/native/address도 unique. 적용·복귀 확인, mutation 가능성/partialMutation/RF증거/readback, unchangedConfirmed, 복귀 revision/hash, reason/resolvedAt. INSERT가 lease를 잠그고 free owner와 next pair를 검증하여 counter+2/owner를 같은 transaction에 저장한다. 최소 신원·예약쌍은 상세 정리 후에도 보존한다. |
+| `TemporaryControlOperationReceipt` | `(siteId,actorId,operation,clientRequestId)` PK, immutable fingerprint/sessionId. start/end를 구분하고 계정 수명과 독립된 actorId를 보관한다. UPDATE/DELETE와 TTL 정리 금지. |
+| `TemporaryControlOutbox` | immutable session/scope/kind(start/end/ingested)/revision/deduplicationKey/원 payloadHash와 payload, 별도 문자열 deliveryGeneration·deliveryPayloadHash·발행 시각/window/expiry, retry·lease·발행/완료 시각. end는 release intent 저장 이후, start 전달 expiry는 원 endsAt 이내다. 완료+세션 상세 정리 후 payload만 null 허용, 최소 전송 식별자는 삭제하지 않는다. |
+| `TemporaryControlResultReceipt` | eventId PK, session/scope/fixture/revision/generation/resultHash/최초 applied 또는 rejected 판정·reason/수신시각. 원 결과 JSON은 nullable 상세이며 최초 판정과 hash는 불변이다. applied는 현재 owner·예약 generation과 일치해야 한다. rejected는 이미 종료한 세션의 늦은 결과를 보관할 수 있다. |
+| `HolidayDataset` | immutable country=KR/source=kasi/year/revision·full-year DATE coverage·fetchedAt/hash/dates·completenessProof·complete. 완전 상태에는1~12월 각각의 totalCount≥0/pageCount≥1 proof가 필요하고 정상 빈 월도 포함한다. 날짜·이름의 유효 범위/중복을 검사한다. provider의 실제 페이지 일관성·canonical hash 검증은 후속 provider 구현 책임이다. |
+| `HolidayYearCoverage` | `(country,year)` PK와 `(datasetId,country,year,complete=true)` 복합 FK. 불완전·다른 연도 dataset은 승격할 수 없다. 새 완전 revision을 삽입한 후 pointer만 원자 교체하며 실패하면 이전 revision을 보존한다. |
+
+새 원장의 시간 기본값은 PostgreSQL session timezone과 무관한 UTC다. 기존 automation membership advisory lock을 statement 단계에서 먼저 획득하고 target 예약 시 session→lease 순으로 잠근다. API는 기존 권한/대상 검증과 함께 하나의 transaction에서 없는 lease(counter0)를 생성하고 예약쌍/원 start hash를 계산한 뒤 session, 정렬된 target 예약, operation receipt, outbox를 생성해야 한다. 외부 RF·MQTT publish는 transaction 이후다. 전체 rollback이면 예약 counter/owner/target도 원복된다.
+
+종료는 sessionRevision2/releaseIntentAt를 먼저 저장한다. unknown/부분 설정 변경은 lease를 유지하며, 과거 mutation 가능성을 나중의 RF0로 지울 수 없다. 정확한 복귀를 검증해 target.resolvedAt를 기록한 뒤 owner를 null로 바꾸면 release tombstone이 마지막 generation으로 유지된다. 모든 owner/미해결 target 해소 후에만 terminal 상태가 가능하다. terminal 상세 정리는 brightness/readback/result/outbox payload를 정리하되 최소 fingerprint·신원·generation·판정·tombstone을 남긴다. 기존 UTC3개월/보존 OFF 선택을 소비하는 실제 worker·API·MQTT adjudication은 후속 작업이다.
+
+`GatewayAutomationProtocolSupport`는 알려진1/2/3만 저장하고 `temporaryControlVersion` nullable1, readback/durable lease boolean 기본false를 추가한다. SQL BIO 자격은 기존V2 또는 **V3+version1+두 capability true**만 인정한다. 후속 commission-mode migration의7인자 wrapper를 보존하고6인자 `bio_sensor_base_blocked_reasons` 및 source/trigger 소비 경로를 갱신했다. 기존 BIO live capability/event receipt의 schemaVersion2와 exact commission-mode 증거를3으로 바꾸지 않는다.
+
+검증: 신규 SQL 통합12/12와 직접 관련 기존V2 ready→규칙 활성화→live refresh1/1을 자기 소유 disposable PostgreSQL에서 확인했다. 서버/장비/PKI/ACL/실제 provider·운영 migration 검증으로 확대하지 않는다.
+
 ## 2026-10-12 실제 로컬 DB의 기존 미적용 BIO migration 12개 반영
 
 사용자의 백업 후 적용 승인에 따라 기존 로컬 API가 실제 사용하는 PostgreSQL 16.14에 MAIN `416785d08795488fdc05eb03fd7e317f43639107`의 기존 미적용 migration 12개를 적용했다. 제품 코드·Prisma schema·migration SQL은 수정하거나 새로 생성하지 않았다. 완료 migration은 126→138개이고 source 138개와 일치하며, 미적용·실패는 모두 0개다. 과거 rolled-back 1행을 포함한 기존 원장 127행은 모든 값과 checksum을 그대로 보존했다. 신규 완료 12행의 checksum은 기존 SQL SHA-256과 일치한다. 기존 `20260918090000_floor_light_slots_map_reset` DB/source checksum 차이는 역사적 상태로 유지하며 resolve·재실행·reset하지 않았다.

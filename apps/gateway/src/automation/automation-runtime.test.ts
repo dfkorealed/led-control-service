@@ -7,6 +7,16 @@ import { automationScope, automationSnapshot } from "./automation-test-fixtures"
 import { handleAutomationConfigPayload } from "../gateway";
 
 describe("AutomationRuntime", () => {
+  it("does not expose a swapped snapshot as applied while activation is pending", async () => {
+    let resolve!: () => void;
+    const pending = new Promise<void>(done => { resolve = done; });
+    const runtime = createRuntime(memoryStore(), { recompute: async () => { await pending; return {}; } });
+    const snapshot = automationSnapshot(5);
+    const installing = runtime.hotReload(snapshot);
+    await vi.waitFor(() => expect(runtime.currentSnapshot).toEqual(snapshot));
+    expect((runtime as any).currentAppliedSnapshot).toBeNull();
+    resolve(); await installing; expect((runtime as any).currentAppliedSnapshot).toEqual(snapshot);
+  });
   it("retains an authenticated BIO snapshot degraded on restart without treating it as applied execution", async () => {
     const snapshot = automationSnapshot(5, { schemaVersion: 2, vehicleEventRules: [{
       id: "00000000-0000-4000-8000-000000000011", name: "BIO", sensorProtocol: "bio-usb-pulse", status: "enabled",

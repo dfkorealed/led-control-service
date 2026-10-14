@@ -1,6 +1,37 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-14
+기준일: 2026-10-15
+
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어 검토·로딩 통합 완료, 로컬 반영 대기
+
+- 2026-10-15 후속 명시 승인: 잔여 NB1 추가 수리·관련 회귀/한정 재검토, 메인의 공통 로딩 변경 별도 보존·통합, 로컬 DB 백업 후 migration·API 재시작까지 진행한다. 기존 AGENTS/랜딩 수정과 감사 기록을 보존하며 Gateway/Pi 배포·실장비 제어/HIL·공휴일 키/PKI·ACL/remote는 제외한다. 원 Gateway writer는 동일 격리 브랜치의 NB1만 수리하고 총괄은 통합/운영 경계를 준비한다. Step5는 검토·반영 결과 전 완료로 표시하지 않는다.
+- 후속 로딩 보존 `c6a00fec`와 feature 통합 `8436e076`은 기존 AGENTS/랜딩/감사 미커밋 변경을 제외하고 별도 브랜치에서 처리했다. 지정 ‘제어 UI 개선 담당자’의 실제6파일392PASS/기존5FAIL·5E2E PASS·Web타입/UI0/build와 frozen71파일/자동64파일 SHA를 대조했다. 통합 한정 독립 검토는 spec준수/Approved·Critical0/Important0이다. 모바일 HTTPspinner 버튼폭 수리만 추가됐고 unknown 잠금은 유지된다. 기존 색상·934.29kB bundle경고와 Web5실패는 남으며 전체GREEN/HIL로 확대하지 않는다. 메인 병합·DB백업/migration·API재시작은 아직이다.
+- 추가 수리 `1119a048`는 actual parser RED2→지정2files96PASS/타입0·4소유hash일치이며 단일 scoped 재검토 NB1 ADDRESSED/새C/I/M0이다. 원 최종 지적3건과NB1의 소프트웨어 관문은 해결됐다. 현재는 로딩 변경69개를 기존 사용자변경과 분리 보존하고, 지정 UI 담당자의 최소통합/검증 및 로컬DB/API반영을 준비한다. 운영조사는PG138완료/새migration1/ready200·5up을확인했으나 실행0이다. 기존Minor6/Web5실패·물리/HIL한계는유지하며 전체완료/머지/운영반영은 아직이다.
+
+- 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장·API/Gateway/UI 소프트웨어 연결과 태스크별 리뷰를 완료했다. 전체 브랜치 최종 검토·안전한 로컬 병합 및 실제 DB/서버/장비 반영은 아직이다.
+- 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing 및 후속 공통 로딩 미커밋 변경을 보존한다.
+- 신규 기능은 BIO 센서 조명만 지원하고 기존 native 코드·등록·데이터를 자동 삭제/변환하지 않는다.12개 UI 합의와 스케줄/달력/이벤트 추가 위치 통일을 유지한다.
+- 제안은 독립 TemporaryControlSession·Gateway durable single-owner·최신 자동 운전 복귀다. legacy 영구 명령 TTL 재사용/과거 밝기 단순 복원은 제외한다.
+- 달력은 발생일 대체 보기·일정별 주말/휴일 제외 기본false다. 서버/Gateway가 검증 dataset/coverage를 공유하며 목업6날짜를 제품화하지 않는다.
+- 사용자가 서면 설계 `91bf922e`와 [상세 실행 계획](superpowers/plans/2026-10-14-bio-control-operations.md) `bd943bf6`을 승인하고 진행을 요청했다. Tasks1–7 공유·DB·공휴일·API·발생일/달력·Gateway apply/최신 복귀/V3/MQTT는 구현/리뷰 완료이며 Tasks8–9 지정 Web handoff를 준비한다. 기능 전체 완료나 서버/장비 반영은 아직 아니다.
+- 실행 방식은 총괄 오케스트레이터→backend 공유 계약·Prisma→engine/Gateway→기존 ‘제어 UI 개선 담당자’→최소 QA다. 공유 계약 검증 커밋을 전달한 뒤에만 소비 구현을 시작하며 ‘제어 페이지 담당자’에게 UI를 중복 배정하지 않는다.
+- 문서 작성 단계의 제품 테스트·설치·빌드·DB/provider/실장비 변경0 기록은 당시 증거다. 이후 각 작업의 변경·직접 연관 최소 검증 결과를 체크리스트와 함께 기록한다. 전체 suite/무관 회귀는 이번 사용자 범위가 아니다.
+- Task1 `639a988c`의 공유70/70·disposableACL4/4·직접 기존6/6과 타입/exports 준비를 확인했다. 독립 리뷰 I2건(0% force-off 설정 보존·동일시각 상충증거)의 수정 `111ef160`은 RED2FAIL→관련11/11·타입/prepare0, scoped 재리뷰 모두 ADDRESSED/새C/I0이다. 운영 권한/등록/장비는 변경하지 않았다.
+- 기존 wildcard 권한을 넓히지 않도록 신규 메시지는 독립 temporary-control namespace와 명시적 현장–Gateway mapping만 사용한다. V3 receipt는 기존 nested ACK와 exact 비교하며 UI/API/Gateway 소비자 구현은 아직이다.
+- Task2 `0d201dbd`: 자기 소유 PG16.14에서 신규 migration·SQL12/12와 직접 기존V2 자격1/1, generate/APItypecheck/diff0을 확인했다. 독립 리뷰는 spec 준수/Approved·C/I0, settled readback/reason 상세 변경 제한의 Minor1을 최종 리뷰로 추적한다. 계정/현장 범위와 원 identity·generation/receipt/tombstone 보존은 DB 제약이며 raw 증거·권한·최신 복귀 판단/retention worker는 후속 API 책임이다. 운영 DB접촉0이다.
+- Task3 `817fe030`: complete-year/정확해시·빈월·부분/중복·실패캐시보존·원자hook·lifecycle의 scoped39/39 및 APItypecheck/diff0, 실제provider/종료후호출/잔여PG0이다. 별도 리뷰 spec준수/Approved·C/I0·테스트Minor2(실패시 cleanup, cross-year 독립fixture)를 최종 리뷰로 추적한다. 수집시각은 semantichash에서 제외하고 snapshot/calendar는 같은tx reader를 소비한다. 실제키/provider 설정과 Gateway·UI 적용은 미연결이다.
+- Task4 통합 판단: DB UTC만으로 신뢰된 시각을 합성하지 않으며 기존 CommandDbClockHealth source 부재는 새시작503/전달보류다. Currentassignment의 현재 applied V3/revision/hash/ACK가 없으면 새start409로 거절하고 기존 replay/query/accepted end intent·durable 만료복구는 유지한다. 실제 자동 목표·RF직전 health/GET는 Gateway권위이며 API는 current승인/owner/원귀속과 확인evidence를 검증한다. 현재production DBclock attestor 미등록이어서 운영사용 전 별도 준비가 필요하고 이번worktree에서 attestor/서비스를 등록·재시작하지 않았다.
+- 권한 변화는 새HTTP start/end의 현재권한 재검증과 acceptedimmutable intent의 비연장을 구분한다. 이미 접수된 제어를 권한취소 자체로 자동취소하는 새정책은 넣지 않으며 관리자는 명시end를 사용한다. 기존clock/config/귀속/lease/releaseintent/만료 관문과 accepted end/expiry/recovery는 계속 유지한다.
+- Task4 `8f55bada`의 관련118/118·타입/build0 이후 리뷰에서 동일instant ISO표현 동률 누락과 거절된 currentidentity mutation증거 소실 I2건을 확인했다. 원 담당자의 fixround1 `19c87c6f`는 임시PG semantic RED5→covering2파일29/29·APItype/diff0·잔여PG0이며 scoped 재리뷰 두 건 모두 ADDRESSED/새C/I/Minor0이다. 거절된 성공확인과 현재신원의 설정변경 가능성을 분리·보존하여 RF0의 lease 해제를 막는다. Task4 완료·Task5 발생일/달력 연결을 시작하며 운영 및 Tasks6–9 경계는 유지한다.
+- 로컬 소프트웨어 병합과 운영 migration/Pi 배포/HIL/PKI/재시작/remote 승인은 별개다. 총괄이 최종 검토/커밋한다.
+- Task5 engine `f7d6cfa2`·API `fd492953`: semantic RED→engine4files56/56·API4files80/80·직접 controller1/1 및 각type/diff0이다. 실제 발생 시작일 iterator를 next/overlap/완전 달력에서 공유하고 같은 authorized RepeatableRead의 전체 일정/revision/검증dataset으로 조회한다. Self-owned HTTP401/101규칙/private-no-store/400/404도 확인했다. Combined 독립 리뷰 spec준수/Approved·C/I0·이전 문서 미구현 설명의 Minor1을 최종 추적한다. 실제 PostgreSQL 동시 조회·Gateway accepted-end/RF·Web stale-scope·운영은 해당 fixture 증거로 완료 주장하지 않는다.
+- Task6 `042ad4ff`의 fivefiles353/353·Gatewaytype/diff0 뒤 독립 리뷰에서 end-only 예약 부재와 잘못된 결과slot/revision/holding 설정 승인 I2건을 확인했다. Fixround1 `e585b657`는 semanticRED11→지정twofiles91/91·type/diff0, scoped 재리뷰 두 건 모두 ADDRESSED/새breakage0이다. 기존 V9/일반·센서 SET/Pulse 증거를 보존하고 private owner port·durable beforeMutation·V10 end tombstone/reserved fence로 잠금을 연결한다. Task5의 오래된 API 미구현 설명은 해당 menu 갱신에서 수정됐음을 리뷰가 확인했다. Task7 실제 production wiring/최신 복귀/GET/MQTT/ACK은 아직이며 public V3 실행은 교체 전 명시 차단이다.
+
+- Task7 진행 판단: end-only RF0 proof는 ACK cleanup 뒤에도 보존하고, overlay 없는 독립 GET의 full normal configuration 권위를 신원/귀속/network/baseline marker 및 mutation invalidation으로 보호한다. Scalar/preState를 정상 sensor mode로 추정하지 않는다. exact APPLIED terminal ACK의 대상만 개별 잠금을 해제하며 미해결 대상은 유지한다. Sensor 복귀를 다음 scheduler tick이 덮어쓰지 않는 실제 소비 경계와 bootstrap wiring을 지정 테스트에서 확인 중이다. 중간 187/187 PASS 뒤 새 연결 RED 2건이므로 final build/report/독립 리뷰 전 완료 주장은 없다.
+
+- Task7 `e0f85b22` 구현: named11files201/201 뒤 최종 downgrade durability 회귀23/23·type/build/diff0과 소유26files를 확인했다. 독립 리뷰 C0/I2는 지연된 APPLIED receipt의 server/Gateway settlement 불일치와 마지막 비동기 preflight의 mapping fence 부재다. Root는 실제 API/outbox/runtime/bootstrap를 좁게 대조하고 원 담당자 fixround1에 release/outbox/production covering+type/diff만 배정했다. 추가 전체 suite/HIL/운영은 없으며 Web handoff는 재리뷰 통과 후다. Bundle1.0mb 표시는 실행 실패/성능 회귀로 주장하지 않는다.
+
+- Task7 fixround1 `1fe9ff53`: actual RED→covering release/outbox/production3files56/56·type/diff0, 독립 scoped 재리뷰 I1/I2 모두 ADDRESSED·새C/I/M0·out-of-scope0이다. 서버가 확정한 과거 복귀 proof와 현재 output 관측을 분리하고 ACK 관측을 직렬 handoff 경계로 쓴다. Offline 최신 자동 목표는 유지하며 후속 ordinary configuration은 trusted hooks/current-time shared evaluator/독립GET로 재조정한다. Final mapping epoch/source/transport native fence와 stop cleanup을 검토했다. 추가 build/전체 cohort/운영0이며 pre-fix Gateway build의1.0mb 표시를 별도 보존한다. Task7 완료, 지정 Web 연결/최소 UI QA·최종리뷰·안전한 로컬 머지가 남았다.
 
 ## 2026-10-14 공통 로딩 전체 Web 적용 — 구현·소프트웨어 검증·읽기 전용 리뷰 완료
 
@@ -27,6 +58,20 @@
 - 새차단원인: brokerMQTT CRL이14:57:46KST 만료됐으며 openssl client검증은CRL만expired(leaf만료/issuer누락false)다. 사용자는 CRL갱신을추가승인했다. 기존Vault는33시간전exit255·issuer조회연결실패여서 기존Vault1개 기동/기존인증 발행에대한 확인을요청했다. 현재CRL/CA/key/인증·broker/gateway변경·RFquery/SET/등록apply/규칙활성화0이다. 실제센서준비/자유선택/현장시험완료로 확대하지 않는다.
 - 후속명시승인으로exact기존Vault만기동/unseal하고 기존issuer가자동재서명한CRL을보호백업/서명/Root원본/폐기2→2/fresh검증 후17:55:25KST 원자교체·samebroker3349 SIGHUP했다. 새nextUpdate10월17일17:55:21KST, Root10월27일14:37:20KST다. 실제수동rotate0/CA관리token사용0·새인증서발급/폐기/ACL/DB변경0·API/broker/Gateway재시작0이다. 초기VaultMounts전체비교guard실패·stale공개본/서비스token거부는보존하며 후속exactinspect로동일ID/image/기존mount·initialized/unsealed를확인했다.
 - openssl client verify0·API ready200/5up·17:55:53 Gateway MQTT/heartbeat/transport/protocol/mapping true와singleUSBowner/restart0을확인했다. 후속18:59 API ready는정상이나 조명4offline이다. 실제UI등록확인POST1회500의별도원인은 등록서비스 `CommandDbClockHealth`의증거provider가실제미등록이라는안전관문이다. 가짜시각증거/관문완화/DB강제등록·센서SET/규칙활성화0이며 전체UI시험완료는아니다. 시각provider연결은CRL과구분해후속구현한다.
+
+- Feature-only merge `b2dfec34`로 메인에 이미 커밋된 공통 BIO등록확인 UI/문서3commit을 보존했다. 충돌은 control 현황문서 한 곳이며 양쪽 기록을 유지하고 incoming 제품 소스의 main 일치·feature clean을 확인했다. 메인의 별도 미커밋 loading UI와 실제 서비스/DB/장비는 그대로다. 지정 Web 담당자의 Task8 시작 기준이며 main으로 이번 기능을 병합한 것은 아니다.
+
+- 지정 ‘제어 UI 개선 담당자’에게 BASE020ef0de의 Task8 실제 API 소비 구현을 전달했고 native active/착수commentary를 확인했다. 공통 Add/header·complete server calendar·제외 form/Switch와8namedtests만 맡기며 Task9는 리뷰 전WAIT다. 총괄은source를대신수정하지않고 보고서/독립리뷰/체크리스트를 취합한다.
+
+- Task8 `1fc20739`: 소유 파일 19개, 직접 관련 테스트 8개 파일의 215/215 통과, Web 타입·diff 검사 종료 코드 0이다. 독립 리뷰도 요구사항 충족/품질 승인, Critical·Important 0이다. 완전한 달력 조회는 목록 페이지와 분리하고 scope/권한/범위/불완전 응답·제외 설정의 draft/save/cancel/false·공통 Add 위치를 검토했다. O(schedule×occurrence)와 테스트 prototype 정리 Minor 2건은 최종 검토에 남긴다. 기존 의존성 재사용 중 MAIN Vitest 결과 캐시 1개를 갱신한 실수는 캐시 분리와 이후 mtime 불변을 확인했으나 원본 캐시·운영 영향은 미관측이며 소스·DB·서비스 변경과 혼동하지 않는다. Task9 브라우저 실측/시간제 이력·선택 연결/최종 리뷰·안전한 병합이 남았다.
+
+- Task9 `a02fd1b0`: 별도 시간제 API/hook·서버 증거/잠금·하단 단일 이력/Drawer·저장 구역 지도 강조·Switch 실제 필드 스크롤을 소유21files로 연결했다. 직접15파일480PASS/기존ControlView5FAIL(exit1)·지정4E2E PASS·UI위반0이며 optional createdAt1줄 보정 뒤 해당31tests/type/build0을 확인했다. 합산/브라우저는 보정 전, covering/type/build는 보정 후라는 시점을 구분하며 전체GREEN/HIL로 표시하지 않는다. 현재 독립 리뷰의 Important2(불확정 start 권한 오류 시 복구 식별자 보존, principal 변경 시 옛 미리보기 폐기)를 같은 지정 담당자의 fixround1로 수리 중이다. Root는 source를 대신 수리하거나 같은 검증을 반복하지 않는다. Final review 및 미커밋 main71files 중 겹침10files/실행 API watcher의 안전한 통합 경계는 아직 남아 있다.
+
+- Task9 후속 fix1 `67c85ef9`: 불확정 요청의 명시적 재확인401/403/404 뒤 원 body/clientRequestId·잠금을 보존하고, preview를 hook과 같은 user/role/capability/유효현장에 결속해 전환 시 폐기·표시/확인에서 재검사했다. Semantic RED5→한정16PASS, 테스트 생성자 인자 보정 뒤 해당3PASS/Webtype0·diff0이며 scoped 재리뷰는 Important2 ADDRESSED·새C/I/M0이다. 이전480/5·4E2E·build를 이 fix commit의 재실행 증거로 사용하지 않는다. Tasks1–9 소프트웨어 태스크별 검토 완료·44/45steps이며 마지막 전체 리뷰/안전한 로컬 머지가 남았다. 기존5실패와 deferred Minor, main dirty 및 API watch/DB 운영 경계는 그대로 보존한다.
+
+- `fa5ab18b..7ad60dcc` 단일 전체 브랜치 최종 리뷰는 C0/I3/Minor7·With fixes다. 수신 시만 확인한 전달 만료가 queue/native RF까지 이어지지 않는 점, 시간제 잠금 동안 한 번도 적용되지 않은 pulse 대상의 종료 결과가 pending에 남는 점, 서울1월1일 종료 일정이 공휴일 UTC 연도 승격 조회에서 빠지는 점을 소스로 확인했다. 단일 API/Gateway 담당자가 세 지적과 직접 연관 회귀만 수리하며 전체 suite/브라우저/build를 반복하지 않는다. 최종 scoped 재검토와 안전한 병합 전 완료로 표시하지 않는다. Minor7·기존5실패·현재 운영clock/ACL/provider/Gateway/HIL 준비 한계도 유지한다.
+
+- 최종 단일 수리 `2e26d5bb`의 소유12files·manifest30entries/current·committed12hash mismatch0, Gateway5files164PASS/0SKIP·API2files16PASS/38이름필터제외·두type/diff0을원로그와대조했다. 마지막164는순수testhelper generic타입보정전이며그뒤Gatewaytype0이다. 한정재검토는원Important3 ADDRESSED/M2 cleanup RESOLVED이나새Important NB1(완료된skip event의historical marker가나중의다른eventcapture를거절)을확인했다. 총괄의source-trace대조도같으며NB1실행회귀/수리는아직이다. 전체완료/merge승인없음·44/45steps, SDD최종1회수리/재검토상한뒤추가방향을사용자에게확인하고branch/evidence를보존한다. M1/M3–M7·기존Web5실패·운영/HIL한계와main71dirty/자동watcher도미해소다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 

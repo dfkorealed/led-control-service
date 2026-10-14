@@ -2,7 +2,7 @@ import {
   automationConfigAppliedSchema,
   type AutomationConfigApplied,
   type AutomationSnapshot,
-  type AutomationSnapshotV2
+  type AutomationSnapshotV2, type AutomationSnapshotV3
 } from "@led-control/shared";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import {
@@ -53,9 +53,9 @@ interface AutomationRuntimeOptions {
   onActivationFailed?: (previous: AutomationSnapshot | null) => Promise<void>;
   now?: () => Date;
   /** Trusted bootstrap-only preflight. Default unavailable; not an env capability. */
-  bioSnapshotPreflight?: (snapshot: AutomationSnapshotV2) => Promise<void>;
+  bioSnapshotPreflight?: (snapshot: AutomationSnapshotV2 | AutomationSnapshotV3) => Promise<void>;
   bioSnapshotLifecycle?: BioSnapshotLifecycle;
-  recoverDegradedBioSnapshot?: (snapshot: AutomationSnapshotV2) => Promise<DesiredLightingState>;
+  recoverDegradedBioSnapshot?: (snapshot: AutomationSnapshotV2 | AutomationSnapshotV3) => Promise<DesiredLightingState>;
 }
 
 export class AutomationRuntime {
@@ -65,6 +65,7 @@ export class AutomationRuntime {
   private desiredState: DesiredLightingState = {};
   private initialized = false;
   private degradedRecovery = false;
+  private activating = false;
 
   constructor(private readonly options: AutomationRuntimeOptions) {
     this.now = options.now ?? (() => new Date());
@@ -82,6 +83,11 @@ export class AutomationRuntime {
     return this.snapshot ? structuredClone(this.snapshot) : null;
   }
 
+  /** Swapping a candidate for recomputation does not make it applied authority. */
+  get currentAppliedSnapshot() {
+    return this.activating || this.degradedRecovery ? null : this.currentSnapshot;
+  }
+
   initialize() {
     return this.queue.run(async () => {
       if (this.initialized) return;
@@ -95,7 +101,7 @@ export class AutomationRuntime {
           this.options.bioSnapshotLifecycle?.commit(recovered);
         } catch (error) {
           this.options.bioSnapshotLifecycle?.rollback(recovered);
-          if (error instanceof AutomationRuntimeError && error.code === "bio_pulse_control_unavailable" && recovered.schemaVersion === 2
+          if (error instanceof AutomationRuntimeError && error.code === "bio_pulse_control_unavailable" && (recovered.schemaVersion === 2 || recovered.schemaVersion === 3)
             && this.options.bioSnapshotLifecycle?.retain && this.options.recoverDegradedBioSnapshot) {
             this.options.bioSnapshotLifecycle.retain(recovered);
             const desired = normalizeDesiredState(await this.options.recoverDegradedBioSnapshot(recovered));
@@ -173,7 +179,7 @@ export class AutomationRuntime {
       const snapshot = parseAutomationSnapshot(value, this.options.scope);
       // Declared V2 support confirms transport/configuration ability only.
       // Product BIO execution remains OFF until its independent authority is wired.
-      if (!this.options.bioSnapshotPreflight && snapshot.schemaVersion === 2 && snapshot.vehicleEventRules.some(rule =>
+      if (!this.options.bioSnapshotPreflight && (snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) && snapshot.vehicleEventRules.some(rule =>
         rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) {
         throw runtimeError("bio_pulse_control_unavailable", snapshot);
       }
@@ -188,13 +194,14 @@ export class AutomationRuntime {
   }
 
   private async preflight(snapshot: AutomationSnapshot): Promise<void> {
-    if (snapshot.schemaVersion !== 2 || !snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) return;
+    if ((snapshot.schemaVersion !== 2 && snapshot.schemaVersion !== 3) || !snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) return;
     try { await this.options.bioSnapshotPreflight!(snapshot); }
     catch (cause) { throw new AutomationRuntimeError("bio_pulse_control_unavailable", "bio_pulse_control_unavailable",
       snapshot.revision, snapshot.payloadHash, { cause }); }
   }
 
   private async activate(snapshot: AutomationSnapshot, swapBeforeRecompute: boolean) {
+    this.activating = true;
     const previousSnapshot = this.snapshot;
     if (swapBeforeRecompute) this.snapshot = snapshot;
     try {
@@ -224,7 +231,7 @@ export class AutomationRuntime {
         snapshot.payloadHash,
         { cause: error }
       );
-    }
+    } finally { this.activating = false; }
   }
 
   private async rollbackActivation(
