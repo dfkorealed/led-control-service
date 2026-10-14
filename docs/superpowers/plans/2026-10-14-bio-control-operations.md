@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–3 공유 계약·저장 구조·공휴일 처리는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`). Task4 실제 HTTP/MQTT 연결을 시작하며 Tasks5–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
+**현재 상태:** Tasks1–4 공유 계약·저장 구조·공휴일·HTTP/MQTT 처리는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`/`19c87c6f`). Task5 engine→backend 순차 구현을 시작하며 Tasks6–9는 대기다. 전체 기능 완료·운영 반영은 아직 아니다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -21,8 +21,9 @@
 | Task1 공유 계약·V3·MQTT/ACL | 완료, 재리뷰 지적0 |
 | Task2 DB 저장·V3 SQL | 완료, 차단 지적0·Minor1 최종 리뷰 추적 |
 | Task3 공식 공휴일 완전 데이터 | 완료, 차단 지적0·테스트 Minor2 최종 리뷰 추적 |
-| Task4 HTTP/MQTT/V3 연결 | 진행 중 |
-| Tasks5–7 engine/Gateway | 대기 |
+| Task4 HTTP/MQTT/V3 연결 | 완료, fix round1 재리뷰 지적0 |
+| Task5 발생일 평가기·달력 API | engine→backend 순차 구현 중 |
+| Tasks6–7 Gateway | 대기 |
 | Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | 대기 |
 
 ## Global Constraints
@@ -30,6 +31,7 @@
 - 신규 기능은 BIO 센서 조명만 지원한다. 기존 native/다른 장치 코드·데이터·등록·정책을 삭제/변환하거나 새 generic/ESP32 분기를 만들지 않는다.
 - 대상은 당시 resolve한 단일 Gateway의 unique 1~1000대, 밝기 정수 0~100%, 기간 정수 1~1440분, preset 15/30/60/120분이다. active BIO source 자체는 금지한다.
 - startedAt은 서버 시작 transaction의 UTC instant, endsAt=startedAt+durationMinutes×60,000ms다. 재전송·중복·재접속·재시작으로 연장하지 않는다.
+- 신규 start/apply delivery는 기존 CommandDbClockHealth.assertHealthy(tx)의 신뢰된 DB UTC sample과 currentassignment의 현재 적용확인된 V3(snapshot desired/applied revision·exact hash/ACK)를 요구한다. attestor 부재는 새시작503/전달보류, 미적용 config는409다. 기존 요청 replay·조회·accepted end intent와 durable 만료/복구를 새 admission 관문으로 폐기하지 않는다. fixture bigint generation을 중앙 Set epoch로 사용하지 않는다.
 - 활성/unresolved fixture lease는 하나다. 새 임시·영구·자동 SET은 충돌 시 거절/보류한다. 자동 증거·건강·정책은 계속 갱신한다.
 - 임시 제어는 baseline 승격·retireManualTargets·영구 suppression·영구 preState 삭제를 호출하지 않는다.
 - applyConfirmed와 configurationMayHaveChanged/partialMutation은 별개다. RF0/unchanged를 증명한 대상만 복귀 불필요; unknown은 lease를 유지한다.
@@ -198,9 +200,13 @@ git commit -m "feat(api): validate complete Korean holiday datasets"
 
 ## Task 4: HTTP session·전달 outbox·exact 결과 및 V3 호환 — backend
 
+**실행 경계 보완:** source 확인 후 root는 기존 DB clock attestor와 현재 적용된 V3를 새 admission/apply 관문으로 고정했다. trusted sample은 같은 시작 transaction에서 UTC instant로 사용하며 임의 attestor/process현재시각을 신뢰증거로 합성하지 않는다. admitted replay/query/end intent는 독립 유지하고 currentconfig 없는 새start는409다. 실제 자동 목표/health/RF 직전 평가와 독립GET 일치는 Gateway Task7의 권위, API는 최신 desired/applied revision/hash·원 admission/assignment/target/현재owner/generation·strict 확인 evidence를 검증하며 우선순위 계산을 복제하지 않는다. 같은 CommandDbClockHealth provider를 export하기 위한 `apps/api/src/mqtt/mqtt.module.ts` 최소 수정도 추가 소유 범위다.
+
+이미 권한검증·접수된 immutable start의 원payload/절대endsAt 전달은 원actor의 후속권한취소만으로 자동취소하지 않는다. 새HTTP start/end는 현재권한을 재검증하고 releaseintent/만료와 기존clock/currentconfig/귀속/owner 관문은 유지한다. 관리자의 접수중지는 명시end로 처리하며 end/expiry/recovery는 원actor권한과 독립이다.
+
 **Files:** Create apps/api/src/temporary-controls/temporary-controls.controller.ts, temporary-controls.service.ts, temporary-controls.module.ts, temporary-control-publisher.ts, temporary-control-results.ts, temporary-control-retention.ts 및 temporary-controls.service.spec.ts, temporary-control-publisher.spec.ts, temporary-control-results.spec.ts, temporary-control-retention.spec.ts, temporary-controls.integration.spec.ts; Create apps/api/src/automation/bio-pulse-telemetry.spec.ts. Modify apps/api/src/app.module.ts, commands/commands.service.ts, automation/automation-protocol-support.ts, automation/automation-snapshot.service.ts, automation/automation-mqtt-consumer.service.ts, automation/automation-runtime.module.ts, automation/bio-pulse-telemetry.ts, mqtt/mqtt.service.ts, mqtt/topic-scope.ts, docs/menus/control.md. Existing Test automation/{automation-protocol-support.spec.ts,automation-snapshot.service.spec.ts,automation-mqtt-consumer.service.spec.ts}.
 **Consumes:** Tasks1–3 DTO/models/capability/dataset. **Produces:** TemporaryControlsService.start(siteId:string,actor:AuthenticatedUser,input:CreateTemporaryControlInput):Promise<TemporaryControlView>, end(siteId:string,id:string,actor:AuthenticatedUser,input:EndTemporaryControlInput):Promise<TemporaryControlView>, get(siteId:string,id:string,actor:AuthenticatedUser):Promise<TemporaryControlView>, list(siteId:string,actor:AuthenticatedUser,query:TemporaryControlListQuery):Promise<TemporaryControlListResponse>; ingestTemporaryControlResult(scope:{siteId:string;gatewayId:string},result:TemporaryControlResult):Promise<TemporaryControlIngestedReceipt>; assertNoTemporaryLease(tx:Prisma.TransactionClient,fixtureIds:string[]):Promise<void>.
-- [ ] **Step 1 / RED test:** start/end202·server.now·site read/control을 실제 transaction으로 검증하고 같은 fingerprint 재송신·다른 payload409·active source/nonBIO/2GW409·관측 불확정 충돌을 확인한다.
+- [x] **Step 1 / RED test:** start/end202·server.now·site read/control을 실제 transaction으로 검증하고 같은 fingerprint 재송신·다른 payload409·active source/nonBIO/2GW409·관측 불확정 충돌을 확인한다.
 ~~~ts
 it("redacted_replay_and_late_release_never_unlock_new_owner", async () => {
   const first = await h.start({durationMinutes:1}); await h.end(first.id); await h.confirmReleaseReadback(first.id);
@@ -215,15 +221,16 @@ it("previous_v3_snapshot_hash_cannot_promote_current_revision", async () => {
   expect(await h.currentSnapshotApplied()).toBe(false);
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm --filter @led-control/api test --runInBand --runTestsByPath src/temporary-controls/temporary-controls.service.spec.ts src/temporary-controls/temporary-control-publisher.spec.ts src/temporary-controls/temporary-control-results.spec.ts src/temporary-controls/temporary-control-retention.spec.ts src/temporary-controls/temporary-controls.integration.spec.ts. new route/service/identity assertion FAIL.
-- [ ] **Step 3 / 최소 코드:** SessionAuthGuard/Cache-Control private,no-store와 spec §6의 상태 코드를 구현한다. lockMutation→site→대상 identity/lease 순서로 재검증하고 UTC 시작+immutable 대상/예약 generation쌍/sequence/receipt/outbox를 원자 생성한다. end는 이미 예약한 release generation/sessionRevision2로 intent/tombstone을 먼저 기록하고 새 counter를 할당하지 않는다. 기본 commands.service의 신규 SET도 같은 lease를 검사한다. publisher worker lease30,000ms/publish timeout10,000ms와 backoff 최대60,000ms는 기존 automation publisher의 bounded 전달 값을 재사용하고 renew/fence/CAS로 결과를 확정한다. start deliveryWindow=min(10,000ms,endsAt-publishNow), 기존 clock guard2,000ms로 RF 전에 판정한다.
+- [x] **Step 2 / RED 실행:** pnpm --filter @led-control/api test --runInBand --runTestsByPath src/temporary-controls/temporary-controls.service.spec.ts src/temporary-controls/temporary-control-publisher.spec.ts src/temporary-controls/temporary-control-results.spec.ts src/temporary-controls/temporary-control-retention.spec.ts src/temporary-controls/temporary-controls.integration.spec.ts. new route/service/identity assertion FAIL.
+- [x] **Step 3 / 최소 코드:** SessionAuthGuard/Cache-Control private,no-store와 spec §6의 상태 코드를 구현한다. lockMutation→site→대상 identity/lease 순서로 재검증하고 UTC 시작+immutable 대상/예약 generation쌍/sequence/receipt/outbox를 원자 생성한다. end는 이미 예약한 release generation/sessionRevision2로 intent/tombstone을 먼저 기록하고 새 counter를 할당하지 않는다. 기본 commands.service의 신규 SET도 같은 lease를 검사한다. publisher worker lease30,000ms/publish timeout10,000ms와 backoff 최대60,000ms는 기존 automation publisher의 bounded 전달 값을 재사용하고 renew/fence/CAS로 결과를 확정한다. start deliveryWindow=min(10,000ms,endsAt-publishNow), 기존 clock guard2,000ms로 RF 전에 판정한다.
   end/recovery는 별도10,000ms 전달 window로 재송신한다. 기존 MAX_DELIVERY_ATTEMPTS10/MAX_DELIVERY_AGE_MS15분은 기존 batch 관측 경계 재사용이며 새 제품 정책이 아니다. terminal batch와 영속 release intent 수명을 분리해 unresolved lease 삭제·복구 종료 조건으로 사용하지 않는다. 새 batch/재접속에서 durable 재시도를 계속하며 holding 시간은 연장하지 않는다. 결과 receipt→durable ingested ACK 순서를 지키고 이전 assignment/대상/원 commandhash/admissionRevision/sequence/generation의 ACK를 현재 상태에 적용하지 않는다. restorationRevision은 별도 최신 목표 증거다.
   V3 snapshot 생성/strict parse·known-version 선언/SQL 자격을 함께 갱신하고 bio-pulse-telemetry의 exact envelope/source binding/hash와 ACK 분기를 보존한다. 권한 만료는 새 쓰기를 막지만 accepted safety expiry/recovery는 멈추지 않는다. UTC3개월 terminal 상세 redaction만 기존 ON/OFF에 연결하며 최소 operation fingerprint/fixture counter/result replay receipt는 유지한다.
-- [ ] **Step 4 / GREEN:** Step2 동일 뒤 pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/automation-protocol-support.spec.ts src/automation/automation-snapshot.service.spec.ts src/automation/automation-mqtt-consumer.service.spec.ts src/automation/bio-pulse-telemetry.spec.ts src/commands/commands.service.spec.ts.401/403/404/400/409/503/202·cancel-before-start·권한취소/DB clock·두 worker lease·PUBACK≠apply·redaction·V2보존/V3strict PASS. pnpm --filter @led-control/api typecheck; pnpm --filter @led-control/api build exit0. PG fixture는 위 integration 파일 자체 생성·정리만 허용한다.
-- [ ] **Step 5 / 소유 commit:**
+- [x] **Step 4 / GREEN:** Step2 동일 뒤 pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/automation-protocol-support.spec.ts src/automation/automation-snapshot.service.spec.ts src/automation/automation-mqtt-consumer.service.spec.ts src/automation/bio-pulse-telemetry.spec.ts src/commands/commands.service.spec.ts.401/403/404/400/409/503/202·cancel-before-start·권한취소/DB clock·두 worker lease·PUBACK≠apply·redaction·V2보존/V3strict PASS. pnpm --filter @led-control/api typecheck; pnpm --filter @led-control/api build exit0. PG fixture는 위 integration 파일 자체 생성·정리만 허용한다.
+- [x] **Step 5 / 소유 commit:**
 ~~~bash
 git add apps/api/src/temporary-controls/temporary-controls.controller.ts apps/api/src/temporary-controls/temporary-controls.service.ts apps/api/src/temporary-controls/temporary-controls.module.ts apps/api/src/temporary-controls/temporary-control-publisher.ts apps/api/src/temporary-controls/temporary-control-results.ts apps/api/src/temporary-controls/temporary-control-retention.ts apps/api/src/temporary-controls/temporary-controls.service.spec.ts apps/api/src/temporary-controls/temporary-control-publisher.spec.ts apps/api/src/temporary-controls/temporary-control-results.spec.ts apps/api/src/temporary-controls/temporary-control-retention.spec.ts apps/api/src/temporary-controls/temporary-controls.integration.spec.ts apps/api/src/app.module.ts apps/api/src/commands/commands.service.ts apps/api/src/commands/commands.service.spec.ts apps/api/src/automation/automation-protocol-support.ts apps/api/src/automation/automation-protocol-support.spec.ts apps/api/src/automation/automation-snapshot.service.ts apps/api/src/automation/automation-snapshot.service.spec.ts apps/api/src/automation/automation-mqtt-consumer.service.ts apps/api/src/automation/automation-mqtt-consumer.service.spec.ts apps/api/src/automation/bio-pulse-telemetry.ts apps/api/src/automation/bio-pulse-telemetry.spec.ts apps/api/src/mqtt/mqtt.service.ts apps/api/src/mqtt/topic-scope.ts docs/menus/control.md
 git add apps/api/src/automation/automation-runtime.module.ts
+git add apps/api/src/mqtt/mqtt.module.ts
 git commit -m "feat(api): deliver and reconcile BIO temporary sessions"
 ~~~
 
