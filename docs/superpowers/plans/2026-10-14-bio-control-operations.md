@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Task1 공유 계약은 구현·리뷰 수정·재리뷰 완료(`639a988c`/`111ef160`). Task2 저장 구조를 시작하며 Tasks3–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
+**현재 상태:** Tasks1–2 공유 계약·저장 구조는 구현/리뷰 완료(`111ef160`/`0d201dbd`). Task3 공휴일 완전 데이터 처리를 시작하며 Tasks4–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -19,8 +19,9 @@
 | 작업 | 상태 |
 | --- | --- |
 | Task1 공유 계약·V3·MQTT/ACL | 완료, 재리뷰 지적0 |
-| Task2 DB 저장·V3 SQL | 진행 중 |
-| Tasks3–7 API/engine/Gateway | 대기 |
+| Task2 DB 저장·V3 SQL | 완료, 차단 지적0·Minor1 최종 리뷰 추적 |
+| Task3 공식 공휴일 완전 데이터 | 진행 중 |
+| Tasks4–7 API/engine/Gateway | 대기 |
 | Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | 대기 |
 
 ## Global Constraints
@@ -147,7 +148,7 @@ git commit -m "feat(shared): define BIO temporary control and V3 contracts"
 
 **Files:** Modify apps/api/prisma/schema.prisma, docs/database-schema.md, docs/menus/control.md; Create apps/api/prisma/migrations/20261014090000_bio_temporary_control_calendar/migration.sql, apps/api/src/automation/bio-control-schema.integration.spec.ts. 기존 test/support/disposable-postgres.ts를 소비한다. 과거20260930160000/20261008060000 migration은 읽기만 한다.
 **Consumes:** Task1 exact generation/version/capability. **Produces:** Prisma TemporaryControlSession/TemporaryControlTarget/TemporaryControlLease/TemporaryControlOperationReceipt/TemporaryControlOutbox/TemporaryControlResultReceipt/HolidayDataset/HolidayYearCoverage; DB admission FK/unique/CHECK와 V2/V3 qualification SQL.
-- [ ] **Step 1 / RED test:** disposablePostgres().deploy/자기 fixture를 사용하고 기존 native/BIO row/defaultfalse를 대조한다. 직접 SQL 동시 lease·타site FK·generation rollback·retention 후 replay도 검증한다.
+- [x] **Step 1 / RED test:** disposablePostgres().deploy/자기 fixture를 사용하고 기존 native/BIO row/defaultfalse를 대조한다. 직접 SQL 동시 lease·타site FK·generation rollback·retention 후 replay도 검증한다.
 ~~~ts
 it("recreated_fixture_and_redacted_replay_keep_owner_fence", async () => {
   await h.redactTerminalDetails(); expect(await h.idempotencyCount()).toBe(2);
@@ -157,11 +158,11 @@ it("recreated_fixture_and_redacted_replay_keep_owner_fence", async () => {
   expect(await h.readExistingSchedule()).toMatchObject({excludeWeekends:false,excludeHolidays:false});
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm workspace:prepare 후 pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/bio-control-schema.integration.spec.ts. 새 migration/column/constraint가 없는 assertion FAIL을 확인한다. PostgreSQL16 prerequisite 부재는 skip/PASS로 대체하지 않는다.
-- [ ] **Step 3 / 최소 코드:** migration은 새 파일에만 작성한다. fixtureId 하나의 lease row에 owner nullable·identity·마지막 counter를 유지하고 unresolved session/fixture 삭제를 RESTRICT한다. 시작에서 apply=counter+1/release=counter+2를 예약하고 마지막 counter를+2로 원자 저장한다. site/gateway composite FK, start/end receipt unique(site,actor,operation,clientRequestId), target unique(session,fixture), exact event/hash receipt를 만든다. 새 fixtureId/다른UUID는 별도 identity이며 과거 counter 복사/PK 재사용은 하지 않는다. 설정/등록 보존과 terminal 상세 redaction 후 최소 receipt/tombstone 보존을 분리한다.
+- [x] **Step 2 / RED 실행:** pnpm workspace:prepare 후 pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/bio-control-schema.integration.spec.ts. 새 migration/column/constraint가 없는 assertion FAIL을 확인한다. PostgreSQL16 prerequisite 부재는 skip/PASS로 대체하지 않는다.
+- [x] **Step 3 / 최소 코드:** migration은 새 파일에만 작성한다. fixtureId 하나의 lease row에 owner nullable·identity·마지막 counter를 유지하고 unresolved session/fixture 삭제를 RESTRICT한다. 시작에서 apply=counter+1/release=counter+2를 예약하고 마지막 counter를+2로 원자 저장한다. site/gateway composite FK, start/end receipt unique(site,actor,operation,clientRequestId), target unique(session,fixture), exact event/hash receipt를 만든다. 새 fixtureId/다른UUID는 별도 identity이며 과거 counter 복사/PK 재사용은 하지 않는다. 설정/등록 보존과 terminal 상세 redaction 후 최소 receipt/tombstone 보존을 분리한다.
   새 migration에서 GatewayAutomationProtocolSupport CHECK를 known1/2/3로 교체하고 V3 capability column을 추가한다. bio_sensor_blocked_reasons 및 그 소비 qualification/trigger 함수는 known2 또는 필수 BIO 증거를 가진3으로 교체한다. numeric3만으로 ready를 만들지 않으며 기존V2 source 자격을 유지한다. HolidayYearCoverage는 완전 dataset FK와 country/year unique를 원자 교체한다.
-- [ ] **Step 4 / GREEN:** 위 명령 동일+pnpm --filter @led-control/api prisma:generate. 테스트가 자기 PG에서 migrate deploy/default/보존/동시owner/SQL qualification PASS, generate exit0이어야 한다. ambient DATABASE_URL로 prisma:migrate/dev 또는 운영 deploy를 실행하지 않는다.
-- [ ] **Step 5 / 소유 commit:**
+- [x] **Step 4 / GREEN:** 위 명령 동일+pnpm --filter @led-control/api prisma:generate. 테스트가 자기 PG에서 migrate deploy/default/보존/동시owner/SQL qualification PASS, generate exit0이어야 한다. ambient DATABASE_URL로 prisma:migrate/dev 또는 운영 deploy를 실행하지 않는다.
+- [x] **Step 5 / 소유 commit:**
 ~~~bash
 git add apps/api/prisma/schema.prisma apps/api/prisma/migrations/20261014090000_bio_temporary_control_calendar/migration.sql apps/api/src/automation/bio-control-schema.integration.spec.ts docs/database-schema.md docs/menus/control.md
 git commit -m "feat(api): persist BIO session leases and V3 qualification"
