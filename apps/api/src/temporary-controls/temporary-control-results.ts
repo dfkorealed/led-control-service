@@ -45,8 +45,9 @@ export class TemporaryControlResults {
         || result.sessionRevision > current.sessionRevision) reason = "stale_generation";
       else if (!fixture || fixture.siteId !== scope.siteId || fixture.gatewayId !== scope.gatewayId || fixture.meshNodeId !== target.meshNodeId
         || fixture.meshNode?.deviceUuid !== `bio:${target.nativeUuid}` || fixture.meshNode.meshAddress !== target.logicalAddress) reason = "stale_target";
-      else if (Date.parse(result.observedAt) < session.startedAt.getTime() || Date.parse(result.observedAt) > now.getTime() + 2000) reason = "untrusted_time";
-      else if (result.applyConfirmed && result.sessionRevision === 1 && (result.configurationReadback?.bioMode !== (session.brightness === 0 ? "force-off" : "force-on")
+      const identityTrusted = reason === null;
+      if (!reason && (Date.parse(result.observedAt) < session.startedAt.getTime() || Date.parse(result.observedAt) > now.getTime() + 2000)) reason = "untrusted_time";
+      if (!reason && result.applyConfirmed && result.sessionRevision === 1 && (result.configurationReadback?.bioMode !== (session.brightness === 0 ? "force-off" : "force-on")
         || (session.brightness !== 0 && result.configurationReadback?.configuredHighBrightnessPercent !== session.brightness))) reason = "apply_readback_mismatch";
       if (!reason && result.releaseConfirmed) {
         try {
@@ -67,6 +68,13 @@ export class TemporaryControlResults {
       if (!reason) {
         await projectResult(tx, current, target, result, history, now);
         await aggregateSession(tx, current, now);
+      } else if (identityTrusted && (result.configurationMayHaveChanged || result.rfWriteEvidence !== "not_started")) {
+        // Rejecting success/time evidence does not prove RF never happened.
+        // Preserve only the hazard for this exact live owner; never promote a
+        // rejected readback/confirmation or rewrite the immutable receipt/ACK.
+        await tx.temporaryControlTarget.update({ where: { sessionId_fixtureId: { sessionId: session.id, fixtureId: target.fixtureId } },
+          data: { configurationMayHaveChanged: true, unchangedConfirmed: false } });
+        await aggregateSession(tx, current, now);
       }
       return persistAck(tx, result, status, reason, now, now);
     }, { timeout: 30_000 });
@@ -79,7 +87,7 @@ async function projectResult(tx: Prisma.TransactionClient, session: TemporaryCon
   const unchanged = !mutation && history.every(r => !r.configurationMayHaveChanged && r.rfWriteEvidence === "not_started" && r.partialMutation === "none");
   // Equal-time contradictory reports remain unresolved; timestamp ties never
   // let iteration order erase an uncertain write or claim a confirmed hold.
-  const ties = [...history.filter(r => r.sessionRevision === result.sessionRevision && r.observedAt === result.observedAt), result];
+  const ties = [...history.filter(r => r.sessionRevision === result.sessionRevision && Date.parse(r.observedAt) === Date.parse(result.observedAt)), result];
   const releaseConfirmed = result.releaseConfirmed && ties.every(r => r.releaseConfirmed);
   // A mixed start keeps RF0 targets reserved until the session's release
   // revision is observed. Releasing them early would prevent durable revision2

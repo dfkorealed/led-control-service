@@ -203,6 +203,49 @@ describe("temporary sessions on self-owned PostgreSQL", () => {
     await db.meshNode.update({ where: { id: nonBio.node.id }, data: { vehicleSensorProtocol: "bluez_stateful" } });
     await expect(nonBio.start()).rejects.toMatchObject({ status: 409 });
   });
+  it.each(["apply", "release"])("treats equivalent ISO instants conservatively for %s confirmation", async kind => {
+    const h = await harness(); const first = await h.start();
+    if (kind === "release") await h.end(first.id);
+    const { TemporaryControlResults } = require("./temporary-control-results"); const consumer = new TemporaryControlResults(db);
+    const config = await db.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: h.gateway.id } });
+    const instant = new Date(Math.ceil(Date.now()/1000)*1000).toISOString();
+    const revision = kind === "apply" ? {} : { kind, sessionRevision: 2, targetGeneration: "2" };
+    const uncertain = await report(h, first.id, { ...revision, configurationMayHaveChanged: true, rfWriteEvidence: "may_have_written", observedAt: instant.replace(".000Z", "Z") });
+    const confirmed = await report(h, first.id, { ...revision, configurationMayHaveChanged: true, rfWriteEvidence: "observed", observedAt: instant,
+      applyConfirmed: kind === "apply", releaseConfirmed: kind === "release",
+      configurationReadback: { configuredHighBrightnessPercent: 70, bioMode: "force-on" },
+      ...(kind === "release" ? { restorationRevision: config.desiredRevision, restorationPayloadHash: config.payloadHash } : {}) });
+    for (const result of [uncertain, confirmed]) expect(await consumer.ingestTemporaryControlResult({ siteId: h.site.id, gatewayId: h.gateway.id }, result)).toMatchObject({ status: "applied" });
+    expect(await db.temporaryControlTarget.findFirst({ where: { sessionId: first.id } })).toMatchObject({ applyConfirmed: false, releaseConfirmed: false, resolvedAt: null });
+    expect(await db.temporaryControlLease.findUnique({ where: { fixtureId: h.fixture.id } })).toMatchObject({ ownerSessionId: first.id });
+    expect(await h.api.get(h.site.id, first.id, h.actor)).toMatchObject({ state: kind === "apply" ? "unknown" : "recovery_pending" });
+  });
+  it.each(["apply_readback_mismatch", "stale_restoration", "restoration_configuration_pending"])("retains identity-trusted mutation after %s and later RF0", async rejection => {
+    const h = await harness(); const first = await h.start();
+    const { TemporaryControlResults } = require("./temporary-control-results"); const consumer = new TemporaryControlResults(db);
+    const config = await db.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: h.gateway.id } });
+    if (rejection !== "apply_readback_mismatch") await h.end(first.id);
+    if (rejection === "restoration_configuration_pending") {
+      const snapshots = new AutomationSnapshotService({ now: () => new Date() });
+      await db.$transaction(async tx => { await snapshots.lockMutation(tx); await snapshots.incrementDesiredRevision(tx, h.gateway.id); });
+    }
+    const mutation = await report(h, first.id, { configurationMayHaveChanged: true, rfWriteEvidence: "observed",
+      configurationReadback: { configuredHighBrightnessPercent: 69, bioMode: "force-on" },
+      ...(rejection === "apply_readback_mismatch" ? { applyConfirmed: true } : { kind: "release", sessionRevision: 2, targetGeneration: "2", releaseConfirmed: true,
+        restorationRevision: config.desiredRevision, restorationPayloadHash: rejection === "stale_restoration" ? `sha256:${"c".repeat(64)}` : config.payloadHash }) });
+    const scope = { siteId: h.site.id, gatewayId: h.gateway.id };
+    const ack = await consumer.ingestTemporaryControlResult(scope, mutation);
+    expect(ack).toMatchObject({ status: "rejected", reason: rejection, resultHash: mutation.resultHash });
+    const receipt = await db.temporaryControlResultReceipt.findUniqueOrThrow({ where: { eventId: mutation.eventId } });
+    await h.end(first.id);
+    await consumer.ingestTemporaryControlResult(scope, await report(h, first.id, { kind: "release", sessionRevision: 2, targetGeneration: "2" }));
+    expect(await db.temporaryControlTarget.findFirst({ where: { sessionId: first.id } })).toMatchObject({ configurationMayHaveChanged: true, unchangedConfirmed: false, resolvedAt: null });
+    expect(await db.temporaryControlLease.findUnique({ where: { fixtureId: h.fixture.id } })).toMatchObject({ ownerSessionId: first.id });
+    expect(await h.api.get(h.site.id, first.id, h.actor)).toMatchObject({ state: "recovery_pending" });
+    expect(await consumer.ingestTemporaryControlResult(scope, mutation)).toEqual(ack);
+    expect(await db.temporaryControlResultReceipt.findUnique({ where: { eventId: mutation.eventId } })).toEqual(receipt);
+    expect(await db.temporaryControlOutbox.findUnique({ where: { deduplicationKey: `ingested:${mutation.eventId}` } })).toMatchObject({ payload: ack });
+  });
   it("rejects multi-Gateway and pending/unknown permanent command overlap without reserving anything", async () => {
     const h = await harness();
     const other = await db.gateway.create({ data: { siteId: h.site.id, name: "other", serialNumber: randomUUID(), firmwareVersion: "fixture" } });
