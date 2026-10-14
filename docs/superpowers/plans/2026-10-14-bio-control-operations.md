@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** 2026-10-14 사용자 계획·진행 승인 완료. Task1 공유 계약 구현을 시작하며 Tasks2–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
+**현재 상태:** Task1 공유 계약은 구현·리뷰 수정·재리뷰 완료(`639a988c`/`111ef160`). Task2 저장 구조를 시작하며 Tasks3–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -18,8 +18,9 @@
 
 | 작업 | 상태 |
 | --- | --- |
-| Task1 공유 계약·V3·MQTT/ACL | 진행 중 |
-| Tasks2–7 DB/API/engine/Gateway | 대기 |
+| Task1 공유 계약·V3·MQTT/ACL | 완료, 재리뷰 지적0 |
+| Task2 DB 저장·V3 SQL | 진행 중 |
+| Tasks3–7 API/engine/Gateway | 대기 |
 | Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | 대기 |
 
 ## Global Constraints
@@ -68,7 +69,7 @@ test 예시의 h는 각 해당 test 파일에 만드는 로컬 fixture helper이
 - LightingScheduleSnapshotV3는 V1 필드+excludeWeekends/excludeHolidays, AutomationSnapshotV3는 기존 V2 sensorProtocol을 보존하고 V3 schedules/holidayDatasets를 포함한다.
 - AutomationCurrentConfigRequestV3는 V2 귀속+maxSnapshotVersion:3+temporaryControlVersion:1+bioConfigurationReadback:true+durableFixtureLease:true. helper supportsBioAutomation(v)는 알려진2/3만, supportsTemporaryBioControl(v)는3+세 필수 증거만 허용한다.
 - ScheduleCalendarResponse={from,to,timeZone,complete:true,revisionKey,holidayCoverage,schedules,occurrences:[{scheduleId,key,localDate,startsAt,endsAt}]}; revisionKey는 현장+모든 Gateway 승인 revision/hash+dataset revision의 canonical hash다. 이번 구현은 최대42일의 완전 단일 응답으로 pagination을 새로 만들지 않는다.
-- 신규 토픽: sites/{siteId}/gateways/{gatewayId}/commands/temporary-control, events/temporary-control, acks/temporary-control-ingested. API write/read/write, 해당 Gateway read/write/read만; 타Gateway·타site·익명 거절. 기존 wire와 multiplex하지 않는다.
+- 신규 토픽: sites/{siteId}/gateways/{gatewayId}/temporary-control/command, /result, /ingested. API write/read/write, 해당 Gateway read/write/read만; 타Gateway·타site·익명 거절. 기존 wire와 multiplex하지 않는다. 기존 commands/#·events 권한을 새 경로에 상속하지 않으며 render/publish ACL options의 temporaryControlScopes:Array<{siteId:string;gatewayId:string}>로 명시한 현재 귀속만 부여한다. 기본[]는 신규 권한 없음이다. 실제 귀속 설정/ACL 반영은 운영 승인 단계다.
 
 ### Task1에서 고정할 named type 핵심 형태
 
@@ -79,6 +80,8 @@ type TemporaryControlState = "pending"|"applying"|"holding"|"partial"|"unknown"|
 type CreateTemporaryControlInput = {clientRequestId:string;target:DimmingTarget;brightness:number;durationMinutes:number};
 type EndTemporaryControlInput = {clientRequestId:string};
 type TemporaryFixtureSnapshot = {fixtureId:string;meshNodeId:string;nativeUuid:string;logicalAddress:string;applyGeneration:Generation;releaseGeneration:Generation};
+// 기존 BIO wire 신원: nativeUuid /^[0-9a-f]{12}$/ (6 bytes), logicalAddress /^0x[0-7][0-9a-f]{3}$/ 및 0x0000 금지.
+// fixtureId/meshNodeId는 앱 UUID이며 BIO 6-byte nativeUuid와 혼용하지 않는다.
 type WireIdentity = {schemaVersion:1;sessionId:string;sessionRevision:1|2;siteId:string;gatewayId:string;assignmentVersion:number;admissionRevision:number;sequence:number;payloadHash:string};
 type SessionAdmissionIdentity = {sessionId:string;siteId:string;gatewayId:string;assignmentVersion:number;admissionRevision:number;originCommandHash:string;originSequence:number};
 type StartTemporaryControlCommand = WireIdentity & {kind:"start";sessionRevision:1;targets:TemporaryFixtureSnapshot[];brightness:number;startedAt:string;endsAt:string};
@@ -114,9 +117,10 @@ releaseConfirmed는 release의 high brightness와 mode 독립 GET이 최신 자�
 
 ## Task 1: 공유 schema·V3 helper·MQTT/ACL 생성 계약 — backend
 
-**Files:** Create packages/shared/src/temporary-control-contracts.ts, holiday-calendar-contracts.ts, bio-automation-version.ts 및 각각 .test.ts; Modify packages/shared/src/automation-contracts.ts, index.ts, mqtt.ts, mqtt.test.ts, automation-contracts.test.ts, packages/shared/package.json, tsconfig.esm.json; Modify scripts/dev-runtime.mjs, infra/mosquitto.acl.example, scripts/dev-runtime.test.mjs, scripts/dev-mqtt-acl.integration.test.mjs, tests/mqtt-production-config.node.mjs, docs/menus/control.md. scripts/dev-prepare.mjs의 publishMosquittoAcl 소비는 검사하되 계약 불변이면 수정하지 않는다.
+**Files:** Create packages/shared/src/temporary-control-contracts.ts, holiday-calendar-contracts.ts, bio-automation-version.ts 및 각각 .test.ts; Modify packages/shared/src/automation-contracts.ts, index.ts, mqtt.ts, mqtt.test.ts, automation-contracts.test.ts, packages/shared/package.json, tsconfig.esm.json; Modify scripts/dev-runtime.mjs, infra/mosquitto.acl.example, scripts/dev-runtime.test.mjs, scripts/dev-mqtt-acl.integration.test.mjs, tests/mqtt-production-config.node.mjs, docs/menus/control.md. scripts/dev-prepare.mjs는 명시적 temporaryControlScopes 검증/전달에 필요한 경우만 수정한다.
 **Consumes:** 위 공유 계약 초안과 기존 DimmingTarget/command-delivery.ts. **Produces:** 위 named type과 strict temporaryControl{Create,End,Command,Result,IngestedReceipt,View}Schema·automationConfigApplied{V3,DeliveryV3,ReceiptV3}Schema·V3 snapshot/request schema; HolidayDatasetSnapshot/ScheduleCalendarResponse; supportsBioAutomation(value:AutomationCurrentConfigRequest):boolean, supportsTemporaryBioControl(value:AutomationCurrentConfigRequest):boolean; mqttTopics.temporaryControl{Command,Result,Ingested}(siteId:string,gatewayId:string):string.
-- [ ] **Step 1 / RED test:** boundary tests에 전체 최소/최대, unknown key, unique1000/1001, duration0/1441, brightness0/100/101, canonical generation, hash·scope 불일치를 추가한다. 아래 이름/증거를 pin한다.
+  matchesAutomationConfigAppliedReceiptV3(delivery:AutomationConfigAppliedDeliveryV3,receipt:AutomationConfigAppliedReceiptV3):boolean는 site/gateway/ackId/schema/revision/hash의 같은 결과인지 검증한다. 외부 envelope에 없는 revision/hash 필드를 새로 만들어 비교하지 않는다.
+- [x] **Step 1 / RED test:** boundary tests에 전체 최소/최대, unknown key, unique1000/1001, duration0/1441, brightness0/100/101, canonical generation, hash·scope 불일치를 추가한다. 아래 이름/증거를 pin한다.
 ~~~ts
 it("known_v3_only_and_no_legacy_ttl_fallback", () => {
   expect(supportsTemporaryBioControl(h.v2)).toBe(false);
@@ -130,10 +134,10 @@ it("v3_exact_ack_cannot_wrap_v2_or_other_gateway", () => {
   expect(h.v3DeliverySchema.safeParse(h.delivery({gatewayId:h.gatewayA,acknowledgement:h.ack({gatewayId:h.gatewayB})})).success).toBe(false);
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm --filter @led-control/shared test src/temporary-control-contracts.test.ts src/holiday-calendar-contracts.test.ts src/bio-automation-version.test.ts src/automation-contracts.test.ts src/mqtt.test.ts; DEV_MQTT_ACL_INTEGRATION=1 node --test --test-name-pattern='temporary control' scripts/dev-runtime.test.mjs scripts/dev-mqtt-acl.integration.test.mjs tests/mqtt-production-config.node.mjs. missing export/새 ACL 권한 absence로 FAIL을 확인한다; 기존 broker prerequisite 실패는 RED로 계산하지 않으며 지정 새 broker 사례 skip은 허용하지 않는다.
-- [ ] **Step 3 / 최소 코드:** strict discriminated schemas/tuple exact attribution·위 version helper를 구현한다. Web용 두 신규 subpath를 package.json exports/tsconfig.esm.json에 추가하고 CJS/ESM 산출물 모두 검사한다. generator의 API allowlist·Gateway별 read/write와 example template을 함께 갱신한다. ACL test는 자기 소유 disposable broker만 사용한다.
-- [ ] **Step 4 / GREEN:** Step2 명령 동일 실행+pnpm workspace:prepare. schema 전체 지정사례 PASS, ACL own publish/receive PASS·다른 Gateway/익명 DENIED, type/export 준비 exit0. 현재 턴에서는 실행하지 않는다.
-- [ ] **Step 5 / 소유 commit:** 아래만 stage, 총괄 기록/공유 계약 검토 뒤 소비자에 전달한다.
+- [x] **Step 2 / RED 실행:** pnpm --filter @led-control/shared test src/temporary-control-contracts.test.ts src/holiday-calendar-contracts.test.ts src/bio-automation-version.test.ts src/automation-contracts.test.ts src/mqtt.test.ts; DEV_MQTT_ACL_INTEGRATION=1 node --test --test-name-pattern='temporary control' scripts/dev-runtime.test.mjs scripts/dev-mqtt-acl.integration.test.mjs tests/mqtt-production-config.node.mjs. missing export/새 ACL 권한 absence로 FAIL을 확인한다; 기존 broker prerequisite 실패는 RED로 계산하지 않으며 지정 새 broker 사례 skip은 허용하지 않는다.
+- [x] **Step 3 / 최소 코드:** strict discriminated schemas/tuple exact attribution·위 version helper를 구현한다. Web용 두 신규 subpath를 package.json exports/tsconfig.esm.json에 추가하고 CJS/ESM 산출물 모두 검사한다. 새 ACL은 기존 suffix wildcard 생성과 분리하고 canonicalUUID/census 검증된 현장–Gateway mapping의 exact 신규 경로만 부여한다. template도 새 와일드카드 대신 명시적 귀속 예시를 기록한다. 기존 명령 권한은 유지하고 ACL test는 자기 소유 disposable broker만 사용한다.
+- [x] **Step 4 / GREEN:** Step2 명령 동일 실행+pnpm workspace:prepare. schema 전체 지정사례 PASS, ACL own publish/receive PASS·다른 Gateway/익명 DENIED, type/export 준비 exit0. 현재 턴에서는 실행하지 않는다.
+- [x] **Step 5 / 소유 commit:** 아래만 stage, 총괄 기록/공유 계약 검토 뒤 소비자에 전달한다.
 ~~~bash
 git add packages/shared/src/temporary-control-contracts.ts packages/shared/src/temporary-control-contracts.test.ts packages/shared/src/holiday-calendar-contracts.ts packages/shared/src/holiday-calendar-contracts.test.ts packages/shared/src/bio-automation-version.ts packages/shared/src/bio-automation-version.test.ts packages/shared/src/automation-contracts.ts packages/shared/src/automation-contracts.test.ts packages/shared/src/index.ts packages/shared/src/mqtt.ts packages/shared/src/mqtt.test.ts packages/shared/package.json packages/shared/tsconfig.esm.json scripts/dev-runtime.mjs scripts/dev-runtime.test.mjs scripts/dev-mqtt-acl.integration.test.mjs infra/mosquitto.acl.example tests/mqtt-production-config.node.mjs docs/menus/control.md
 git commit -m "feat(shared): define BIO temporary control and V3 contracts"
