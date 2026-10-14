@@ -152,7 +152,7 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
   });
   // Break caught: an event with one lease-suppressed target must relinquish
   // ownership without pulse renewal, RF/readback fabrication, or manual retirement.
-  it.each(["expiry", "operator", "restart"])("closes skipped event target after temporary settlement and permits schedules (%s)", async mode => {
+  it.each(["expiry", "operator", "restart", "replacement"])("closes skipped event target after temporary settlement and permits subsequent automation (%s)", async mode => {
     const f = await fixture(true, true);
     let temporary: BioTemporaryControlRuntime | undefined;
     try {
@@ -205,6 +205,32 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
       expect(current.store.read().bioActivationsByRule[rule]!.completed).toBe(true);
       expect(current.store.read().bioActivationsByRule[rule]!.retiredFixtureIds).toEqual([]);
       expect(current.store.read().bioTargetsByFixture[b]).toBeUndefined();
+      if (mode === "replacement") {
+        // NB1: a completed A's RF0 history cannot prohibit a later rule B's real
+        // capture and RF after replacement. Keep A's proof intact throughout.
+        const historical = current.store.read().bioActivationsByRule[rule]!;
+        const replacementRule = "00000000-0000-4000-8000-000000000009";
+        await current.automationRuntime.hotReload(rehash({ ...base, revision: 5, schemaVersion: 3, holidayDatasets: [],
+          vehicleEventRules: [{ ...base.vehicleEventRules[0]!, id: replacementRule, name: "replacement B", targetFixtureIds: [b],
+            action: { dimmingEnabled: true, brightnessPercent: 70 } }] } as never));
+        expect(current.store.read().bioActivationsByRule[rule]).toEqual(historical);
+        const beforePulse = f.writes.length;
+        f.revision(5); // External software authority must attest B's installed revision.
+        f.advance(100); f.pulse(2);
+        await vi.waitFor(() => {
+          expect(f.errors).toEqual([]);
+          expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 70, bioMode: "force-on" });
+        });
+        expect(f.errors).toEqual([]);
+        expect(f.writes).toHaveLength(beforePulse + 1);
+        expect(current.store.read().bioTargetsByFixture[b]).toMatchObject({
+          activationId: `${replacementRule}:${f.now().toISOString()}`,
+          preState: { configuredHighBrightnessPercent: 30, bioMode: "sensor" },
+          applyResult: { status: "succeeded", observed: { configuredHighBrightnessPercent: 70, bioMode: "force-on" } }, restoreResult: null
+        });
+        expect(current.store.read().bioActivationsByRule[rule]).toEqual(historical);
+        return;
+      }
       (current.scheduleRuntime as any).setBioNormalAuthority({ preflight: async () => {}, current: () => true });
       const schedule = { id: "00000000-0000-4000-8000-000000000008", name: "after settlement", status: "enabled",
         activeFrom: "2026-10-02T00:00:00Z", activeUntil: "2026-10-03T00:00:00Z", localStartTime: "00:00", localEndTime: "01:00",

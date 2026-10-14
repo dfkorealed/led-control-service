@@ -1005,8 +1005,11 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
         !isDeepStrictEqual(vehicle.targetFixtureIds, row.targetFixtureIds))) throw new Error("invalid BIO active occurrence");
       for (const fixtureId of row.targetFixtureIds) {
         const target = state.bioTargetsByFixture[fixtureId];
+        // A completed skip proves only this activation's RF0 history. A later
+        // different activation may own this fixture; active skips must still
+        // reject prior unresolved mutations, and same-activation rows always contradict RF0.
         if (row.skippedFixtureIds.includes(fixtureId) && (target?.activationId === row.activationId ||
-          (target?.preState !== null && target?.preState !== undefined && target.restoreResult?.status !== "succeeded"))) {
+          (!row.completed && target?.preState !== null && target?.preState !== undefined && target.restoreResult?.status !== "succeeded"))) {
           throw new Error("invalid BIO skipped mutation evidence");
         }
         if (row.completed && !row.retiredFixtureIds.includes(fixtureId) && !row.skippedFixtureIds.includes(fixtureId) &&

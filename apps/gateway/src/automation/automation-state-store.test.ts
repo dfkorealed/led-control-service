@@ -28,9 +28,9 @@ const ruleId = "00000000-0000-4000-8000-000000000401";
 const requestedAt = "2026-09-01T01:00:00.000Z";
 const appliedAt = "2026-09-01T01:00:01.000Z";
 
-// Break caught: an old missing field is no proof, but an explicit RF0 skip can
-// complete an event only while no same/prior uncertain mutation contradicts it.
-it("parses skipped RF0 event completion separately from readback and preserves old unknown rows", () => {
+// Break caught: active RF0 skip cannot hide prior uncertainty; completed RF0
+// history must coexist with a different later capture without erasing either.
+it("parses skipped RF0 event completion separately from later capture and preserves active uncertainty across restart", async () => {
   const activationId = `${ruleId}:${requestedAt}`;
   const activation = { activationId, startedAt: requestedAt, snapshotHash: `sha256:${"a".repeat(64)}`,
     binding: { sourceFixtureId: commandId, nativeUuid: "001122334455", logicalAddress: 1, networkId: 2,
@@ -49,9 +49,24 @@ it("parses skipped RF0 event completion separately from readback and preserves o
     preState: { configuredHighBrightnessPercent: 30, bioMode: "sensor" },
     applyResult: { status: "timed_out", attempt: 1, at: requestedAt, observed: null }, restoreResult: null };
   value.bioTargetsByFixture[fixtureId] = previous;
+  value.bioActivationsByRule[ruleId] = { ...activation, completed: false };
   expect(() => parseAutomationState(value)).toThrow("invalid BIO skipped mutation evidence");
   value.bioActivationsByRule[ruleId] = { ...activation, skippedFixtureIds: [], completed: false };
   expect(parseAutomationState(value).bioTargetsByFixture[fixtureId]).toEqual(previous);
+  for (const completed of [false, true]) {
+    value.bioActivationsByRule[ruleId] = { ...activation, completed };
+    value.bioTargetsByFixture[fixtureId] = { ...previous, activationId };
+    expect(() => parseAutomationState(value)).toThrow("invalid BIO skipped mutation evidence");
+  }
+  value.bioActivationsByRule[ruleId] = activation;
+  const later = { ...previous, activationId: "later-activation", applyResult: { ...previous.applyResult, status: "pending", at: appliedAt } };
+  value.bioTargetsByFixture[fixtureId] = later;
+  const path = await statePath(), store = new FileAutomationStateStore(path);
+  await store.initialize();
+  await store.updateDurable(() => value);
+  const restarted = new FileAutomationStateStore(path); await restarted.initialize();
+  expect(restarted.read().bioActivationsByRule[ruleId]).toEqual(activation);
+  expect(restarted.read().bioTargetsByFixture[fixtureId]).toEqual(later);
 });
 
 it("migrates only absent newly added V10 maps and rejects explicitly invalid evidence", () => {

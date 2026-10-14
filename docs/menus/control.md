@@ -7,6 +7,7 @@
 - 시간제 Start의 전달 권위는 원 command/hash/startedAt/endsAt와 분리해 큐와 실행기까지 전달한다. 비동기 clock/preflight·저장 이후와 최종 native 제출에서 전달/세션 만료의 기존 2,000ms 여유, 같은 부팅 monotonic deadline, 최근 신뢰 clock sample을 검사한다. 만료 후 새 적용 SET은 차단하고 이미 필요한 종료·복귀는 계속 처리한다. 재전송은 원 종료 시각을 연장하지 않는다.
 - 임시 lease 때문에 적용하지 않은 이벤트 대상은 activation의 `skippedFixtureIds`에 미변경 근거를 영속 보존한다. 종료 시 RF/readback을 만들지 않고 기존 wire의 superseded/null로 처리해 이벤트 소유권을 닫는다. 과거 uncertain mutation은 건드리지 않으며, 진행 중 lease 해제 후 적용할 때는 capture 전에 skip 근거를 영속 제거한다. 재시작·명시 종료와 이후 스케줄 실행을 검증했다.
 - 공휴일 변경 승격의 영향 Gateway를 서울 civil year 경계로 선택해 1월 1일만 포함하는 일정도 최신 dataset/revision/outbox를 받는다. 실제 자기 소유 PostgreSQL에서 pointer·revision·outbox의 같은 transaction 승격과 실패 시 전체 rollback을 확인했다.
+- NB1의 historical skip 검사는 완료된 A의 RF0 근거와 이후 다른 activation의 capture를 구별한다. 진행 중 skip의 과거 미해결 mutation 차단과 같은 activation의 모순 차단은 유지하며, 완료된 A의 proof는 삭제하지 않는다. 실제 A 미적용·완료→임시 settlement→snapshot 규칙 B 교체→새 pulse→정상 preState capture·70% 설정 및 파일 재시작을 직접 검증했다.
 
 ### 미구현
 
@@ -15,7 +16,7 @@
 ### 부족하거나 개선이 필요한 기능
 
 - 확인은 지정 Gateway 5개 파일 164개 테스트, API의 지정 snapshot/promotion/rollback 16개 테스트와 두 package 타입 검사 범위다. 전체 suite·build·광출력·전원 장애 복귀의 완료 증거로 확대하지 않는다. 최종 리뷰의 별도 Minor 및 기존 Web ControlView 실패는 이 수정 범위 밖의 제한으로 남긴다.
-- 한정 재검토에서 기존 지적 3건은 해결됐으나 Important NB1이 남았다. 완료된 이벤트 A의 `skippedFixtureIds`가 이후 규칙 교체로 생긴 정상 이벤트 B의 대상 저장을 `invalid BIO skipped mutation evidence`로 막는다. historical RF0 근거와 이후 다른 activation mutation을 구별하는 parser 수리·직접 회귀 전에는 전체 완료/병합 가능으로 표시하지 않는다. 현재는 source-trace로 확인했으며 새 실행 재현은 아직이다.
+- NB1 추가 수리 검증은 기존 store/production integration 두 파일 96개 테스트와 Gateway 타입 검사에 한정한다. 이전 164개/API/Web/build 전체를 재검증한 결과가 아니며, 총괄의 승인된 한정 재검토와 별도 운영 관문은 남아 있다.
 
 ### 관련 파일
 
