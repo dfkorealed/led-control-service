@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–9 소프트웨어 구현과 태스크별 리뷰는 완료했다(Task7 `1fe9ff53`, Task8 `1fc20739`, Task9 `a02fd1b0`+fix1 `67c85ef9`). 지정 ‘제어 UI 개선 담당자’의 직접480PASS/기존5FAIL·4E2E·UI위반0 및 createdAt 보정후31covering/type/build 증거와, 후속 권한/불확정 요청 수리의16PASS·테스트 생성자 보정후3PASS/type0을 구분한다. `fa5ab18b..7ad60dcc` 최종 리뷰의 Important3는 단일 수리 `2e26d5bb`(Gateway164/API16+38이름필터제외·type/diff0) 뒤 한정 재검토에서 모두 ADDRESSED다. 그러나 새Important NB1—완료된 skip activation의 historical 증거가 이후 다른 정상 event capture를 막는 parser 수명—이 남았다. 전체 완료/merge 승인은 없으며 추가 수리 방향·main dirty/운영 경계 확인 전 Step5는 미완료다.
+**현재 상태:** Tasks1–9 소프트웨어 구현·태스크별 리뷰와 최종 Important3/NB1 수리·한정 재검토가 완료됐다. NB1 `1119a048`은 Gateway96PASS/type0·재검토 새C/I0이다. 기존 증거의 시점 차이는 상태판/원 보고서에 유지한다. 사용자 후속 승인에 따라 로딩69변경을 `c6a00fec`로 별도 보존하고 `8436e076`에서 feature 통합했다. 지정 ‘제어 UI 개선 담당자’의6직접파일392PASS/기존5FAIL·5E2E·type/UI/build와 통합 한정 독립 검토 Approved/C0/I0을 확인했다. Step5는 안전한 메인 병합·승인 DB백업/migration/API재시작이 남아 미완료다. 기존Minor6/Web5실패·색상/번들 경고·Gateway배포/HIL/clock/V3/provider 준비 한계는 유지한다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -26,7 +26,7 @@
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
 | Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
 | Task8 지정 Web 공통 추가·달력·제외 UI | 완료, C/I0·Minor2 최종 추적 |
-| Task9 시간제 UI·최소 QA·로컬 머지 | 최종 NB1 재검토 지적0; loading 보존/최소 UI 통합검증·안전 머지/승인 DB백업·migration·API재시작 진행 |
+| Task9 시간제 UI·최소 QA·로컬 머지 | 최종 NB1/로딩 통합 검토 C/I0; 안전 메인 머지/승인 DB백업·migration·API재시작 대기 |
 
 ## Global Constraints
 
