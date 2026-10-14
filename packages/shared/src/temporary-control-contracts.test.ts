@@ -96,7 +96,9 @@ describe("temporary control strict contracts", () => {
       startedAt: iso, endsAt: command.endsAt, brightness: 100, targets: [target], results: [result], reason: null, detailsRedacted: false };
     expect(accepts("temporaryControlViewSchema", { ...view, results: [{ ...result, configurationReadback: { configuredHighBrightnessPercent: 60, bioMode: "force-on" } }] })).toBe(false);
     expect(accepts("temporaryControlViewSchema", { ...view, results: [{ ...result, configurationReadback: { configuredHighBrightnessPercent: 100, bioMode: "sensor" } }] })).toBe(false);
-    expect(accepts("temporaryControlViewSchema", { ...view, brightness: 0, results: [{ ...result, configurationReadback: { configuredHighBrightnessPercent: 0, bioMode: "force-off" } }] })).toBe(true);
+    expect(accepts("temporaryControlViewSchema", { ...view, brightness: 0, results: [{ ...result, configurationReadback: { configuredHighBrightnessPercent: 70, bioMode: "force-off" } }] })).toBe(true);
+    for (const bioMode of ["sensor", "force-on"]) expect(accepts("temporaryControlViewSchema", { ...view, brightness: 0,
+      results: [{ ...result, configurationReadback: { configuredHighBrightnessPercent: 70, bioMode } }] })).toBe(false);
   });
   it("cannot label a mutated then restored session rejected or cancelled", () => {
     const release = { ...result, kind: "release", eventId: id, sessionRevision: 2, targetGeneration: "2",
@@ -105,6 +107,24 @@ describe("temporary control strict contracts", () => {
       startedAt: iso, endsAt: command.endsAt, brightness: 100, targets: [target], results: [result, release], reason: null, detailsRedacted: false };
     expect(accepts("temporaryControlViewSchema", view)).toBe(true);
     for (const state of ["rejected", "cancelled"]) expect(accepts("temporaryControlViewSchema", { ...view, state })).toBe(false);
+  });
+  it("rejects restored when maximal-time release evidence includes unknown or partial in either order", () => {
+    const release = { ...result, kind: "release", eventId: id, sessionRevision: 2, targetGeneration: "2",
+      releaseConfirmed: true, restorationRevision: 3, restorationPayloadHash: hash };
+    const ambiguous = { ...release, eventId: "00000000-0000-4000-8000-000000000003", kind: "observation",
+      applyConfirmed: false, releaseConfirmed: false, configurationReadback: null, rfWriteEvidence: "may_have_written" };
+    const view = { id, siteId: id, gatewayId: other, state: "restored", sessionRevision: 2, now: iso,
+      startedAt: iso, endsAt: command.endsAt, brightness: 100, targets: [target], reason: null, detailsRedacted: false };
+    for (const partialMutation of ["unverified", "high_brightness"]) {
+      const unknown = { ...ambiguous, partialMutation };
+      for (const pair of [[release, unknown], [unknown, release]]) {
+        expect(accepts("temporaryControlViewSchema", { ...view, results: [result, ...pair] })).toBe(false);
+      }
+    }
+    const equivalent = { ...release, eventId: ambiguous.eventId };
+    for (const pair of [[release, equivalent], [equivalent, release]]) {
+      expect(accepts("temporaryControlViewSchema", { ...view, results: [result, ...pair] })).toBe(true);
+    }
   });
   it("rejects empty or over-limit immutable wire targets and validates BIO native identity", () => {
     expect(accepts("temporaryControlCommandSchema", { ...command, targets: [] })).toBe(false);

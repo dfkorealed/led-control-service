@@ -97,20 +97,28 @@ export const temporaryControlViewSchema = z.object({ id, siteId: id, gatewayId: 
       issue(context, "session results must preserve one immutable admission", ["results", index]);
     }
   });
-  const latest = (fixtureId: string, revision: 1 | 2) => view.results.filter(result => result.fixtureId === fixtureId && result.sessionRevision === revision)
-    .sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
+  const latest = (fixtureId: string, revision: 1 | 2) => {
+    const results = view.results.filter(result => result.fixtureId === fixtureId && result.sessionRevision === revision);
+    const observedAt = results.reduce((maximum, result) => Math.max(maximum, Date.parse(result.observedAt)), -Infinity);
+    // Wire timestamps may tie. Every maximal-time result must support the
+    // aggregate; array order cannot erase an unresolved observation/mutation.
+    return results.filter(result => Date.parse(result.observedAt) === observedAt);
+  };
   if (view.state === "holding" && view.targets.some(target => {
-    const result = latest(target.fixtureId, 1);
-    return !result?.applyConfirmed || result.configurationReadback?.configuredHighBrightnessPercent !== view.brightness
-      || result.configurationReadback?.bioMode !== (view.brightness === 0 ? "force-off" : "force-on");
+    const results = latest(target.fixtureId, 1);
+    // BIO setOutput(0) preserves high brightness and confirms force-off mode;
+    // positive output additionally requires the requested high setting.
+    return results.length === 0 || results.some(result => !result.applyConfirmed
+      || (view.brightness !== 0 && result.configurationReadback?.configuredHighBrightnessPercent !== view.brightness)
+      || result.configurationReadback?.bioMode !== (view.brightness === 0 ? "force-off" : "force-on"));
   })) issue(context, "holding requires every target's requested configuration readback");
   if (["restored", "rejected", "cancelled"].includes(view.state) && view.targets.some(target => {
-    const result = latest(target.fixtureId, view.sessionRevision);
+    const results = latest(target.fixtureId, view.sessionRevision);
     // A release that sent no RF cannot erase a possibly mutated start. Only a
     // whole unchanged history or a confirmed restoration settles that lease.
     const unchanged = view.results.filter(entry => entry.fixtureId === target.fixtureId).every(entry =>
       !entry.configurationMayHaveChanged && entry.partialMutation === "none" && entry.rfWriteEvidence === "not_started");
-    return !result || !(unchanged || (view.state === "restored" && result.releaseConfirmed));
+    return results.length === 0 || !(unchanged || (view.state === "restored" && results.every(result => result.releaseConfirmed)));
   })) issue(context, "terminal state requires restoration or proven unchanged evidence for every target");
 });
 export const temporaryControlListQuerySchema = z.object({ state: state.optional(), cursor: z.string().min(1).optional(),
