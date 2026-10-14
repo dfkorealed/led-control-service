@@ -2,7 +2,7 @@
 
 기준일: 2026-10-15
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — API/Gateway 완료·Web 연결 준비
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — API/Gateway 완료·Web 연결 중
 
 - 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장부터 승인된 소프트웨어 구현을 진행 중이다. 실제 API/UI 기능 연결·장비 반영은 아직이다.
 - 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing 및 후속 공통 로딩 미커밋 변경을 보존한다.
@@ -41,6 +41,10 @@
 - openssl client verify0·API ready200/5up·17:55:53 Gateway MQTT/heartbeat/transport/protocol/mapping true와singleUSBowner/restart0을확인했다. 후속18:59 API ready는정상이나 조명4offline이다. 실제UI등록확인POST1회500의별도원인은 등록서비스 `CommandDbClockHealth`의증거provider가실제미등록이라는안전관문이다. 가짜시각증거/관문완화/DB강제등록·센서SET/규칙활성화0이며 전체UI시험완료는아니다. 시각provider연결은CRL과구분해후속구현한다.
 
 - Feature-only merge `b2dfec34`로 메인에 이미 커밋된 공통 BIO등록확인 UI/문서3commit을 보존했다. 충돌은 control 현황문서 한 곳이며 양쪽 기록을 유지하고 incoming 제품 소스의 main 일치·feature clean을 확인했다. 메인의 별도 미커밋 loading UI와 실제 서비스/DB/장비는 그대로다. 지정 Web 담당자의 Task8 시작 기준이며 main으로 이번 기능을 병합한 것은 아니다.
+
+- 지정 ‘제어 UI 개선 담당자’에게 BASE020ef0de의 Task8 실제 API 소비 구현을 전달했고 native active/착수commentary를 확인했다. 공통 Add/header·complete server calendar·제외 form/Switch와8namedtests만 맡기며 Task9는 리뷰 전WAIT다. 총괄은source를대신수정하지않고 보고서/독립리뷰/체크리스트를 취합한다.
+
+- Task8 `1fc20739`: 소유 파일 19개, 직접 관련 테스트 8개 파일의 215/215 통과, Web 타입·diff 검사 종료 코드 0이다. 독립 리뷰도 요구사항 충족/품질 승인, Critical·Important 0이다. 완전한 달력 조회는 목록 페이지와 분리하고 scope/권한/범위/불완전 응답·제외 설정의 draft/save/cancel/false·공통 Add 위치를 검토했다. O(schedule×occurrence)와 테스트 prototype 정리 Minor 2건은 최종 검토에 남긴다. 기존 의존성 재사용 중 MAIN Vitest 결과 캐시 1개를 갱신한 실수는 캐시 분리와 이후 mtime 불변을 확인했으나 원본 캐시·운영 영향은 미관측이며 소스·DB·서비스 변경과 혼동하지 않는다. Task9 브라우저 실측/시간제 이력·선택 연결/최종 리뷰·안전한 병합이 남았다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 

@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–7 공유 계약·DB·공휴일·API·발생일/달력·Gateway apply/최신 자동 복귀/V3/MQTT는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`/`19c87c6f`/`fd492953`/`e585b657`/`1fe9ff53`). Task7 fix round1은 재리뷰 I1/I2 ADDRESSED·새C/I/M0이며 Tasks8–9 지정 Web handoff를 준비한다. 전체 기능 완료·운영 반영은 아직 아니다.
+**현재 상태:** Tasks1–8 공유/API/Gateway와 공통 Add·서버 달력·제외 UI는 구현/리뷰 완료(Task7 `1fe9ff53`, Task8 `1fc20739`). Task8 C/I0·Minor2는 최종 triage로 기록했고, Task9 실제 시간제 UI·이력·저장구역·최소 브라우저 QA를 기존 ‘제어 UI 개선 담당자’에게 전달한다. 전체 기능 완료·운영 반영은 아직 아니다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -25,8 +25,8 @@
 | Task5 발생일 평가기·달력 API | 완료, 차단 지적0·문서 Minor1 최종 리뷰 추적 |
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
 | Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
-| Task8 지정 Web 공통 추가·달력·제외 UI | 지정 담당 handoff 준비 |
-| Task9 시간제 UI·최소 QA·로컬 머지 | Task8 리뷰 후 |
+| Task8 지정 Web 공통 추가·달력·제외 UI | 완료, C/I0·Minor2 최종 추적 |
+| Task9 시간제 UI·최소 QA·로컬 머지 | 지정 담당 handoff 준비 |
 
 ## Global Constraints
 
@@ -362,7 +362,7 @@ git commit -m "feat(gateway): verify latest BIO automatic restoration and V3"
 
 **Files:** Create apps/web/src/features/control/automation/components/AutomationRuleHeader.tsx, AutomationRuleHeader.test.tsx, ScheduleCalendar.tsx, ScheduleCalendar.test.tsx, calendar-segments.ts, calendar-segments.test.ts; Modify apps/web/src/api/automation.ts, features/control/automation/{ScheduleControlPanel.tsx,ScheduleControlPanel.test.tsx,VehicleEventControlPanel.tsx,VehicleEventControlPanel.test.tsx,ScheduleDialog.tsx,ScheduleDialog.test.tsx,schedule-form.ts,schedule-form.test.ts,automation-presenters.ts}, components/AutomationRuleControls.tsx, components/AutomationRuleControls.test.tsx, docs/menus/control.md.
 **Consumes:** Task5 ScheduleCalendarResponse/flags·기존 beginAdd/beginEdit(schedule,opener)/scheduleQueryKey. **Produces:** listScheduleCalendar(siteId:string,range:{from:string;to:string},signal?:AbortSignal):Promise<ScheduleCalendarResponse>; AutomationRuleHeader(props:{view?:"list"|"calendar";onViewChange?:(view:"list"|"calendar")=>void;addAction:ReactNode}):JSX.Element; calendarWeekSegments(dates:readonly string[],rangeStart:string):CalendarWeekSegment[]; CalendarWeekSegment={week:number,start:number,end:number,from:string,to:string}.
-- [ ] **Step 1 / RED test:** 서버 완전 응답만 띠로 투영하고 header 추가 한개·dialog draft/bothfalse·cancel/Escape/A→B→신규 격리·scope 만료 중 응답 폐기를 검증한다.
+- [x] **Step 1 / RED test:** 서버 완전 응답만 띠로 투영하고 header 추가 한개·dialog draft/bothfalse·cancel/Escape/A→B→신규 격리·scope 만료 중 응답 폐기를 검증한다.
 ~~~ts
 it("complete_calendar_and_revoked_scope", async () => {
   await h.showCalendarWith101Rules(); expect(h.renderedScheduleIds().size).toBe(101);
@@ -371,10 +371,10 @@ it("complete_calendar_and_revoked_scope", async () => {
   await h.cancelAndOpenNewDialog(); expect(h.exclusions()).toEqual([false,false]);
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm --filter @led-control/web test src/features/control/automation/components/AutomationRuleHeader.test.tsx src/features/control/automation/components/ScheduleCalendar.test.tsx src/features/control/automation/components/calendar-segments.test.ts src/features/control/automation/ScheduleControlPanel.test.tsx src/features/control/automation/VehicleEventControlPanel.test.tsx src/features/control/automation/ScheduleDialog.test.tsx src/features/control/automation/schedule-form.test.ts src/features/control/automation/components/AutomationRuleControls.test.tsx. header/flag/완전 응답 assertion FAIL.
-- [ ] **Step 3 / 최소 코드:** 왼쪽 list/calendar·오른쪽 add를 같은 common header에 두고 event add에도 재사용한다. filter는 목록 전용, reset만 schedule에서 제거하고 event reset은 유지한다. 공통 Switch를 time helper 바로 아래 두고 네 form 변환 함수에 flags를 연결한다. 저장 뒤 list/calendar/next를 동일 revision으로 invalidate한다. 서버 occurrence를 sorted unique→연속 날짜→주 분할하며 hole/앞뒤 월 spill/야간+1일 표시·띠 클릭의 기존 edit dialog 연결을 구현한다.
-- [ ] **Step 4 / GREEN:** Step2 동일. disabled/range/coverage reason·401/403/409·incomplete response/저장 실패·timezone/weekly/중간 holiday/월·주 경계·44px 띠/visible label focus PASS. 별도 shell/map/휴일 관리는 추가하지 않는다.
-- [ ] **Step 5 / 소유 commit:**
+- [x] **Step 2 / RED 실행:** pnpm --filter @led-control/web test src/features/control/automation/components/AutomationRuleHeader.test.tsx src/features/control/automation/components/ScheduleCalendar.test.tsx src/features/control/automation/components/calendar-segments.test.ts src/features/control/automation/ScheduleControlPanel.test.tsx src/features/control/automation/VehicleEventControlPanel.test.tsx src/features/control/automation/ScheduleDialog.test.tsx src/features/control/automation/schedule-form.test.ts src/features/control/automation/components/AutomationRuleControls.test.tsx. header/flag/완전 응답 assertion FAIL.
+- [x] **Step 3 / 최소 코드:** 왼쪽 list/calendar·오른쪽 add를 같은 common header에 두고 event add에도 재사용한다. filter는 목록 전용, reset만 schedule에서 제거하고 event reset은 유지한다. 공통 Switch를 time helper 바로 아래 두고 네 form 변환 함수에 flags를 연결한다. 저장 뒤 list/calendar/next를 동일 revision으로 invalidate한다. 서버 occurrence를 sorted unique→연속 날짜→주 분할하며 hole/앞뒤 월 spill/야간+1일 표시·띠 클릭의 기존 edit dialog 연결을 구현한다.
+- [x] **Step 4 / GREEN:** Step2 동일. disabled/range/coverage reason·401/403/409·incomplete response/저장 실패·timezone/weekly/중간 holiday/월·주 경계·44px 띠/visible label focus PASS. 별도 shell/map/휴일 관리는 추가하지 않는다.
+- [x] **Step 5 / 소유 commit:**
 ~~~bash
 git add apps/web/src/api/automation.ts apps/web/src/features/control/automation/components/AutomationRuleHeader.tsx apps/web/src/features/control/automation/components/AutomationRuleHeader.test.tsx apps/web/src/features/control/automation/components/ScheduleCalendar.tsx apps/web/src/features/control/automation/components/ScheduleCalendar.test.tsx apps/web/src/features/control/automation/components/calendar-segments.ts apps/web/src/features/control/automation/components/calendar-segments.test.ts apps/web/src/features/control/automation/ScheduleControlPanel.tsx apps/web/src/features/control/automation/ScheduleControlPanel.test.tsx apps/web/src/features/control/automation/VehicleEventControlPanel.tsx apps/web/src/features/control/automation/VehicleEventControlPanel.test.tsx apps/web/src/features/control/automation/ScheduleDialog.tsx apps/web/src/features/control/automation/ScheduleDialog.test.tsx apps/web/src/features/control/automation/schedule-form.ts apps/web/src/features/control/automation/schedule-form.test.ts apps/web/src/features/control/automation/automation-presenters.ts apps/web/src/features/control/automation/components/AutomationRuleControls.tsx apps/web/src/features/control/automation/components/AutomationRuleControls.test.tsx docs/menus/control.md
 git commit -m "feat(web): share automation actions and render server calendars"
