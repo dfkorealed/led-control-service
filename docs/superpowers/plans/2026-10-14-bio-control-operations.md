@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–4 공유 계약·저장 구조·공휴일·HTTP/MQTT 처리는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`/`19c87c6f`). Task5 engine→backend 순차 구현을 시작하며 Tasks6–9는 대기다. 전체 기능 완료·운영 반영은 아직 아니다.
+**현재 상태:** Tasks1–5 공유 계약·저장 구조·공휴일·HTTP/MQTT·발생일/달력 API는 구현/리뷰 완료(`111ef160`/`0d201dbd`/`817fe030`/`19c87c6f`/`f7d6cfa2`/`fd492953`). Task6 Gateway 영속 잠금/apply를 시작하며 Tasks7–9는 대기다. 전체 기능 완료·운영 반영은 아직 아니다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -22,8 +22,9 @@
 | Task2 DB 저장·V3 SQL | 완료, 차단 지적0·Minor1 최종 리뷰 추적 |
 | Task3 공식 공휴일 완전 데이터 | 완료, 차단 지적0·테스트 Minor2 최종 리뷰 추적 |
 | Task4 HTTP/MQTT/V3 연결 | 완료, fix round1 재리뷰 지적0 |
-| Task5 발생일 평가기·달력 API | engine→backend 순차 구현 중 |
-| Tasks6–7 Gateway | 대기 |
+| Task5 발생일 평가기·달력 API | 완료, 차단 지적0·문서 Minor1 최종 리뷰 추적 |
+| Task6 Gateway 영속 잠금/apply | 구현 중 |
+| Task7 Gateway 최신 복귀/V3 | 대기 |
 | Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | 대기 |
 
 ## Global Constraints
@@ -247,7 +248,7 @@ function getNextOccurrence(rule:LightingScheduleSnapshot,epochMs:number,timeZone
 function schedulesOverlap(left:LightingScheduleSnapshot,right:LightingScheduleSnapshot,timeZone:string,datasets?:readonly HolidayDatasetSnapshot[]):boolean;
 ~~~
 OccurrenceRange/ScheduleOccurrence는 기존 recurrence.ts 타입을 재사용하고 신규 parallel recurrence 구현은 만들지 않는다.
-- [ ] **Step 1 / RED test:** 주말/휴일/coverage를 시작일 iterator 한곳에서 적용하는 증거로 once/일요일7/31일/윤일/야간+1일/DST spill·next/overlap 일치를 고정한다. complete API는 권한 있는101개 일정을 첫100개에서 자르지 않는다.
+- [x] **Step 1 / RED test:** 주말/휴일/coverage를 시작일 iterator 한곳에서 적용하는 증거로 once/일요일7/31일/윤일/야간+1일/DST spill·next/overlap 일치를 고정한다. complete API는 권한 있는101개 일정을 첫100개에서 자르지 않는다.
 ~~~ts
 it("late_holiday_revision_and_complete_calendar", async () => {
   expect(h.nextBeforeHoliday().localDate).toBe("2026-10-05");
@@ -256,11 +257,11 @@ it("late_holiday_revision_and_complete_calendar", async () => {
   expect(new Set(view.occurrences.map(x => x.scheduleId)).size).toBe(101);
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm --filter @led-control/automation-engine test src/schedule-exclusions.test.ts src/schedule-calendar.test.ts src/recurrence.test.ts src/overlap.test.ts; pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/schedule-calendar.service.spec.ts src/automation/schedules.service.spec.ts src/automation/dto/schedule.dto.spec.ts src/automation/automation-snapshot.service.spec.ts. 새 flag 거절/다음 후보에 휴일 잔존/101개 누락 assertion FAIL을 확인한다.
-- [ ] **Step 3 / 최소 코드:** engine writer가 먼저 iterator/기존 Temporal을 최소 확장하고 검증 commit을 전달한다. 이후 backend writer가 DTO(defaultfalse/patch 생략값 유지)/DB mapping→snapshot/next/overlap/API를 연결한다. 새 true 제외는 BIO 대상/지원V3가 필요하고 휴일true는 Asia/Seoul+전체 active 기간 coverage를 재검증한다. 기존 false 일정의 native 동작은 유지한다.
+- [x] **Step 2 / RED 실행:** pnpm --filter @led-control/automation-engine test src/schedule-exclusions.test.ts src/schedule-calendar.test.ts src/recurrence.test.ts src/overlap.test.ts; pnpm --filter @led-control/api test --runInBand --runTestsByPath src/automation/schedule-calendar.service.spec.ts src/automation/schedules.service.spec.ts src/automation/dto/schedule.dto.spec.ts src/automation/automation-snapshot.service.spec.ts. 새 flag 거절/다음 후보에 휴일 잔존/101개 누락 assertion FAIL을 확인한다.
+- [x] **Step 3 / 최소 코드:** engine writer가 먼저 iterator/기존 Temporal을 최소 확장하고 검증 commit을 전달한다. 이후 backend writer가 DTO(defaultfalse/patch 생략값 유지)/DB mapping→snapshot/next/overlap/API를 연결한다. 새 true 제외는 BIO 대상/지원V3가 필요하고 휴일true는 Asia/Seoul+전체 active 기간 coverage를 재검증한다. 기존 false 일정의 native 동작은 유지한다.
   GET calendar route는 :scheduleId 계열보다 먼저 등록한다. RepeatableRead/site-read 안에서 최대42일 전체 schedules/revisions/dataset을 읽어 완전 단일 응답을 만들고 filter/page 인수 혼입은400이다. 알 수 없는 coverage의 시작만 차단 이유를 기록하고 기존 occurrence end는 유지한다. weekday/holiday 변경과 저장에 새 revision을 발행한다.
-- [ ] **Step 4 / GREEN:** engine Step2→pnpm workspace:prepare→API Step2 순서. flag 단독/default/patch 생략, 시작일 양끝 포함, excluded once 이월 없음, 야간 종료, coverage 부족/다른TZ409, offline 동일 결과와42/43일·101개·동일 transaction revision PASS. pnpm --filter @led-control/automation-engine typecheck; pnpm --filter @led-control/api typecheck 모두 exit0.
-- [ ] **Step 5 / 소유 commit:** engine 결과를 backend에게 순서대로 전달하며 같은 checkout의 단독 writer를 교대한다.
+- [x] **Step 4 / GREEN:** engine Step2→pnpm workspace:prepare→API Step2 순서. flag 단독/default/patch 생략, 시작일 양끝 포함, excluded once 이월 없음, 야간 종료, coverage 부족/다른TZ409, offline 동일 결과와42/43일·101개·동일 transaction revision PASS. pnpm --filter @led-control/automation-engine typecheck; pnpm --filter @led-control/api typecheck 모두 exit0.
+- [x] **Step 5 / 소유 commit:** engine 결과를 backend에게 순서대로 전달하며 같은 checkout의 단독 writer를 교대한다.
 ~~~bash
 git add packages/automation-engine/src/schedule-exclusions.ts packages/automation-engine/src/schedule-exclusions.test.ts packages/automation-engine/src/schedule-calendar.ts packages/automation-engine/src/schedule-calendar.test.ts packages/automation-engine/src/recurrence.ts packages/automation-engine/src/recurrence.test.ts packages/automation-engine/src/overlap.ts packages/automation-engine/src/overlap.test.ts packages/automation-engine/src/index.ts docs/menus/control.md
 git commit -m "feat(engine): evaluate BIO schedule exclusions consistently"
