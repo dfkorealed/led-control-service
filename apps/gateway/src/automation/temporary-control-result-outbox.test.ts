@@ -26,7 +26,7 @@ async function setup() {
     clockTrust: { isTrusted: async () => true }, preflight: noRF, port: { read: noRF, apply: noRF, restore: noRF } });
   await runtime.accept(command);
   const result = Object.values(store.read().temporaryResultOutbox)[0]!;
-  return { store, path, command, result, create: (nextStore = store) => new TemporaryControlResultOutbox(nextStore, body) };
+  return { runtime, store, path, command, result, create: (nextStore = store) => new TemporaryControlResultOutbox(nextStore, body) };
 }
 function receipt(result: TemporaryControlResult): TemporaryControlIngestedReceipt {
   const { schemaVersion, eventId, sessionId, siteId, gatewayId, assignmentVersion, admissionRevision, originCommandHash,
@@ -79,4 +79,21 @@ it("serializes concurrent publisher wakeups without overlapping result batches",
   const wakes = [controller.wake(), controller.wake()];
   await vi.advanceTimersByTimeAsync(20); await Promise.all([initial, ...wakes]);
   await controller.stopAndDrain(); expect(peak).toBe(1);
+});
+it("observes an application receipt only after the current runtime operation drains", async () => {
+  const h = await setup();
+  let unblock!: () => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { unblock = resolve; });
+  const running = h.runtime.withReceiptSettlement(async () => { entered(); await gate; });
+  await started;
+  const controller = new mqtt.TemporaryControlMqtt({ scope: h.command, outbox: h.create(), runtime: h.runtime,
+    now: () => new Date(h.command.startedAt), clockTrust: { isTrusted: async () => true },
+    settleReceipt: operation => h.runtime.withReceiptSettlement(operation) });
+  const settling = controller.handleReceipt(Buffer.from(JSON.stringify(receipt(h.result))));
+  // Give a nonserialized durable receipt mutation enough time to become visible.
+  await new Promise(resolve => setTimeout(resolve, 30));
+  try { expect(await h.create().pending()).toEqual([h.result]); }
+  finally { unblock(); await running; await settling; await controller.stopAndDrain(); }
+  expect(await h.create().pending()).toEqual([]);
 });

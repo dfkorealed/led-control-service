@@ -117,6 +117,9 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
       const read = await f.targetPort.readBioState(b);
       await f.targetPort.restoreBioState(b, read.target, { configuredHighBrightnessPercent: 70, bioMode: "force-on" });
       await f.scheduleRuntime.tick();
+      expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 70, bioMode: "force-on" });
+      (f.scheduleRuntime as any).setBioNormalAuthority({ preflight: async () => {}, current: () => true });
+      await f.scheduleRuntime.tick();
       expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
       await f.automationRuntime.hotReload(automationSnapshot(5, { siteId: a, gatewayId: b, vehicleEventRules: [], schedules: [] }));
       f.failStorage();
@@ -125,15 +128,20 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
       expect(f.store.read().bioNormalConfigurations[b]).toBeDefined();
     } finally { await f.connection.stopAndDrain(); f.source.stop(); }
   });
-  it.each([false, true])("wires temporary owner guard with applied V3 and live authority (revoke at RF=%s)", async revokeAtRf => {
+  it.each(["none", "source", "mapping-await", "mapping-native", "handoff"])("wires temporary owner guard through the final native frame (%s)", async race => {
     const f = await fixture(); const create = (bootstrap as any).createGatewayTemporaryControlServices;
     expect(create).toBeTypeOf("function");
     let guard: ((id: string) => boolean) | undefined;
     let mappedAddress = 2;
+    let mappingRace = false;
+    const mappingListeners = new Set<() => void>();
+    const changeMapping = () => { mappedAddress = 3; for (const listener of mappingListeners) listener(); };
     const port = { read: f.targetPort.readBioState,
       apply: async (id: string, brightness: number, control: any) => {
-        expect(guard?.(id)).toBe(true); await control.beforeMutation("high_brightness"); await control.beforeWrite();
-        if (revokeAtRf) f.unhealthy();
+        expect(guard?.(id)).toBe(true); await control.beforeMutation("high_brightness");
+        mappingRace = race === "mapping-await"; await control.beforeWrite();
+        if (race === "source") f.unhealthy();
+        if (race === "mapping-native") changeMapping();
         if (!control.mayStartWrite()) throw new Error("submission veto");
         const observed = await f.targetPort.readBioState(id);
         await f.targetPort.restoreBioState(id, observed.target, { configuredHighBrightnessPercent: brightness, bioMode: "force-on" });
@@ -146,7 +154,12 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
       scope: { siteId: a, gatewayId: b, assignmentVersion: 1 }, clockTrust: { isTrusted: async () => true }, now: f.now,
       adapter: { setBioTemporaryLeaseGuard: (value: typeof guard) => { guard = value; }, temporaryTargetPort: () => port },
       mappings: { findByFixtureId: async (id: string) => ({ fixtureId: id, nodeId: id, nativeUuid: "001122334466", logicalAddress: mappedAddress,
-        deviceUuid: "bio:001122334466", status: "confirmed" }) }, source: f.source,
+        deviceUuid: "bio:001122334466", status: "confirmed" }),
+        onChange: (listener: () => void) => { mappingListeners.add(listener); return () => { mappingListeners.delete(listener); }; } },
+      source: { subscribe: f.source.subscribe.bind(f.source), onRevoked: f.source.onRevoked.bind(f.source),
+        sourceAuthority: f.source.sourceAuthority.bind(f.source), preflight: async (...args: Parameters<typeof f.source.preflight>) => {
+          const authority = await f.source.preflight(...args); if (mappingRace) { mappingRace = false; changeMapping(); } return authority;
+        } },
       connection: () => ({ ready: true, protocolReady: true, generation: 1 }) });
     try {
       const { payloadHash: _hash, ...base } = f.snapshot(); await f.automationRuntime.hotReload(rehash({ ...base, schemaVersion: 3, holidayDatasets: [] } as never));
@@ -155,19 +168,64 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
         startedAt: f.now().toISOString(), endsAt: new Date(f.now().getTime() + 60_000).toISOString(),
         targets: [{ fixtureId: b, meshNodeId: "00000000-0000-4000-8000-000000000088", nativeUuid: "001122334466", logicalAddress: "0x0002", applyGeneration: "1", releaseGeneration: "2" }] };
       await services.runtime.accept({ ...payload, payloadHash: bioEnvelopeHash(payload) });
-      if (revokeAtRf) {
+      if (race !== "none" && race !== "handoff") {
         expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
         expect(f.store.read().temporarySessions[payload.sessionId]?.targets[b]?.applyResult?.rfWriteEvidence).toBe("not_started");
         return;
       }
       expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 60, bioMode: "force-on" });
       expect(f.store.read().temporarySessions[payload.sessionId]?.state).toBe("holding");
+      if (race === "handoff") {
+        f.advance(60_000); await services.runtime.expire(f.now());
+        const accepted = f.store.read().temporarySessions[payload.sessionId]!.targets[b]!.releaseResult!;
+        const { schemaVersion, eventId, sessionId, siteId, gatewayId, assignmentVersion, admissionRevision, originCommandHash,
+          originSequence, sessionRevision, targetGeneration, resultHash } = accepted;
+        const schedule = { id: rule, name: "current schedule", status: "enabled", activeFrom: "2026-10-02T00:00:00Z", activeUntil: "2026-10-03T00:00:00Z",
+          localStartTime: "00:00", localEndTime: "00:03", excludeWeekends: false, excludeHolidays: false,
+          recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+          action: { dimmingEnabled: true, brightnessPercent: 45 }, fixtureIds: [b] };
+        await f.automationRuntime.hotReload(rehash({ ...base, revision: 5, schemaVersion: 3, holidayDatasets: [], schedules: [schedule] } as never));
+        await services.runtime.expire(f.now());
+        expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 45, bioMode: "force-on" });
+        const newerResult = f.store.read().temporarySessions[payload.sessionId]!.targets[b]!.releaseResult!;
+        expect(newerResult.eventId).not.toBe(eventId);
+        await services.mqtt.handleReceipt(Buffer.from(JSON.stringify({ schemaVersion, eventId, sessionId, siteId, gatewayId,
+          assignmentVersion, admissionRevision, originCommandHash, originSequence, sessionRevision, targetGeneration, resultHash,
+          status: "applied", reason: null, ingestedAt: f.now().toISOString() })));
+        expect(guard?.(b)).toBe(false);
+        expect(f.store.read().temporarySessions[payload.sessionId]!.targets[b]!.releaseResult).toEqual(accepted);
+        await services.mqtt.handleReceipt(Buffer.from(JSON.stringify({ schemaVersion, eventId: newerResult.eventId, sessionId,
+          siteId, gatewayId, assignmentVersion, admissionRevision, originCommandHash, originSequence, sessionRevision,
+          targetGeneration, resultHash: newerResult.resultHash, status: "rejected", reason: "stale_owner", ingestedAt: f.now().toISOString() })));
+        expect(f.store.read().temporarySessions[payload.sessionId]!.targets[b]!.releaseAcknowledged).toBe(true);
+        expect(guard?.(b)).toBe(false);
+        // The historical accepted result is not today's readback. A changed
+        // current schedule must GET/reconcile without a synthetic scalar base.
+        const readsBefore = f.reads.length;
+        await f.automationRuntime.hotReload(rehash({ ...base, revision: 6, schemaVersion: 3, holidayDatasets: [],
+          schedules: [{ ...schedule, action: { dimmingEnabled: true, brightnessPercent: 55 } }] } as never));
+        await f.scheduleRuntime.tick();
+        expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 55, bioMode: "force-on" });
+        expect(f.reads.length).toBeGreaterThanOrEqual(readsBefore + 2);
+        expect(f.genericWrites).toEqual([]); expect(f.store.read().baseBrightnessByFixture[b]).toBeUndefined();
+        const physical = await f.targetPort.readBioState(b);
+        await f.targetPort.restoreBioState(b, physical.target, { configuredHighBrightnessPercent: 70, bioMode: "force-on" });
+        const writesBeforeBoundary = f.writes.length;
+        f.onRead(() => { f.onRead(() => {}); f.advance(180_000); });
+        await f.scheduleRuntime.tick();
+        expect(f.writes).toHaveLength(writesBeforeBoundary);
+        expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 70, bioMode: "force-on" });
+        await f.scheduleRuntime.tick();
+        expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+        expect(f.store.read().baseBrightnessByFixture[b]).toBeUndefined();
+        return;
+      }
       mappedAddress = 3; f.advance(60_000); await services.runtime.expire(f.now());
       expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 60, bioMode: "force-on" });
       expect(f.store.read().temporarySessions[payload.sessionId]?.state).toBe("recovery_pending");
       mappedAddress = 2; f.unhealthy(); await services.runtime.expire(f.now());
       expect(f.store.read().temporarySessions[payload.sessionId]?.state).toBe("recovery_pending"); expect(guard?.(b)).toBe(true);
-    } finally { await services.mqtt.stopAndDrain(); await f.connection.stopAndDrain(); f.source.stop(); }
+    } finally { await services.mqtt.stopAndDrain(); expect(mappingListeners.size).toBe(0); await f.connection.stopAndDrain(); f.source.stop(); }
   });
   it("retains commissioned wire2 capability authority for exact V3 snapshot bindings", async () => {
     const f = await fixture();

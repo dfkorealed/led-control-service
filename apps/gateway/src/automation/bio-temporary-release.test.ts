@@ -81,10 +81,7 @@ async function harness(withNormalProof = true) {
   } as any);
   const runtime = create();
   return { runtime, store, command, end, path, writes, create, target,
-    outbox: () => new TemporaryControlResultOutbox(store, command, (result, state) => {
-      const goal = resolveLatestBioAutomaticTarget({ fixtureId, snapshot: current, state, now: new Date(nowMs) });
-      return !("reason" in goal) && goal.restorationRevision === result.restorationRevision && goal.restorationPayloadHash === result.restorationPayloadHash;
-    }),
+    outbox: () => new TemporaryControlResultOutbox(store, command),
     row: () => store.read().temporarySessions[sessionId]?.targets[fixtureId],
     state: () => store.read().temporarySessions[sessionId]?.state,
     current: () => current, configuration: () => structuredClone(configuration), reads: () => reads,
@@ -123,6 +120,7 @@ it("never reacquires an individually acknowledged target when End follows offlin
   await h.runtime.release({ ...endBody, payloadHash: bioEnvelopeHash(endBody) });
   expect(h.store.read().fixtureLeases[fixtureId]?.sessionId).toBeNull();
   expect(h.row()?.releaseAcknowledged).toBe(true);
+  expect(h.row()?.configurationMayHaveChanged).toBe(true);
   expect(await h.outbox().confirm(ack(result))).toBe(false);
   await h.outbox().confirm(ack(h.store.read().temporarySessions[sessionId]!.targets[other]!.releaseResult!));
   expect(h.state()).toBe("restored");
@@ -174,6 +172,31 @@ it("rejected immutable release receipt renews fresh GET evidence and never repla
   expect(renewed.eventId).not.toBe(first.eventId); expect(h.reads()).toBeGreaterThan(reads); expect(h.writes).toHaveLength(writes);
   expect(await h.outbox().confirm(ack(first))).toBe(false); expect(h.runtime.ownsFixture(fixtureId)).toBe(true);
   await h.outbox().confirm(ack(renewed)); expect(h.runtime.ownsFixture(fixtureId)).toBe(false); expect(h.state()).toBe("restored");
+});
+it.each([false, true])("retains delayed immutable server APPLIED settlement after latest local goal changes (R2=%s)", async emitR2 => {
+  const h = await harness(); await h.runtime.accept(h.command); await release(h);
+  const r1 = h.row()!.releaseResult!, settledByServer = ack(r1);
+  // API committed R1 and resolved its owner before this immutable ACK arrives.
+  h.revision();
+  let r2: TemporaryControlResult | undefined;
+  if (emitR2) {
+    await h.runtime.expire(h.now()); r2 = h.row()!.releaseResult!; expect(r2.eventId).not.toBe(r1.eventId);
+    await h.outbox().confirm({ ...ack(r2, "rejected"), reason: "stale_owner" });
+  }
+  await h.outbox().confirm(settledByServer);
+  expect(h.row()?.releaseAcknowledged).toBe(true);
+  expect(h.row()?.releaseResult).toEqual(r1);
+  expect(h.runtime.ownsFixture(fixtureId)).toBe(false);
+  const writes = h.writes.length; await h.runtime.expire(h.now()); expect(h.writes).toHaveLength(writes);
+  const restarted = new FileAutomationStateStore(h.path); await restarted.initialize();
+  expect(restarted.read().temporarySessions[sessionId]?.targets[fixtureId]?.releaseAcknowledged).toBe(true);
+  const { payloadHash: _hash, ...base } = h.command;
+  const next = { ...base, sessionId: "00000000-0000-4000-8000-000000000099", admissionRevision: 8,
+    targets: base.targets.map(target => ({ ...target, applyGeneration: "3", releaseGeneration: "4" })) };
+  await h.runtime.accept({ ...next, payloadHash: bioEnvelopeHash(next) });
+  await h.outbox().confirm(settledByServer);
+  if (r2) await h.outbox().confirm({ ...ack(r2, "rejected"), reason: "stale_owner" });
+  expect(h.store.read().fixtureLeases[fixtureId]?.sessionId).toBe(next.sessionId);
 });
 it("preserves pending restoration on terminal fsync failure then reconciles by GET after restart", async () => {
   const h = await harness(); await h.runtime.accept(h.command);

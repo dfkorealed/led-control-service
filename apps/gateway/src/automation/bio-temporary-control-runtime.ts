@@ -28,6 +28,7 @@ export interface BioTemporaryControlOptions {
   snapshot?: () => AutomationSnapshot | null;
   /** Synchronous last-native-frame fence supplied by trusted production wiring. */
   authorityCurrent?: (target: TemporaryFixtureSnapshot) => boolean;
+  onStopped?: () => void;
   releasePreflight?: (command: TemporaryControlCommand, target: TemporaryFixtureSnapshot, goal: BioAutomaticTarget) => Promise<void>;
   /** Required current V3/assignment/exact fixture/source/capability authority.
    * The product owner must revalidate current authority here; there is no allow-all default. */
@@ -164,7 +165,10 @@ export class BioTemporaryControlRuntime {
     });
   }
 
-  async stopAndDrain(): Promise<void> { this.stopping = true; await this.queue.drain(); }
+  async stopAndDrain(): Promise<void> {
+    this.stopping = true;
+    try { await this.queue.drain(); } finally { this.options.onStopped?.(); }
+  }
 
   withConfigurationMutation<T>(fixtureId: string, operation: () => Promise<T>): Promise<T> {
     if (this.stopping) return Promise.reject(new Error("temporary_runtime_stopping"));
@@ -175,6 +179,13 @@ export class BioTemporaryControlRuntime {
       });
       return operation();
     });
+  }
+
+  /** Observing a server settlement and handing off its owner is serialized with
+   * local release RF. Afterwards every queued retry sees releaseAcknowledged. */
+  withReceiptSettlement<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.stopping) return Promise.reject(new Error("temporary_runtime_stopping"));
+    return this.queue.run(operation);
   }
 
   private monotonic() { return (this.options.monotonic ?? (() => performance.now()))(); }

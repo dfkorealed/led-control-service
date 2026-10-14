@@ -2,12 +2,11 @@ import { isDeepStrictEqual } from "node:util";
 import { temporaryControlIngestedReceiptSchema, temporaryControlResultSchema,
   type TemporaryControlResult, type TemporaryControlIngestedReceipt } from "@led-control/shared";
 import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
-import type { FileAutomationStateStore, PersistedAutomationStateV10 } from "./automation-state-store";
+import type { FileAutomationStateStore } from "./automation-state-store";
 
 export class TemporaryControlResultOutbox {
   constructor(private readonly store: FileAutomationStateStore,
-    private readonly scope: { siteId: string; gatewayId: string; assignmentVersion: number },
-    private readonly currentRestoration: (result: TemporaryControlResult, state: PersistedAutomationStateV10) => boolean = () => false) {}
+    private readonly scope: { siteId: string; gatewayId: string; assignmentVersion: number }) {}
 
   async pending(): Promise<TemporaryControlResult[]> {
     await this.store.initialize();
@@ -37,21 +36,11 @@ export class TemporaryControlResultOutbox {
       delete state.temporaryResultOutbox[result.eventId];
       if (result.sessionRevision !== 2) return state;
       const lease = state.fixtureLeases[result.fixtureId];
-      const known = state.temporarySessions[result.sessionId], knownRow = known?.targets[result.fixtureId];
-      if (known?.state === "rejected" && knownRow && !knownRow.configurationMayHaveChanged &&
-        knownRow.applyResult?.rfWriteEvidence === "not_started" && isDeepStrictEqual(knownRow.releaseResult, result)) {
-        if (receipt.status === "applied") {
-          knownRow.releaseAcknowledged = true;
-          if (lease?.sessionId === null && isDeepStrictEqual(lease.identity, knownRow.snapshot)) lease.phase = "cancelled";
-          if (Object.values(known.targets).every(row => row.releaseAcknowledged)) known.state = "cancelled";
-        }
-        return state;
-      }
-      if (lease?.sessionId !== result.sessionId || lease.lastGeneration !== result.targetGeneration) return state;
       const session = state.temporarySessions[result.sessionId];
       if (!session) {
         const proof = state.temporaryEndProofs[result.sessionId]?.[result.fixtureId];
-        if (receipt.status === "applied" && isDeepStrictEqual(proof, result)) {
+        if (receipt.status === "applied" && isDeepStrictEqual(proof, result) &&
+          lease?.sessionId === result.sessionId && lease.lastGeneration === result.targetGeneration) {
           lease.sessionId = null; lease.phase = "cancelled";
         }
         // A rejected end-only event cannot later be accepted. Keep its minimal
@@ -59,14 +48,26 @@ export class TemporaryControlResultOutbox {
         return state;
       }
       const row = session.targets[result.fixtureId];
-      if (!row || row.releaseAcknowledged || !isDeepStrictEqual(row.releaseResult, result)) return state;
+      if (!row || row.releaseAcknowledged) return state;
       const unchanged = !row.configurationMayHaveChanged && result.rfWriteEvidence === "not_started";
-      if (receipt.status === "applied" && (unchanged || (result.releaseConfirmed && this.currentRestoration(result, state)))) {
-        row.releaseAcknowledged = true; lease.sessionId = null; lease.phase = unchanged ? "cancelled" : "restored";
+      if (receipt.status === "applied" && result.kind === "release" && (unchanged || result.releaseConfirmed)) {
+        // This exact retained event is immutable SERVER settlement, not a claim
+        // about today's output. A newer local goal/result cannot revoke it. Keep
+        // the accepted event as the acknowledged proof and hand current policy
+        // back to ordinary automation; never reopen this old session afterwards.
+        row.releaseResult = result; row.releaseConfirmed = result.releaseConfirmed;
+        row.releaseAcknowledged = true; row.applyConfirmed = false; row.partialMutation = "none";
+        const phase = unchanged ? "cancelled" : "restored";
+        if (lease?.sessionId === result.sessionId && lease.lastGeneration === result.targetGeneration) {
+          lease.sessionId = null; lease.phase = phase;
+          delete state.lastDesiredByFixture[result.fixtureId];
+        } else if (lease?.sessionId === null && lease.lastGeneration === result.targetGeneration && isDeepStrictEqual(lease.identity, row.snapshot)) {
+          lease.phase = phase;
+        }
         if (Object.values(session.targets).every(target => target.releaseAcknowledged)) {
           session.state = Object.values(session.targets).some(target => target.releaseConfirmed) ? "restored" : "cancelled";
         }
-      } else {
+      } else if (isDeepStrictEqual(row.releaseResult, result) && lease?.sessionId === result.sessionId && lease.lastGeneration === result.targetGeneration) {
         row.releaseConfirmed = false; session.state = "recovery_pending";
         for (const target of Object.values(session.targets)) if (!target.releaseAcknowledged) state.fixtureLeases[target.snapshot.fixtureId]!.phase = session.state;
       }

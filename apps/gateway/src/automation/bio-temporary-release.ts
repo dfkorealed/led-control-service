@@ -1,7 +1,8 @@
 import { getActiveOccurrence } from "@led-control/automation-engine";
+import { isDeepStrictEqual } from "node:util";
 import type { AutomationSnapshot, TemporaryControlCommand, TemporaryFixtureSnapshot } from "@led-control/shared";
 import type { BioConfigurationState } from "../bio/bio-dongle-client";
-import type { PersistedAutomationStateV10 } from "./automation-state-store";
+import type { PersistedAutomationStateV10, PersistedBioNormalConfiguration } from "./automation-state-store";
 import { resolveDesiredState } from "./automation-arbiter";
 import { parseAutomationSnapshot } from "./automation-config-store";
 import { isActiveBioSourceTarget } from "./bio-source-target-guard";
@@ -12,7 +13,7 @@ export type BioAutomaticTarget = { configuration: BioConfigurationState; restora
 /** Computes current authority only. Historical temporary preState and expired
  * pulse activations are deliberately not automatic candidates. */
 export function resolveLatestBioAutomaticTarget(input: { fixtureId: string; snapshot: AutomationSnapshot;
-  state: PersistedAutomationStateV10; now: Date }): BioAutomaticTarget | { reason: string } {
+  state: PersistedAutomationStateV10; now: Date; normalAuthority?: PersistedBioNormalConfiguration }): BioAutomaticTarget | { reason: string } {
   const { fixtureId, state, now } = input;
   const snapshot = parseAutomationSnapshot(input.snapshot, input.snapshot);
   if (snapshot.schemaVersion !== 3) return { reason: "temporary_current_v3_required" };
@@ -41,7 +42,14 @@ export function resolveLatestBioAutomaticTarget(input: { fixtureId: string; snap
   const selected = resolveDesiredState({ events, schedules, current: null, suppression: state.manualAutomationSuppressions[fixtureId] });
   const lease = state.fixtureLeases[fixtureId];
   const owner = lease?.sessionId && (state.temporarySessions[lease.sessionId]?.command ?? state.temporaryEndTombstones[lease.sessionId]);
-  const normal = owner ? currentNormalConfiguration(state, owner, lease!.identity) : undefined;
+  // After exact server settlement the scheduler supplies its independently
+  // scope/assignment-validated proof. It must still be the retained same proof;
+  // an active temporary owner can never be bypassed with this ownerless seam.
+  const supplied = input.normalAuthority;
+  const normal = owner ? currentNormalConfiguration(state, owner, lease!.identity) :
+    !lease?.sessionId && supplied && isDeepStrictEqual(supplied, state.bioNormalConfigurations[fixtureId]) && supplied.identity.fixtureId === fixtureId &&
+      supplied.siteId === snapshot.siteId && supplied.gatewayId === snapshot.gatewayId &&
+      supplied.baselineBrightness === (state.baseBrightnessByFixture[fixtureId] ?? null) ? supplied : undefined;
   if (!normal) return { reason: "normal_configuration_unavailable" };
   return { configuration: selected.sourceType === "default" ? normal.configuration : {
       configuredHighBrightnessPercent: selected.brightness || normal.configuration.configuredHighBrightnessPercent,

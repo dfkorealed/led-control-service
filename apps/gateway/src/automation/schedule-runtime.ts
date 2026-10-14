@@ -1,6 +1,6 @@
 import { getActiveOccurrence } from "@led-control/automation-engine";
 import { isDeepStrictEqual } from "node:util";
-import { canObserveNormalConfiguration } from "./bio-temporary-release";
+import { canObserveNormalConfiguration, resolveLatestBioAutomaticTarget } from "./bio-temporary-release";
 import {
   type AutomationExecutionFixtureResultV1,
   type AutomationSnapshotV1,
@@ -20,6 +20,7 @@ import {
   FileAutomationStateStore,
   type ManualTerminalSourceContext,
   type PersistedAutomationStateV4,
+  type PersistedBioNormalConfiguration,
   type VehicleSensorEventIdentity
 } from "./automation-state-store";
 import type { DesiredLightingState } from "./automation-runtime";
@@ -96,6 +97,11 @@ export interface ScheduleRuntimeOptions {
 
 type SchedulerSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2 | AutomationSnapshotV3;
 
+export interface BioNormalAuthority {
+  preflight(identity: PersistedBioNormalConfiguration["identity"], snapshotHash: string): Promise<void>;
+  current(identity: PersistedBioNormalConfiguration["identity"], snapshotHash: string): boolean;
+}
+
 export interface ManualOverridePrepareDiagnostic {
   event: "manual_override_prepare_slow";
   sourceId: string;
@@ -129,6 +135,7 @@ export class ScheduleRuntime {
   private readonly bioArrivals = new Set<{ input: Extract<VehicleSensorInput, { type: "pulse" }>;
     activations: Map<string, number> }>();
   private snapshot: SchedulerSnapshot | null = null;
+  private bioNormalAuthority?: BioNormalAuthority;
   private initialized = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly pendingObservationFixtures = new Set<string>();
@@ -190,6 +197,8 @@ export class ScheduleRuntime {
     // Product V2 retains its version so BlueZ peers still receive source refresh.
     return this.options.bioPulseTestProfile && this.snapshot?.schemaVersion === 2 ? null : structuredClone(this.snapshot);
   }
+
+  setBioNormalAuthority(authority?: BioNormalAuthority) { this.bioNormalAuthority = authority; }
 
   recompute(snapshot: SchedulerSnapshot | AutomationSnapshotV3, degradedBioRecovery = false): Promise<DesiredLightingState> {
     return this.enqueue(async () => {
@@ -758,7 +767,8 @@ export class ScheduleRuntime {
       const vehicle = this.vehicleRuntime.planReconcile(state, snapshot, trusted);
       vehicleHoldDeadlines = vehicle.holdDeadlines;
       lifecycleEvents.push(...(this.bio?.stage(state, vehicle.events) ?? vehicle.events));
-      lifecycleEvents.push(...reconcileSchedules(state, snapshot, now, trusted));
+      lifecycleEvents.push(...reconcileSchedules(state, snapshot, now, trusted,
+        new Set(Object.keys(state.bioNormalConfigurations).filter(id => this.normalProof(id, state, snapshot)))));
       pruneManualSuppressions(state, snapshot);
       const tagged = lifecycleEvents.map((event) => tagLifecycleRevision(event, snapshot, previousSnapshot));
       this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({ revision: snapshot.revision, events: tagged }));
@@ -820,7 +830,7 @@ export class ScheduleRuntime {
       // changes. Reapply an independently known baseline when arbitration needs
       // it, but never invent optical brightness from a sensor configuration GET.
       if (!hasSource && this.bio?.hasTarget(fixtureId) && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
-      if (hasSource && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
+      if (hasSource && state.baseBrightnessByFixture[fixtureId] === undefined && !this.normalProof(fixtureId, state)) continue;
       const current = state.baseBrightnessByFixture[fixtureId]
         ?? state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId] ?? null;
       const resolved = resolveDesiredState({
@@ -844,7 +854,7 @@ export class ScheduleRuntime {
     const alreadyCompleted = new Set(Object.values(this.state().bioActivationsByRule)
       .filter(activation => activation.completed).map(activation => activation.activationId));
     await this.bio?.apply();
-    await this.restoreNormalConfigurations();
+    await this.reconcileBioConfigurations();
     if (this.bio && this.snapshot) computed = this.computeDesired(this.snapshot, this.state(), computed.lifecycleEvents);
     const terminalCauses = [...(this.bio?.completedRestorationCauses(alreadyCompleted) ?? []), ...computed.lifecycleEvents];
     const state = this.state();
@@ -863,6 +873,7 @@ export class ScheduleRuntime {
       }
       return action;
     }).filter((action) =>
+      !this.normalProof(action.fixtureId, state) &&
       state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent &&
       !this.pendingObservationFixtures.has(action.fixtureId) &&
       !state.pendingManualControls[action.fixtureId]
@@ -952,9 +963,9 @@ export class ScheduleRuntime {
     await this.handoff(changed, results, terminalCauses);
   }
 
-  private normalProof(fixtureId: string, state: PersistedAutomationStateV4) {
+  private normalProof(fixtureId: string, state: PersistedAutomationStateV4, snapshot = this.snapshot) {
     const proof = state.bioNormalConfigurations[fixtureId], scope = this.options.bioProductPulse?.scope;
-    return this.snapshot?.schemaVersion === 3 && scope && proof && proof.siteId === scope.siteId && proof.gatewayId === scope.gatewayId &&
+    return snapshot?.schemaVersion === 3 && scope && proof && proof.siteId === scope.siteId && proof.gatewayId === scope.gatewayId &&
       proof.assignmentVersion === this.options.bioNormalAssignmentVersion &&
       proof.baselineBrightness === (state.baseBrightnessByFixture[fixtureId] ?? null) ? proof : undefined;
   }
@@ -963,19 +974,34 @@ export class ScheduleRuntime {
    * rechecking that lease at every RF boundary prevents concurrent takeover. A
    * failed/uncertain restore keeps the full normal goal and retries GET, never a
    * scalar default. Explicit manual mutations invalidate this proof beforehand. */
-  private async restoreNormalConfigurations() {
-    const product = this.options.bioProductPulse, snapshot = this.snapshot;
-    if (!product || snapshot?.schemaVersion !== 3) return;
+  private async reconcileBioConfigurations() {
+    const product = this.options.bioProductPulse, snapshot = this.snapshot, authority = this.bioNormalAuthority;
+    // Retained full authority may never fall through to generic scalar SET when
+    // the trusted physical/mapping fence is absent (including bootstrap/stop).
+    if (!product || snapshot?.schemaVersion !== 3 || !authority) return;
     for (const fixtureId of Object.keys(this.state().bioNormalConfigurations)) {
       const proof = this.normalProof(fixtureId, this.state()); if (!proof) continue;
       const sourceProofs = new Map<string, unknown>();
+      const goal = () => {
+        const state = this.state();
+        if (state.pendingManualControls[fixtureId] || this.pendingObservationFixtures.has(fixtureId) ||
+          state.unverifiedDesiredByFixture[fixtureId] !== undefined || this.bio?.ownsFixture(state, fixtureId)) return null;
+        const action = this.computeDesired(snapshot, state).actions.get(fixtureId);
+        if (action && (action.sourceType === "schedule" || action.sourceType === "vehicle_event_rule")) {
+          const latest = resolveLatestBioAutomaticTarget({ fixtureId, snapshot, state, now: this.wallClock(), normalAuthority: proof });
+          return "reason" in latest ? null : latest.configuration;
+        }
+        return canObserveNormalConfiguration(snapshot, state, fixtureId, this.wallClock()) ? proof.configuration : null;
+      };
+      const configuration = goal(); if (!configuration) continue;
       const current = () => this.snapshot?.payloadHash === snapshot.payloadHash &&
+        this.bioNormalAuthority === authority && isDeepStrictEqual(configuration, goal()) &&
         isDeepStrictEqual(proof, this.normalProof(fixtureId, this.state())) && !this.state().fixtureLeases[fixtureId]?.sessionId &&
-        canObserveNormalConfiguration(snapshot, this.state(), fixtureId, this.wallClock()) &&
         [...sourceProofs].every(([id, authority]) => isDeepStrictEqual(product.source.sourceAuthority(id), authority));
       if (!current()) continue;
       const guard = async () => {
         if (!current() || !await this.options.clockTrust.isTrusted(this.wallClock())) throw new Error("bio_normal_authority_changed");
+        await authority.preflight(proof.identity, snapshot.payloadHash);
         for (const rule of snapshot.vehicleEventRules.filter(rule => rule.status === "enabled" && rule.sensorProtocol === "bio-usb-pulse" && rule.targetFixtureIds.includes(fixtureId))) {
           for (const sourceFixtureId of rule.sourceFixtureIds) {
             const authority = await product.source.preflight({ sourceFixtureId, snapshotRevision: snapshot.revision }, { requireHealthy: true });
@@ -983,20 +1009,20 @@ export class ScheduleRuntime {
             sourceProofs.set(sourceFixtureId, structuredClone(authority));
           }
         }
-        if (!current()) throw new Error("bio_normal_authority_changed");
+        if (!current() || !authority.current(proof.identity, snapshot.payloadHash)) throw new Error("bio_normal_authority_changed");
       };
       try {
         await guard();
-        const control = { beforeWrite: guard, mayStartWrite: current };
+        const control = { beforeWrite: guard, mayStartWrite: () => current() && authority.current(proof.identity, snapshot.payloadHash) };
         const before = await product.targetPort.readBioState(fixtureId, control);
         if (before.target.nativeUuid !== proof.identity.nativeUuid || before.target.logicalAddress !== Number.parseInt(proof.identity.logicalAddress, 16) ||
           before.target.networkId !== proof.networkId) throw new Error("bio_normal_identity_changed");
         await guard();
-        if (isDeepStrictEqual(before.configuration, proof.configuration)) continue;
-        await product.targetPort.restoreBioState(fixtureId, before.target, proof.configuration, control);
+        if (isDeepStrictEqual(before.configuration, configuration)) continue;
+        await product.targetPort.restoreBioState(fixtureId, before.target, configuration, control);
         const after = await product.targetPort.readBioState(fixtureId, control);
         await guard();
-        if (!isDeepStrictEqual(before.target, after.target) || !isDeepStrictEqual(after.configuration, proof.configuration)) throw new Error("bio_normal_restore_unverified");
+        if (!isDeepStrictEqual(before.target, after.target) || !isDeepStrictEqual(after.configuration, configuration)) throw new Error("bio_normal_restore_unverified");
       } catch (error) { this.options.onError?.(error); }
     }
   }
@@ -1104,7 +1130,8 @@ function reconcileSchedules(
   state: PersistedAutomationStateV4,
   snapshot: SchedulerSnapshot,
   now: Date,
-  trusted: boolean
+  trusted: boolean,
+  normalFixtures: ReadonlySet<string>
 ) {
   const events: AutomationLifecycleEvent[] = [];
   const schedules = new Map(snapshot.schedules.map((schedule) => [schedule.id, schedule]));
@@ -1133,6 +1160,7 @@ function reconcileSchedules(
     for (const fixtureId of schedule.fixtureIds) {
       const base = captureBase(state, fixtureId);
       if (base === null) {
+        if (normalFixtures.has(fixtureId)) continue;
         complete = false;
         break;
       }
@@ -1298,6 +1326,9 @@ function actionBrightness(rule: LightingScheduleSnapshotV1 | VehicleEventRuleSna
 function captureBase(state: PersistedAutomationStateV4, fixtureId: string): number | null {
   const existing = state.baseBrightnessByFixture[fixtureId];
   if (existing !== undefined) return existing;
+  // A full configuration proof is deliberately not scalar brightness. Neither
+  // previous automatic output nor temporary output may become its base.
+  if (state.bioNormalConfigurations[fixtureId]) return null;
   if (state.fixtureLeases[fixtureId]?.sessionId) return null;
   const current = state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId];
   if (current === undefined) return null;

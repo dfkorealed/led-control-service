@@ -74,7 +74,6 @@ import type { BioDeviceMappingStore } from "./bio/bio-device-mapping-store";
 import { BioTemporaryControlRuntime } from "./automation/bio-temporary-control-runtime";
 import { TemporaryControlResultOutbox } from "./automation/temporary-control-result-outbox";
 import { TemporaryControlMqtt } from "./automation/temporary-control-mqtt";
-import { resolveLatestBioAutomaticTarget } from "./automation/bio-temporary-release";
 import { isDeepStrictEqual } from "node:util";
 import type { TemporaryControlCommand, TemporaryFixtureSnapshot } from "@led-control/shared";
 import { bioSensorPreparationCommandV1Schema } from "@led-control/shared";
@@ -368,24 +367,25 @@ export function createGatewayTemporaryControlServices(options: {
   store: FileAutomationStateStore; automationRuntime: AutomationRuntime; scheduleRuntime: ScheduleRuntime;
   scope: { siteId: string; gatewayId: string; assignmentVersion: number }; clockTrust: ClockTrustProvider;
   adapter: Pick<BioUsbDongleAdapter, "temporaryTargetPort" | "setBioTemporaryLeaseGuard">;
-  mappings: Pick<BioDeviceMappingStore, "findByFixtureId">; source: BioPulseSourcePort;
+  mappings: Pick<BioDeviceMappingStore, "findByFixtureId" | "onChange">; source: BioPulseSourcePort;
   connection: () => { ready: boolean; protocolReady: boolean; generation: number };
   now?: () => Date; monotonic?: () => number; onError?: (error: unknown) => void;
 }) {
   const now = options.now ?? (() => new Date());
   const snapshot = () => options.automationRuntime.currentAppliedSnapshot;
-  const checked = new Map<string, { hash: string; generation: number; sources: Map<string, unknown> }>();
-  const authorityCurrent = (target: TemporaryFixtureSnapshot) => {
+  let mappingEpoch = 0;
+  const stopMappingFence = options.mappings.onChange(() => { mappingEpoch++; });
+  const checked = new Map<string, { hash: string; generation: number; mappingEpoch: number; sources: Map<string, unknown> }>();
+  const authorityCurrent = (target: Pick<TemporaryFixtureSnapshot, "fixtureId">) => {
     const proof = checked.get(target.fixtureId), transport = options.connection();
-    return !!proof && snapshot()?.payloadHash === proof.hash && transport.ready && transport.protocolReady && transport.generation === proof.generation &&
+    return !!proof && proof.mappingEpoch === mappingEpoch && snapshot()?.payloadHash === proof.hash && transport.ready && transport.protocolReady && transport.generation === proof.generation &&
       [...proof.sources].every(([id, authority]) => isDeepStrictEqual(options.source.sourceAuthority(id), authority));
   };
-  const preflight = async (command: TemporaryControlCommand, target: TemporaryFixtureSnapshot, admission: boolean) => {
+  const preflightTarget = async (target: Pick<TemporaryFixtureSnapshot, "fixtureId" | "nativeUuid" | "logicalAddress">) => {
     const current = snapshot(), connection = options.connection();
+    const capturedMappingEpoch = mappingEpoch;
     const sources = new Map<string, unknown>();
-    if (command.siteId !== options.scope.siteId || command.gatewayId !== options.scope.gatewayId ||
-      command.assignmentVersion !== options.scope.assignmentVersion || current?.schemaVersion !== 3 ||
-      (admission && command.admissionRevision !== current.revision)) throw new Error("temporary_current_v3_required");
+    if (current?.schemaVersion !== 3) throw new Error("temporary_current_v3_required");
     if (!connection.ready || !connection.protocolReady || options.scheduleRuntime.isBioSourceTarget([target.fixtureId])) {
       throw new Error("temporary_target_unavailable");
     }
@@ -406,26 +406,38 @@ export function createGatewayTemporaryControlServices(options: {
         sources.set(sourceFixtureId, structuredClone(authority));
       }
     }
+    // Source qualification awaits can overlap provisioning. Reread the exact
+    // target after them; the existing mapping-change epoch fences the remaining
+    // synchronous path through native submission (no extra USB listener).
+    const latestMapping = await options.mappings.findByFixtureId(target.fixtureId);
     const latest = snapshot(), transport = options.connection();
-    if (latest?.payloadHash !== current.payloadHash || !transport.ready || !transport.protocolReady || transport.generation !== connection.generation) {
+    if (mappingEpoch !== capturedMappingEpoch || !isDeepStrictEqual(mapping, latestMapping) ||
+      latest?.payloadHash !== current.payloadHash || !transport.ready || !transport.protocolReady || transport.generation !== connection.generation) {
       throw new Error("temporary_authority_changed");
     }
-    checked.set(target.fixtureId, { hash: current.payloadHash, generation: connection.generation, sources });
+    checked.set(target.fixtureId, { hash: current.payloadHash, generation: connection.generation, mappingEpoch: capturedMappingEpoch, sources });
   };
+  const preflight = async (command: TemporaryControlCommand, target: TemporaryFixtureSnapshot, admission: boolean) => {
+    if (command.siteId !== options.scope.siteId || command.gatewayId !== options.scope.gatewayId ||
+      command.assignmentVersion !== options.scope.assignmentVersion || (admission && command.admissionRevision !== snapshot()?.revision)) {
+      throw new Error("temporary_current_v3_required");
+    }
+    await preflightTarget(target);
+  };
+  options.scheduleRuntime.setBioNormalAuthority({ preflight: async (identity, hash) => {
+    if (snapshot()?.payloadHash !== hash) throw new Error("bio_normal_applied_snapshot_required");
+    await preflightTarget(identity);
+    if (snapshot()?.payloadHash !== hash) throw new Error("bio_normal_applied_snapshot_required");
+  }, current: (identity, hash) => snapshot()?.payloadHash === hash && authorityCurrent(identity) });
   const runtime = new BioTemporaryControlRuntime({ store: options.store, port: options.adapter.temporaryTargetPort(),
     clockTrust: options.clockTrust, now, monotonic: options.monotonic, snapshot, authorityCurrent,
+    onStopped: () => { options.scheduleRuntime.setBioNormalAuthority(); stopMappingFence(); },
     preflight: (command, target) => preflight(command, target, true),
     releasePreflight: (command, target) => preflight(command, target, false) });
   options.adapter.setBioTemporaryLeaseGuard(id => runtime.ownsFixture(id));
-  const outbox = new TemporaryControlResultOutbox(options.store, options.scope, (result, state) => {
-    const current = snapshot(); if (current?.schemaVersion !== 3) return false;
-    const goal = resolveLatestBioAutomaticTarget({ fixtureId: result.fixtureId, snapshot: current, state, now: now() });
-    return !("reason" in goal) && goal.restorationRevision === result.restorationRevision && goal.restorationPayloadHash === result.restorationPayloadHash &&
-      isDeepStrictEqual(goal.configuration, result.configurationReadback) && current.vehicleEventRules.every(rule => rule.status !== "enabled" ||
-        rule.sensorProtocol !== "bio-usb-pulse" || !rule.targetFixtureIds.includes(result.fixtureId) ||
-        rule.sourceFixtureIds.every(id => options.source.sourceAuthority(id)?.observation.health === "healthy"));
-  });
-  const mqtt = new TemporaryControlMqtt({ scope: options.scope, runtime, outbox, clockTrust: options.clockTrust, now, onError: options.onError });
+  const outbox = new TemporaryControlResultOutbox(options.store, options.scope);
+  const mqtt = new TemporaryControlMqtt({ scope: options.scope, runtime, outbox, clockTrust: options.clockTrust, now, onError: options.onError,
+    settleReceipt: operation => runtime.withReceiptSettlement(operation) });
   return { runtime, outbox, mqtt };
 }
 

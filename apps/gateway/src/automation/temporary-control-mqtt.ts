@@ -49,6 +49,7 @@ export class TemporaryControlMqtt {
     scope: { siteId: string; gatewayId: string; assignmentVersion: number };
     runtime: Pick<BioTemporaryControlRuntime, "accept" | "release" | "expire" | "stopAndDrain">;
     outbox: TemporaryControlResultOutbox; clockTrust: ClockTrustProvider; now?: () => Date;
+    settleReceipt?: (operation: () => Promise<boolean>) => Promise<boolean>;
     publishTimeoutMs?: number; retryInitialMs?: number; retryMaxMs?: number; onError?: (error: unknown) => void;
   }) { this.retryMs = options.retryInitialMs ?? 1000; }
 
@@ -64,7 +65,9 @@ export class TemporaryControlMqtt {
   }
 
   async handleReceipt(payload: Buffer) {
-    await this.options.outbox.confirm(temporaryControlIngestedReceiptSchema.parse(JSON.parse(payload.toString())));
+    const receipt = temporaryControlIngestedReceiptSchema.parse(JSON.parse(payload.toString()));
+    const settle = () => this.options.outbox.confirm(receipt);
+    await (this.options.settleReceipt ? this.options.settleReceipt(settle) : settle());
     // Rejected immutable receipts cannot be replayed into acceptance. The next
     // expiry reconciliation must establish a fresh goal/readback and event ID.
     await this.expireOnce();
