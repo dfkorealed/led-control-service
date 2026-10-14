@@ -2,17 +2,23 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AutomationSnapshotV2 } from "@led-control/shared";
 import { automationSnapshot } from "./automation-test-fixtures";
 import { FileAutomationStateStore } from "./automation-state-store";
 import { createGatewayAutomationServices as createAutomationServices, connectBioPulseSource } from "../index";
+import * as bootstrap from "../index";
+import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
+import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
 import { BioSensorPulseSource } from "../bio/bio-sensor-pulse-source";
 import type { BioSensorPulseCandidate } from "../bio/bio-command-codec";
 import type { BioClientEvent } from "../bio/bio-dongle-client";
 import type { BioTransportSnapshot } from "../bio/bio-usb-transport";
 import type { BioConfigurationState, BioVerifiedLampTarget } from "../bio/bio-dongle-client";
 import { BioPulseControlCore, type BioSourceAuthority } from "./bio-pulse-scheduler";
+import { CommissionedBioPulseAuthorityProvider } from "../bio/bio-pulse-authority-provider";
 
 const a = "00000000-0000-4000-8000-000000000001", b = "00000000-0000-4000-8000-000000000002";
 const rule = "00000000-0000-4000-8000-000000000003";
@@ -59,8 +65,13 @@ async function fixture(qualified = true) {
   };
   let saved: AutomationSnapshotV2 | null = null; const errors: unknown[] = [];
   const genericWrites: unknown[] = [];
+  let storageFailure = false;
+  const store = new FileAutomationStateStore(join(path, "state.json"), async (path, state) => {
+    if (storageFailure) throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    await writeJsonAtomic(path, state);
+  }, undefined, { gapJournal: new AutomationTelemetryGapJournal(join(path, "gap")) });
   const services = createAutomationServices({ scope: { siteId: a, gatewayId: b }, adapterKind: "bio-usb",
-    stateStore: new FileAutomationStateStore(join(path, "state.json")),
+    stateStore: store, bioNormalAssignmentVersion: 1,
     configStore: { load: async () => saved, apply: async snapshot => { saved = snapshot as AutomationSnapshotV2; }, restore: async snapshot => { saved = snapshot as AutomationSnapshotV2 | null; } },
     clockTrust: { isTrusted: async () => true }, wallClock: () => new Date(Date.UTC(2026, 9, 2) + ms), monotonicClock: () => ms,
     execute: async actions => actions.map(action => {
@@ -75,7 +86,9 @@ async function fixture(qualified = true) {
     siteId: a, gatewayId: b, revision, timeZone: "UTC", schedules: [], generatedAt: "2026-10-02T00:00:00Z",
     vehicleEventRules: [{ id: rule, name: "Explicit qualified software fixture", status, sensorProtocol: "bio-usb-pulse",
       sourceFixtureIds: [a], targetFixtureIds: [b], action: { dimmingEnabled: true, brightnessPercent: 80 }, holdSeconds: 10 }] });
-  return { ...services, source, connection, writes, reads, errors, snapshot, targetPort, genericWrites,
+  return { ...services, source, connection, writes, reads, errors, snapshot, targetPort, genericWrites, store,
+    now: () => new Date(Date.UTC(2026, 9, 2) + ms),
+    failStorage: () => { storageFailure = true; },
     pulse: (sequence = 1) => listener?.({ kind: "sensor-status-candidate", innerOpcode: 9, innerBody: Buffer.from([3]), generation: 1,
       receivedMonotonicMs: ms, deviceUuid: "bio:001122334455", logicalAddress: 1, networkId: 2, destination: 0,
       rssiDbm: -40, ttl: 1, control: false, sequence }),
@@ -87,6 +100,106 @@ async function fixture(qualified = true) {
 }
 
 describe("production BIO local bootstrap/lifecycle (software qualification only)", () => {
+  it("preserves independent sensor-normal authority after a temporary lease is settled", async () => {
+    const f = await fixture();
+    try {
+      const { payloadHash: _hash, ...base } = f.snapshot();
+      await f.automationRuntime.hotReload(rehash({ ...base, schemaVersion: 3, holidayDatasets: [] } as never));
+      await f.store.updateDurable(state => {
+        state.baseBrightnessByFixture[b] = 30; state.lastDesiredByFixture[b] = 80;
+        state.bioNormalConfigurations[b] = { identity: { fixtureId: b, meshNodeId: b, nativeUuid: "001122334466", logicalAddress: "0x0002" },
+          siteId: a, gatewayId: b, assignmentVersion: 1, networkId: 2, configuration: f.configuration(), observedAt: f.now().toISOString(),
+          baselineBrightness: 30, snapshotRevision: 4, snapshotPayloadHash: f.automationRuntime.currentSnapshot!.payloadHash }; return state;
+      });
+      await f.scheduleRuntime.tick();
+      expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+      expect(f.genericWrites).toEqual([]);
+      const read = await f.targetPort.readBioState(b);
+      await f.targetPort.restoreBioState(b, read.target, { configuredHighBrightnessPercent: 70, bioMode: "force-on" });
+      await f.scheduleRuntime.tick();
+      expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+      await f.automationRuntime.hotReload(automationSnapshot(5, { siteId: a, gatewayId: b, vehicleEventRules: [], schedules: [] }));
+      f.failStorage();
+      await expect(f.scheduleRuntime.prepareManualControl({ sourceId: rule, fixtureIds: [b], brightnessPercent: 20,
+        requestedAt: f.now().toISOString() })).rejects.toThrow();
+      expect(f.store.read().bioNormalConfigurations[b]).toBeDefined();
+    } finally { await f.connection.stopAndDrain(); f.source.stop(); }
+  });
+  it.each([false, true])("wires temporary owner guard with applied V3 and live authority (revoke at RF=%s)", async revokeAtRf => {
+    const f = await fixture(); const create = (bootstrap as any).createGatewayTemporaryControlServices;
+    expect(create).toBeTypeOf("function");
+    let guard: ((id: string) => boolean) | undefined;
+    let mappedAddress = 2;
+    const port = { read: f.targetPort.readBioState,
+      apply: async (id: string, brightness: number, control: any) => {
+        expect(guard?.(id)).toBe(true); await control.beforeMutation("high_brightness"); await control.beforeWrite();
+        if (revokeAtRf) f.unhealthy();
+        if (!control.mayStartWrite()) throw new Error("submission veto");
+        const observed = await f.targetPort.readBioState(id);
+        await f.targetPort.restoreBioState(id, observed.target, { configuredHighBrightnessPercent: brightness, bioMode: "force-on" });
+        control.onWriteStarted?.(); return { brightnessPercent: brightness, mode: "force-on" };
+      }, restore: async (id: string, target: any, configuration: any, control: any) => {
+        await control.beforeMutation("high_brightness"); await control.beforeWrite();
+        return f.targetPort.restoreBioState(id, target, configuration);
+      } };
+    const services = create({ store: f.store, automationRuntime: f.automationRuntime, scheduleRuntime: f.scheduleRuntime,
+      scope: { siteId: a, gatewayId: b, assignmentVersion: 1 }, clockTrust: { isTrusted: async () => true }, now: f.now,
+      adapter: { setBioTemporaryLeaseGuard: (value: typeof guard) => { guard = value; }, temporaryTargetPort: () => port },
+      mappings: { findByFixtureId: async (id: string) => ({ fixtureId: id, nodeId: id, nativeUuid: "001122334466", logicalAddress: mappedAddress,
+        deviceUuid: "bio:001122334466", status: "confirmed" }) }, source: f.source,
+      connection: () => ({ ready: true, protocolReady: true, generation: 1 }) });
+    try {
+      const { payloadHash: _hash, ...base } = f.snapshot(); await f.automationRuntime.hotReload(rehash({ ...base, schemaVersion: 3, holidayDatasets: [] } as never));
+      const payload = { schemaVersion: 1, kind: "start", sessionId: "00000000-0000-4000-8000-000000000099", sessionRevision: 1,
+        siteId: a, gatewayId: b, assignmentVersion: 1, admissionRevision: 4, sequence: 1, brightness: 60,
+        startedAt: f.now().toISOString(), endsAt: new Date(f.now().getTime() + 60_000).toISOString(),
+        targets: [{ fixtureId: b, meshNodeId: "00000000-0000-4000-8000-000000000088", nativeUuid: "001122334466", logicalAddress: "0x0002", applyGeneration: "1", releaseGeneration: "2" }] };
+      await services.runtime.accept({ ...payload, payloadHash: bioEnvelopeHash(payload) });
+      if (revokeAtRf) {
+        expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
+        expect(f.store.read().temporarySessions[payload.sessionId]?.targets[b]?.applyResult?.rfWriteEvidence).toBe("not_started");
+        return;
+      }
+      expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 60, bioMode: "force-on" });
+      expect(f.store.read().temporarySessions[payload.sessionId]?.state).toBe("holding");
+      mappedAddress = 3; f.advance(60_000); await services.runtime.expire(f.now());
+      expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 60, bioMode: "force-on" });
+      expect(f.store.read().temporarySessions[payload.sessionId]?.state).toBe("recovery_pending");
+      mappedAddress = 2; f.unhealthy(); await services.runtime.expire(f.now());
+      expect(f.store.read().temporarySessions[payload.sessionId]?.state).toBe("recovery_pending"); expect(guard?.(b)).toBe(true);
+    } finally { await services.mqtt.stopAndDrain(); await f.connection.stopAndDrain(); f.source.stop(); }
+  });
+  it("retains commissioned wire2 capability authority for exact V3 snapshot bindings", async () => {
+    const f = await fixture();
+    const asset = createRequire(import.meta.url)("../../../../test/fixtures/bio-sensor-common-path-v1.json");
+    const health = { healthEpoch: "health", healthySinceMonotonicMs: 0, commission: { networkId: 2,
+      mapping: { nativeUuid: "001122334455", logicalAddress: 1 },
+      report: { eventId: "report", connectionGeneration: 1, fingerprint: asset.profile.fingerprint, profileKey: "profile" } } };
+    const provider = new CommissionedBioPulseAuthorityProvider({ scope: { siteId: a, gatewayId: b, assignmentVersion: 1 },
+      catalog: { onChange: () => () => {}, snapshot: () => ({ executionPolicy: { enabled: true } }) } as never,
+      monitor: { onChange: () => () => {}, snapshot: () => health, preflightRelease: async () => true, releaseIdentityCurrent: () => true } as never,
+      delivery: { onChange: () => () => {}, releaseSnapshotPins: () => {}, retainAcknowledgedRevision: () => true,
+        acknowledgedCommissionProof: () => ({ capabilityRevision: 7, healthEpoch: "health", reportEventId: "report" }) } as never });
+    try {
+      const { payloadHash: _hash, ...base } = f.snapshot(); const v3 = rehash({ ...base, schemaVersion: 3, holidayDatasets: [] } as never);
+      provider.stage(v3); provider.commit(v3);
+      const authority = provider.read(a, { epoch: "connection", generation: 1 });
+      expect(authority).toMatchObject({ independentlyQualified: true, binding: { snapshotRevision: 4, capabilityRevision: 7 } });
+      expect(provider.releaseIdentityCurrent(authority!.binding)).toBe(true);
+    } finally { provider.stop(); await f.connection.stopAndDrain(); f.source.stop(); }
+  });
+  it("installs V3 intact and preserves real source protection and pulse execution", async () => {
+    const f = await fixture();
+    const { payloadHash: _hash, ...base } = f.snapshot();
+    const snapshot = rehash({ ...base, schemaVersion: 3, holidayDatasets: [] } as never);
+    try {
+      await expect(f.automationRuntime.hotReload(snapshot)).resolves.toMatchObject({ schemaVersion: 3, status: "applied" });
+      expect(f.scheduleRuntime.currentSnapshot).toEqual(snapshot);
+      expect(f.scheduleRuntime.isBioSourceTarget([a])).toBe(true);
+      f.pulse();
+      await vi.waitFor(() => expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 80, bioMode: "force-on" }));
+    } finally { await f.connection.stopAndDrain(); f.source.stop(); await f.scheduleRuntime.stopAndDrain(); }
+  });
   it.each(["bio-usb-pulse", "bluez-stateful"] as const)("ignores disabled %s target reservations but still rejects enabled overlap", async sensorProtocol => {
     const f = await fixture();
     try {

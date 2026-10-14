@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FileAutomationConfigStore } from "./automation-config-store";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
 import { automationScope, automationSnapshot } from "./automation-test-fixtures";
+import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
+import type { AutomationSnapshotV3 } from "@led-control/shared";
 
 const directories: string[] = [];
 
@@ -14,6 +16,33 @@ afterEach(async () => {
 });
 
 describe("FileAutomationConfigStore", () => {
+  it("rejects noncanonical holiday date/name ordering even when both hashes match", async () => {
+    const path = await snapshotPath(); const store = new FileAutomationConfigStore(path, automationScope);
+    for (const dates of [[{ date: "2026-10-04", names: ["A"] }, { date: "2026-10-03", names: ["B"] }],
+      [{ date: "2026-10-03", names: ["B", "A"] }]]) {
+      const semantic = { country: "KR", source: "kasi", year: 2026, coverageFrom: "2026-01-01", coverageUntil: "2026-12-31", dates };
+      const { payloadHash: _hash, ...base } = automationSnapshot(5);
+      const value = { ...base, schemaVersion: 3, vehicleEventRules: [], schedules: [], holidayDatasets: [
+        { ...semantic, revision: "1", fetchedAt: "2026-10-01T00:00:00Z", payloadHash: bioEnvelopeHash(semantic) }] };
+      await expect(store.apply({ ...value, payloadHash: bioEnvelopeHash(value) } as AutomationSnapshotV3)).rejects.toThrow();
+    }
+  });
+  it("rejects a corrupt holiday content hash even inside a valid V3 snapshot hash", async () => {
+    const semantic = { country: "KR", source: "kasi", year: 2026, coverageFrom: "2026-01-01",
+      coverageUntil: "2026-12-31", dates: [{ date: "2026-10-03", names: ["개천절"] }] };
+    const dataset = { ...semantic, revision: "1", fetchedAt: "2026-10-01T00:00:00Z", payloadHash: bioEnvelopeHash(semantic) };
+    const { payloadHash: _hash, ...base } = automationSnapshot(5);
+    const value = { ...base, schemaVersion: 3, vehicleEventRules: [], schedules: [], holidayDatasets: [dataset] };
+    const snapshot = { ...value, payloadHash: bioEnvelopeHash(value) } as AutomationSnapshotV3;
+    const path = await snapshotPath();
+    const store = new FileAutomationConfigStore(path, automationScope);
+    await store.apply(snapshot);
+    expect(await new FileAutomationConfigStore(path, automationScope).load()).toEqual(snapshot);
+    const corrupt = { ...value, revision: 6, holidayDatasets: [{ ...dataset, dates: [] }] };
+    await expect(store.apply({ ...corrupt, payloadHash: bioEnvelopeHash(corrupt) } as AutomationSnapshotV3))
+      .rejects.toMatchObject({ code: "snapshot_hash_mismatch" });
+    expect(await store.load()).toEqual(snapshot);
+  });
   it("persists the V2 protocol and verifies its complete hash after restart", async () => {
     const path = await snapshotPath();
     const v2 = automationSnapshot(5, { schemaVersion: 2 } as never);

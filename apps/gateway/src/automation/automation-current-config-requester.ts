@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   automationCurrentConfigRequestV1Schema,
   automationCurrentConfigRequestV2Schema,
+  automationCurrentConfigRequestV3Schema,
   mqttTopics,
   type AutomationCurrentConfigRequest,
   type AutomationSnapshotV1
@@ -17,7 +18,7 @@ type RequestPublish = (topic: string, request: AutomationCurrentConfigRequest) =
 export class AutomationCurrentConfigRequester {
   private publish: RequestPublish | undefined;
   private request: AutomationCurrentConfigRequest | undefined;
-  private readonly protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2; nextRevision: () => Promise<number> };
+  private readonly protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2 | 3; nextRevision: () => Promise<number> };
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private retryDelayMs: number;
@@ -39,7 +40,7 @@ export class AutomationCurrentConfigRequester {
       now?: () => Date;
       random?: () => number;
       onError?: (error: unknown) => void;
-      protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2; nextRevision: () => Promise<number> };
+      protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2 | 3; nextRevision: () => Promise<number> };
     } = {}
   ) {
     this.retryInitialDelayMs = options.retryInitialDelayMs ?? DEFAULT_RETRY_INITIAL_DELAY_MS;
@@ -67,7 +68,10 @@ export class AutomationCurrentConfigRequester {
       ...this.scope,
       requestedAt: this.now().toISOString()
     };
-    this.request = this.protocolSupport ? automationCurrentConfigRequestV2Schema.parse({ ...request,
+    this.request = this.protocolSupport?.maxSnapshotVersion === 3 ? automationCurrentConfigRequestV3Schema.parse({ ...request,
+      schemaVersion: 3, assignmentVersion: this.protocolSupport.assignmentVersion, declarationRevision,
+      maxSnapshotVersion: 3, temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true
+    }) : this.protocolSupport ? automationCurrentConfigRequestV2Schema.parse({ ...request,
       schemaVersion: 2, assignmentVersion: this.protocolSupport.assignmentVersion,
       maxSnapshotVersion: this.protocolSupport.maxSnapshotVersion, declarationRevision
     }) : automationCurrentConfigRequestV1Schema.parse(request);

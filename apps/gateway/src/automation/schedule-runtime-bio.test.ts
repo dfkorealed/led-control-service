@@ -19,7 +19,7 @@ async function reserveTemporary(f: Awaited<ReturnType<typeof fixture>>) {
   await f.store.updateDurable(state => {
     const snapshot = command.targets[0]!;
     state.temporarySessions[manual] = { command, sessionRevision: 1, state: "pending", targets: { [b]: {
-      snapshot, preState: null, preActivationId: null, applyConfirmed: false, releaseConfirmed: false,
+      snapshot, preState: null, preActivationId: null, applyConfirmed: false, releaseConfirmed: false, releaseAcknowledged: false,
       configurationMayHaveChanged: false, partialMutation: "none", applyResult: null, releaseResult: null } } };
     state.fixtureLeases[b] = { sessionId: manual, identity: snapshot, applyGeneration: "1", releaseGeneration: "2", lastGeneration: "1", phase: "pending" };
     return state;

@@ -49,7 +49,7 @@ export class BioProductPulseController extends BioPulseControlCore {
       throw new Error("snapshot_revision_conflict");
     }
     const bindings: BioSourceBinding[] = [];
-    const sources = snapshot.schemaVersion === 2 ? new Set(snapshot.vehicleEventRules.filter(rule =>
+    const sources = snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3 ? new Set(snapshot.vehicleEventRules.filter(rule =>
       rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled").flatMap(rule => rule.sourceFixtureIds)) : new Set<string>();
     for (const sourceFixtureId of sources) {
       const authority = await this.dependencies.source.preflight({ sourceFixtureId, snapshotRevision: snapshot.revision }, { requireHealthy: true });
@@ -78,7 +78,7 @@ export class BioProductPulseController extends BioPulseControlCore {
     const previous = this.checkpoint();
     try {
       this.resetConfiguration(latest.bindings);
-      if (latest.snapshot.schemaVersion === 2) super.install(latest.snapshot);
+      if (latest.snapshot.schemaVersion === 2 || latest.snapshot.schemaVersion === 3) super.install(latest.snapshot);
       this.canonicalSnapshot = structuredClone(latest.snapshot);
     } catch (error) { this.rollback(previous); throw error; }
   }
@@ -92,12 +92,12 @@ export class BioProductPulseController extends BioPulseControlCore {
     this.resetConfiguration(bindings);
     // Restoration metadata only; source authority remains unavailable and no old
     // healthy observation or receipt is rehydrated by installing this snapshot.
-    if (snapshot.schemaVersion === 2) this.snapshot = structuredClone(snapshot);
+    if (snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) this.snapshot = structuredClone(snapshot);
     this.canonicalSnapshot = structuredClone(snapshot);
   }
 
   protectedSources() {
-    return [...new Set([...super.protectedSources(), ...(this.canonicalSnapshot?.schemaVersion === 2
+    return [...new Set([...super.protectedSources(), ...((this.canonicalSnapshot?.schemaVersion === 2 || this.canonicalSnapshot?.schemaVersion === 3)
       ? this.canonicalSnapshot.vehicleEventRules.filter(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled").flatMap(rule => rule.sourceFixtureIds) : [])])];
   }
 

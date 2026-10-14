@@ -69,6 +69,15 @@ import { handleBioRegistrationRevalidation, recoverBioRegistrationRevalidations 
 import { BioCapabilityDeliveryController } from "./bio/bio-capability-delivery";
 import { bioSensorCatalogTopics, bioSensorPreparationTopics } from "@led-control/shared";
 import { createBioSensorRuntime } from "./bio/bio-sensor-runtime";
+import { BioUsbDongleAdapter } from "./adapters/bio-usb-dongle-adapter";
+import type { BioDeviceMappingStore } from "./bio/bio-device-mapping-store";
+import { BioTemporaryControlRuntime } from "./automation/bio-temporary-control-runtime";
+import { TemporaryControlResultOutbox } from "./automation/temporary-control-result-outbox";
+import { TemporaryControlMqtt } from "./automation/temporary-control-mqtt";
+import { resolveLatestBioAutomaticTarget } from "./automation/bio-temporary-release";
+import { isDeepStrictEqual } from "node:util";
+import type { TemporaryControlCommand, TemporaryFixtureSnapshot } from "@led-control/shared";
+import { bioSensorPreparationCommandV1Schema } from "@led-control/shared";
 import type { BioSnapshotLifecycle } from "./bio/bio-pulse-authority-provider";
 import type { GatewayAdapters } from "./adapters/adapter-factory";
 
@@ -317,10 +326,12 @@ export function createGatewayAutomationServices(options: {
   onError?: ScheduleRuntimeOptions["onError"];
   onDiagnostic?: ScheduleRuntimeOptions["onDiagnostic"];
   bioProductPulse?: ScheduleRuntimeOptions["bioProductPulse"];
+  bioNormalAssignmentVersion?: number;
   bioSnapshotLifecycle?: BioSnapshotLifecycle;
 }) {
   const scheduleRuntime = new ScheduleRuntime({
     store: options.stateStore,
+    bioNormalAssignmentVersion: options.bioNormalAssignmentVersion,
     clockTrust: options.clockTrust,
     execute: options.execute,
     // BIO sensor mode에서는 순간 출력 밝기를 읽을 수 없으므로, 검증된 첫 수동 SET/GET 결과가
@@ -349,6 +360,73 @@ export function createGatewayAutomationServices(options: {
     ...(options.wallClock ? { now: options.wallClock } : {})
   });
   return { scheduleRuntime, automationRuntime };
+}
+
+/** Trusted bootstrap authority: never an environment-controlled permission or a
+ * second sensor listener. Capability wire stays V2; only applied config is V3. */
+export function createGatewayTemporaryControlServices(options: {
+  store: FileAutomationStateStore; automationRuntime: AutomationRuntime; scheduleRuntime: ScheduleRuntime;
+  scope: { siteId: string; gatewayId: string; assignmentVersion: number }; clockTrust: ClockTrustProvider;
+  adapter: Pick<BioUsbDongleAdapter, "temporaryTargetPort" | "setBioTemporaryLeaseGuard">;
+  mappings: Pick<BioDeviceMappingStore, "findByFixtureId">; source: BioPulseSourcePort;
+  connection: () => { ready: boolean; protocolReady: boolean; generation: number };
+  now?: () => Date; monotonic?: () => number; onError?: (error: unknown) => void;
+}) {
+  const now = options.now ?? (() => new Date());
+  const snapshot = () => options.automationRuntime.currentAppliedSnapshot;
+  const checked = new Map<string, { hash: string; generation: number; sources: Map<string, unknown> }>();
+  const authorityCurrent = (target: TemporaryFixtureSnapshot) => {
+    const proof = checked.get(target.fixtureId), transport = options.connection();
+    return !!proof && snapshot()?.payloadHash === proof.hash && transport.ready && transport.protocolReady && transport.generation === proof.generation &&
+      [...proof.sources].every(([id, authority]) => isDeepStrictEqual(options.source.sourceAuthority(id), authority));
+  };
+  const preflight = async (command: TemporaryControlCommand, target: TemporaryFixtureSnapshot, admission: boolean) => {
+    const current = snapshot(), connection = options.connection();
+    const sources = new Map<string, unknown>();
+    if (command.siteId !== options.scope.siteId || command.gatewayId !== options.scope.gatewayId ||
+      command.assignmentVersion !== options.scope.assignmentVersion || current?.schemaVersion !== 3 ||
+      (admission && command.admissionRevision !== current.revision)) throw new Error("temporary_current_v3_required");
+    if (!connection.ready || !connection.protocolReady || options.scheduleRuntime.isBioSourceTarget([target.fixtureId])) {
+      throw new Error("temporary_target_unavailable");
+    }
+    const mapping = await options.mappings.findByFixtureId(target.fixtureId);
+    // Local nodeId is a discovered-node key, not the authenticated API canonical
+    // MeshNode ID. The latter stays bound by the immutable lease/proof identity.
+    if (!mapping || mapping.fixtureId !== target.fixtureId || mapping.status !== "confirmed" || mapping.nativeUuid !== target.nativeUuid ||
+      mapping.deviceUuid !== `bio:${target.nativeUuid}` || mapping.logicalAddress !== Number.parseInt(target.logicalAddress, 16)) {
+      throw new Error("temporary_identity_mismatch");
+    }
+    for (const rule of current.vehicleEventRules.filter(rule => rule.status === "enabled" && rule.sensorProtocol === "bio-usb-pulse" &&
+      rule.targetFixtureIds.includes(target.fixtureId))) {
+      for (const sourceFixtureId of rule.sourceFixtureIds) {
+        const authority = await options.source.preflight({ sourceFixtureId, snapshotRevision: current.revision }, { requireHealthy: true });
+        if (!authority?.independentlyQualified || authority.observation.health !== "healthy" || authority.binding.snapshotRevision !== current.revision) {
+          throw new Error("bio_source_authority_unverified");
+        }
+        sources.set(sourceFixtureId, structuredClone(authority));
+      }
+    }
+    const latest = snapshot(), transport = options.connection();
+    if (latest?.payloadHash !== current.payloadHash || !transport.ready || !transport.protocolReady || transport.generation !== connection.generation) {
+      throw new Error("temporary_authority_changed");
+    }
+    checked.set(target.fixtureId, { hash: current.payloadHash, generation: connection.generation, sources });
+  };
+  const runtime = new BioTemporaryControlRuntime({ store: options.store, port: options.adapter.temporaryTargetPort(),
+    clockTrust: options.clockTrust, now, monotonic: options.monotonic, snapshot, authorityCurrent,
+    preflight: (command, target) => preflight(command, target, true),
+    releasePreflight: (command, target) => preflight(command, target, false) });
+  options.adapter.setBioTemporaryLeaseGuard(id => runtime.ownsFixture(id));
+  const outbox = new TemporaryControlResultOutbox(options.store, options.scope, (result, state) => {
+    const current = snapshot(); if (current?.schemaVersion !== 3) return false;
+    const goal = resolveLatestBioAutomaticTarget({ fixtureId: result.fixtureId, snapshot: current, state, now: now() });
+    return !("reason" in goal) && goal.restorationRevision === result.restorationRevision && goal.restorationPayloadHash === result.restorationPayloadHash &&
+      isDeepStrictEqual(goal.configuration, result.configurationReadback) && current.vehicleEventRules.every(rule => rule.status !== "enabled" ||
+        rule.sensorProtocol !== "bio-usb-pulse" || !rule.targetFixtureIds.includes(result.fixtureId) ||
+        rule.sourceFixtureIds.every(id => options.source.sourceAuthority(id)?.observation.health === "healthy"));
+  });
+  const mqtt = new TemporaryControlMqtt({ scope: options.scope, runtime, outbox, clockTrust: options.clockTrust, now, onError: options.onError });
+  return { runtime, outbox, mqtt };
 }
 
 /** Only consumes the existing owner's qualified outlet; never another USB listener.
@@ -835,6 +913,7 @@ async function main() {
     throw error;
   }
   const automationStateStore = automationStorage.stateStore;
+  if (adapter instanceof BioUsbDongleAdapter) adapter.setBioTemporaryLeaseGuard(id => Boolean(automationStateStore.read().fixtureLeases[id]?.sessionId));
   const automationTelemetryOutbox = automationStorage.telemetryOutbox;
   if (automationStorageInitialization.telemetry.mode === "degraded" ||
     automationStorageInitialization.headroom.mode === "degraded") {
@@ -907,6 +986,7 @@ async function main() {
       { siteId, gatewayId }
     ),
     stateStore: automationStateStore,
+    bioNormalAssignmentVersion: assignment.configVersion,
     scope: { siteId, gatewayId },
     adapterKind: adapters.adapterKind,
     ...(adapters.bioPulseSource && adapters.bioTargetConfiguration ? { bioProductPulse: {
@@ -944,6 +1024,12 @@ async function main() {
   });
   scheduleRuntime = automationServices.scheduleRuntime;
   automationRuntime = automationServices.automationRuntime;
+  const temporaryServices = adapter instanceof BioUsbDongleAdapter && adapters.bioSensorHardware && adapters.bioPulseSource
+    ? createGatewayTemporaryControlServices({ store: automationStateStore, automationRuntime, scheduleRuntime,
+      scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion }, clockTrust, adapter,
+      mappings: adapters.bioSensorHardware.mappings, source: adapters.bioPulseSource,
+      connection: () => adapters.bioSensorHardware!.client.sensorSourceSnapshot(),
+      onError: error => { void reportGatewayError(error, "temporary_control"); } }) : undefined;
   const bioPulseIntake = adapters.bioPulseSource ? connectBioPulseSource(adapters.bioPulseSource, scheduleRuntime,
     error => { void reportGatewayError(error, "bio_pulse_input"); }) : undefined;
   try {
@@ -1047,6 +1133,7 @@ async function main() {
   requeuePendingFixtureObservations(scheduleRuntime, targetedLightingResync);
   if (fullResyncRerunPending) meshResyncWorker.schedule(true);
   scheduleRuntime.start();
+  temporaryServices?.mqtt.start();
   const automationAckOutbox = new AutomationConfigAckOutbox(
     process.env.GATEWAY_AUTOMATION_ACK_OUTBOX_PATH ?? "/var/lib/led-control/automation-config-acks.json",
     { siteId, gatewayId }
@@ -1056,7 +1143,7 @@ async function main() {
     onError: (error) => void reportGatewayError(error, "automation_config_ack_retry")
   });
   const automationConfigRequester = new AutomationCurrentConfigRequester({ siteId, gatewayId }, {
-    protocolSupport: { assignmentVersion: assignment.configVersion, maxSnapshotVersion: 2,
+    protocolSupport: { assignmentVersion: assignment.configVersion, maxSnapshotVersion: temporaryServices ? 3 : 2,
       nextRevision: async () => {
         if (reservedProtocolRevision === undefined) return protocolRevision.next();
         const revision = reservedProtocolRevision;
@@ -1419,6 +1506,13 @@ async function main() {
     publishHeartbeat,
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
+      [mqttTopics.temporaryControlCommand(siteId, gatewayId)]: async (payload, _source, _packet, control) => {
+        if (!temporaryServices) throw new Error("temporary_control_unavailable");
+        await temporaryServices.mqtt.handleCommand(payload); control?.acknowledgeDurable();
+      },
+      [mqttTopics.temporaryControlIngested(siteId, gatewayId)]: async payload => {
+        await temporaryServices?.mqtt.handleReceipt(payload);
+      },
       [bioSensorCatalogTopics.command(siteId, gatewayId)]: async (payload, source, _packet, control) => {
         if (!bioSensors) throw new Error("BIO_PREPARATION_UNAVAILABLE");
         const ack = await bioSensors.catalog.apply(JSON.parse(payload.toString()));
@@ -1427,7 +1521,11 @@ async function main() {
       },
       [bioSensorPreparationTopics.command(siteId, gatewayId)]: async (payload, _source, _packet, control) => {
         if (!bioSensors) throw new Error("BIO_PREPARATION_UNAVAILABLE");
-        await bioSensors.preparation.handle(JSON.parse(payload.toString()), () => control?.acknowledgeDurable());
+        const command = bioSensorPreparationCommandV1Schema.parse(JSON.parse(payload.toString()));
+        const operation = () => bioSensors.preparation.handle(command, () => control?.acknowledgeDurable());
+        if (temporaryServices && command.operation === "ensure_sensor" && command.siteId === siteId && command.gatewayId === gatewayId &&
+          command.assignmentVersion === assignment.configVersion) await temporaryServices.runtime.withConfigurationMutation(command.fixtureId, operation);
+        else await operation();
       },
       [bioSensorPreparationTopics.ack(siteId, gatewayId)]: async payload => {
         await bioSensors?.preparation.acknowledge(JSON.parse(payload.toString()));
@@ -1452,7 +1550,7 @@ async function main() {
       [bioSensorModeTopics.command(siteId, gatewayId)]: async (payload, _source, _packet, control) => {
         const command = bioSensorModeCommandSchema.parse(JSON.parse(payload.toString()));
         bioSensors?.monitor.invalidate(command.fixtureId);
-        const handling = handleBioSensorMode(adapter, command, {
+        const operation = () => handleBioSensorMode(adapter, command, {
           journal: sensorModeJournal, outbox: stateEventOutbox, nextSequence: () => eventSequence.next(),
           scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion },
           clockTrusted: () => clockTrust.isTrusted(new Date()), signal: sensorModeAbort.signal,
@@ -1460,7 +1558,10 @@ async function main() {
             await bioCapabilityReporting.recordIdentityProof(proof); await bioCapabilityReporting.wake();
           } : undefined,
           onDurableReceipt: () => control?.acknowledgeDurable()
-        }).finally(() => { sensorModeHandlers.delete(handling); stateEventPublisher.wake(); });
+        });
+        const handling = (temporaryServices && command.operation === "ensure_sensor" && command.siteId === siteId && command.gatewayId === gatewayId &&
+          command.assignmentVersion === assignment.configVersion ? temporaryServices.runtime.withConfigurationMutation(command.fixtureId, operation) : operation())
+          .finally(() => { sensorModeHandlers.delete(handling); stateEventPublisher.wake(); });
         sensorModeHandlers.add(handling);
         await handling;
       },
@@ -1557,6 +1658,7 @@ async function main() {
           await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
           await bioCapabilityReporting?.connect((topic, delivery) => publish(mqttRuntime.client, topic, delivery));
           await bioSensors?.preparation.connect((topic, value) => publish(mqttRuntime.client, topic, value));
+          await temporaryServices?.mqtt.connect((topic, value) => publish(mqttRuntime.client, topic, value));
           await recoverRegistrationRevalidations();
           await recoverBioSensorModes({ journal: sensorModeJournal, outbox: stateEventOutbox,
             nextSequence: () => eventSequence.next(), scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion } });
@@ -1581,9 +1683,11 @@ async function main() {
       vehicleSensorController?.disconnect();
       bioCapabilityReporting?.disconnect();
       bioSensors?.disconnect();
+      temporaryServices?.mqtt.disconnect();
       return health.unhealthy("mqtt_disconnected");
     },
     onBeforeStop: async () => {
+      await temporaryServices?.mqtt.stopAndDrain();
       await bioSensors?.stopAndDrain();
       registrationRevalidationAbort.abort();
       await Promise.allSettled([...registrationRevalidationHandlers]);
@@ -1607,7 +1711,7 @@ async function main() {
     onError: () => health.unhealthy("mqtt_error"),
     onRuntimeError: reportGatewayError
   });
-  adapter.onResyncReport?.((report) => {
+  adapters.dimming.onResyncReport?.((report) => {
     void recordMeshResyncOutcome(health, report).catch((error) => void reportGatewayError(error, "mesh_resync"));
   });
   startControlPlaneWithBackgroundMeshResync(() => mqttRuntime.start(), meshResyncWorker);
@@ -1632,6 +1736,7 @@ async function main() {
         const vehicleSensorDrain = vehicleSensorController?.stopAndDrain() ?? Promise.resolve();
         const bioCapabilityDrain = bioCapabilityReporting?.stopAndDrain() ?? Promise.resolve();
         await bioSensors?.stopAndDrain();
+        await temporaryServices?.mqtt.stopAndDrain();
         stopAutomationFixtureStatusIntake();
         await fixturePresenceIntake.stopAndDrain();
         stopFixtureStatusIntake?.();
@@ -1657,6 +1762,7 @@ async function main() {
 
 export function gatewayDeferredPubackTopics(siteId: string, gatewayId: string) {
   return [
+    mqttTopics.temporaryControlCommand(siteId, gatewayId),
     bioSensorCatalogTopics.command(siteId, gatewayId),
     bioSensorPreparationTopics.command(siteId, gatewayId),
     bioRegistrationRevalidationTopics.command(siteId, gatewayId),
@@ -2028,7 +2134,9 @@ export function subscribeGatewayCommands(
   // An older persistent broker session cannot already contain this new topic.
   // Re-subscribing only this addition is idempotent and preserves V1 session behavior.
   if (sessionPresent && !force) return subscribeGatewayTopics(client,
-    [bioSensorCatalogTopics.command(assignment.siteId, assignment.gatewayId),
+    [mqttTopics.temporaryControlCommand(assignment.siteId, assignment.gatewayId),
+      mqttTopics.temporaryControlIngested(assignment.siteId, assignment.gatewayId),
+      bioSensorCatalogTopics.command(assignment.siteId, assignment.gatewayId),
       bioSensorPreparationTopics.command(assignment.siteId, assignment.gatewayId),
       bioSensorPreparationTopics.ack(assignment.siteId, assignment.gatewayId),
       bioSensorModeTopics.command(assignment.siteId, assignment.gatewayId),
@@ -2052,7 +2160,7 @@ export function subscribeGatewayAcknowledgements(
   force = false
 ) {
   if (sessionPresent && !force) return subscribeGatewayTopics(client,
-    [bioSensorPreparationTopics.ack(assignment.siteId, assignment.gatewayId), bioRegistrationRevalidationTopics.ack(assignment.siteId, assignment.gatewayId)], false, false);
+    [mqttTopics.temporaryControlIngested(assignment.siteId, assignment.gatewayId), bioSensorPreparationTopics.ack(assignment.siteId, assignment.gatewayId), bioRegistrationRevalidationTopics.ack(assignment.siteId, assignment.gatewayId)], false, false);
   return subscribeGatewayTopics(
     client,
     gatewayAcknowledgementTopics(assignment.siteId, assignment.gatewayId),
@@ -2063,6 +2171,7 @@ export function subscribeGatewayAcknowledgements(
 
 export function gatewayCommandTopics(siteId: string, gatewayId: string) {
   return [
+    mqttTopics.temporaryControlCommand(siteId, gatewayId),
     bioSensorCatalogTopics.command(siteId, gatewayId),
     bioSensorPreparationTopics.command(siteId, gatewayId),
     bioRegistrationRevalidationTopics.command(siteId, gatewayId),
@@ -2081,6 +2190,7 @@ export function gatewayCommandTopics(siteId: string, gatewayId: string) {
 
 function gatewayAcknowledgementTopics(siteId: string, gatewayId: string) {
   return [
+    mqttTopics.temporaryControlIngested(siteId, gatewayId),
     bioSensorPreparationTopics.ack(siteId, gatewayId),
     bioRegistrationRevalidationTopics.ack(siteId, gatewayId),
     mqttTopicsV2.commandClockResponse(siteId, gatewayId),

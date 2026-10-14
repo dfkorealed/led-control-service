@@ -1,4 +1,4 @@
-import type { AutomationSnapshotV1, AutomationSnapshotV2, VehicleEventRuleSnapshotV1 } from "@led-control/shared";
+import type { AutomationSnapshotV1, AutomationSnapshotV2, AutomationSnapshotV3, VehicleEventRuleSnapshotV1 } from "@led-control/shared";
 import {
   parseBioPulseReceipt,
   type BioPulseReceipt,
@@ -6,7 +6,7 @@ import {
   type PersistedVehicleRuleState
 } from "./automation-state-store";
 
-type VehicleSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2;
+type VehicleSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2 | AutomationSnapshotV3;
 export type { BioPulseReceipt } from "./automation-state-store";
 
 export type BioSourceHealth = "healthy" | "degraded" | "unverified";
@@ -87,7 +87,7 @@ export class VehicleEventRuntime {
     const events: VehicleLifecycleEvent[] = [];
     const rules = snapshot.vehicleEventRules.filter((rule) =>
       rule.status === "enabled" && rule.sourceFixtureIds.includes(input.sourceFixtureId) &&
-      ((snapshot.schemaVersion === 2 && "sensorProtocol" in rule && rule.sensorProtocol === "bio-usb-pulse") === (input.type === "pulse")) &&
+      (((snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) && "sensorProtocol" in rule && rule.sensorProtocol === "bio-usb-pulse") === (input.type === "pulse")) &&
       // Queued packets whose entire hold elapsed cannot briefly turn a target on.
       (input.type !== "pulse" || input.receivedMonotonicMs + rule.holdSeconds * 1_000 > monotonicNow)
     );

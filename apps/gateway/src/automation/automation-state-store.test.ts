@@ -28,19 +28,28 @@ const ruleId = "00000000-0000-4000-8000-000000000401";
 const requestedAt = "2026-09-01T01:00:00.000Z";
 const appliedAt = "2026-09-01T01:00:01.000Z";
 
+it("migrates only absent newly added V10 maps and rejects explicitly invalid evidence", () => {
+  const state = emptyAutomationState(); const old = { ...state } as any;
+  delete old.temporaryEndProofs; delete old.bioNormalConfigurations;
+  expect(parseAutomationState(old)).toEqual(state);
+  for (const field of ["temporaryEndProofs", "bioNormalConfigurations"] as const) {
+    for (const invalid of [undefined, null, [], "invalid"]) expect(() => parseAutomationState({ ...state, [field]: invalid })).toThrow();
+  }
+  expect(() => parseAutomationState({ ...old, temporaryEndTombstones: undefined })).toThrow();
+});
 it("migrates V9 preserving all legacy journals and starts without invented temporary ownership", () => {
   const old = { ...emptyAutomationState(), schemaVersion: 9 } as Record<string, unknown>;
   delete old.temporarySessions; delete old.fixtureLeases; delete old.temporaryResultOutbox;
-  delete old.temporaryEndTombstones;
+  delete old.temporaryEndTombstones; delete old.temporaryEndProofs; delete old.bioNormalConfigurations;
   old.baseBrightnessByFixture = { [fixtureId]: 30 };
   expect(parseAutomationState(old)).toEqual({ ...old, schemaVersion: 10,
-    temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {} });
+    temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {}, temporaryEndProofs: {}, bioNormalConfigurations: {} });
 });
 
 function manualV6State() {
   const { bioPulseInbox: _bioPulseInbox, bioTargetsByFixture: _bioTargets, bioActivationsByRule: _bioActivations,
     temporarySessions: _temporarySessions, fixtureLeases: _leases, temporaryResultOutbox: _outbox,
-    temporaryEndTombstones: _ends, ...legacy } = emptyAutomationState();
+    temporaryEndTombstones: _ends, temporaryEndProofs: _proofs, bioNormalConfigurations: _normal, ...legacy } = emptyAutomationState();
   return {
     ...legacy,
     schemaVersion: 6,
@@ -210,7 +219,7 @@ describe("V6 automation state", () => {
   it("round-trips pending controls and exact source suppressions through durable storage", async () => {
     const state = manualV6State();
     const migrated = { ...state, schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {},
-      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {} };
+      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {}, temporaryEndProofs: {}, bioNormalConfigurations: {} };
     expect(parseAutomationState(state)).toEqual(migrated);
     const path = await statePath();
     await writeJsonAtomic(path, state);
@@ -256,7 +265,7 @@ describe("V6 automation state", () => {
     state.manualAutomationSuppressions[fixtureId]!.schedules.push({ scheduleId, occurrenceKey: "2026-09-02" });
     state.manualAutomationSuppressions[fixtureId]!.vehicleEvents.push({ ruleId, startedAt: appliedAt });
     expect(parseAutomationState(state)).toEqual({ ...state, schemaVersion: 10, bioPulseInbox: {}, bioTargetsByFixture: {}, bioActivationsByRule: {},
-      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {} });
+      temporarySessions: {}, fixtureLeases: {}, temporaryResultOutbox: {}, temporaryEndTombstones: {}, temporaryEndProofs: {}, bioNormalConfigurations: {} });
   });
 
   it.each(["pendingManualControls", "manualAutomationSuppressions"] as const)("bounds %s to 10,000 fixtures", (field) => {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { automationSnapshotV2Schema, type AutomationSnapshotV2 } from "@led-control/shared";
+import { automationSnapshotSchema, type AutomationSnapshotV2, type AutomationSnapshotV3 } from "@led-control/shared";
 import { BioTargetConfigurationRuntime, type BioTargetConfigurationPort } from "./bio-target-configuration";
 import { parseBioSourceBinding, type BioSourceBinding, type FileAutomationStateStore,
   type PersistedAutomationStateV4, type PersistedBioActivation } from "./automation-state-store";
@@ -34,7 +34,7 @@ export interface BioPulseControlDependencies extends Omit<BioPulseTestProfile, "
 }
 
 export class BioPulseControlCore {
-  protected snapshot: AutomationSnapshotV2 | null = null;
+  protected snapshot: AutomationSnapshotV2 | AutomationSnapshotV3 | null = null;
   protected readonly bindings: Map<string, BioSourceBinding>;
   private readonly signals = new Map<string, { health: BioSourceHealth; reason: string }>();
   private readonly recoveredAt = new Map<string, number>();
@@ -121,8 +121,9 @@ export class BioPulseControlCore {
     } };
   }
 
-  install(value: AutomationSnapshotV2) {
-    const snapshot = automationSnapshotV2Schema.parse(value) as AutomationSnapshotV2;
+  install(value: AutomationSnapshotV2 | AutomationSnapshotV3) {
+    const snapshot = automationSnapshotSchema.parse(value) as AutomationSnapshotV2 | AutomationSnapshotV3;
+    if (snapshot.schemaVersion !== 2 && snapshot.schemaVersion !== 3) throw new Error("bio_snapshot_version_unsupported");
     const { payloadHash, ...payload } = snapshot;
     if (payloadHash !== hash(payload)) throw new Error("snapshot_hash_mismatch");
     if (this.snapshot) {

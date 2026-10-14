@@ -1,5 +1,31 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 Gateway 최신 BIO 자동 복귀·V3·durable 결과 수신 확인
+
+### 구현 완료
+
+- 실제 BIO bootstrap에 임시 owner port/lease guard, 적용 완료된 V3·assignment·정확한 fixture/native UUID/address·독립 source 건강 권위를 연결했다. 센서 자격·telemetry wire는 기존 version2를 유지한다. canonical MeshNode ID는 API 원명령/lease/proof로 묶으며 로컬 discovered-node ID와 혼동하지 않는다.
+- 종료/오프라인 만료는 예약 release generation의 durable intent 이후 독립 GET, 현재 event > schedule > normal 목표, 각 SET 직전 권위 재검사와 mutation intent 저장, 별도 full GET, durable 결과 순서로 처리한다. 같은 snapshot에서도 시간 경계가 지나면 목표를 다시 평가하고 과거 pulse/preState를 재생하지 않는다.
+- Normal은 overlay 없는 독립 GET에서 확인한 full mode/high 설정만 사용한다. 신원/network/assignment/base marker와 capture 시점 revision을 검사하며, 증거 없는 신규 임시 SET은 RF0 거절한다. 기존 변경 가능 대상은 recovery_pending/lease를 유지한다. 영구 제어·인증된 ensure_sensor는 SET 전에 이 증거를 무효화하며 일반 scheduler도 sensor 설정을 scalar force-on/off로 덮지 않는다.
+- V3 전체 공휴일 dataset의 내용 hash·정렬을 config 경계에서 검증하고 기존 공통 평가기를 실행에 사용한다. 원명령 hash와 UUID delivery hash/window를 분리 검증하며 MQTT PUBACK는 복귀 성공이 아니다. Exact application receipt만 해당 결과를 정리하고, 최신 terminal proof가 있는 대상별 lease만 해제한다. API가 먼저 거절한 immutable event는 새 독립 재검증/새 event로 갱신한다.
+- 시작 전 종료와 이미 RF0 거절된 시작에도 원 Start를 꾸미지 않고 revision2 RF0를 보존한다. Outbox 정리 후 최소 proof/fence는 남고, 늦은 시작/종료/ACK가 후속 owner를 되찾지 않는다. 동일 부팅 monotonic과 재시작 후 원 absolute 만료를 사용하며 재전송·drain은 제한된 대기/재시도로 동작한다.
+
+### 미구현
+
+- 기존 Web 화면의 임시 제어·달력·센서 준비 연결은 후속 Task8 범위다. 운영 배포, 실제 브로커/USB/RF/HIL, 공휴일 provider 실호출은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 검증은 지정 Gateway cohort와 self-owned file/fake USB에 한정한다. Configuration GET은 센서 광출력 증거가 아니다. 신규 임시 제어에 독립 normal 권위가 없고 자동 overlay가 활성인 경우 안전하게 거절하며, 기존 불확정 복귀는 권위가 회복될 때까지 잠금을 유지한다.
+
+### 관련 파일
+
+- `apps/gateway/src/index.ts`, `automation/{bio-temporary-control-runtime,bio-temporary-release,temporary-control-mqtt,temporary-control-result-outbox,automation-config-store,automation-state-store,schedule-runtime,automation-runtime}.ts`, 기존 BIO source/product/provider 및 지정 테스트.
+
+### 갱신 규칙
+
+- 최신 목표·각 RF 경계·receipt 순서·독립 normal 권위·대상별 ACK/fence를 바꾸면 같은 범위의 race/restart 회귀를 함께 갱신한다. Web/운영/HIL 완료는 별도 증거가 있어야 기록한다.
+
 ## 2026-10-15 Gateway BIO 시간제 소유권·부분 쓰기 기반
 
 ### 구현 완료
@@ -11,12 +37,12 @@
 
 ### 미구현
 
-- 실제 current V3 설치·완전 공휴일 검증·MQTT delivery/ingested ACK·latest 자동 복귀 평가 및 Web 연결은 Task 7 이후 작업이다. 현재 런타임은 필수 preflight와 adapter의 명시적 owner port를 제공하지만 bootstrap에 연결하지 않았다. V3 scheduler 입력은 실제 연결 전까지 상태 변경 전에 명시적으로 거부한다.
+- Task6 당시 보류했던 current V3·공휴일 검증·MQTT ACK·최신 자동 복귀/실제 bootstrap은 위 Task7 기록에서 연결했다. Web 연결은 후속 작업이다.
 - 운영 배포·실제 USB/RF/HIL 검증은 수행하지 않았다. 센서 configuration GET은 광출력 증거가 아니다.
 
 ### 부족하거나 개선이 필요한 기능
 
-- 후속 연결은 현재 V3/assignment/meshNode·UUID/address/source/capability 검증과 lease guard를 실제 authority에 연결해야 한다. 자동 복귀는 과거 preState의 무조건 재생이 아니라 최신 승인 목표 재평가·독립 GET·durable 결과/ACK로 완료해야 한다.
+- Task7에서 현재 V3/assignment·UUID/address/source 권위·lease guard와 최신 목표/독립 GET/durable 결과 ACK를 연결했다. 과거 preState의 무조건 재생은 허용하지 않는다.
 - 검증은 지정 Gateway 다섯 파일의 메모리·fake USB·자기 소유 임시 파일 테스트와 package typecheck 범위다. 전체 서비스/실장비 완료를 의미하지 않는다.
 
 ### 관련 파일
@@ -70,7 +96,7 @@
 
 ### 미구현
 
-- Gateway 임시 apply·재시작 관측·만료 intent 기반은 위 기록에서 구현했다. 실제 V3/MQTT 연결·최신 자동 목표 복귀 및 기존 Web 화면 연결은 후속 작업이다. 달력 API는 위 기록에서 구현했다. 이 단계의 HTTP/MQTT/SQL 증거는 mock transport와 자기 소유 PostgreSQL 검증이다.
+- Gateway 임시 apply·재시작 관측·만료 intent 및 V3/MQTT·최신 자동 목표 복귀는 위 기록에서 구현했다. 기존 Web 화면 연결은 후속 작업이다. 달력 API는 위 기록에서 구현했다. 이 단계의 HTTP/MQTT/SQL 증거는 mock transport와 자기 소유 PostgreSQL 검증이다.
 - 운영 clock attestor·공휴일 provider/ServiceKey, 운영 migration·서버/Pi 배포·PKI/ACL 적용·HIL은 수행하지 않았다. 현재 production clock attestor가 없으면 새로운 시간제 시작은 503으로 차단한다.
 
 ### 부족하거나 개선이 필요한 기능
@@ -123,7 +149,7 @@
 
 ### 미구현
 
-- API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider/cache 소프트웨어·공통 달력 평가기·완전 달력 API 및 Gateway durable 임시 apply 기반은 위 후속 기록에서 구현했다. Gateway V3/MQTT·최신 자동 복귀와 Web UI 연결은 후속 단계이며 DB/API 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
+- API 접수/권한·결과 판정·전송/상세 정리 worker, 공휴일 provider/cache 소프트웨어·공통 달력 평가기·완전 달력 API 및 Gateway durable 임시 apply·V3/MQTT·최신 자동 복귀는 위 후속 기록에서 구현했다. Web UI 연결은 후속 단계이며 DB/API/Gateway 기반 완료를 현재 화면에서 사용할 수 있는 기능 완료로 표시하지 않는다.
 - 현재 사용자 DB migration·서버/장비 반영·ACL reload·HIL·ServiceKey/provider 연결은 수행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
