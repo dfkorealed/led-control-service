@@ -26,16 +26,16 @@ describe("editor initialization lease and confirmation", () => {
     await waitFor(() => expect(onInitialized).toHaveBeenCalledWith(next));
     expect(onBusyChange).toHaveBeenLastCalledWith(false);
   });
-  it("never automatically discards legacy content and requires the destructive confirmation", async () => {
+  it("never exposes a destructive legacy reset bypass", async () => {
     const legacy = { ...state, lightSlots: [{ id: "slot", x: 1, y: 1, rotation: 0, assignedFixtureId: null }] };
     vi.mocked(resetFloorEditorDocument).mockResolvedValue(ref);
     vi.mocked(getFloorEditorState).mockResolvedValue({ ...state, floor: { ...state.floor, mapRevision: 1, mapDocument: ref } });
     render(<MapDocumentInitialization state={legacy} readOnly={false} leaseToken="lease" leaseFence={1} onInitialized={vi.fn()} />);
     expect(resetFloorEditorDocument).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "맵 초기화" }));
+    expect(screen.queryByRole("button", { name: "맵 초기화" })).not.toBeInTheDocument();
+    expect(screen.getByText(/이전 형식 맵은 초기화할 수 없습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(resetFloorEditorDocument).not.toHaveBeenCalled();
-    fireEvent.click(screen.getAllByRole("button", { name: "맵 초기화" }).at(-1)!);
-    await waitFor(() => expect(resetFloorEditorDocument).toHaveBeenCalledTimes(1));
   });
   it("does not initialize without a lease or adopt a stale generation", async () => {
     const onInitialized = vi.fn();

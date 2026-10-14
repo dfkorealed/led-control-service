@@ -4,6 +4,7 @@ import { Bell, CircleCheck, PanelLeft, PanelRight, RotateCcw, TriangleAlert, Und
 import { type DragEvent, type Ref, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
+import { mapDocumentRefSchema } from "@led-control/shared/map-document-contracts";
 import { ApiError } from "../../api/client";
 import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, UnderlineTabs, UnderlineTabPanel, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem } from "../../components/ui";
 import { MapCameraControls } from "../../components/ui/maps/MapCameraControls";
@@ -29,6 +30,8 @@ import { useMapEditor } from "./use-map-editor";
 import { MapElementPropertiesPanel } from "./MapElementPropertiesPanel";
 import { MapSelectionProperties } from "./MapSelectionProperties";
 import { MapDocumentInitialization } from "./MapDocumentInitialization";
+import { MapClearDialog } from "./MapClearDialog";
+import { clearFloorEditorDocument, type FloorEditorClearInput, type FloorEditorClearMode } from "../../api/floor-editor-reset";
 import { MapPolygonControls } from "./MapPolygonControls";
 import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
 import { useFloorEditorStore } from "./editor-store";
@@ -158,6 +161,10 @@ export function FloorEditorView({
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [isCadImportPending, setIsCadImportPending] = useState(false);
   const [isResetPending, setIsResetPending] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [isClearPending, setIsClearPending] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const clearCommand = useRef<{ key: string; input: FloorEditorClearInput } | null>(null);
   const [importReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
   const cadImportReview = importReview?.job.floorId === initialState.floor.id ? importReview : null;
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
@@ -165,8 +172,8 @@ export function FloorEditorView({
   const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
   const mutationLock = useRef(false);
   const activeInstance = useRef(true);
-  const activeScope = useRef({ floorId: initialState.floor.id, siteId: initialState.floor.siteId, authScope: draftScope });
-  activeScope.current = { floorId: initialState.floor.id, siteId: initialState.floor.siteId, authScope: draftScope };
+  const activeScope = useRef({ floorId: initialState.floor.id, siteId: initialState.floor.siteId, authScope: draftScope, readOnly, leaseToken, leaseFence });
+  activeScope.current = { floorId: initialState.floor.id, siteId: initialState.floor.siteId, authScope: draftScope, readOnly, leaseToken, leaseFence };
   useLayoutEffect(() => { activeInstance.current = true; return () => { activeInstance.current = false; }; }, []);
   const noticeFloorId = useRef(initialState.floor.id);
   const floorId = initialState.floor.id;
@@ -208,7 +215,7 @@ export function FloorEditorView({
     return items;
   }, [noticeScope, saveStatus, map.error, draftError, recovery, map.preparing, map.pendingStage, Boolean(map.retryStage), Boolean(stageProgress), skippedFixtureCount]);
   useSessionStatus(noticeScope, notices);
-  useEffect(() => { setFeedbackOpen(false); return () => toast.dismiss(`${noticeScope}:saved`); }, [noticeScope, toast]);
+  useEffect(() => { setFeedbackOpen(false); return () => { toast.dismiss(`${noticeScope}:saved`); toast.dismiss(`${noticeScope}:clear-error`); }; }, [noticeScope, toast]);
 
   useLayoutEffect(() => {
     const current = useFloorEditorStore.getState();
@@ -285,8 +292,8 @@ export function FloorEditorView({
   }, [userId, draftScope, baseline, floorId, siteId]);
 
   useEffect(() => {
-    onDirtyChange?.(isDirty);
-  }, [isDirty, onDirtyChange]);
+    onDirtyChange?.(isDirty || isClearPending);
+  }, [isDirty, isClearPending, onDirtyChange]);
 
   useEffect(() => {
     setPanelTab((current) => current === "details" || current === "layers" ? current : "properties");
@@ -296,8 +303,68 @@ export function FloorEditorView({
     return activeInstance.current && principalGeneration === editorDraftGeneration()
       && activeScope.current.floorId === floorId && activeScope.current.siteId === siteId
       && activeScope.current.authScope === draftScope
-      && useFloorEditorStore.getState().initialState?.floor.id === floorId;
-  }, [draftScope, floorId, siteId]);
+      && !activeScope.current.readOnly && activeScope.current.leaseToken === leaseToken && activeScope.current.leaseFence === leaseFence
+      && useFloorEditorStore.getState().initialState?.floor.id === floorId
+      && useFloorEditorStore.getState().initialState?.floor.siteId === siteId;
+  }, [draftScope, floorId, siteId, leaseToken, leaseFence]);
+
+  async function handleClear(mode: FloorEditorClearMode) {
+    const current = useFloorEditorStore.getState();
+    const original = current.initialState;
+    const document = original?.floor.mapDocument;
+    if (readOnly || mutationLock.current || map.preparing || current.pendingMapStage || !document || !original
+      || original.floor.id !== floorId || original.floor.siteId !== siteId || !leaseToken || !leaseFence) return;
+    const principalGeneration = editorDraftGeneration();
+    const sameSession = () => isCurrentSave(principalGeneration)
+      && useFloorEditorStore.getState().initialState?.floor.mapDocument?.generationId === document.generationId
+      && useFloorEditorStore.getState().initialState?.floor.mapRevision === original.floor.mapRevision;
+    const key = JSON.stringify([draftScope, principalGeneration, floorId, siteId, document.generationId, original.floor.mapRevision, leaseToken, leaseFence, mode]);
+    // A lost POST or subsequent GET response is ambiguous. Replay exactly the
+    // original command, never infer a successful clear from an empty document.
+    if (clearCommand.current?.key !== key) clearCommand.current = { key, input: {
+      requestId: crypto.randomUUID(), baseRevision: original.floor.mapRevision, leaseToken, leaseFence, mode
+    } };
+    const command = clearCommand.current;
+    mutationLock.current = true;
+    setIsClearPending(true); setClearError(null);
+    let readStarted = false;
+    try {
+      const ref = await clearFloorEditorDocument(floorId, command.input);
+      if (!sameSession()) return;
+      readStarted = true;
+      const next = await getFloorEditorState(floorId);
+      if (!sameSession()) return;
+      if (next.floor.id !== floorId || next.floor.siteId !== siteId || next.floor.mapRevision !== ref.revision
+        || JSON.stringify(mapDocumentRefSchema.parse(next.floor.mapDocument)) !== JSON.stringify(mapDocumentRefSchema.parse(ref))) throw new Error("Map clear response scope/ref mismatch");
+      removeEditorDraft(draftScope, original);
+      initialize(next, draftScope);
+      toast.dismiss(`${noticeScope}:clear-error`);
+      clearCommand.current = null;
+      setRecovery(null); setDraftError(false); setClearOpen(false); setSaveStatus("idle");
+      const currentAcknowledgement = () => isCurrentSave(principalGeneration)
+        && useFloorEditorStore.getState().initialState?.floor.mapDocument?.generationId === ref.generationId
+        && useFloorEditorStore.getState().initialState?.floor.mapRevision === ref.revision;
+      await invalidateEditorQueries(queryClient, next);
+      if (!currentAcknowledgement()) return;
+      await onSaved(next);
+      if (currentAcknowledgement()) toast.publish({ id: `${noticeScope}:saved`, tone: "success", title: "맵을 초기화했습니다." });
+    } catch (error) {
+      // Always inspect server state after a failed POST too, but require its
+      // idempotent receipt before adopting it or discarding any local edits.
+      if (!readStarted && sameSession()) await getFloorEditorState(floorId).catch(() => undefined);
+      if (sameSession()) {
+        const message = "맵 초기화 결과를 확인하지 못했습니다. 다시 시도하거나 최신 맵을 불러오세요.";
+        setClearError(message);
+        toast.publish({ id: `${noticeScope}:clear-error`, tone: "danger", title: message });
+        if (error instanceof ApiError && error.status === 409) setSaveStatus("conflict");
+      }
+    } finally {
+      mutationLock.current = false;
+      if (activeInstance.current) setIsClearPending(false);
+    }
+  }
+
+  useEffect(() => { setClearOpen(false); setClearError(null); clearCommand.current = null; }, [floorId, siteId, draftScope]);
 
   function captureSaveAcknowledgement(principalGeneration: number) {
     const renderer = map.handle.current;
@@ -442,7 +509,7 @@ export function FloorEditorView({
     objectCount: state?.floor.id === floorId ? state.objects.length : initialState.objects.length,
     slotCount: state?.floor.id === floorId ? state.lightSlots.length : initialState.lightSlots.length
   }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
-  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isResetPending || map.preparing;
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isResetPending || isClearPending || map.preparing;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
   const placementFixture = placementDraft && isNarrowLayout && Boolean(map.document) && !readOnly && !isMutationPending && !cadImportReview
     && Boolean(leaseToken && leaseFence)
@@ -492,12 +559,15 @@ export function FloorEditorView({
             <CadImportPanel floorId={floorId}
               expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
               leaseToken={leaseToken} leaseFence={leaseFence}
-              disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || map.preparing}
+              disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || isResetPending || isClearPending || map.preparing}
               isDirty={isDirty} resetSummary={cadResetSummary} review={cadImportReview}
               onReviewChange={setCadImportReview} onBusyChange={handleCadBusyChange}
               onApplied={handleCadApplied} onConflict={() => setSaveStatus("conflict")} />
             {floors && onFloorChange && <SelectBox label="층 선택" className="w-32 min-w-0 [&>label]:sr-only" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
             <Button size="sm" variant="primary" className="min-h-13 min-w-13 text-action-primary-foreground" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave}>{isDirty ? "저장" : "저장됨"}</Button>
+            <Button size="sm" variant="secondary" className="min-h-13" disabled={isSaveOrRestoreBlocked || !map.document || Boolean(map.pendingStage || map.retryStage)}
+              title={!map.document ? "이전 형식 맵은 공통 맵 전환 후 초기화할 수 있습니다." : undefined}
+              onClick={() => { if (!mutationLock.current) { setClearError(null); setClearOpen(true); } }}><RotateCcw size={16} aria-hidden="true" />맵 초기화</Button>
           </div>
         </div>
         <div className="flex flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
@@ -513,8 +583,12 @@ export function FloorEditorView({
         </div>
       </header>
 
+      {clearOpen && <MapClearDialog floorName={initialState.floor.name} isPending={isClearPending}
+        disabled={readOnly || (!isClearPending && isMutationPending) || !map.document || Boolean(map.pendingStage || map.retryStage)}
+        error={clearError} onCancel={() => { if (!mutationLock.current) setClearOpen(false); }} onConfirm={mode => void handleClear(mode)} />}
+
       {!map.document && !cadImportReview && <MapDocumentInitialization state={initialState} readOnly={readOnly || isDirty || saveStatus === "saving" || restoringRevision !== null || isCadImportPending} leaseToken={leaseToken} leaseFence={leaseFence} onBusyChange={handleResetBusyChange}
-        onInitialized={next => { adoptBaseline(next); void invalidateEditorQueries(queryClient, next); void onSaved(next); }} />}
+        onInitialized={next => { initialize(next, draftScope); void invalidateEditorQueries(queryClient, next); void onSaved(next); }} />}
       <ModalDialog isOpen={feedbackOpen} title="편집 복구" onClose={() => setFeedbackOpen(false)}>
       {saveStatus === "error" && !map.error ? (
         <FeedbackState tone="danger" icon={TriangleAlert} title="변경분을 저장하지 못했습니다." />

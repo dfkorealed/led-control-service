@@ -667,7 +667,7 @@ describe("FloorEditorView", () => {
     const row = screen.getByTestId("placement-fixture-fixture-1");
     expect(row).toHaveAttribute("draggable", "false");
     fireEvent.click(row);
-    expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
+    expect(screen.getByText(/이전 형식 맵은 초기화할 수 없습니다/)).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "조명 배치" })).not.toBeInTheDocument();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
   });
@@ -870,9 +870,10 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("button", { name: "이 위치에 배치" })).toBeEnabled();
   });
 
-  it("requires explicit reset for a legacy map and exposes no CAD-only property writer", () => {
+  it("disables clear for a legacy map and exposes no destructive bootstrap or CAD-only property writer", () => {
     renderEditor();
-    expect(screen.getByRole("button", { name: "맵 초기화" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "맵 초기화" })).toBeDisabled();
+    expect(screen.getByText(/이전 형식 맵은 초기화할 수 없습니다/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "사각형" })).toBeDisabled();
     expect(floorEditorApi.getCadSceneState).not.toHaveBeenCalled();
     expect(floorEditorApi.updateCadScene).not.toHaveBeenCalled();
@@ -1418,7 +1419,7 @@ describe("FloorEditorView", () => {
     const invalidate = vi.spyOn(view.queryClient, "invalidateQueries");
     if (interruption === "invalidation-purge") invalidate.mockReturnValue(invalidation.promise);
     if (interruption === "onSaved-purge") onSaved.mockImplementation(() => clearTenantCache(view.queryClient));
-    expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
+    expect(screen.getByText(/이전 형식 맵은 초기화할 수 없습니다/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "기록" }));
 
     fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
@@ -1428,7 +1429,7 @@ describe("FloorEditorView", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "파일 업로드" }));
 
-    await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
+    await screen.findByRole("button", { name: "확인 및 적용" });
     const modal = screen.getByRole("dialog", { name: "CAD 가져오기" });
     const preview = within(modal).getByRole("region", { name: "CAD 도면 미리보기" });
     await waitFor(() => expect(previewPaint.props?.onReady).toBeDefined());
@@ -1475,7 +1476,7 @@ describe("FloorEditorView", () => {
       leaseToken: "lease-token",
       leaseFence: 7,
       confirmMapReset: true,
-      candidateIds: [candidateId]
+      candidateIds: []
     }));
     await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2"));
     if (["purge", "floor", "site", "principal", "unmount"].includes(interruption)) {
@@ -1736,7 +1737,7 @@ describe("FloorEditorView", () => {
     installPreparedImport(jobId);
     renderEditor(editorState, {}, "preview-user");
 
-    await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
+    await screen.findByRole("button", { name: "확인 및 적용" });
     await waitFor(() => expect(screen.getByRole("button", { name: "확인 및 적용" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "확인 및 적용" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" }))

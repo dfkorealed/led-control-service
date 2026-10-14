@@ -118,7 +118,7 @@ export function CadImportPanel({
   const previewReady = Boolean(reviewKey && displayedReviewKey === reviewKey);
   const selectedRegion = regions?.regions.find((region) => region.regionId === selectedRegionId) ?? null;
   const rankedRegions = useMemo(() => [...(regions?.regions ?? [])].sort((a, b) =>
-    b.lightCandidateCount - a.lightCandidateCount || b.primitiveCount - a.primitiveCount), [regions]);
+    b.primitiveCount - a.primitiveCount), [regions]);
   const regionMetrics = regions && selectedRegion ? summarizeRegion(regions, selectedRegion) : null;
   const isPostSelectionHydrating = Boolean(
     activeJob && regions === null && activeJob.parserVersion !== null && POLLING_STATUSES.has(activeJob.status)
@@ -294,14 +294,16 @@ export function CadImportPanel({
       if (!active) return;
       reviewChange.current({
         job: activeJob,
+        // Historical completed jobs remain readable. Their compatibility
+        // metadata is never rendered as markers or submitted to new applies.
         candidates: response.candidates,
-        acceptedCandidateIds: response.candidates.map((candidate) => candidate.id)
+        acceptedCandidateIds: response.candidates.map(candidate => candidate.id)
       });
       setSuppressedReviewJobId(null);
     }).catch(() => {
       if (!active) return;
       loadedReviewJobId.current = null;
-      setError("조명 위치 후보를 불러오지 못했습니다.", undefined, "status");
+      setError("CAD 도면 정보를 불러오지 못했습니다.", undefined, "status");
     });
     return () => { active = false; };
   }, [activeJob?.jobId, activeJob?.status, error, floorId, review?.job.jobId]);
@@ -369,7 +371,7 @@ export function CadImportPanel({
         leaseToken,
         leaseFence,
         confirmMapReset: true,
-        candidateIds: activeReview.candidates.map(candidate => candidate.id)
+        candidateIds: []
       });
       await onApplied(result);
       setSuppressedReviewJobId(activeReview.job.jobId);
@@ -529,7 +531,7 @@ export function CadImportPanel({
       if (next.status === "review_required") {
         setJob(next);
         if (review?.job.jobId === next.jobId) onReviewChange({ ...review, job: next });
-        setError(unknownApplyResult ? "서버 적용이 완료되지 않았습니다. 후보 선택을 확인한 뒤 다시 시도하세요." : null);
+        setError(unknownApplyResult ? "서버 적용이 완료되지 않았습니다. 도면을 확인한 뒤 다시 시도하세요." : null);
         return next.status;
       }
       if (next.status === "applying") {
@@ -602,14 +604,14 @@ export function CadImportPanel({
 
   const status = activeJob
     ? isReviewLoading
-      ? `${cadImportStageLabel(activeJob.stage)} · 조명 위치 후보를 불러오는 중`
+      ? `${cadImportStageLabel(activeJob.stage)} · CAD 도면 정보를 불러오는 중`
       : isPostSelectionHydrating
         ? "선택한 영역을 복원하는 중"
         : sceneBuildStatus(activeJob, selectedRegionPhase)
     : null;
   return (
     <>
-    <Button ref={importTrigger} size="sm" variant="secondary" aria-label="CAD 가져오기" title="CAD 가져오기"
+    <Button ref={importTrigger} size="sm" variant="secondary" aria-label="CAD 가져오기" title="CAD 가져오기" disabled={disabled}
       className="max-compact:min-h-13 max-compact:min-w-13 max-compact:px-0" aria-haspopup="dialog" aria-expanded={modalOpen}
       onClick={() => setModalOpen(true)}><FileCog size={16} aria-hidden="true" /><span className="max-compact:sr-only">CAD 가져오기</span></Button>
     <ModalDialog isOpen={modalOpen} title="CAD 가져오기" placement="center" returnFocusRef={importTrigger}
@@ -714,7 +716,7 @@ export function CadImportPanel({
         <SelectBox<string> label="가져올 도면 영역" selectedKey={selectedRegionId}
           isDisabled={disabled || isDirty || action !== "idle"}
           items={rankedRegions.map((region, index) => ({ id: region.regionId, label: `도면 영역 ${index + 1}`,
-            description: `도형 ${region.primitiveCount.toLocaleString("ko-KR")}개 · 조명 후보 ${region.lightCandidateCount.toLocaleString("ko-KR")}개` }))}
+            description: `도형 ${region.primitiveCount.toLocaleString("ko-KR")}개` }))}
           onSelectionChange={setSelectedRegionId} />
         {regionMetrics ? <RegionStatistics metrics={regionMetrics} /> : null}
         <Button
@@ -750,12 +752,6 @@ export function CadImportPanel({
           />
           <RegionStatistics metrics={regionMetrics} />
         </div> : null}
-        <FeedbackState
-          tone="success"
-          icon={CircleCheck}
-          title={`조명 위치 후보 ${activeReview.candidates.length.toLocaleString("ko-KR")}개를 찾았습니다.`}
-          description={`전체 슬롯 후보 ${activeReview.candidates.length.toLocaleString("ko-KR")}개 · 실제 조명은 자동 등록되지 않습니다.`}
-        />
         <CadImportPreview key={reviewKey} floorId={floorId} review={activeReview}
           onReadyChange={ready => setDisplayedReviewKey(ready ? reviewKey : null)} />
         <Button
@@ -801,7 +797,6 @@ export function CadImportPanel({
           <Text>조명 {resetSummary.fixtureCount.toLocaleString("ko-KR")}개가 미배치 상태로 변경됩니다.</Text>
           <Text>수동 도형 {resetSummary.objectCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
           <Text>기존 CAD 슬롯 {resetSummary.slotCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
-          <Text>조명 위치 슬롯 {activeReview.candidates.length.toLocaleString("ko-KR")}개가 생성됩니다.</Text>
         </div>
       </ConfirmDialog> : null}
     </section>
@@ -814,7 +809,7 @@ function defaultRegionId(response: FloorImportRegionListResponse) {
   // A local default is only a review choice. The server selection still requires
   // the explicit scene-build action; never commit the ranked region on mount.
   return response.selectedRegionId ?? [...response.regions].sort((a, b) =>
-    b.lightCandidateCount - a.lightCandidateCount || b.primitiveCount - a.primitiveCount)[0]?.regionId ?? null;
+    b.primitiveCount - a.primitiveCount)[0]?.regionId ?? null;
 }
 
 function extensionOf(name: string): CadImportSourceFormat | null {
@@ -850,7 +845,7 @@ function importFailureDescription(code: string | null): string {
     case "CAD_IMPORT_PARSE_FAILED":
       return "CAD 도면 분석 단계에서 실패했습니다. 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
     case "CAD_IMPORT_DETECTION_FAILED":
-      return "도면 영역이나 조명 후보를 찾는 단계에서 실패했습니다. 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+      return "도면 영역을 찾는 단계에서 실패했습니다. 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
     case "CAD_IMPORT_RENDER_FAILED":
       return "도면 미리보기나 장면을 만드는 단계에서 실패했습니다. 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
     case "CAD_IMPORT_STORAGE_FAILED":
@@ -937,7 +932,6 @@ function summarizeRegion(response: FloorImportRegionListResponse, selected: CadR
   }
   return {
     primitiveCount: selected.primitiveCount,
-    lightCandidateCount: selected.lightCandidateCount,
     excludedPrimitiveCount: response.excludedRegionPrimitiveCount,
     mapSupported: mapSize !== null,
     width: mapSize?.width ?? null,
@@ -951,7 +945,6 @@ function RegionStatistics({ metrics }: { metrics: ReturnType<typeof summarizeReg
     : "지원 맵 비율을 초과했습니다.";
   return <dl className="grid grid-cols-2 gap-2 border-y border-border-subtle py-2">
     <div><dt className="text-caption text-content-secondary">선택 도형</dt><dd className="m-0 text-body-sm font-semibold">도형 {metrics.primitiveCount.toLocaleString("ko-KR")}개</dd></div>
-    <div><dt className="text-caption text-content-secondary">조명 위치</dt><dd className="m-0 text-body-sm font-semibold">조명 후보 {metrics.lightCandidateCount.toLocaleString("ko-KR")}개</dd></div>
     <div><dt className="text-caption text-content-secondary">제외 범위</dt><dd className="m-0 text-body-sm font-semibold">제외 요소 {metrics.excludedPrimitiveCount.toLocaleString("ko-KR")}개</dd></div>
     <div><dt className="text-caption text-content-secondary">정규화 크기</dt><dd className="m-0 text-body-sm font-semibold">{mapSize}</dd></div>
   </dl>;

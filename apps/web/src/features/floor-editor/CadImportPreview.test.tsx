@@ -45,7 +45,7 @@ describe("CadImportPreview", () => {
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
-  it("waits for legacy pixels and fits the entire diagram with all read-only candidates without changing the editor camera", async () => {
+  it("waits for legacy pixels and fits the diagram without historical candidate markers or editor camera changes", async () => {
     const camera = { pan: useFloorEditorStore.getState().pan, zoom: useFloorEditorStore.getState().zoom };
     const ready = vi.fn();
     const view = render(<CadImportPreview floorId="floor-1" review={review} onReadyChange={ready} />);
@@ -55,8 +55,7 @@ describe("CadImportPreview", () => {
     expect(ready).toHaveBeenLastCalledWith(false);
     act(() => preview.draw?.());
     await waitFor(() => expect(ready).toHaveBeenLastCalledWith(true));
-    expect(screen.getByTestId("preview-candidates")).toHaveAttribute("data-count", "1");
-    expect(screen.getByTestId("preview-candidates")).toHaveAttribute("data-disabled", "true");
+    expect(screen.queryByTestId("preview-candidates")).not.toBeInTheDocument();
     expect(useFloorEditorStore.getState().pan).toEqual(camera.pan);
     expect(useFloorEditorStore.getState().zoom).toBe(camera.zoom);
     expect(screen.getByRole("region", { name: "CAD 도면 미리보기" })).toHaveAttribute("data-zoom", "0.044");

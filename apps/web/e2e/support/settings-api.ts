@@ -274,8 +274,11 @@ export async function installSettingsApiRoutes(
     }
   };
   let mapRevision = floor.mapRevision;
+  let mapGeneration = "settings-e2e-map";
+  const originalMap = structuredClone({ fixtures: fixtureState, elements: mapElementState, slots: slotState, layers: layerState, groups: groupState });
+  const clearReceipts = new Map<string, { input: string; ref: ReturnType<typeof mapDocument> }>();
   const mapDocument = () => ({
-    formatVersion: 1 as const, generationId: "settings-e2e-map", revision: mapRevision,
+    formatVersion: 1 as const, generationId: mapGeneration, revision: mapRevision,
     width: runtimeFloor.floorPlan.width, height: runtimeFloor.floorPlan.height, gridSize: 10, elementCount: mapElementState.length,
     manifest: { assetId: "00000000-0000-4000-8000-000000000002", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 }
   });
@@ -431,6 +434,36 @@ export async function installSettingsApiRoutes(
         return route.fulfill({ status: 404, json: { message: "command not found" } });
       }
       return route.fulfill({ json: commandStatus(commandId, commandStage, commandResults, ids.gatewayId) });
+    }
+    if (path === `/floors/${ids.floorId}/editor-clear`) {
+      const input = request.postDataJSON();
+      if (role !== "admin") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
+      if (!readyMapDocument) return route.fulfill({ status: 409, json: { message: "common map required" } });
+      if (input.leaseToken !== activeLeaseToken || input.leaseFence !== activeLeaseFence) return route.fulfill({ status: 409, json: { message: "lease conflict" } });
+      const previous = clearReceipts.get(input.requestId);
+      if (previous) return route.fulfill(previous.input === JSON.stringify(input)
+        ? { json: previous.ref } : { status: 409, json: { message: "request replay mismatch" } });
+      if (input.baseRevision !== mapRevision || !["elements_only", "elements_and_placement"].includes(input.mode)) return route.fulfill({ status: 409, json: { message: "revision/mode conflict" } });
+      mapElementState.splice(0); slotState.splice(0); groupState.splice(0);
+      layerState.splice(0, layerState.length, { id: "map", name: "Map", order: 0, visible: true, locked: false });
+      if (input.mode === "elements_and_placement") fixtureState.forEach(fixture => Object.assign(fixture, { x: 0, y: 0, placementStatus: "unplaced" }));
+      mapRevision++; mapGeneration = `clear-${mapRevision}`;
+      runtimeFloor.floorPlan = { ...runtimeFloor.floorPlan, imageUrl: "", renderedImageUrl: "" };
+      const ref = mapDocument();
+      clearReceipts.set(input.requestId, { input: JSON.stringify(input), ref });
+      return route.fulfill({ json: ref });
+    }
+    if (readyMapDocument && path === `/floors/${ids.floorId}/editor-revisions/7/restore`) {
+      const input = request.postDataJSON();
+      if (role !== "admin" || input.leaseToken !== activeLeaseToken || input.leaseFence !== activeLeaseFence || input.expectedRevision !== mapRevision) return route.fulfill({ status: 409, json: { message: "restore conflict" } });
+      fixtureState.splice(0, fixtureState.length, ...structuredClone(originalMap.fixtures));
+      mapElementState.splice(0, mapElementState.length, ...structuredClone(originalMap.elements));
+      slotState.splice(0, slotState.length, ...structuredClone(originalMap.slots));
+      layerState.splice(0, layerState.length, ...structuredClone(originalMap.layers));
+      groupState.splice(0, groupState.length, ...structuredClone(originalMap.groups));
+      mapRevision++; mapGeneration = `restore-${mapRevision}`;
+      return route.fulfill({ json: { ...editorState(runtimeFloor, fixtureState, [], mapRevision),
+        floor: { ...runtimeFloor, mapRevision, mapDocument: mapDocument() }, lightSlots: slotState, skippedFixtureIds: [] } });
     }
     if (path === `/floors/${ids.floorId}/editor-state`) {
       if (request.method() === "GET") return route.fulfill({ json: {

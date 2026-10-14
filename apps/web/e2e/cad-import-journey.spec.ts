@@ -223,7 +223,8 @@ for (const width of [1039, 1434]) {
     await page.screenshot({ path: testInfo.outputPath(`comments-cad-region-${width}.png`) });
     await dialog.getByRole("button", { name: "선택 영역으로 장면 만들기" }).click();
     await expect.poll(() => api.regionPayloads()).toEqual([{ regionId: "region-1" }]);
-    await expect(dialog.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "확인 및 적용", exact: true })).toBeVisible();
+    await expect(dialog.getByText(/조명 위치 후보|전체 슬롯 후보/)).toHaveCount(0);
     await expect(preview).toHaveCount(1);
     await expect(dialog.getByRole("checkbox")).toHaveCount(0);
     const apply = dialog.getByRole("button", { name: "확인 및 적용", exact: true });
@@ -245,7 +246,7 @@ for (const width of [1039, 1434]) {
     await expect.poll(() => attempts.length).toBe(1);
     await expect(reset).toBeHidden();
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText("서버 적용이 완료되지 않았습니다. 후보 선택을 확인한 뒤 다시 시도하세요.", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("서버 적용이 완료되지 않았습니다. 도면을 확인한 뒤 다시 시도하세요.", { exact: true })).toBeVisible();
     await expect(apply).toBeEnabled();
     expect(api.state().floor.mapRevision).toBe(1);
     expect(api.state().objects).toHaveLength(1);
@@ -255,14 +256,14 @@ for (const width of [1039, 1434]) {
     await expect.poll(() => attempts.length).toBe(2);
     const expectedPayload = {
       expectedRevision: 1, confirmMapReset: true, leaseToken: "comments-lease", leaseFence: 73,
-      candidateIds: ["00000000-0000-4000-8000-000000000031", "00000000-0000-4000-8000-000000000032"]
+      candidateIds: []
     };
     expect(attempts).toEqual([expectedPayload, expectedPayload]);
     await expect(reset).toBeHidden();
     await expect(dialog).toBeHidden();
     await expect.poll(() => api.state().floor.mapRevision).toBe(2);
     expect(api.state().objects).toEqual([]);
-    expect(api.state().lightSlots).toHaveLength(2);
+    expect(api.state().lightSlots).toHaveLength(0);
     expect(api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
     expect(api.savePayloads()).toEqual([]);
     expect(api.unhandledRequests).toEqual([]);
@@ -301,11 +302,14 @@ for (const lease of [
 }
 
 for (const native of [false, true]) {
-  test(`${native ? "Native WebGL: region 선택부터" : "Legacy SVG: 기존 적용 맵부터"} 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)`, async ({ page }, testInfo) => {
+  test(`${native ? "Native WebGL: region 선택부터 슬롯 없이" : "Legacy SVG: 기존 적용 맵 슬롯 유지"} 조명 배치, 저장, 새로고침, 모니터링까지 (route fixture)`, async ({ page }, testInfo) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1_440, height: 900 });
     const api = await installCadJourney(page, native);
-    const points = (native ? nativePoints : candidates).map(({ x, y }) => ({ x, y }));
+    // New CAD has no placement slots; normal placement follows its 80-unit grid.
+    // Historical legacy slots retain their original exact attachment positions.
+    const points = (native ? nativePoints : candidates).map(({ x, y }) => native
+      ? { x: Math.round(x / 80) * 80, y: Math.round(y / 80) * 80 } : { x, y });
     const size = native ? nativeScene.manifest : { width: 1200, height: 800 };
 
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
@@ -334,7 +338,8 @@ for (const native of [false, true]) {
     await expect(page.getByRole("img", { name: "도면 영역 1 미리보기", exact: true })).toBeVisible();
     await buildScene.click();
     await expect.poll(() => api.regionPayloads()).toEqual([{ regionId: "region-1" }]);
-    await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
+    await expect(importDialog.getByRole("button", { name: "확인 및 적용", exact: true })).toBeVisible();
+    await expect(importDialog.getByText(/조명 위치 후보|전체 슬롯 후보/)).toHaveCount(0);
     await expect(page.getByText("선택한 도면 영역의 장면 생성이 완료되었습니다.")).toBeVisible();
 
     if (native) {
@@ -367,11 +372,11 @@ for (const native of [false, true]) {
     expect(api.applyPayloads()[0]).toMatchObject({
       expectedRevision: 1,
       confirmMapReset: true,
-      candidateIds: expect.arrayContaining(candidates.map(candidate => candidate.id))
+      candidateIds: []
     });
-    expect((api.applyPayloads()[0] as { candidateIds: string[] }).candidateIds).toHaveLength(candidates.length);
+    expect((api.applyPayloads()[0] as { candidateIds: string[] }).candidateIds).toHaveLength(0);
     await expect.poll(() => api.state().objects).toHaveLength(0);
-    await expect.poll(() => api.state().lightSlots).toHaveLength(2);
+    await expect.poll(() => api.state().lightSlots).toHaveLength(0);
     await expect.poll(() => api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
     await expect(page.getByText("CAD 도면을 적용하고 저장했습니다.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "저장됨", exact: true })).toBeDisabled();
@@ -410,12 +415,12 @@ for (const native of [false, true]) {
         { id: "fixture-1", ...points[0], placementStatus: "placed" },
         { id: "fixture-2", ...points[1], placementStatus: "placed" }
       ],
-      slotAssignments: [
+      slotAssignments: native ? [] : [
         { slotId: "slot-1", assignedFixtureId: "fixture-1" },
         { slotId: "slot-2", assignedFixtureId: "fixture-2" }
       ]
     });
-    expect(api.state().lightSlots.map(slot => slot.assignedFixtureId)).toEqual(["fixture-1", "fixture-2"]);
+    expect(api.state().lightSlots.map(slot => slot.assignedFixtureId)).toEqual(native ? [] : ["fixture-1", "fixture-2"]);
 
     // Native edits must adopt the fixture save's new revision without a reload.
     // Keep the legacy reload path as separate persisted-placement coverage.
@@ -423,7 +428,7 @@ for (const native of [false, true]) {
     await expect(page.getByRole("heading", { name: "B1 맵 편집" })).toBeVisible();
     await expect.poll(async () => (await currentState(page)).floor.mapRevision).toBe(3);
     await expect.poll(async () => (await currentState(page)).lightSlots.map(slot => slot.assignedFixtureId))
-      .toEqual(["fixture-1", "fixture-2"]);
+      .toEqual(native ? [] : ["fixture-1", "fixture-2"]);
 
     if (native) {
       await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
@@ -486,11 +491,11 @@ for (const native of [false, true]) {
     await expectMarkerAtMapPoint(page, firstMarker, points[0], size);
     await expectMarkerAtMapPoint(page, secondMarker, points[1], size);
     if (native) {
-      await verifyMonitoringComposition(page, size);
+      await verifyMonitoringComposition(page, size, undefined, points);
       await saveScreenshot(page, testInfo, "native-monitor-desktop-pan-zoom");
       await page.setViewportSize({ width: 390, height: 844 });
       await page.getByRole("button", { name: /^지도 배율 \d+%$/ }).click();
-      await verifyMonitoringComposition(page, size);
+      await verifyMonitoringComposition(page, size, undefined, points);
       await saveScreenshot(page, testInfo, "native-monitor-mobile-pan-zoom");
     }
     await expect.poll(() => api.monitoringSnapshotRequests()).toBeGreaterThan(0);
@@ -575,7 +580,8 @@ for (const width of [1440, 390]) {
     const canvas = page.getByTestId("floor-editor-canvas");
     const importDialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
     const preview = importDialog.getByRole("region", { name: "CAD 도면 미리보기" });
-    await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
+    await expect(importDialog.getByRole("button", { name: "확인 및 적용", exact: true })).toBeVisible();
+    await expect(importDialog.getByText(/조명 위치 후보|전체 슬롯 후보/)).toHaveCount(0);
     await expect(preview).toHaveAttribute("data-preview-ready", "true");
     await expect(canvas).toHaveAttribute("data-background-url", "/api/floors/floor-1/assets/rendered/content");
     await expect(canvas).toHaveAttribute("data-rendered-object-count", "1");
@@ -583,7 +589,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(0);
     await expectImportPreviewFits(page);
     // The modal preview owns its fit on resize; the committed map and its
-    // camera stay untouched until the reset confirmation applies all candidates.
+    // camera stay untouched until the reset confirmation applies geometry.
     await page.setViewportSize({ width, height: 900 });
     await expectImportPreviewFits(page);
     await preview.scrollIntoViewIfNeeded();
@@ -599,7 +605,7 @@ for (const width of [1440, 390]) {
 
     // Recovery comes from the fixture's durable job, not a local editor draft.
     await page.reload();
-    await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
+    await expect(importDialog.getByRole("button", { name: "확인 및 적용", exact: true })).toBeVisible();
     await expect(preview).toHaveAttribute("data-preview-ready", "true");
     await expectImportPreviewFits(page);
     await expect(importDialog.getByRole("checkbox")).toHaveCount(0);
@@ -609,18 +615,15 @@ for (const width of [1440, 390]) {
     expect(api.payloads).toHaveLength(0);
     await dialog.getByRole("button", { name: "교체 후 적용" }).click();
     await expect.poll(() => api.payloads.length).toBe(1);
-    expect(api.payloads[0]).toMatchObject({ candidateIds: [candidates[0].id, candidates[1].id], expectedRevision: 1,
+    expect(api.payloads[0]).toMatchObject({ candidateIds: [], expectedRevision: 1,
       confirmMapReset: true, leaseToken: "lease-floor-1", leaseFence: 1 });
-    await expect.poll(() => api.state().lightSlots).toEqual([
-      expect.objectContaining({ x: nativePoints[0].x, y: nativePoints[0].y, assignedFixtureId: null }),
-      expect.objectContaining({ x: nativePoints[1].x, y: nativePoints[1].y, assignedFixtureId: null })
-    ]);
+    await expect.poll(() => api.state().lightSlots).toEqual([]);
     expect(api.state().objects).toEqual([]);
     expect(api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
 
     api.nextReview();
     await page.reload();
-    await expect(page.getByText("조명 위치 후보 0개를 찾았습니다.")).toBeVisible();
+    await expect(importDialog.getByRole("button", { name: "확인 및 적용", exact: true })).toBeVisible();
     await expect(preview).toHaveAttribute("data-preview-ready", "true");
     await expectImportPreviewFits(page);
     await importDialog.getByRole("button", { name: "확인 및 적용", exact: true }).click();
@@ -1164,7 +1167,8 @@ function mapSnapshot(state: FloorEditorState) {
     floorId: "floor-1", revision: state.floor.mapRevision,
     width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800,
     floorPlan: state.floor.floorPlan, cadScene: state.floor.cadScene, mapDocument: state.floor.mapDocument, objects: state.objects,
-    fixtures: state.lightSlots.flatMap(slot => {
+    fixtures: state.floor.mapDocument ? state.fixtures.filter(fixture => fixture.placementStatus === "placed")
+      .map(fixture => ({ id: fixture.id, name: fixture.name, x: fixture.x, y: fixture.y, size: fixture.size ?? 20 })) : state.lightSlots.flatMap(slot => {
       if (!slot.assignedFixtureId) return [];
       const fixture = state.fixtures.find(candidate => candidate.id === slot.assignedFixtureId);
       return fixture ? [{ id: fixture.id, name: fixture.name, x: slot.x, y: slot.y, size: fixture.size ?? 20 }] : [];
@@ -1476,12 +1480,12 @@ async function expectNativePixel(page: Page, locatePoint: () => Promise<{ x: num
   }, { message: `visible native CAD pixels with RGB ${rgb.join(",")}` }).toBeGreaterThan(0);
 }
 
-async function verifyMonitoringComposition(page: Page, size: { width: number; height: number } = nativeScene.manifest, rgb = [6, 182, 212]) {
+async function verifyMonitoringComposition(page: Page, size: { width: number; height: number } = nativeScene.manifest, rgb = [6, 182, 212], markerPoints = nativePoints) {
   const region = page.getByRole("region", { name: "층 도면" });
   await region.scrollIntoViewIfNeeded();
   const verify = async () => {
     await expectNativePixel(page, () => monitoringPoint(page, nativePoints[2]), rgb);
-    for (const [index, point] of nativePoints.slice(0, 2).entries()) {
+    for (const [index, point] of markerPoints.slice(0, 2).entries()) {
       await expectMarkerAtMapPoint(page, page.locator('[data-spatial-map-marker="true"]').nth(index), point, size);
     }
   };

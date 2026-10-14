@@ -4,7 +4,6 @@ import { Image as KonvaImage, Layer, Stage } from "react-konva";
 import { Button, FeedbackState } from "../../components/ui";
 import { MapLoadingOverlay, useMapPaintLoading } from "../../components/ui/MapLoadingOverlay";
 import { fitMapTransform } from "../floor-map/map-camera-geometry";
-import { CadCandidateLayer } from "./CadCandidateLayer";
 import { CadImportSceneCanvas, useCadImportScene } from "./CadImportSceneCanvas";
 import type { CadImportReviewState } from "./editor-types";
 import { useFloorPlanImage } from "./use-floor-plan-image";
@@ -35,7 +34,6 @@ export function CadImportPreview({ floorId, review, onReadyChange }: CadImportPr
     bounds: { left: 0, top: 0, width: bounds.width, height: bounds.height }, viewport,
     padding: FIT_VIEWPORT_PADDING, minZoom: 0.000001, maxZoom: 4
   }) : null, [bounds?.width, bounds?.height, viewport]);
-  const acceptedIds = useMemo(() => new Set(review.candidates.map(candidate => candidate.id)), [review.candidates]);
   const displayChange = useCallback((state: "loading" | "ready" | "error") => {
     if (current.current === token) setNativeDisplay({ token, state });
   }, [token]);
@@ -64,14 +62,11 @@ export function CadImportPreview({ floorId, review, onReadyChange }: CadImportPr
     {native && scene.data && transform ? <CadImportSceneCanvas floorId={floorId} jobId={review.job.jobId}
       manifest={scene.data} pan={transform.pan} zoom={transform.zoom} viewport={viewport}
       onDisplayStateChange={displayChange} /> : null}
-    {transform && bounds ? <Stage width={viewport.width} height={viewport.height} style={{ position: "absolute", inset: 0 }}>
+    {!native && transform && bounds ? <Stage width={viewport.width} height={viewport.height} style={{ position: "absolute", inset: 0 }}>
       {!native && image.image ? <Layer listening={false} onDraw={() => legacyPaint.onPaintReady(true)}
         x={transform.pan.x} y={transform.pan.y} scaleX={transform.zoom} scaleY={transform.zoom}>
         <KonvaImage image={image.image} width={bounds.width} height={bounds.height} />
       </Layer> : null}
-      <CadCandidateLayer candidates={native && !ready ? [] : review.candidates} acceptedCandidateIds={acceptedIds} disabled
-        transform={{ x: transform.pan.x, y: transform.pan.y, scaleX: transform.zoom, scaleY: transform.zoom }}
-        zoom={transform.zoom} viewportBounds={{ x: 0, y: 0, width: bounds.width, height: bounds.height }} />
     </Stage> : null}
     {failed ? <div className="absolute inset-x-3 top-3">
       <FeedbackState tone="danger" icon={TriangleAlert} title="선택한 CAD 도면을 표시하지 못했습니다."

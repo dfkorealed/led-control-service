@@ -221,7 +221,7 @@ describe("CadImportPanel", () => {
     expect(screen.queryByRole("button", { name: "다음 페이지" })).not.toBeInTheDocument();
   });
 
-  it("applies all slot candidates only after reset confirmation even for a partial recovered selection", async () => {
+  it("applies geometry with no candidates even for a historical recovered candidate selection", async () => {
     const candidates = [candidate, { ...candidate, id: "candidate-2" }];
     floorEditorApi.applyFloorImportJob.mockResolvedValueOnce({});
     renderPanel({ review: { job: { ...queuedJob, status: "review_required" }, candidates, acceptedCandidateIds: [candidate.id] } });
@@ -231,11 +231,11 @@ describe("CadImportPanel", () => {
     fireEvent.click(within(modal).getByRole("button", { name: "확인 및 적용" }));
     expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
     const confirm = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
-    expect(within(confirm).getByText("조명 위치 슬롯 2개가 생성됩니다.")).toBeVisible();
+    expect(within(confirm).queryByText(/슬롯.*생성/)).not.toBeInTheDocument();
     fireEvent.click(within(confirm).getByRole("button", { name: "교체 후 적용" }));
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId, {
       expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, confirmMapReset: true,
-      candidateIds: candidates.map(item => item.id)
+      candidateIds: []
     }));
   });
 
@@ -365,7 +365,7 @@ describe("CadImportPanel", () => {
         const progress = document.querySelector<HTMLProgressElement>('progress[aria-label="CAD 가져오기 진행률"]');
         transitionFrames.push({
           progress: progress?.value ?? null,
-          loading: document.body.textContent?.includes("분석 완료 · 조명 위치 후보를 불러오는 중") ?? false
+          loading: document.body.textContent?.includes("분석 완료 · CAD 도면 정보를 불러오는 중") ?? false
         });
       }
     });
@@ -382,7 +382,7 @@ describe("CadImportPanel", () => {
     expect(transitionFrames.length).toBeGreaterThan(0);
     expect(transitionFrames.every(({ progress, loading }) => progress === 100 && loading)).toBe(true);
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(100);
-    expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
+    expect(screen.getByText("분석 완료 · CAD 도면 정보를 불러오는 중")).toBeInTheDocument();
 
     resolveCandidates({ jobId: queuedJob.jobId, candidates: [candidate] });
     await flushPromises();
@@ -424,8 +424,8 @@ describe("CadImportPanel", () => {
 
     await chooseRegion(1);
 
-    expect(screen.getByText("도형 1,200개")).toBeInTheDocument();
-    expect(screen.getByText("조명 후보 12개")).toBeInTheDocument();
+    expect(screen.getAllByText("도형 1,200개").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/조명 후보/)).not.toBeInTheDocument();
     expect(screen.getByText("제외 요소 7개")).toBeInTheDocument();
     expect(screen.getByText("새 맵 16,384 × 8,192")).toBeInTheDocument();
 
@@ -750,7 +750,7 @@ describe("CadImportPanel", () => {
 
     expect(await screen.findByText("도면 영역 1개를 자동 선택했습니다.")).toBeInTheDocument();
     expect(screen.getByText("도형 1,200개")).toBeInTheDocument();
-    expect(screen.getByText("조명 후보 12개")).toBeInTheDocument();
+    expect(screen.queryByText(/조명 후보/)).not.toBeInTheDocument();
     expect(screen.getByText("제외 요소 3개")).toBeInTheDocument();
     expect(screen.getByText("새 맵 16,384 × 8,192")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "CAD 도면 미리보기" })).toBeVisible();
@@ -877,15 +877,15 @@ describe("CadImportPanel", () => {
       }));
     renderPanel();
 
-    await screen.findByText("조명 위치 후보를 불러오지 못했습니다.");
+    await screen.findByText("CAD 도면 정보를 불러오지 못했습니다.");
     expect(screen.queryByRole("progressbar", { name: "CAD 가져오기 진행률" })).not.toBeInTheDocument();
-    expect(screen.queryByText("분석 완료 · 조명 위치 후보를 불러오는 중")).not.toBeInTheDocument();
+    expect(screen.queryByText("분석 완료 · CAD 도면 정보를 불러오는 중")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "조명 위치 후보를 불러오지 못했습니다." }));
+    fireEvent.click(screen.getByRole("button", { name: "CAD 도면 정보를 불러오지 못했습니다." }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "CAD 가져오기 안내" })).getByRole("button", { name: "다시 확인" }));
     await waitFor(() => expect(floorEditorApi.listFloorImportCandidates).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(100);
-    expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
+    expect(screen.getByText("분석 완료 · CAD 도면 정보를 불러오는 중")).toBeInTheDocument();
 
     resolveCandidates({ jobId: reviewJob.jobId, candidates: [candidate] });
     await flushPromises();
@@ -981,8 +981,8 @@ describe("CadImportPanel", () => {
     renderPanel({ review: hydrated });
 
     expect(screen.queryByRole("progressbar", { name: "CAD 가져오기 진행률" })).not.toBeInTheDocument();
-    expect(screen.queryByText("분석 완료 · 조명 위치 후보를 불러오는 중")).not.toBeInTheDocument();
-    expect(screen.getByText("조명 위치 후보 2,000개를 찾았습니다.")).toBeInTheDocument();
+    expect(screen.queryByText("분석 완료 · CAD 도면 정보를 불러오는 중")).not.toBeInTheDocument();
+    expect(screen.queryByText(/조명 위치 후보/)).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "다음 후보" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "CAD 도면 미리보기" })).toBeVisible();
@@ -1112,7 +1112,7 @@ describe("CadImportPanel", () => {
     ["CAD_IMPORT_SOURCE_INVALID", /원본 CAD 파일을 확인하거나 읽는 단계/, /파일.*다시 선택/],
     ["CAD_IMPORT_CONVERSION_FAILED", /CAD 파일을 변환하는 단계/, /다시 저장.*가져오세요/],
     ["CAD_IMPORT_PARSE_FAILED", /CAD 도면 분석 단계/, /파일을 다시 선택해 가져오세요/],
-    ["CAD_IMPORT_DETECTION_FAILED", /도면 영역이나 조명 후보를 찾는 단계/, /다시.*가져오세요/],
+    ["CAD_IMPORT_DETECTION_FAILED", /도면 영역을 찾는 단계/, /다시.*가져오세요/],
     ["CAD_IMPORT_RENDER_FAILED", /도면 미리보기나 장면을 만드는 단계/, /다시.*가져오세요/],
     ["CAD_IMPORT_STORAGE_FAILED", /가져오기 결과 파일을 저장하는 단계/, /잠시 후.*가져오세요/],
     ["CAD_IMPORT_PERSIST_FAILED", /가져오기 결과 정보를 저장하는 단계/, /잠시 후.*가져오세요/],
@@ -1231,7 +1231,7 @@ describe("CadImportPanel", () => {
     expect(dialog).toHaveTextContent("조명 4개가 미배치 상태로 변경");
     expect(dialog).toHaveTextContent("수동 도형 2개가 삭제");
     expect(dialog).toHaveTextContent("기존 CAD 슬롯 3개가 삭제");
-    expect(dialog).toHaveTextContent("조명 위치 슬롯 1개가 생성");
+    expect(dialog).not.toHaveTextContent(/슬롯.*생성/);
     expect(within(dialog).getByRole("button", { name: "취소" })).toHaveFocus();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
@@ -1258,7 +1258,7 @@ describe("CadImportPanel", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("applies only reviewed candidate ids with the editor lease and revision", async () => {
+  it("applies no candidate ids with the editor lease and revision", async () => {
     const acceptedCandidates = Array.from({ length: 2_000 }, (_, index) => ({
       ...candidate,
       id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
@@ -1297,7 +1297,7 @@ describe("CadImportPanel", () => {
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith(
       "floor-1",
       queuedJob.jobId,
-      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, confirmMapReset: true, candidateIds: acceptedIds }
+      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, confirmMapReset: true, candidateIds: [] }
     ));
     expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ revision: 8 }));
   });
@@ -1326,10 +1326,10 @@ describe("CadImportPanel", () => {
         originalFileUrl: asset.accessPath, width: 16384, height: 8192, gridSize: 80 }
     } satisfies FloorImportApplyResult);
     const { onApplied } = renderPanel({ review });
-    expect(screen.getByText("조명 위치 후보 0개를 찾았습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/조명 위치 후보/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "확인 및 적용" }));
     const dialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
-    expect(dialog).toHaveTextContent("조명 위치 슬롯 0개가 생성됩니다.");
+    expect(dialog).not.toHaveTextContent(/슬롯.*생성/);
     expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "교체 후 적용" }));
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId,
