@@ -1,5 +1,35 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 Web BIO 시간제 제어·통합 이력·선택 연결
+
+### 구현 완료
+
+- 기존 기본 밝기 요청은 별도 영구 제어 경로로 유지한다. BIO 설정이 확인된 대상의 시간제 실행은 기본/시간제 선택,15/30/60/120분 preset, 정수1~1440분 입력, 고정 대상/밝기/기간 미리보기와 별도 시작 API를 사용한다. PC 기존350px 실행 패널과 모바일4열 실행행/More를 유지하며 기간 입력은 밝기 raw 검증 영역 밖에 있다.
+- root ControlView의 별도 시간제 owner가 접수/적용/유지/부분/불확정/복귀/복귀 미확인/서버 완료를 소비한다. 최소 복구 식별자를 영구 Command 저장소와 분리 보존하고 재시작은 GET, 응답 유실 POST는 명시적인 동일 요청 확인으로만 재조회한다. 자동 새 시작/기간 연장/영구 제어 fallback은 없다. 입력·대상과 추가 적용은 unresolved 동안 잠근다.
+- 종료는 사용자 확인 뒤 별도 end API로 요청하며 lost End의 clientRequestId를 재사용한다. 서버 immutable startedAt/endsAt와 대상별 설정/부분 변경·복귀 evidence를 표시한다. 카운트다운0/HTTP202는 복귀 확인이 아니며 이전 GET가 종료 revision을 되돌리지 않는다. 권한/site/principal 변경은 이전 요청 응답을 현재 scope에 표시하지 않는다.
+- 수동 이력의 유일한 node를 workspace 최하단 전체폭으로 옮겼다. 기본/시간제 중 최신 한 건과 전체보기 한 개를 같은 ticker/Drawer로 표시하고 내부 종류별 조회·cursor·상세를 분리한다. 시간제 DTO를 Command로 cast하지 않는다. 원래 기본 상세와 관측/재송신/미확정 복구 기능은 유지하되 확인 필요한 명령 footer 버튼을 제거하고 Drawer에서 기존 복구 경로에 접근한다.
+- 저장된 구역 선택 옵션을 실제 대상 목록 앞에 배치하고 기존 resolve/onChange→2대 멤버→실제 지도 강조→실행 대상 경로를 유지한다. 새 셸·지도·업무 모드·휴일 관리 기능은 만들지 않았다.
+- 스케줄 Switch의 실제 focus 경계에서 해당 Dialog 배경만 스크롤하지 않게 제한하고 visible field 전체를 내부에서 노출한다. 닫을 때 원 inline 경계를 복원하며 공통 Dialog/전역 CSS/다른 overlay에는 적용하지 않는다.
+
+### 미구현
+
+- 운영 DB migration·실제 API/Gateway 배포·clock attestor/provider 설정·물리 장비 USB/RF/HIL은 실행하지 않았다. 로컬 제품 병합 및 운영 반영은 총괄 후속 관문이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 서버 historical settlement/설정 readback은 현재 광출력 증거가 아니다. 불확정·partialMutation·복귀 실패는 잠금을 유지하며 브라우저 시간이 끝나도 복귀 성공을 합성하지 않는다. 장치/Gateway 전원 차단 중 정확한 복귀 시각은 보장하지 않는다.
+- Web 검증은 직접 unit과 실제 React→자기 fixture HTTP의 승인4개 E2E 경계다. fixture 성공을 실제 DB/브로커/장비 검증으로 확대하지 않는다. 기존 ControlView 알려진 실패와 Task8 deferred Minor는 최종 보고서/총괄 리뷰에서 별도로 기록한다.
+
+### 관련 파일
+
+- `apps/web/src/api/temporary-controls.ts`, `features/control/{useTemporaryControlSession,TemporaryControlPanel,TemporaryControlHistory,ControlView,ManualExecutionPanel,CommandHistoryPanel}`, `target-selection/SpatialTargetSelector`, `automation/ScheduleDialog`와 직접 관련 테스트.
+- `apps/web/e2e/bio-control-operations.spec.ts`, `apps/web/playwright.bio-control-operations.config.ts`, `apps/web/e2e/support/bio-control-operations-server.mjs`.
+
+### 갱신 규칙
+
+- 시간제 DTO/복구 식별자/절대 시각/부분 설정/권한·세대·이력 종류를 바꾸면 직접 회귀와 이 문서를 함께 갱신한다. fixture/실장비·software/local merge/운영 적용은 각 증거가 있을 때 분리 기록한다.
+
+
 ## 2026-10-15 Web 서버 달력·일정별 제외·공통 추가 행
 
 ### 구현 완료
@@ -11,7 +41,7 @@
 
 ### 미구현
 
-- 시간제 세션 UI·수동 이력 footer·저장구역 위치 연결 및 지정 4개 브라우저 E2E는 후속 Task9다. 기존 영구 제어는 유지한다.
+- 시간제 세션 UI·수동 이력 footer·저장구역 연결과 지정 브라우저 검증은 위 Task9에 이어 연결했다. 기존 영구 제어는 유지한다.
 - 운영 API/Gateway 배포·실제 DB migration·provider 연결·실장비 USB/RF/HIL은 이번 Web 작업에 포함하지 않는다.
 
 ### 부족하거나 개선이 필요한 기능

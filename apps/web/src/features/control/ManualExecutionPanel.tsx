@@ -13,10 +13,14 @@ export interface ManualExecutionPanelProps {
   compact?: boolean;
   moreContent?: ReactNode;
   importantStatus?: ReactNode;
+  executionMode?: "basic" | "temporary";
+  onExecutionModeChange?: (mode: "basic" | "temporary") => void;
+  temporaryContent?: ReactNode;
+  temporaryActive?: boolean;
 }
 
 /** Draft presentation only: the parent retains command ownership and eligibility. */
-export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus }: ManualExecutionPanelProps) {
+export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, applyLabel, onBrightnessChange, onSubmit, compact = false, moreContent, importantStatus, executionMode = "basic", onExecutionModeChange, temporaryContent, temporaryActive = false }: ManualExecutionPanelProps) {
   const [inlineMoreOpen, setMoreOpen] = useState(false);
   const auxiliary = useManualAuxiliary();
   const moreOpen = compact && auxiliary ? auxiliary.active === "more" : inlineMoreOpen;
@@ -69,6 +73,11 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
       onSubmit();
     }} disabled={!canSubmit || invalidDraft} data-control-submit="">{compact ? "적용" : applyLabel}</Button>;
   const moreBody = <>
+      {onExecutionModeChange ? <div role="group" aria-label="실행 방식" className="flex flex-wrap gap-1">
+        <Button type="button" variant={executionMode === "basic" ? "secondary" : "ghost"} aria-pressed={executionMode === "basic"} disabled={controlsLocked} onClick={() => onExecutionModeChange("basic")}>기본 밝기 변경</Button>
+        <Button type="button" variant={executionMode === "temporary" ? "secondary" : "ghost"} aria-pressed={executionMode === "temporary"} disabled={controlsLocked} onClick={() => onExecutionModeChange("temporary")}>시간제 제어</Button>
+      </div> : null}
+      {executionMode === "temporary" || temporaryActive ? temporaryContent : null}
       <div role="group" aria-label="빠른 밝기 값" className="grid grid-cols-4 gap-1">
         {[0, 30, 70, 100].map(value => <Button key={value} type="button" variant="ghost" className={compact ? `${manualCompactButtonHitClassName} whitespace-nowrap px-2` : "whitespace-nowrap px-2"} aria-pressed={brightness === value && !invalidDraft}
           disabled={controlsLocked} onClick={() => changeDraft(value)}>{value}%</Button>)}

@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, Heading, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { Button, Card, Heading, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, ModalDialog, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -42,6 +42,9 @@ import {
   savePendingCommandStatusCheck
 } from "./active-command-store";
 import { controlSelectionToDimmingTarget, resolveControlSelection, type ControlSelection } from "./control-selection";
+import { useTemporaryControlSession } from "./useTemporaryControlSession";
+import { TemporaryControlPanel } from "./TemporaryControlPanel";
+import { temporaryControlStateLabels } from "../../api/temporary-controls";
 import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupsPanel } from "./groups/FixtureGroupsPanel";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
@@ -75,10 +78,6 @@ const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 // document flow instead of clipping the map to a fixed bottom edge.
 const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col";
 // History now lives in the manual side pane even on desktop. Reserve its
-// content line before actions; viewport-wide ticker defaults cannot infer
-// the pane's available width. Other ticker consumers retain their defaults.
-const manualHistoryPaneClassName = "flex-wrap [&>div]:basis-full [&_[role=region]]:flex-wrap [&_[role=region]>div]:basis-full [&_[role=region]>button]:shrink-0 [&_[role=region]>button]:whitespace-nowrap";
-
 export function ControlView({
   siteId,
   userId,
@@ -109,6 +108,9 @@ export function ControlView({
   const storageError = useSyncExternalStore(subscribeActiveCommandStorage, getActiveCommandStorageError, () => null);
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
+  const [executionMode, setExecutionMode] = useState<"basic" | "temporary">("basic");
+  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [temporaryPreview, setTemporaryPreview] = useState<{ siteId: string; userId: string; fixtureIds: string[]; names: string[]; brightness: number; durationMinutes: number } | null>(null);
   const [message, setMessage] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -186,6 +188,8 @@ export function ControlView({
     [data, selection]
   );
   const selectedFixtures = resolvedSelection?.fixtures ?? [];
+  const temporaryController = useTemporaryControlSession({ siteId: activeSiteId && (!siteId || siteId === activeSiteId) ? activeSiteId : "", principalKey: JSON.stringify([userId, userRole, canControl]), fixtureIds: selectedFixtures.map(fixture => fixture.id) });
+  useEffect(() => { setTemporaryPreview(null); setExecutionMode("basic"); setDurationMinutes(30); }, [userId, activeSiteId]);
   const blockMessage = resolvedSelection?.unavailableReason ?? null;
   const readOnly = !canControl;
   const target = resolvedSelection?.available ? controlSelectionToDimmingTarget(selection) : null;
@@ -197,8 +201,12 @@ export function ControlView({
   const restorePending = Boolean(
     activeSiteId && (activeSiteId !== commandSiteId || userId !== commandUserId)
   );
-  const controlsLocked = readOnly || commandSessionBlocked || Boolean(storageError) || isSubmitting || restorePending || commandInProgress;
-  const canSubmit = Boolean(data && target && resolvedSelection?.fixtureIds.length && !blockMessage && !controlsLocked);
+  const controlsLocked = readOnly || commandSessionBlocked || Boolean(storageError) || isSubmitting || restorePending || commandInProgress
+    || temporaryController.controlsLocked || Boolean(temporaryPreview);
+  const temporaryEligible = selectedFixtures.length > 0 && selectedFixtures.every(fixture => fixture.bioControlMode != null);
+  const durationValid = Number.isInteger(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 1440;
+  const canSubmit = Boolean(data && target && resolvedSelection?.fixtureIds.length && !blockMessage && !controlsLocked
+    && (executionMode === "basic" || (temporaryEligible && durationValid)));
   const statusItems = useMemo<SessionStatusItem[]>(() => {
     // Dashboard data can lag behind a site switch. Never register a previous
     // site's command under the newly selected site's session status source.
@@ -385,8 +393,21 @@ export function ControlView({
     await sendCommand(request, userId);
   }
 
+  function requestSubmit() {
+    if (executionMode === "basic") { void submitCommand(); return; }
+    if (!canSubmit || !activeSiteId) return;
+    setTemporaryPreview({ siteId: activeSiteId, userId, fixtureIds: selectedFixtures.map(fixture => fixture.id).sort(),
+      names: selectedFixtures.map(fixture => fixture.name), brightness, durationMinutes });
+  }
+  async function confirmTemporary() {
+    const draft = temporaryPreview;
+    if (!draft || draft.siteId !== activeSiteId || draft.userId !== userId || readOnly || commandSessionBlocked || commandInProgress || isSubmitting || temporaryController.controlsLocked) return;
+    setTemporaryPreview(null);
+    await temporaryController.start({ clientRequestId: crypto.randomUUID(), target: { type: "fixtures", fixtureIds: draft.fixtureIds }, brightness: draft.brightness, durationMinutes: draft.durationMinutes });
+  }
+
   function openHistoricalCommand(id: string) {
-    if (!activeSiteId || commandInProgress || isSubmitting || restorePending || commandSessionBlocked || getActiveCommandStorageError()) return;
+    if (!activeSiteId || commandInProgress || isSubmitting || restorePending || commandSessionBlocked || temporaryController.controlsLocked || getActiveCommandStorageError()) return;
     setTerminalResult(null);
     setMessage("");
     setVerificationError("");
@@ -654,6 +675,9 @@ export function ControlView({
 
   const importantStatus = <div role="status" aria-label="제어 중요 상태" aria-live="polite" aria-atomic="true" className="max-h-20 overflow-y-auto overscroll-contain text-caption">
                   {importantManualStatus}
+                  {temporaryController.session ? <Text variant="caption" className="truncate">{temporaryControlStateLabels[temporaryController.session.state]}</Text>
+                    : executionMode === "temporary" ? <Text variant="caption" className="truncate">{durationValid ? `${durationMinutes}분 유지` : "유지시간 확인 필요"}</Text> : null}
+                  {temporaryController.error ? <Text tone="danger" variant="caption">{temporaryController.error}</Text> : null}
                 </div>;
   const auxiliaryContent = <>
           {singleColumnLayout ? <>
@@ -681,23 +705,24 @@ export function ControlView({
             hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error} detailCommandId={detailCommandId} retentionExpired={commandQuery.retentionExpired}
             isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
           </div>
-        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
-          timeZone={data.site.timeZone}
-          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
-          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || Boolean(storageError)}
-          onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
-          verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
-          compactDisclosure className={manualHistoryPaneClassName} />
                 </>;
 
   // h-full alone leaves content-start's implicit auto rows at intrinsic
   // height. The size-contained canvas contributes zero intrinsic height, so
   // pass the finite remainder through explicit rows in manual mobile only.
   return (
+    <>
+    <ModalDialog isOpen={Boolean(temporaryPreview)} title="시간제 적용 미리보기" onClose={() => setTemporaryPreview(null)} actions={<>
+      <Button type="button" variant="secondary" onClick={() => setTemporaryPreview(null)}>취소</Button>
+      <Button type="button" variant="primary" disabled={readOnly || commandSessionBlocked || temporaryController.controlsLocked} onClick={() => void confirmTemporary()}>시간제 적용</Button>
+    </>}>
+      <Text>{temporaryPreview?.durationMinutes}분 유지 후 자동 운전 복귀</Text>
+      <Text>{temporaryPreview?.names.join(", ")} → {temporaryPreview?.brightness}%</Text>
+    </ModalDialog>
     <ManualAuxiliaryProvider enabled={singleColumnLayout} scope={`${userId}:${data.site.id}:${selection.mode}`}>
     <section className={cn(controlScreenClassName, singleColumnLayout && "h-full grid-rows-[auto_minmax(0,1fr)] gap-1")} data-control-screen="">
       {singleColumnLayout ? <><Heading as="h1" className="sr-only">조명 제어</Heading><Text variant="caption">수동 제어</Text></> : modeTabs}
-      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)] gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
+      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
       <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
         {/* Subgrid shares the toolbar row without reparenting the live map or
             command owner across breakpoints; map chrome and aside start together. */}
@@ -744,9 +769,21 @@ export function ControlView({
           <ManualExecutionPanel key={`${userId}:${data.site.id}`} compact={singleColumnLayout} importantStatus={importantStatus}
             moreContent={auxiliaryContent} brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
                 applyLabel={storageError ? "복구 정보 확인 필요" : manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
-                onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+                executionMode={executionMode} onExecutionModeChange={setExecutionMode} temporaryActive={temporaryController.controlsLocked}
+                temporaryContent={<><TemporaryControlPanel controller={temporaryController} brightness={brightness} fixtureIds={selectedFixtures.map(fixture => fixture.id)} compact={singleColumnLayout}
+                  durationMinutes={durationMinutes} onDurationChange={setDurationMinutes} timeZone={data.site.timeZone} writesAllowed={!readOnly && !commandSessionBlocked && !commandInProgress} />
+                  {!temporaryEligible && !temporaryController.session ? <Text tone="warning" variant="caption">BIO 센서 조명 설정이 확인된 대상을 선택해 주세요.</Text> : null}</>}
+                onBrightnessChange={setBrightness} onSubmit={requestSubmit} />
         </SidePanel>
       </div>
+        <CommandHistoryPanel key={`history:${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
+          timeZone={data.site.timeZone}
+          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
+          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked || temporaryController.controlsLocked || Boolean(storageError)}
+          onOpenVerificationCases={() => setVerificationCasesOpen(true)} verificationCasesOpenerRef={verificationCasesOpenerRef}
+          verificationCaseCount={missingCommand ? exactVerificationCases.data?.items.length : undefined}
+          temporaryEnabled temporarySession={temporaryController.session} compactDisclosure className="min-h-11! [&_[role=region]]:px-2 [&_[role=region]]:py-0" />
+
       <CommandVerificationCases key={`${userId}:${data.site.id}`} open={verificationCasesOpen} siteId={data.site.id} userId={userId}
         canControl={canControl} canManage={canManage} originalCommandId={missingCommand ? scopedCommandId ?? undefined : undefined}
         onReconciled={handleCaseReconciled}
@@ -756,6 +793,7 @@ export function ControlView({
       </div>
     </section>
     </ManualAuxiliaryProvider>
+    </>
   );
 }
 

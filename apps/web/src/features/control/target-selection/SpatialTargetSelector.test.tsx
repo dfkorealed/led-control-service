@@ -49,6 +49,15 @@ const dashboard: Dashboard = {
 };
 
 describe("SpatialTargetSelector", () => {
+  it("puts saved-zone choices before the actual inspection list and preserves group selection", () => {
+    renderSelector({ presentation: "manual-workspace", selection: { mode: "group", groupId }, inspectionPanel: <p>실제 선택 조명 목록</p> });
+    const choices = screen.getByRole("group", { name: "저장된 구역 목록" });
+    const list = screen.getByText("실제 선택 조명 목록");
+    expect(choices.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(within(choices).getByRole("button", { name: "B2 입구 구역" }));
+    expect(onChange).toHaveBeenCalledWith({ mode: "group", groupId });
+  });
+
   it("distinguishes a pending map query from no map without duplicate loading overlays", () => {
     floorMapQuery.mockReturnValue({ data: undefined, error: null, isLoading: true, isPending: true });
     renderSelector({ selection: { mode: "fixtures", fixtureIds: [] } });

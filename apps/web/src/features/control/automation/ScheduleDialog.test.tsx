@@ -104,13 +104,27 @@ describe("ScheduleDialog spatial targets", () => {
     weekend.focus(); fireEvent.keyDown(weekend, { key: " " });
     holiday.focus();
     await waitFor(() => expect(reveal).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" }));
-    expect(reveal.mock.contexts).toContain(holiday);
+    expect(reveal.mock.contexts).toContain(holiday.closest("[data-field]"));
     expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toContainElement(holiday);
     fireEvent.keyDown(holiday, { key: "Escape" });
     expect(submit).not.toHaveBeenCalled();
     await waitFor(() => expect(close).toHaveBeenCalled());
     if (originalScroll) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScroll);
     else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it("confines schedule focus scrolling to its own dialog and restores the overlay boundary on close", () => {
+    const unrelated = document.createElement("div"); unrelated.dataset.testid = "modal-backdrop"; unrelated.style.overflow = "auto"; document.body.appendChild(unrelated);
+    try {
+      const view = renderScheduleDialog();
+      const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+      const owned = dialog.closest<HTMLElement>("[data-testid=modal-backdrop]")!;
+      expect(owned.style.getPropertyValue("overflow")).toBe("clip");
+      expect(unrelated.style.overflow).toBe("auto");
+      view.rerender(scheduleDialogElement({ open: false }));
+      expect(owned.style.getPropertyValue("overflow")).toBe("");
+      expect(unrelated.style.overflow).toBe("auto");
+    } finally { unrelated.remove(); }
   });
 
   it("shows the default one-day date range and its limit before advanced settings are opened", () => {

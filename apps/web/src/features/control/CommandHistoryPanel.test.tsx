@@ -611,3 +611,21 @@ function editHistoryDateSegment(index: number, value: number) {
 function openHistoryFilters() {
   if (!screen.queryByRole("button", { name: "필터 닫기" })) fireEvent.click(screen.getByRole("button", { name: /명령 이력 필터 상세 필터/ }));
 }
+
+it("uses one ticker and one drawer for separate permanent and temporary history kinds", async () => {
+  const temporary = { id: "22222222-2222-4222-8222-222222222222", siteId: "11111111-1111-4111-8111-111111111111", gatewayId: "44444444-4444-4444-8444-444444444444",
+    state: "pending", sessionRevision: 1, now: "2026-10-15T00:00:00.000Z", startedAt: "2026-10-15T00:00:00.000Z", endsAt: "2026-10-15T00:15:00.000Z", brightness: 70,
+    targets: [{ fixtureId: "33333333-3333-4333-8333-333333333333", meshNodeId: "55555555-5555-4555-8555-555555555555", nativeUuid: "abcdef123456", logicalAddress: "0x1001", applyGeneration: "1", releaseGeneration: "2" }], results: [], reason: null, detailsRedacted: false };
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => ({ ok: true, json: async () => url.includes("temporary-controls")
+    ? url.includes(temporary.id) ? temporary : { items: [temporary], nextCursor: null }
+    : { generatedAt: "2026-10-15T00:00:00Z", retainedFrom: "2026-07-15T00:00:00Z", retentionEnabled: false, items: [], nextCursor: null } })));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><CommandHistoryPanel userId="actor" siteId={temporary.siteId} onSelect={vi.fn()} temporaryEnabled /></QueryClientProvider>);
+  expect(await screen.findByRole("button", { name: /최근 시간제 상세/ })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "전체 보기" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "전체 보기" }));
+  expect(screen.getAllByRole("dialog", { name: "명령 이력" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "시간제 이력" }));
+  expect(await screen.findByRole("button", { name: new RegExp(temporary.id) })).toBeInTheDocument();
+  client.clear();
+});
