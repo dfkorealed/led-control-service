@@ -10,7 +10,7 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** Tasks1–8 공유/API/Gateway와 공통 Add·서버 달력·제외 UI는 구현/리뷰 완료(Task7 `1fe9ff53`, Task8 `1fc20739`). Task8 C/I0·Minor2는 최종 triage로 기록했고, Task9 실제 시간제 UI·이력·저장구역·최소 브라우저 QA를 기존 ‘제어 UI 개선 담당자’에게 전달한다. 전체 기능 완료·운영 반영은 아직 아니다.
+**현재 상태:** Tasks1–9 소프트웨어 구현과 태스크별 리뷰는 완료했다(Task7 `1fe9ff53`, Task8 `1fc20739`, Task9 `a02fd1b0`+fix1 `67c85ef9`). 지정 ‘제어 UI 개선 담당자’의 직접480PASS/기존5FAIL·4E2E·UI위반0 및 createdAt 보정후31covering/type/build 증거와, 후속 권한/불확정 요청 수리의16PASS·테스트 생성자 보정후3PASS/type0을 구분한다. Scoped 재리뷰는 Important2 ADDRESSED·새C/I/M0이다. Minor는 최종 whole-branch triage에 남기며 Step5 전체 리뷰·안전한 로컬 병합·운영 반영은 아직이다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
 
@@ -26,7 +26,7 @@
 | Task6 Gateway 영속 잠금/apply | 완료, fix round1 재리뷰 지적0 |
 | Task7 Gateway 최신 복귀/V3 | 완료, fix round1 재리뷰 지적0 |
 | Task8 지정 Web 공통 추가·달력·제외 UI | 완료, C/I0·Minor2 최종 추적 |
-| Task9 시간제 UI·최소 QA·로컬 머지 | 지정 담당 handoff 준비 |
+| Task9 시간제 UI·최소 QA·로컬 머지 | 소프트웨어 완료, 67c85ef9 fix1 재리뷰 지적0; 최종 리뷰·안전한 병합 대기 |
 
 ## Global Constraints
 
@@ -382,7 +382,11 @@ git commit -m "feat(web): share automation actions and render server calendars"
 
 ## Task 9: 실제 시간제 UI·이력/선택 보존·한정 통합 검증 — 지정 Web→총괄 QA
 
-**Files:** Create apps/web/src/api/temporary-controls.ts, features/control/useTemporaryControlSession.ts, useTemporaryControlSession.test.tsx, TemporaryControlPanel.tsx, TemporaryControlPanel.test.tsx, TemporaryControlHistory.tsx, TemporaryControlHistory.test.tsx, apps/web/e2e/bio-control-operations.spec.ts; Modify features/control/{ControlView.tsx,ControlView.test.tsx,ManualExecutionPanel.tsx,ManualExecutionPanel.test.tsx,CommandHistoryPanel.tsx,CommandHistoryPanel.test.tsx}, manual-workspace/ManualAuxiliaryPanel.tsx, target-selection/SpatialTargetSelector.tsx, target-selection/SpatialTargetSelector.test.tsx, docs/menus/control.md. Existing components/ui/operations/RecentActivityTicker.tsx, components/ui/DrawerDialog.tsx는 재사용하고 불필요 수정하지 않는다.
+**검증 보조 파일 소유 보완:** 지정 4개 E2E를 실제 운영 서버와 분리하기 위해 apps/web/playwright.bio-control-operations.config.ts와 apps/web/e2e/support/bio-control-operations-server.mjs를 추가한다. 자기 소유 fixture HTTP/React 포트·캐시만 사용하고, E2E 명령에 `--config=playwright.bio-control-operations.config.ts`를 지정한다. 제품 기능·검증 사례를 늘리는 범위가 아니다.
+
+**실측 수리 소유 보완:** 최초 Switch E2E에서 keyboard focus 뒤 스케줄 Dialog/label의 viewport 이탈을 확인했으므로 ScheduleDialog.tsx/test.tsx의 배경 스크롤 경계와 실제 visible field의 내부 포커스 스크롤에 한정해 최소 수리한다. 숨김 input 좌표로 visible label을 대신하지 않으며 내부 필드 전체 노출·Space/Escape/opener 복귀를 유지한다. 공통 Dialog/전역 CSS/검증 기준은 바꾸지 않는다. 원 RED와 final covering 증거를 구분한다.
+
+**Files:** Create apps/web/src/api/temporary-controls.ts, features/control/useTemporaryControlSession.ts, useTemporaryControlSession.test.tsx, TemporaryControlPanel.tsx, TemporaryControlPanel.test.tsx, TemporaryControlHistory.tsx, TemporaryControlHistory.test.tsx, apps/web/e2e/bio-control-operations.spec.ts; Modify features/control/{ControlView.tsx,ControlView.test.tsx,ManualExecutionPanel.tsx,ManualExecutionPanel.test.tsx,CommandHistoryPanel.tsx,CommandHistoryPanel.test.tsx}, target-selection/SpatialTargetSelector.tsx, target-selection/SpatialTargetSelector.test.tsx, docs/menus/control.md. Existing manual-workspace/ManualAuxiliaryPanel.tsx, components/ui/operations/RecentActivityTicker.tsx, components/ui/DrawerDialog.tsx는 재사용하고 불필요 수정하지 않는다. 보조 패널의 수명·내부 스크롤/포커스·map identity가 기존 API로 충족됨을 보고서/직접 브라우저 증거로 확인하고 형식적 변경은 만들지 않는다.
 **Consumes:** Task4 start/end/get/list TemporaryControlView와별도 history discriminator, Task8 common actions·기존 control scope/선택/영구 submitCommand/sendCommand. **Produces:** startTemporaryControl(siteId:string,input:CreateTemporaryControlInput):Promise<TemporaryControlView>, endTemporaryControl(siteId:string,id:string,input:EndTemporaryControlInput):Promise<TemporaryControlView>, getTemporaryControl(siteId:string,id:string,signal?:AbortSignal):Promise<TemporaryControlView>, listTemporaryControls(siteId:string,query:TemporaryControlListQuery,signal?:AbortSignal):Promise<TemporaryControlListResponse>.
 ~~~ts
 // useTemporaryControlSession.ts에서 생산; 임시 요청은 기존 active-command-store로 cast하지 않는다.
@@ -395,7 +399,7 @@ function TemporaryControlPanel(props:TemporaryControlPanelProps):JSX.Element;
 type TemporaryControlHistoryProps = {session:TemporaryControlView;onClose:()=>void};
 function TemporaryControlHistory(props:TemporaryControlHistoryProps):JSX.Element;
 ~~~
-- [ ] **Step 1 / RED test:** UI미리보기→202→holding→releasing/recovery_pending/restored를서버증거로표시,권한/site/principal전환·unknown중복start0·baseline path불변과조명설정부분변경을검사한다.
+- [x] **Step 1 / RED test:** UI미리보기→202→holding→releasing/recovery_pending/restored를서버증거로표시,권한/site/principal전환·unknown중복start0·baseline path불변과조명설정부분변경을검사한다.
 ~~~ts
 it("counter_zero_is_not_restored_and_stale_mutation_is_discarded", async () => {
   await h.acceptTemporary({durationMinutes:120}); h.advancePastEndsAt();
@@ -404,18 +408,18 @@ it("counter_zero_is_not_restored_and_stale_mutation_is_discarded", async () => {
   expect(h.permanentBaselinePosts()).toBe(0);
 });
 ~~~
-- [ ] **Step 2 / RED 실행:** pnpm --filter @led-control/web test src/features/control/useTemporaryControlSession.test.tsx src/features/control/TemporaryControlPanel.test.tsx src/features/control/TemporaryControlHistory.test.tsx src/features/control/ControlView.test.tsx src/features/control/ManualExecutionPanel.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx. 새mode/증거/no duplicate mount assertionFAIL. 기존Control5 knownfail은기준선으로구분하며삭제/skip하지않는다.
-- [ ] **Step 3 / 최소 코드:** 새 API module/hook은 Task1 browser export의 DTO를 import한다. owner/server phase는 root에서 유지해 tab/More 전환으로 상태를 remount하지 않는다. 기존 영구 submit은 별도 경로다. PC350px/mobile4열+More에 기간/미리보기/종료를 연결하고 unknown/partial/복귀 미확인에는 locking과 안전 경고를 유지한다.
+- [x] **Step 2 / RED 실행:** pnpm --filter @led-control/web test src/features/control/useTemporaryControlSession.test.tsx src/features/control/TemporaryControlPanel.test.tsx src/features/control/TemporaryControlHistory.test.tsx src/features/control/ControlView.test.tsx src/features/control/ManualExecutionPanel.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx. 새mode/증거/no duplicate mount assertionFAIL. 기존Control5 knownfail은기준선으로구분하며삭제/skip하지않는다.
+- [x] **Step 3 / 최소 코드:** 새 API module/hook은 Task1 browser export의 DTO를 import한다. owner/server phase는 root에서 유지해 tab/More 전환으로 상태를 remount하지 않는다. 기존 영구 submit은 별도 경로다. PC350px/mobile4열+More에 기간/미리보기/종료를 연결하고 unknown/partial/복귀 미확인에는 locking과 안전 경고를 유지한다.
   기존 CommandHistoryPanel/RecentActivityTicker/DrawerDialog/openHistoricalCommand의 유일한 이력 node를 workspace footer 전체폭으로 이동한다. footer는 최신 기본/시간제 중 하나를 보여주는 ticker1개/전체보기1개이며 같은 DrawerDialog 안에 kind별 행/상세를 표시한다. 기존 영구 openHistoricalCommand를 재사용하고 임시 목록은 별도 endpoint/cursor를 유지해 Command로 cast하지 않는다. 새 통합 이력 endpoint/메뉴는 만들지 않는다. 저장 구역 SelectionChoices(kind=group)을 중앙 목록 선두로 옮겨 resolveControlSelection→onChange의 실제 map 강조를 재사용한다. 확인 필요 버튼/설명문만 제거하고 관측·재송신·권한/stale 보호는 유지한다.
-- [ ] **Step 4 / GREEN·최소통합:** Step2 동일+pnpm --filter @led-control/web typecheck; pnpm --filter @led-control/web ui:check; pnpm --filter @led-control/web build 각 한 번. 새 scoped e2e는 fixture HTTP→실제 React 화면의 아래4개 named case를 실행한다. backend의 자기 PG와 Gateway 실제 file-store 테스트는 API/실행 지속성 증거, 브라우저는 배치/연결 증거이며 실장비 검증과 구분한다.
+- [x] **Step 4 / GREEN·최소통합:** Step2 동일+pnpm --filter @led-control/web typecheck; pnpm --filter @led-control/web ui:check; pnpm --filter @led-control/web build 각 한 번. 새 scoped e2e는 fixture HTTP→실제 React 화면의 아래4개 named case를 실행한다. backend의 자기 PG와 Gateway 실제 file-store 테스트는 API/실행 지속성 증거, 브라우저는 배치/연결 증거이며 실장비 검증과 구분한다. 기존5실패는 유지하며 후속 수리는 해당 covering만 실행했다.
 ~~~bash
-pnpm --filter @led-control/web exec playwright test e2e/bio-control-operations.spec.ts --project=chromium --workers=1
+pnpm --filter @led-control/web exec playwright test e2e/bio-control-operations.spec.ts --config=playwright.bio-control-operations.config.ts --project=chromium --workers=1
 ~~~
   cases=desktop_calendar_and_shared_add / mobile_320_more_preserves_map / mobile_390_partial_and_unknown / schedule_switch_save_cancel_focus.1349×1226/320×600/390×844에서 footer1 node·group2 target/강조·유지/만료 후 map canvas 동일·document overflow0·Dialog visible Switch/Space/Escape focus·event reset 보존을 assert한다. 권한 변경/stale 응답/partialMutation 복귀는 unit/API/Gateway에서 검증하고 브라우저 전체 suite는 실행하지 않는다. Task8/9 직접 변경 test만 최종 source에서 한 번 합쳐 실행하며 영향 없는 suite는 반복하지 않는다.
 - [ ] **Step 5 / 소유 commit·마지막검토:** 전체 diff의 safety/schema/실경로·증거를 단일 read-only review로 확인한다. P1/P2 수리는 해당 test만 재실행하고 총괄이 두 기록을 갱신한다. 제품/docs 검증 commit 뒤 clean/기대 HEAD/기존 dirty 보존을 확인하고 승인 범위의 local merge를 판단한다. 전체 GREEN/HIL/운영 적용은 주장하지 않는다.
   총괄은 main의 현재 HEAD와 사용자 dirty를 다시 확인한다. main 감시 프로세스가 merge 직후 API를 자동 재기동하거나 미적용 schema를 읽는다면 운영 승인 없는 자동 반영을 피하기 위해 먼저 안전한 중지/반영 경계를 사용자와 합의한다. 이 경계가 확보된 뒤 `codex/mvp1-cloud-web`에서 `git merge --no-ff codex/bio-control-operations-20261014`를 사용한다. 겹치는 상태 문서는 양쪽 이력을 보존하며 충돌 소스가 생기면 해당 변경·최소 관련 검증을 다시 수행한다. merge 후 실제 반영 diff와 보호 파일을 대조하고 변경 관련 smoke만 실행한다. DB migration·Pi 배포·provider 키 설정은 merge 명령에 묶지 않는다.
 ~~~bash
-git add apps/web/src/api/temporary-controls.ts apps/web/src/features/control/useTemporaryControlSession.ts apps/web/src/features/control/useTemporaryControlSession.test.tsx apps/web/src/features/control/TemporaryControlPanel.tsx apps/web/src/features/control/TemporaryControlPanel.test.tsx apps/web/src/features/control/TemporaryControlHistory.tsx apps/web/src/features/control/TemporaryControlHistory.test.tsx apps/web/src/features/control/ControlView.tsx apps/web/src/features/control/ControlView.test.tsx apps/web/src/features/control/ManualExecutionPanel.tsx apps/web/src/features/control/ManualExecutionPanel.test.tsx apps/web/src/features/control/CommandHistoryPanel.tsx apps/web/src/features/control/CommandHistoryPanel.test.tsx apps/web/src/features/control/manual-workspace/ManualAuxiliaryPanel.tsx apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx apps/web/e2e/bio-control-operations.spec.ts docs/menus/control.md
+git add apps/web/src/api/temporary-controls.ts apps/web/src/features/control/useTemporaryControlSession.ts apps/web/src/features/control/useTemporaryControlSession.test.tsx apps/web/src/features/control/TemporaryControlPanel.tsx apps/web/src/features/control/TemporaryControlPanel.test.tsx apps/web/src/features/control/TemporaryControlHistory.tsx apps/web/src/features/control/TemporaryControlHistory.test.tsx apps/web/src/features/control/ControlView.tsx apps/web/src/features/control/ControlView.test.tsx apps/web/src/features/control/ManualExecutionPanel.tsx apps/web/src/features/control/ManualExecutionPanel.test.tsx apps/web/src/features/control/CommandHistoryPanel.tsx apps/web/src/features/control/CommandHistoryPanel.test.tsx apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx apps/web/src/features/control/target-selection/SpatialTargetSelector.test.tsx apps/web/e2e/bio-control-operations.spec.ts apps/web/playwright.bio-control-operations.config.ts apps/web/e2e/support/bio-control-operations-server.mjs apps/web/src/features/control/automation/ScheduleDialog.tsx apps/web/src/features/control/automation/ScheduleDialog.test.tsx docs/menus/control.md
 git commit -m "feat(web): connect persistent BIO temporary control workflows"
 ~~~
 

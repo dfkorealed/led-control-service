@@ -2,9 +2,9 @@
 
 기준일: 2026-10-15
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — API/Gateway 완료·Web 연결 중
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어 태스크 완료·최종 검토/통합 대기
 
-- 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장부터 승인된 소프트웨어 구현을 진행 중이다. 실제 API/UI 기능 연결·장비 반영은 아직이다.
+- 사용자 구조 승인에 따라 [설계 문서](superpowers/specs/2026-10-14-bio-control-operations-design.md)를 작성하고 공유 계약·DB 저장·API/Gateway/UI 소프트웨어 연결과 태스크별 리뷰를 완료했다. 전체 브랜치 최종 검토·안전한 로컬 병합 및 실제 DB/서버/장비 반영은 아직이다.
 - 격리 `codex/bio-control-operations-20261014`, 기준 `833121fbdf309e86987d6c6c60652ed83993abef`에서 작업한다. main의 사용자 AGENTS/AWS Toolkit/landing 및 후속 공통 로딩 미커밋 변경을 보존한다.
 - 신규 기능은 BIO 센서 조명만 지원하고 기존 native 코드·등록·데이터를 자동 삭제/변환하지 않는다.12개 UI 합의와 스케줄/달력/이벤트 추가 위치 통일을 유지한다.
 - 제안은 독립 TemporaryControlSession·Gateway durable single-owner·최신 자동 운전 복귀다. legacy 영구 명령 TTL 재사용/과거 밝기 단순 복원은 제외한다.
@@ -45,6 +45,10 @@
 - 지정 ‘제어 UI 개선 담당자’에게 BASE020ef0de의 Task8 실제 API 소비 구현을 전달했고 native active/착수commentary를 확인했다. 공통 Add/header·complete server calendar·제외 form/Switch와8namedtests만 맡기며 Task9는 리뷰 전WAIT다. 총괄은source를대신수정하지않고 보고서/독립리뷰/체크리스트를 취합한다.
 
 - Task8 `1fc20739`: 소유 파일 19개, 직접 관련 테스트 8개 파일의 215/215 통과, Web 타입·diff 검사 종료 코드 0이다. 독립 리뷰도 요구사항 충족/품질 승인, Critical·Important 0이다. 완전한 달력 조회는 목록 페이지와 분리하고 scope/권한/범위/불완전 응답·제외 설정의 draft/save/cancel/false·공통 Add 위치를 검토했다. O(schedule×occurrence)와 테스트 prototype 정리 Minor 2건은 최종 검토에 남긴다. 기존 의존성 재사용 중 MAIN Vitest 결과 캐시 1개를 갱신한 실수는 캐시 분리와 이후 mtime 불변을 확인했으나 원본 캐시·운영 영향은 미관측이며 소스·DB·서비스 변경과 혼동하지 않는다. Task9 브라우저 실측/시간제 이력·선택 연결/최종 리뷰·안전한 병합이 남았다.
+
+- Task9 `a02fd1b0`: 별도 시간제 API/hook·서버 증거/잠금·하단 단일 이력/Drawer·저장 구역 지도 강조·Switch 실제 필드 스크롤을 소유21files로 연결했다. 직접15파일480PASS/기존ControlView5FAIL(exit1)·지정4E2E PASS·UI위반0이며 optional createdAt1줄 보정 뒤 해당31tests/type/build0을 확인했다. 합산/브라우저는 보정 전, covering/type/build는 보정 후라는 시점을 구분하며 전체GREEN/HIL로 표시하지 않는다. 현재 독립 리뷰의 Important2(불확정 start 권한 오류 시 복구 식별자 보존, principal 변경 시 옛 미리보기 폐기)를 같은 지정 담당자의 fixround1로 수리 중이다. Root는 source를 대신 수리하거나 같은 검증을 반복하지 않는다. Final review 및 미커밋 main71files 중 겹침10files/실행 API watcher의 안전한 통합 경계는 아직 남아 있다.
+
+- Task9 후속 fix1 `67c85ef9`: 불확정 요청의 명시적 재확인401/403/404 뒤 원 body/clientRequestId·잠금을 보존하고, preview를 hook과 같은 user/role/capability/유효현장에 결속해 전환 시 폐기·표시/확인에서 재검사했다. Semantic RED5→한정16PASS, 테스트 생성자 인자 보정 뒤 해당3PASS/Webtype0·diff0이며 scoped 재리뷰는 Important2 ADDRESSED·새C/I/M0이다. 이전480/5·4E2E·build를 이 fix commit의 재실행 증거로 사용하지 않는다. Tasks1–9 소프트웨어 태스크별 검토 완료·44/45steps이며 마지막 전체 리뷰/안전한 로컬 머지가 남았다. 기존5실패와 deferred Minor, main dirty 및 API watch/DB 운영 경계는 그대로 보존한다.
 
 ## 2026-10-14 선택형 맵 초기화·CAD 슬롯 제거 — 구현·검증·로컬 메인 반영 완료
 
