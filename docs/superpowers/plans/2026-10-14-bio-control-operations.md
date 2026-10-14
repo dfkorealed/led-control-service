@@ -10,9 +10,17 @@
 
 **Spec:** [승인 설계](../specs/2026-10-14-bio-control-operations-design.md), 승인 커밋 91bf922e. UI 정본은 /Users/kim-jh/Documents/led 조명 관제 서비스/preview/lighting-operations-real-ui/README.md 및 승인 설계 §3의 추가 위치 통일.
 
-**현재 상태:** 설계 승인 완료·계획 사용자 검토 대기·제품 미구현. 아래 9개 작업과 모든 구현 step은 pending이다. 이 문서는 실행 기록이 아니다.
+**현재 상태:** 2026-10-14 사용자 계획·진행 승인 완료. Task1 공유 계약 구현을 시작하며 Tasks2–9는 대기다. 완료 증거를 받기 전에는 아래 step을 완료 표시하지 않는다.
 
 **작업 공간/방법:** /Users/kim-jh/Documents/led-control-service/.worktrees/bio-control-operations-20261014, codex/bio-control-operations-20261014. 총괄 오케스트레이터→backend 공유 계약/Prisma→engine/Gateway→기존 UI 담당 순차 협업을 보존한다.
+
+## 실행 상태
+
+| 작업 | 상태 |
+| --- | --- |
+| Task1 공유 계약·V3·MQTT/ACL | 진행 중 |
+| Tasks2–7 DB/API/engine/Gateway | 대기 |
+| Tasks8–9 지정 Web 연결·최소 QA·로컬 머지 | 대기 |
 
 ## Global Constraints
 
@@ -33,7 +41,7 @@
 - 알려진 V2/V3와 필수 capability만 허용한다. >=2 허용·true flag 제거·영구 제어 fallback·outer ACK/PUBACK를 장비 성공으로 표시하는 우회는 금지한다.
 - PC 실행 패널350px, 모바일320×600/390×844의 기존4열 실행행·동일 map/canvas identity·가로/전체 overflow 없음, 달력 띠44px, Dialog visible Switch label focus·Escape/opener 복귀를 검증한다.
 - common component는 기존 components/ui 또는 automation/components에 둔다. 업무모드/휴무·특별근무/global opt-in/배지/중복추가/제거된 설명문을 다시 넣지 않는다. 버튼 제거는 unknown/복구 안전 경로 삭제가 아니다.
-- 현재 턴은 문서만 작성한다. 이후 한정 software 검증/로컬 merge와 운영 DB migration·서버/Pi 재시작·HIL·PKI/ACL reload·ServiceKey/provider 실제 연결·remote는 별도 승인이다.
+- 현재는 승인 계획의 software 구현 단계다. 한정 software 검증/로컬 merge와 운영 DB migration·서버/Pi 재시작·HIL·PKI/ACL reload·ServiceKey/provider 실제 연결·remote는 별도 승인이다.
 - 후속 leaf 명령 전 pnpm workspace:prepare를 한 번 수행하고 공유 산출물 변경 때 갱신한다. Gateway test는 기존 single-worker script. 전체 suite·무관 build/audit/HIL 반복 금지; 변경 package 타입과 필요한 최종 build만 한다.
 - 각 구현 commit에 docs/menus/control.md를 실제 상태로 갱신하고 DB 변경은 docs/database-schema.md도 갱신한다. 모니터링/설정에 실제 영향이 생기면 docs/menus/monitoring.md/settings.md도 같은 작업에서 갱신한다. 총괄이 plan 체크리스트/상태판을 같은 결과로 기록한다.
 
@@ -375,4 +383,4 @@ git commit -m "feat(web): connect persistent BIO temporary control workflows"
 - 이 계획의 새 wire/type/표/lease counter/topic은 계획용 공유 계약이다. 총괄은 작성 담당자의 제안과 승인 spec의 안전 의미·type 귀속을 대조했다. Task1 구현 담당자는 이 인터페이스를 strict schema로 검증하고 후속 소비자에게 검증 commit을 전달한다. spec의 안전 의미를 축소하거나 제품 선택을 추가하면 구현 전에 총괄에게 보고한다.
 - named type은 Task1, 메서드 signature는 각 Consumes/Produces가 정본이다. 미지 식별자/즉시 TTL 복귀 보장/실제 provider 성공·운영 migration·Pi 적용을 test fixture로 대신하지 않는다.
 - 총괄 self-review 완료: spec§1–3→Tasks8/9, §4–5→Tasks2/4/6/7, §6→Tasks1/2/4/5, §7→Tasks1/3/5/7, §8→Tasks1/2/4/7, §9–10→위 전달/Global Constraints. 단계별 파일·검증 명령, named type/메서드의 생산·소비 일치, Review Focus5개와 해당 task assertion, 계획 분량을 직접 확인했다. 발견한 자동 만료 세대·redaction 재시도·복귀 확인 분리·V3 exact ACK·누락 signature를 보완했다. 아직 어떤 제품 테스트나 실제 wire도 통과했다고 주장하지 않는다.
-- 이번에는 문서 diffcheck·existing path/package command만 검증하고 문서만 커밋한다. 제품/설치/test/build/provider/DB/장비 변경은 미실행이다. 사용자가 방식을 지정했으므로 방식 재선택을 묻지 않고 이 계획의 사용자 검토를 기다린다.
+- 계획 작성 단계는 문서 diffcheck·existing path/package command만 검증하고 `bd943bf6`으로 커밋했다. 사용자의 후속 진행 승인으로 software 구현을 시작한다. 당시 제품/설치/test/build/provider/DB/장비 미실행 기록은 구현 완료 증거와 구분한다. 운영 승인 경계는 그대로 유지한다.
