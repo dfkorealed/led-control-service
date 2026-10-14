@@ -1,5 +1,29 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 메인·DB 반영과 API 복구 대기
+
+### 구현 완료
+
+- 지정 ‘제어 UI 개선 담당자’와 시간제 제어/API 연결, 달력 대체 보기·띠/주말·휴일 제외, 목록/달력/이벤트 공통 추가 위치, 저장 구역·단일 하단 이력 및 모바일 지도/HTTPspinner를 통합했다. 독립 한정 검토 C/I0이며 직접6파일392PASS/기존5FAIL·5E2E·Webtype/UI/build를 확인했다. 업무모드 등 제거 기능은 복원하지 않았다.
+- 별도 브랜치에서 로딩69변경을 보존·통합한 뒤 로컬 메인848dec0c에 merge했다. 사용자 AGENTS/랜딩/감사 변경은 unstaged로 보존했다. DB는 full custom backup 후138→139migration·기존119개 데이터 table의 행 수/hash 불변·신규8개 table/default/schema를 확인했다. 실제 main API client/type/build는 exit0이다.
+
+### 미구현
+
+- **현재 API4000 복구는 완료되지 않았다.** 기존 watcher가 교체 전 shared declaration33개를 캐시해 감시컴파일66오류를 내고 새child를 만들지 못한다. Source mtime-only1회는 bytes/inode/mode를 보존했으나 실패했다. API/Web/broker 개발 프로세스의 기존환경/인증서/ACL 재사용 재기동은 추가 승인 대기이며 정상 서비스/전체 기능 사용 가능으로 표시하지 않는다.
+- Gateway/Pi 배포·USB/RF/HIL·운영clock attestor·현재 V3 적용확인·신규 MQTT scope/ACL·공휴일 ServiceKey/provider 연결은 아직이다. 시간제 새시작은 clock 미등록503/V3 미적용409 안전 관문을 유지하며 누락된 휴일 coverage를 평일로 간주하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 기존 ControlView5실패, 최종 Minor6와 색상/bundle경고는 유지한다. 이번 최소 검증을 전체 suite·실제 장비 성공으로 확대하지 않는다. Backup archive-list는 통과했지만 복원 drill은 하지 않았고 새 백업은 삭제하지 않았다.
+
+### 관련 파일
+
+- `docs/database-schema.md`, `docs/project-status.md`, `docs/superpowers/plans/2026-10-14-bio-control-operations.md`와 위/아래 태스크별 제어 파일. 원 증거는 feature worktree의 해당 plan `.superpowers/sdd/2026-10-14-bio-control-operations`에 보존한다.
+
+### 갱신 규칙
+
+- 코드/UI·DB 실제 적용·API 가용성·Gateway/HIL 준비를 분리해서 기록한다. API 복구와 승인 범위가 확정될 때 상태판·체크리스트·이 문서를 같은 결과로 갱신한다. 아래 미적용/대기 문장은 중간 이력이며 현재 결과는 이 절을 우선한다.
+
 ## 2026-10-15 최종 리뷰: 전달 만료·이벤트 보류·서울 연도 경계
 
 ### 구현 완료

@@ -2,9 +2,11 @@
 
 작성일: 2026-10-04
 
-## 2026-10-14 BIO 시간제 제어·휴일 저장 구조 — 소프트웨어, 운영 미적용
+## 2026-10-14 BIO 시간제 제어·휴일 저장 구조 — 2026-10-15 로컬 DB 반영
 
-순방향 `20261014090000_bio_temporary_control_calendar`는 기존 등록/native/BIO 설정·이력·보존 ON/OFF 설정을 변경하지 않고 아래 저장 구조를 추가한다. `LightingSchedule.excludeWeekends/excludeHolidays`는 모두 `NOT NULL DEFAULT false`다. 자기 소유 PostgreSQL16에서 기존138개 migration과 등록/일정을 먼저 만들고139번째 migration을 적용해 보존을 대조했다. 현재 사용자 DB에는 적용하지 않았다.
+순방향 `20261014090000_bio_temporary_control_calendar`는 기존 등록/native/BIO 설정·이력·보존 ON/OFF 설정을 변경하지 않고 아래 저장 구조를 추가한다. `LightingSchedule.excludeWeekends/excludeHolidays`는 모두 `NOT NULL DEFAULT false`다. 자기 소유 PostgreSQL16의 SQL 검증 이후, 사용자 명시 승인으로 2026-10-15 로컬 PostgreSQL16.14의138→139번째 migration을 실제 적용했다. 원 migration 원장/checksum·과거 rolled-back 기록은 그대로이며 미완료0, public120→128/new8empty 및 새 기본값·11함수/8인덱스/25트리거를 확인했다. API 재개 전 기존119개 데이터 테이블의 원컬럼 행 수/전체 aggregate SHA는 모두 동일했다(신규5컬럼만 비교에서 제외).
+
+백업은 `.local/db-backups/bio-control-operations-20261015-2026-10-14T232824290Z-335cfeb4-2bb5-4449-9953-15afbbd008f0/led_control.pre-bio.dump`,6446897bytes/dir0700/file0600, SHA256`ecae978f0308dd989e932763490e835f43a56316c5575f6f15578272f1e7561d`다. Full custom archive/list/fsync와119table 전후 보존을 확인했으며 백업은 보관한다. 복원 drill·live restore·DB reset/resolve/seed는 하지 않았다. Fresh API client/type/build는 정상이나 기존 watcher의 stale shared declaration/감시컴파일 오류로 현재 API4000은 중단 상태다. API/Web/broker 기존환경 재기동의 추가 승인 관문은 [상태판](project-status.md)을 따른다. 실제 Gateway/RF/HIL/clock attestor/provider/ACL 반영은 별도이며 아래 software-only 검증 문장은 당시 이력이다.
 
 | 테이블 | 저장 계약·수명 |
 | --- | --- |

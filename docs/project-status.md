@@ -2,7 +2,12 @@
 
 기준일: 2026-10-15
 
-## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어 검토·로딩 통합 완료, 로컬 반영 대기
+## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 메인·DB 반영 완료, API 복구 승인 대기
+
+- 현재 결과(2026-10-15 08:38 KST): `8436e076` 로딩 통합·독립 검토 뒤 별도 브랜치를 로컬 메인 `848dec0c`에 일반 merge했다. 기존 AGENTS/랜딩 3경로 full SHA와 사용자 UI 감사 2789bytes/hash/date를 보존했다. DB는 백업 후 순방향 migration 1개만 적용해138→139완료/미완료0, public120→128/new8empty, 기본값·11함수/8인덱스/25트리거와 기존119데이터 table의 행 수·전체 해시 불변을 API 재개 전에 확인했다. 원 migration 원장·과거 rolled-back 기록·기존 native/등록/맵/이력은 그대로다.
+- 실제 main shared/engine build·Prisma generate·API typecheck/build는 exit0이다. 하지만 재개한 기존 watcher3493이 교체 전 공유 declaration33개를 캐시해 감시 컴파일66오류를 내고 새APIchild를 만들지 못했다. 디스크의 정상 fresh build와 실패한 resident watch compile을 구분한다. Root 승인 mtime-only 이벤트1회도 source bytes/inode/mode는 유지했으나 새child를 만들지 못했다. 현재 API4000은 중단, Web3528·broker3349·원 parent는 유지 중이며 정상 서비스/전체 기능 사용 가능으로 기록하지 않는다.
+- 다음 승인 관문: API/Web/broker 개발 프로세스를 정상 종료하고 기존 환경·인증서·ACL을 그대로 재사용해 재기동할지 사용자에게 확인했다. 기존 top-level dev는 prepare/ACL/broker 변경 경로가 있어 임의 실행하지 않는다. 추가 trigger·watcher kill·독립 cold API·DB 재적용/자동복원·Gateway/HIL·키/ACL변경은 하지 않았다. Step5는 API복구/최종확인 전 미완료다.
+- 새 custom DB백업(6446897bytes,0700dir/0600file,hash`ecae978f0308dd989e932763490e835f43a56316c5575f6f15578272f1e7561d`)과 원 검증/실패 증거를 보존한다. `pg_restore --list`는 통과했지만 복원 drill은 하지 않았다. 경로는 `.local/db-backups/bio-control-operations-20261015-2026-10-14T232824290Z-335cfeb4-2bb5-4449-9953-15afbbd008f0`이며 백업 삭제는 승인하지 않았다. 아래 대기/미실행 문장은 중간 이력이다.
 
 - 2026-10-15 후속 명시 승인: 잔여 NB1 추가 수리·관련 회귀/한정 재검토, 메인의 공통 로딩 변경 별도 보존·통합, 로컬 DB 백업 후 migration·API 재시작까지 진행한다. 기존 AGENTS/랜딩 수정과 감사 기록을 보존하며 Gateway/Pi 배포·실장비 제어/HIL·공휴일 키/PKI·ACL/remote는 제외한다. 원 Gateway writer는 동일 격리 브랜치의 NB1만 수리하고 총괄은 통합/운영 경계를 준비한다. Step5는 검토·반영 결과 전 완료로 표시하지 않는다.
 - 후속 로딩 보존 `c6a00fec`와 feature 통합 `8436e076`은 기존 AGENTS/랜딩/감사 미커밋 변경을 제외하고 별도 브랜치에서 처리했다. 지정 ‘제어 UI 개선 담당자’의 실제6파일392PASS/기존5FAIL·5E2E PASS·Web타입/UI0/build와 frozen71파일/자동64파일 SHA를 대조했다. 통합 한정 독립 검토는 spec준수/Approved·Critical0/Important0이다. 모바일 HTTPspinner 버튼폭 수리만 추가됐고 unknown 잠금은 유지된다. 기존 색상·934.29kB bundle경고와 Web5실패는 남으며 전체GREEN/HIL로 확대하지 않는다. 메인 병합·DB백업/migration·API재시작은 아직이다.
