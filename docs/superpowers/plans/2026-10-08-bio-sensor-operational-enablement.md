@@ -17,9 +17,10 @@
 - [x] clean45ecabec의 정식 ARM64 bundle/default verify→정확 image load/identity 검사→새 암호화3root backup/로컬 복호 검증(52members/67,206,701regularbytes/plaintext0)→동일 launch/security로 Gateway 교체했다. 기존 runtime/backup 보존·정상TERMexit0·hosts/밝기/센서쓰기0·새health5true/singleUSBowner1이다.
 - [x] 실제 새 활성26은 decoder preflight를 넘어 recompute에서 거절됐고25로 rollback됐다. 현재 활성 스케줄1개가4조명 전부를 포함하여 센서 source와 겹침을 확인했다. 사용자에게 시험 동안 스케줄 비활성화 허용을 질문했고, 이벤트는27비활성 APPLIED로 복귀했다.
 - [x] 추가 최소 회귀: V3 거절 ACK가V1로 낮아져 API가 무시하는 RED1, paused schedule/event도 source를 점유하는 RED2를 재현했다. V3 exact version 유지·product disabled reservation 제외로 고쳤으며 enabled source 충돌은 계속 차단한다. 후속검증/새image적용은 이어진다.
-- [ ] 후속 수정의 정식 ARM64 bundle·기존보존 검증·새backup 후 같은 절차로 반영한다. 스케줄 비활성화는 사용자 답변 전 실행하지 않는다.
+- [x] 후속 eebe6533를 정식 ARM64 bundle/default verify·정확 image/무USB identity 검사·새 encrypted3root52members/67,220,912bytes 로컬 검증 후 반영했다. 두 번째도 정상TERMexit0/hosts·밝기·mode 직접쓰기0/launch·매핑·귀속 보존·singleUSBowner1/health5true다. 첫 read-only guard의 일시 mqttOutboxPending1은 중단/명령0으로 보류했고, 후속 fresh guard0 뒤에만 실제 교체했다. 원 guard/증거는 보존했다.
+- [x] 정식 UI에서 준비 ready→기존 스케줄 충돌28 ‘적용 실패’ 표시→29비활성 APPLIED까지 최소 확인했다. 기존 잘못된V1/26거절 outbox1개는 증거로 보존되며 임의 삭제/응답 위조하지 않았다. 새V3거절/29응답은 정상 수신 확인됐고 새 runtime error log0이다. 실제 감지·밝기 복귀 검증으로 확대하지 않는다.
 - [ ] 정식 UI에서 자동 준비·활성 snapshot APPLIED와 최신 자격을 확인하고 규칙을 비활성으로 돌려 사용자 시험 준비를 마친다. 실패하면 실제 원인을 추가 진단하며 성공으로 축약하지 않는다.
-- [ ] 변경을 메인 개발 브랜치에 병합하고 메뉴·상태판·체크리스트 및 실제 시험 안내를 최신화한다.
+- [ ] 변경을 메인 개발 브랜치에 병합하고 메뉴·상태판·체크리스트 및 실제 시험 안내를 최신화한다. 스케줄1개 비활성화 승인 답변이 없어 최종 실장비 활성 적용은 대기하며, 현재 이벤트0enabled/스케줄1enabled를 유지한다.
 
 ## 10월15일 승인된 센서 내장 제품 직접 설정
 
