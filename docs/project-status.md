@@ -4,6 +4,7 @@
 
 ## 2026-10-15 BIO 실사용 운영 후속 — 계획 승인·격리 구현 시작
 
+- Task1 `d61a8fa7`: 보호파일 KASI loader·실제 Nest provider DI·연도 전체0건 승격/캐시 거절을 구현했다. 지정2suite78/78·APItypecheck/diff0, 독립검토 spec준수/Approved·C/I0다. 앞선2027 fixture로 인한 기존 missing-coverage 테스트 순서 의존을 명시적 누락2040/2041로 분리했고, 기존 corrupted-hash fixture를 더 명확히 할 Minor1은 최종검토에 남긴다. Task1은 완료, Task2 시각 wire/core를 시작한다. 실제 키/운영DB/provider·서비스·Pi 변경0이며 Tasks2–8/운영완료는 아직이다.
 - 사용자는 Gateway 배포·시각 검증·공휴일/MQTT 연결과 변경·최소 연관 테스트를 요청했고 특일 정보 키를 발급했다. 키는 원본 checkout의 ignored `.local/secrets/kasi-holiday-service-key`에 0600(상위0700)으로 저장했으며, 기존 provider의 실제2026-10조회/정규화1회가 성공했다. 키/URL/원문은 출력하지 않았고 서버 자동 수집/DB 승격은 아직 연결하지 않았다.
 - `773abdba`에서 별도 `codex/bio-operational-enablement-20261015` 작업 공간을 만들고 [운영 적용 설계](superpowers/specs/2026-10-15-bio-operational-enablement-design.md)2456c806와 [실행 계획](superpowers/plans/2026-10-15-bio-operational-enablement.md)d2bcf63b를작성·검토했다. 사용자2026-10-15“진행해”로계획승인을확인하고총괄오케스트레이터/담당역할구현·독립검토를시작한다. SDD교차검토/격리환경준비단계이며Tasks1–8은미완료, 원본AGENTS/landing/상태판미커밋변경과실행서비스는보존한다. 관리자설치·Gateway배포·ACLreload·RF는아직미실행이다.
 - 새롭게 필요한 경계는 API와 다른 UID의 DB-host 시각 제공자와 BIO 세 root 전체 복원 가능한 업그레이드 도구다. 관리자 설치/시간원 신뢰 가정·점검 창을 설계에 명시했다. 기존 V2→V3 실제 선언/현재 ACK·공휴일 완전 coverage·최소 ACL까지 확인하기 전 실사용 완료로 표현하지 않는다. 다른 세션의 비활성 센서 UI 시험 규칙·등록/밝기/센서 설정·백업은 보존한다.

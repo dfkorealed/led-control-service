@@ -47,11 +47,13 @@
 
 **Interfaces:** `createConfiguredHolidayProvider(env: NodeJS.ProcessEnv): HolidayProvider | undefined`를 export한다. `KASI_HOLIDAY_SERVICE_KEY_PATH` 미설정/잘못된 보호 파일은 undefined→기존 provider unavailable 경로이며 전체 API 부팅을 실패시키지 않는다. `HOLIDAY_PROVIDER` useFactory가 이 함수를 소비한다. 기존 `HolidayDatasetService.refreshYear(year): Promise<HolidayRefreshResult>`/승격 hook 계약은 유지한다.
 
-- [ ] **1. RED 테스트 작성:** 임시 fixture의 절대 regular 0600/상위0700/현재 UID key만 provider로 연결되고, symlink·다른 owner·그룹/전체 read·512bytes 초과·내부 공백/내부 개행/끝 개행2개·오류는 키/경로/URL 없이 unavailable인지 고정한다. 끝 개행1개는 정상이다. Nest 테스트 모듈에서 실제 `HOLIDAY_PROVIDER` binding을 확인한다. KR 연도 전체 휴일이 0개면 새 coverage를 승격하지 않고, 정상 빈 월은 허용하며 hook 실패 시 pointer/revision이 보존되는 회귀를 추가한다.
-- [ ] **2. RED 확인:** `pnpm --filter @led-control/api exec jest src/automation/holiday-provider-config.spec.ts src/automation/holiday-dataset.service.spec.ts --runInBand`. 새 동작의 semantic 실패를 기록하고 fixture/도구 실패와 구분한다.
-- [ ] **3. 구현:** no-follow open→동일 descriptor fstat/크기/owner/mode→bounded read를 사용한다. key는 16~256자의 `[A-Za-z0-9+/%=._-]` 단일 값이며 URL decode/출력하지 않는다. 원본 보호 파일의 끝 개행 1개는 허용하되 내부 개행은 거절한다. 성공 시 기존 `KasiHolidayProvider`를 구성한다. 전체 연도가 비어 있으면 refresh와 cache 검증에서 unavailable로 처리하고 기존 정상 캐시는 유지한다. 메뉴/runbook에 운영 연결 전 상태와 키 경계를 기록한다.
-- [ ] **4. GREEN 확인:** Step 2와 `pnpm --filter @led-control/api typecheck`, `git diff --check`. 자기 소유 disposable PG만 사용하고 실제 provider/키 호출은 0이어야 한다.
-- [ ] **5. 커밋·검토:** 소유 파일만 커밋하고 독립 검토에 spec §5/Review Focus 5·원 로그를 전달한다. C/I 미해결 시 다음 Task로 넘어가지 않는다.
+- [x] **1. RED 테스트 작성:** 임시 fixture의 절대 regular 0600/상위0700/현재 UID key만 provider로 연결되고, symlink·다른 owner·그룹/전체 read·512bytes 초과·내부 공백/내부 개행/끝 개행2개·오류는 키/경로/URL 없이 unavailable인지 고정한다. 끝 개행1개는 정상이다. Nest 테스트 모듈에서 실제 `HOLIDAY_PROVIDER` binding을 확인한다. KR 연도 전체 휴일이 0개면 새 coverage를 승격하지 않고, 정상 빈 월은 허용하며 hook 실패 시 pointer/revision이 보존되는 회귀를 추가한다.
+- [x] **2. RED 확인:** `pnpm --filter @led-control/api exec jest src/automation/holiday-provider-config.spec.ts src/automation/holiday-dataset.service.spec.ts --runInBand`. 새 동작의 semantic 실패를 기록하고 fixture/도구 실패와 구분한다.
+- [x] **3. 구현:** no-follow open→동일 descriptor fstat/크기/owner/mode→bounded read를 사용한다. key는 16~256자의 `[A-Za-z0-9+/%=._-]` 단일 값이며 URL decode/출력하지 않는다. 원본 보호 파일의 끝 개행 1개는 허용하되 내부 개행은 거절한다. 성공 시 기존 `KasiHolidayProvider`를 구성한다. 전체 연도가 비어 있으면 refresh와 cache 검증에서 unavailable로 처리하고 기존 정상 캐시는 유지한다. 메뉴/runbook에 운영 연결 전 상태와 키 경계를 기록한다.
+- [x] **4. GREEN 확인:** Step 2와 `pnpm --filter @led-control/api typecheck`, `git diff --check`. 자기 소유 disposable PG만 사용하고 실제 provider/키 호출은 0이어야 한다.
+- [x] **5. 커밋·검토:** 소유 파일만 커밋하고 독립 검토에 spec §5/Review Focus 5·원 로그를 전달한다. C/I 미해결 시 다음 Task로 넘어가지 않는다.
+
+검증 기록: `d61a8fa7`, 지정2suite78/78·APItypecheck/diff0, 독립검토 spec준수/Approved·C/I0. 기존missing-coverage fixture가 앞선2027캐시와 충돌하는 원인을 isolated1/1·순서39/1로 분리해2040/2041명시적누락fixture로 수리했다. 기존 corrupted-hash fixture가 새empty guard에 먼저 걸리는 Minor1은 최종검토로 추적한다. 실제 키/운영DB/provider 호출·운영적용0이며 Task2를 시작한다.
 
 ### Task 2: 시각 wire 계약·SNTP parser·trust 상태 기계
 
