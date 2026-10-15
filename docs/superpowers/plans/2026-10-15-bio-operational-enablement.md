@@ -75,19 +75,29 @@ wire canonical 형식은 UTF-8, object key 사전순, 공백 없는 JSON+마지�
 
 ### Task 3: 독립 producer·launchd 설치·관리자 승인 도구
 
-**Owner:** gateway/운영. **Files:** Create `scripts/clock-attestor/daemon.py`, `installer.py`, `operator.py`, `test_daemon.py`, `test_installer.py`; Modify `docs/runbooks/production-api-web-deployment.md`, `docs/menus/control.md`.
+**Owner:** gateway/운영. **Files:** Create `scripts/clock-attestor/daemon.py`, `installer.py`, `operator.py`, `test_daemon.py`, `test_installer.py`; Modify `scripts/clock-attestor/protocol-v1.json`, `docs/runbooks/production-api-web-deployment.md`, `docs/menus/control.md`.
+
+전송 계약 보완(2026-10-15 총괄 확인): 연결당 canonical LF 요청 하나를 보낸 뒤 client가 `shutdown(SHUT_WR)`/Node `socket.end(frame)`로 요청 EOF를 보내고 응답 EOF까지 읽는다. 서버는 별도 chunk의 trailing frame·partial/no EOF를 총1초 이내 거절한다. `protocol-v1.json`/operator/Task4 reader에 동일 규칙을 적용하며 JSON body 형식은 바꾸지 않는다.
+
+권한 문구 보완(기존 wire 유지): 비관리자 `installer check|prepare|status`는 OS 계정·서비스·보호 설치 경로를 변경하지 않는다(`prepare`의 자체 작업 receipt 생성은 허용). 시각 서비스의 `operator status|probe|approve`는 모두 UID0 전용이다. 따라서 “install/approve만 관리자”는 비변경 설치 점검과 실제 설치/승인 경계를 뜻하며 status/probe의 root-only wire를 완화하지 않는다.
 
 **Interfaces:** `daemon.py --config <protected-json>`는 Task2 계약으로 서비스한다. `installer.py check|prepare|install|status --receipt <file>`, `operator.py status|probe`, `operator.py approve --observation-id <id>`를 제공한다. 설치 prefix는 `/Library/Application Support/Kinda/ClockAttestor`, socket은 하위 `runtime/evidence.sock`, config는 하위 `config.json`, launchd label은 `com.kinda.clock-attestor`다. root-owned config는 exact `version,producerUid,producerGid,apiUid,primary,sourceCommit,fileHashes`만 포함하고 receipt에는 설치 source hash와 fresh native PG process/primary binding이 있다. DB credential은 없다. `prepare/check`는 root/OS 변경 없이, `install/approve`만 관리자 권한으로 실행한다.
 
-- [ ] **1. RED 테스트 작성:** same UID/nobody/기존 무관 계정·root가 아닌 설치·쓰기 가능한 interpreter/ancestor·symlink·소스 hash/primary drift를 거절한다. API peer는 read만, approve는 UID0만, 잘못된 peer/nonce/중복/unknown field/16KiB 초과/partial frame은 거절한다. 재시작·sleep/step 뒤 새 승인을 요구하고, SNTP timeout/늦은 완료/종료 뒤 응답이 증거를 만들지 못하는지 확인한다. 테스트는 injected syscall/명령 recorder와 임시 경로만 사용한다.
-- [ ] **2. RED 확인:** `/usr/bin/python3 -m unittest discover -s scripts/clock-attestor -p 'test_*.py' -v`. 실제 dscl/launchctl/sudo/SNTP 호출은 0이어야 한다.
-- [ ] **3. 구현:** system `/usr/bin/python3 -I`·root 보호 실행물/설정과 별도 비로그인 `_kinda_clock` UID/GID를 사용한다. UID/GID는 기존 directory 목록에서 501 이상 최저 미사용 값을 각각 선택하고 기존 이름은 자기 설치 receipt로 증명되는 경우만 재사용한다. 로그인 shell false·home `/var/empty`·암호 로그인 disabled를 설정한다. root 소유 prefix0755, producer 소유 runtime0755/state0700, config root0644, state0600과 API 쓰기 불가 ancestor를 검증한다. 새 설정/프로그램은 root 보호 staging에서 해시 대조 후 고정 경로에 설치하며 사용자 PYTHONPATH/모듈을 로드하지 않는다. kernel `getpeereid`와 Darwin continuous counter를 확인하고 지원 부재 시 시작 거절한다. SNTP는 고정 argv/750ms deadline·in-flight 병합, 원 시각1초 미만 캐시만 사용한다. 부하/외부 시간원 실패는 차단이지 합성 건강이 아니다. 종료는 socket/owned child를 drain한다.
-- [ ] **4. GREEN 확인:** Step 2, installer가 내보내는 plist/receipt에서 credential0·고정 argv/identity·실행물 전체 hash를 검사하고 `git diff --check`. 실제 관리자 설치는 Task 8까지 하지 않는다.
-- [ ] **5. 커밋·검토:** 독립 검토에 Focus 2/3과 설치 rollback(자기 서비스만 중지, 계정/상태는 보존)을 전달한다. 서비스가 source repo를 직접 실행하지 않는지 확인한다.
+- [x] **1. RED 테스트 작성:** same UID/nobody/기존 무관 계정·root가 아닌 설치·쓰기 가능한 interpreter/ancestor·symlink·소스 hash/primary drift를 거절한다. API peer는 read만, approve는 UID0만, 잘못된 peer/nonce/중복/unknown field/16KiB 초과/partial frame은 거절한다. 재시작·sleep/step 뒤 새 승인을 요구하고, SNTP timeout/늦은 완료/종료 뒤 응답이 증거를 만들지 못하는지 확인한다. 테스트는 injected syscall/명령 recorder와 임시 경로만 사용한다.
+- [x] **2. RED 확인:** `/usr/bin/python3 -m unittest discover -s scripts/clock-attestor -p 'test_*.py' -v`. 실제 dscl/launchctl/sudo/SNTP 호출은 0이어야 한다.
+- [x] **3. 구현:** system `/usr/bin/python3 -I -S`·root 보호 실행물/설정과 별도 비로그인 `_kinda_clock` UID/GID를 사용한다. UID/GID는 기존 directory 목록에서 501 이상 최저 미사용 값을 각각 선택하고 기존 이름은 자기 설치 receipt로 증명되는 경우만 재사용한다. 로그인 shell false·home `/var/empty`·암호 로그인 disabled를 설정한다. root 소유 prefix0755, producer 소유 runtime0755/state0700, config root0644, state0600과 API 쓰기 불가 ancestor를 검증한다. 새 설정/프로그램은 root 보호 staging에서 해시 대조 후 고정 경로에 설치하며 사용자 PYTHONPATH/모듈을 로드하지 않는다. kernel `getpeereid`와 Darwin continuous counter를 확인하고 지원 부재 시 시작 거절한다. SNTP는 고정 argv/750ms deadline·in-flight 병합, 원 시각1초 미만 캐시만 사용한다. 부하/외부 시간원 실패는 차단이지 합성 건강이 아니다. 종료는 socket/owned child를 drain한다.
+- [x] **4. GREEN 확인:** Step 2, installer가 내보내는 plist/receipt에서 credential0·고정 argv/identity·실행물 전체 hash를 검사하고 `git diff --check`. 실제 관리자 설치는 Task 8까지 하지 않는다.
+- [x] **5. 커밋·검토:** 독립 검토에 Focus 2/3과 설치 rollback(자기 서비스만 중지, 계정/상태는 보존)을 전달한다. 서비스가 source repo를 직접 실행하지 않는지 확인한다.
+
+중간 기록: `648d73f0` 지정clock51/51·diff0 뒤 독립검토는 IPC 총deadline과 import 전 ACL검사의 Important2건을 발견했다. 원 담당자가 fixround1에서 직접 socketpair/주입ACL 회귀와 수리를 진행하며 당시 Task3는 미완료였다. 실제 설치/운영0이며 root plan 수정은 보존한다.
+
+완료 기록: fixround1 `e7104980` semantic53개8FAIL→53/53·diff0, 실제socketpair deadline/ACL-before-import sentinel 회귀로 수리했다. 한정 재검토는2건모두ADDRESSED/새C/I0다. Task3완료·Task4 APIreader를시작하며 실제설치/별도UID/시각750ms/launchd/운영확인은Task8에남긴다. 최종배포hash는FIX1이후최종reviewed commit에서다시pin한다.
 
 ### Task 4: API의 보호 Unix socket reader와 BIO admission 연결
 
 **Owner:** backend. **Files:** Create `apps/api/src/mqtt/command-db-clock-evidence-source.ts`, `command-db-clock-evidence-source.spec.ts`; Modify `mqtt.module.ts`, `command-db-clock-health.service.spec.ts`, `apps/api/src/temporary-controls/temporary-controls.integration.spec.ts`, `.env.example`, `docs/menus/control.md`.
+
+Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호0755 runtime과 kernel peer 인증을 사용한다. root config.primary는 exact7키(`startedAt,address,port,pid,processStartedAt,dataDirectory,executable`)이며 API 그룹/DB 폴더 권한을 넓히지 않는다. 요청 canonical LF 하나를 `socket.end(frame)`로 write-half-close하고 응답 EOF까지 총1초 안에 읽어 later-chunk trailing/partial frame을 거절한다.
 
 **Interfaces:** `UnixCommandDbClockEvidenceSource implements CommandDbClockEvidenceSource`의 `read():Promise<CommandDbClockEvidence|null>`와 `createConfiguredCommandDbClockEvidenceSource(env:NodeJS.ProcessEnv):CommandDbClockEvidenceSource|undefined`를 export한다. `COMMAND_DB_CLOCK_EVIDENCE_SOURCE` useFactory가 소비한다. `COMMAND_DB_CLOCK_SOCKET_PATH`가 없으면 기존 optional deny이고, 설정되면 Task 3의 고정 canonical prefix/socket만 허용한다. `readEpochContinuity`는 제공하지 않는다. Task 2 fixture와 wire를 소비한다.
 

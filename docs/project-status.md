@@ -4,6 +4,8 @@
 
 ## 2026-10-15 BIO 실사용 운영 후속 — 계획 승인·격리 구현 시작
 
+- Task3완료 `e7104980`: IPC전체deadline과import전ACL Important2건을 원 담당자가semantic53개8FAIL→53/53·diff0으로수리했고, 한정재검토2건모두ADDRESSED/새C/I0다. daemon/보호installer/operator·primary7/half-close/-I-S와별도계정/보호설치계약을확정했다. 실제OS설치/별도UID프로세스조회/launchd/실제SNTP750ms관문은Task8미실행이다. Task4 API보호reader를시작하며 기존accepted end/recovery·epoch미지원 경계를유지한다. 아래Task3검토지적은수리전중간이력이다.
+- Task3 중간 `648d73f0`: daemon/보호 installer/operator·primary7/half-close/-I-S를 구현해 지정clock51/51·diff0다. 독립검토는 IPC 전체1초 deadline과 import 전 ACL확인의 Important2건을 발견해 원 담당자의 fixround1을 진행한다. Task3완료/설치/운영 성공으로 기록하지 않으며 실제 OS/DB/Pi/키/provider 작업0이다.
 - Task2 `19d2ac4e`: clock canonical wire/SNTP parser·純 주입 trust core와 공통fixture를 구현해 Python3.9.6 직접18/18·diff0, 독립검토 spec준수/Approved·C/I0를 확인했다. 시작/재시작·step/gap/primary latch·3표본/root승인·원 issuedAt 보존이 핵심이다. SNTP 잘못된 표본 테스트의 의미 분리 Minor1은 최종검토에 남긴다. 초기 import RED와 후속 semantic RED를 구분했으며 Task3 독립 daemon/installer를 시작한다. 실제 설치/시각 gate·API reader·배포/운영은 아직이다.
 - Task1 `d61a8fa7`: 보호파일 KASI loader·실제 Nest provider DI·연도 전체0건 승격/캐시 거절을 구현했다. 지정2suite78/78·APItypecheck/diff0, 독립검토 spec준수/Approved·C/I0다. 앞선2027 fixture로 인한 기존 missing-coverage 테스트 순서 의존을 명시적 누락2040/2041로 분리했고, 기존 corrupted-hash fixture를 더 명확히 할 Minor1은 최종검토에 남긴다. Task1은 완료, Task2 시각 wire/core를 시작한다. 실제 키/운영DB/provider·서비스·Pi 변경0이며 Tasks2–8/운영완료는 아직이다.
 - 사용자는 Gateway 배포·시각 검증·공휴일/MQTT 연결과 변경·최소 연관 테스트를 요청했고 특일 정보 키를 발급했다. 키는 원본 checkout의 ignored `.local/secrets/kasi-holiday-service-key`에 0600(상위0700)으로 저장했으며, 기존 provider의 실제2026-10조회/정규화1회가 성공했다. 키/URL/원문은 출력하지 않았고 서버 자동 수집/DB 승격은 아직 연결하지 않았다.
