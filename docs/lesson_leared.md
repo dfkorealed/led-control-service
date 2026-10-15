@@ -4,6 +4,7 @@
 
 - 전송 세대 전체의 영구 fault는 새 센서 준비·GET 성공 뒤에도 pulse source만 계속 차단하여 UI 준비 완료와 실행 자격이 어긋날 수 있다. fault 시 단조 시각과 세대를 보존하고, 같은 세대에서는 fault 이후 시작된 독립적인 정상 구간만 source별 재자격으로 인정한다.
 - 잘못된 패킷 직후 대기 작업 취소, 과거 proof/동일 시각 거부, revision 변경만으로 복구 금지, 복구 후 새 fault 재차단을 함께 검사한다. valid pulse나 UI 표시를 재자격 근거로 사용하지 않는다. 실장비의 일반 거절 코드만으로 내부 원인을 확정하지 않고 새 활성 적용 응답을 별도로 확인한다.
+- 정식 ARM64 build의 `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`는 builder에서 `.pnpmfile.cjs`가 빠진 회귀였다. 기존440ead의 정상 COPY를 복원하며 frozen install·잠금 파일·hook 자체는 변경하지 않는다. 원 실패 로그는 보존하고 clean 새 commit에서 정식 bundle을 다시 검증한다.
 
 ## 2026-10-14 / 공통 로딩은 실제 요청·일시 중지·도메인 대기를 구분한다
 
