@@ -83,7 +83,7 @@ describe("public field-day landing narrative", () => {
     }
   });
 
-  it("shows Basic and Plus monthly consultation plans without claiming active limits", () => {
+  it("shows Basic pricing and the upcoming Plus plan without claiming active limits", () => {
     render(<PricingPage />);
     const section = document.getElementById("pricing");
     expect(section).not.toBeNull();
@@ -95,7 +95,8 @@ describe("public field-day landing narrative", () => {
     expect(basic.getByText("로그 3개월 보존")).toBeVisible();
     expect(basic.getByText("보고서 월 10회 생성")).toBeVisible();
     const plus = within(pricing.getByRole("article", { name: "Plus" }));
-    expect(plus.getByText("199,000원")).toBeVisible();
+    expect(plus.getByText("준비중")).toBeVisible();
+    expect(plus.queryByText("/ 월")).toBeNull();
     expect(plus.getByText("모든 기본 기능")).toBeVisible();
     expect(plus.getByText("로그 1년 보존")).toBeVisible();
     expect(plus.getByText("보고서 무제한 생성")).toBeVisible();
