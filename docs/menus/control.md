@@ -1,5 +1,29 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 API 보호 Unix clock reader — 소프트웨어
+
+### 구현 완료
+
+- `COMMAND_DB_CLOCK_SOCKET_PATH`를 고정 설치 socket으로 설정했을 때만 실제 Nest source factory가 독립 producer의 `read`에 연결한다. 기본값은 OFF이며 root 0644 config의 exact 7개 필드/primary 7개 필드, 별도 producer UID/GID, root 보호 ancestor·ACL, producer 0755 runtime·0666 socket과 연결 전후 inode/owner를 확인한다. API나 DB 폴더 권한을 넓히지 않는다.
+- 요청은 새 nonce의 canonical LF 프레임 후 write half-close하며, 응답 EOF까지 metadata 검사 포함 전체 1초·16KiB 제한을 적용한다. 중복/unknown/prototype/불완전/trailing JSON, nonce·원 `issuedAt` freshness·uncertainty 포함 총 100ms 오차 관문·세대·설치 primary 불일치는 unavailable이다. 실제 signed offset과 원 발급 시각을 기존 health로 전달하고 같은 DB transaction의 primary·100ms/1000ms 관문을 유지한다.
+- 자기 소유 Unix IPC와 합성 보호 metadata, 일회용 PostgreSQL로 reader 실패 때 신규 session/lease/outbox 0, 기존 replay·조회·end intent·accepted 만료 복구 보존을 확인했다. `readEpochContinuity`는 제공하지 않으며 기존 epoch 호출은 durable continuity 부재로 계속 거절한다.
+
+### 미구현
+
+- 실제 관리자 설치·독립 UID/프로세스·실시간 SNTP·운영 API 연결 및 신규 BIO 실행 허가 증거는 아직 없다. 이번 검증은 실제 시간제 시작/종료·밝기 SET·Gateway 배포·실장비 HIL을 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이 reader는 Mac native 같은 호스트 primary 전용이다. Node socket API에 peer UID 조회가 없어 root 보호 경로/config와 producer 소유 endpoint 교체 불가 조건을 검증하며, producer가 kernel peer UID로 API의 read 권한을 확인한다. 일반 SNTP의 호스트/네트워크 신뢰 가정과 V3 적용 ACK·MQTT·Gateway 운영 관문은 별도로 유지한다.
+
+### 관련 파일
+
+- `apps/api/src/mqtt/command-db-clock-evidence-source.ts`, `command-db-clock-evidence-source.spec.ts`, `command-db-clock-health.service.spec.ts`, `mqtt.module.ts`(앞 파일과 같은 디렉터리), `apps/api/src/temporary-controls/temporary-controls.integration.spec.ts`, `.env.example`, `scripts/clock-attestor/protocol-v1.json`.
+
+### 갱신 규칙
+
+- focused software/임시 PG 증거와 실제 설치·승인·운영 API·하드웨어 결과를 구분한다. 설정값을 켰다는 이유로 운영 성공이나 epoch 활성화를 기록하지 않으며 원 issuedAt·same transaction 관문·accepted intent 보존을 완화하지 않는다.
+
 ## 2026-10-15 독립 Mac clock producer — 소프트웨어
 
 ### 구현 완료
@@ -10,7 +34,7 @@
 
 ### 미구현
 
-- 실제 관리자 설치·서비스 기동·독립 UID의 native 프로세스 가시성·실시간 SNTP 건강·API reader 연결과 운영 승인 증거는 후속 단계다. 이번 테스트는 주입한 clock/command/socket 및 임시 파일만 사용했다. 실제 밝기 SET·시간제 시작/종료·센서 HIL은 실행하지 않았다.
+- 실제 관리자 설치·서비스 기동·독립 UID의 native 프로세스 가시성·실시간 SNTP 건강·운영 API reader 연결과 운영 승인 증거는 후속 단계다. API reader 자체의 software 검증은 위 별도 항목을 따른다. Producer 테스트는 주입한 clock/command/socket 및 임시 파일만 사용했다. 실제 밝기 SET·시간제 시작/종료·센서 HIL은 실행하지 않았다.
 
 ### 부족하거나 개선이 필요한 기능
 

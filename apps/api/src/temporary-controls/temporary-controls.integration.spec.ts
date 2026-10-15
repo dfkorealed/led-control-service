@@ -13,6 +13,11 @@ import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { TemporaryControlsController } from "./temporary-controls.controller";
 import { TemporaryControlsService } from "./temporary-controls.service";
 import { MqttService } from "../mqtt/mqtt.service";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CommandDbClockHealth } from "../mqtt/command-db-clock-health.service";
+import { createConfiguredCommandDbClockEvidenceSource, UnixCommandDbClockEvidenceSource } from "../mqtt/command-db-clock-evidence-source";
 
 describe("temporary sessions on self-owned PostgreSQL", () => {
   jest.setTimeout(60_000);
@@ -397,5 +402,34 @@ describe("temporary sessions on self-owned PostgreSQL", () => {
     expect(published.filter(p => p.sessionId === first.id).map(p => p.kind)).toEqual(["end"]);
     expect(await db.temporaryControlSession.findUnique({ where: { id: first.id } })).toMatchObject({ sessionRevision: 2, releaseIntentAt: expect.any(Date), terminalAt: null });
     expect(await db.temporaryControlLease.findUnique({ where: { fixtureId: h.fixture.id } })).toMatchObject({ ownerSessionId: first.id });
+  });
+
+  it("operational clock reader blocks new reservations while preserving replay, query, end and accepted expiry recovery", async () => {
+    const directory = mkdtempSync(join(realpathSync(tmpdir()), "bio-clock-admission-"));
+    try {
+      expect(createConfiguredCommandDbClockEvidenceSource({ COMMAND_DB_CLOCK_SOCKET_PATH:
+        "/Library/Application Support/Kinda/ClockAttestor/runtime/evidence.sock" })).toBeInstanceOf(UnixCommandDbClockEvidenceSource);
+      // This deliberately absent self-owned endpoint exercises reader failure without
+      // accessing an installed service or granting a test process protected ownership.
+      const health = new CommandDbClockHealth(new UnixCommandDbClockEvidenceSource(join(directory, "runtime/evidence.sock")));
+      const h = await harness();
+      const api = new TemporaryControlsService(db as never, new SiteAccessService(db as never),
+        new AutomationSnapshotService({ now: () => new Date() }), new TargetSnapshotService(), health);
+      await expect(api.start(h.site.id, h.actor, h.input as never)).rejects.toMatchObject({ status: 503 });
+      expect(await db.temporaryControlSession.count({ where: { siteId: h.site.id } })).toBe(0);
+      expect(await db.temporaryControlOutbox.count({ where: { siteId: h.site.id } })).toBe(0);
+      expect(await db.temporaryControlLease.count({ where: { fixtureId: h.fixture.id } })).toBe(0);
+      const first = await h.start();
+      expect(await api.start(h.site.id, h.actor, h.input as never)).toMatchObject({ id: first.id });
+      expect(await api.get(h.site.id, first.id, h.actor)).toMatchObject({ id: first.id });
+      expect(await api.end(h.site.id, first.id, h.actor, { clientRequestId: randomUUID() })).toMatchObject({ state: "releasing" });
+      const expired = await harness(new Date(Date.now() - 61_000)); const accepted = await expired.start();
+      const { TemporaryControlPublisher } = require("./temporary-control-publisher"); const published: any[] = [];
+      await new TemporaryControlPublisher(db, { publishTopic: async (_topic: string, payload: unknown) => published.push(payload) }, health).processBatch();
+      expect(published.filter(p => p.sessionId === first.id).map(p => p.kind)).toEqual(["end"]);
+      expect(published.filter(p => p.sessionId === accepted.id).map(p => p.kind)).toEqual(["end"]);
+      expect(await db.temporaryControlSession.findUnique({ where: { id: accepted.id } })).toMatchObject({ sessionRevision: 2, releaseIntentAt: expect.any(Date), terminalAt: null });
+      expect(await db.temporaryControlLease.findUnique({ where: { fixtureId: expired.fixture.id } })).toMatchObject({ ownerSessionId: accepted.id });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });
