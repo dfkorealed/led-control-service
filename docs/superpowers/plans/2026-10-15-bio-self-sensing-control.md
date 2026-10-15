@@ -42,6 +42,7 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 
 ### 현재 검증과 관문
 
+- 10월16일 사용자 요청: 물리 시험에서 방습등1·2를 제외하고 기존 B1-L006을 우선 선정한다. 새 읽기 전용 확인에서6대offline/기존Gateway실행중이나MQTT·USB준비false, PC172.30.1.2≠서버별칭172.30.1.17, 실제USB001/005≠컨테이너001/004, 로컬4000 API 접속불가를 확인했다. 새 연결 복구·중단·단일조명 설정시험 범위 승인 전에는 운영 변경하지 않는다. 복구 후 현재 신원/원 설정을 다시 읽으며 어제 값이나 방습등 원 설정을 재사용하지 않는다.
 - 후속 코드 실행: 원 설정6GET과필수 intent callback·단일큐·각SET 독립GET/전체6GET·부분실패/소유권변경/USB세대변경 거절을 저수준 SDK에 구현했다. standby/hold SET의 근거는 동일APK의 RemoteCommand/CommandMapper/TimeInterval이며 high/mode의 기존 convention을 보존한다. 높은 밝기0·phase1·표현불가128초 등은 새 적용에서 거절하고 원interval0/장시간은 복구 시 보존한다. 실제 규칙/호환 프로파일에는 연결하지 않았다.
 - Task3 소프트웨어 검증: 최초 새codec5/설정변환7/client7 semantic RED, 추가 extra-field/GET permit/세대 guard3 RED→직접관련4파일287PASS·Gateway타입/build exit0·diff0이다. fake endpoint만 대체하고 실제 client/decoder/queue를 사용했다. 시험 fixture는 실제 읽기와 정적 SET 근거를 구분하며1초SET/광출력 verified=false다. 사용자 단독 지시에 따라 직접 검토하며 독립 에이전트 리뷰는 아니다.
 - Ruling: 출력 단계 의미를 확정하기 전에는 제품 연결을 하지 않되, 이미 근거가 확보된 정확한 byte변환과 원 phase 보존·검증형 SDK는 오프라인으로 먼저 구현한다. 위험은 아직 물리 검증이 없는 SDK를 잘못 연결하는 것이므로 일반 준비/규칙 경로에 호출·capability 승격을 추가하지 않는다. 전체 UI/서버/Gateway 통합 검증 후 메인에 병합하며 부분1초 UI만 먼저 노출하지 않는다.

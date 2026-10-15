@@ -5,7 +5,7 @@
 ## 2026-10-15 BIO 자기 감지 제어 설계 검토
 
 - 후속 저수준 SDK 구현: 별도 `codex/bio-self-sensing-control-20261015`에서 standby/hold SET·정확한1초 인코딩·필수 intent callback·원 설정/세대/소유권 보존·독립 재조회·검증형 복구를 구현했다. 새codec5/변환7/client7 및 추가guard3 RED→관련4파일287PASS·Gateway타입/build exit0이다. 원phase/대기구간은 보존하고 phase1/높은밝기0/표현불가 새시간은 거절한다. 원interval0/장시간raw는 복구에서 보존한다. 실제 규칙/프로파일/내구저장소/UI 연결·메인병합·운영 반영은 아직이다.
-- 사용자의 별도 브랜치→검증 후 메인 병합 지시를 유지한다. 다음 최소 실장비 확인은 방습등1만100%/대기30%/1초/sensor로 임시 적용한 뒤 원 설정으로 복구하는 새 승인 관문이며 실제 시작은 별도 안내한다. 이번 후속 코드 작업에서 장비 쓰기/게이트웨이 중단/DB migration/서비스 재시작0이다. 읽기 전용 승인을 새SET 권한으로 재사용하지 않는다.
+- 사용자의 별도 브랜치→검증 후 메인 병합 지시를 유지한다. 10월16일 사용자 요청으로 다음 실장비 시험에서 방습등1·2를 제외하고 기존 B1-L006을 우선 대상으로 변경했다. 연결 복구 후 원 설정을 새로 읽고100%/대기30%/1초/sensor를 최소 확인한 뒤 정확한 원 설정으로 복구한다. 현재는 조명6대offline·Gateway MQTT/USB 준비false, PC주소172.30.1.2와 서버 별칭172.30.1.17 불일치, 컨테이너USB001/004와 실제001/005 불일치, 로컬4000 API 접속불가를 읽기 전용으로 확인했다. 연결 복구/일시 중단/설정 쓰기는 아직 실행하지 않았으며 새 범위 승인과 시작 안내 뒤 진행한다. 이전 읽기 전용 승인을 새SET 권한으로 재사용하지 않는다.
 
 - 후속 읽기 전용 승인으로 방습등1·2/기존 B1-L006의6GET씩18실응답을 확보했다. 방습등1·2는 high30%/standby10%/hold5초/standby구간5초/delayMode0/force-on, 기존1대는 high100%/force-off·나머지 동일이다. firmware5.5.8.12889/센서 유형도 같다. 같은 Gateway/image/config와 진단 전후3root metadata/hash를 보존하고 새health5true/USB owner1/6online·등록/설정digest 불변·revision39 APPLIED·명령/outbox/lease0으로 복귀했다. 영구배포·설정SET·DB migration/API·브로커 재시작0이다.1초 쓰기/자기 감지 출력/단계별 복귀는 미검증이다.
 - 진단 guard의 Mounts 순서/기존 startup literal 차단을 실제 증거와 RED→한정 검사로 보완했다. 첫 진단은 설정조회RF0/정상close이며 첫 재개Malformed 종료 후 같은 컨테이너의 명시적 복구1회로 정상화했다. 다음 진단18응답 후 즉시USB postflight 미확정은 추가 쓰기 없는 fresh 조회로 복귀 확정했다. 관련codec/client205PASS·진단 guard3PASS·identity2PASS, 원 실패/기록/백업은 보존한다. 다른 채팅 공유0이며 전체 기능 완료로 기록하지 않는다.
