@@ -360,6 +360,10 @@ def source_commit(source, run):
     return commit
 
 def prepare_receipt(source, api_uid, primary, run=command, now=None):
+    # Preparing consults mutable repository Git configuration; root must stop
+    # before even inspecting source, identities, primary, or hashes.
+    if os.geteuid() == 0:
+        raise ValueError('nonroot_prepare_required')
     source = Path(source).absolute()
     if source.is_symlink():
         raise ValueError('source_symlink')
@@ -464,6 +468,9 @@ def main():
     parser.add_argument('--source', type=Path, default=Path(__file__).absolute().parent)
     args = parser.parse_args()
     if args.operation == 'prepare':
+        # Reject before CLI input/receipt I/O as well as inside prepare_receipt.
+        if os.geteuid() == 0:
+            raise ValueError('nonroot_prepare_required')
         if args.primary_file is None or args.api_uid is None:
             parser.error('prepare requires --primary-file and --api-uid')
         if args.receipt.exists() or args.receipt.is_symlink():

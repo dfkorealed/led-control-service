@@ -55,6 +55,7 @@
 - 별도 비로그인 `_kinda_clock` 계정용 launchd installer와 독립 시각 producer, UID0 관리자 `status/probe/approve` 도구를 구현했다. API UID는 kernel peer 확인 후 `read`만 허용한다. Root 보호 설치물/config·full artifact hash·정확 primary/process·sleep 포함 counter·100ms 관측과 요청 직전 재관측을 검증한다.
 - 원 SNTP 시작시각을 유지하고 stdout/stderr/exit/750ms deadline을 분리 검증한다. In-flight 공유, 1초 미만 캐시/실패 backoff, single-producer lock, 세대4개 원자 저장, 시작/step/primary 변화 뒤 독립3표본과 exact 관측 관리자 승인을 적용한다. 잘못된/늦은/불완전 증거는 새 시작 허가로 바꾸지 않는다.
 - 검토 보완: IPC 수신·송신마다 전체 1초 마감시간의 잔여값을 적용하고 취소 시 socket shutdown으로 대기 I/O를 깨운다. Daemon/operator/root installer는 local module import 전에 ancestor와 sibling의 ACL까지 확인한다. 지연 socketpair와 ACL 주입 sentinel 회귀로 검증했다.
+- `prepare`는 일반 사용자 전용이며 UID0은 source·계정·primary·hash·Git·receipt 접근 전에 거절한다. 보호 staging의 관리자 `check/install`은 독립 고정 receipt와 source hash만 대조하며 사용자 저장소 Git을 실행하지 않는다. 주입 회귀는 실제 관리자 설치 증거와 구분한다.
 
 ### 미구현
 

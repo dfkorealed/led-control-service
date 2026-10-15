@@ -139,12 +139,60 @@ class InstallerTests(unittest.TestCase):
                 if 'status' in argv:
                     return ''
                 raise AssertionError(argv)
-            with patch.object(installer, 'verify_primary', side_effect=lambda value: value), patch.object(installer, 'installed_receipt', return_value=None):
+            with patch.object(installer.os, 'geteuid', return_value=501), patch.object(installer, 'verify_primary', side_effect=lambda value: value), patch.object(installer, 'installed_receipt', return_value=None):
                 receipt = installer.prepare_receipt(source, 501, primary, run=run, now=100)
             self.assertEqual(receipt['producerUid'], 502)
             self.assertEqual(set(receipt['fileHashes']), set(installer.FILES))
             self.assertEqual(receipt['sourceRoot'], str(source))
             self.assertTrue(all('-list' in argv or 'rev-parse' in argv or 'status' in argv for argv in calls))
+
+    def test_root_prepare_rejects_before_source_identity_primary_hash_or_git(self):
+        primary = dict(startedAt='2026-10-15T00:00:00.000Z', address='127.0.0.1', port=5432,
+                       pid=123, processStartedAt='Thu Oct 15 09:00:00 2026',
+                       dataDirectory='/private/pg', executable='/opt/bin/postgres')
+        source = Path('/user-owned/repo/scripts/clock-attestor')
+        calls = []
+        def run(argv):
+            calls.append(argv)
+            return 'a' * 40 if 'rev-parse' in argv else ''
+        with ExitStack() as stack:
+            euid = stack.enter_context(patch.object(installer.os, 'geteuid', return_value=0))
+            boundaries = [
+                stack.enter_context(patch.object(Path, 'absolute', autospec=True, side_effect=lambda path: path)),
+                stack.enter_context(patch.object(Path, 'is_symlink', return_value=False)),
+                stack.enter_context(patch.object(installer, 'installed_receipt', return_value=None)),
+                stack.enter_context(patch.object(installer, 'identities', return_value=({'api': 501}, {}))),
+                stack.enter_context(patch.object(installer, 'verify_primary', side_effect=lambda value: value)),
+                stack.enter_context(patch.object(installer, 'file_hashes', return_value={name: 'b' * 64 for name in installer.FILES})),
+            ]
+            with self.assertRaisesRegex(ValueError, '^nonroot_prepare_required$'):
+                installer.prepare_receipt(source, 501, primary, run=run, now=100)
+            for boundary in boundaries:
+                boundary.assert_not_called()
+            self.assertEqual(calls, [])
+            # The same otherwise-valid fixture still prepares as a regular user;
+            # root refusal cannot pass because some later field is invalid.
+            euid.return_value = 501
+            receipt = installer.prepare_receipt(source, 501, primary, run=run, now=100)
+            self.assertEqual(installer.validate_receipt(receipt, now=100), receipt)
+            self.assertEqual(calls, [('/usr/bin/git', '-C', str(source), 'rev-parse', 'HEAD'),
+                                     ('/usr/bin/git', '-C', str(source), 'status', '--porcelain', '--', *installer.FILES)])
+
+    def test_root_prepare_cli_rejects_before_primary_read_or_receipt_access(self):
+        argv = ['installer.py', 'prepare', '--source', '/user-owned/repo/scripts/clock-attestor',
+                '--api-uid', '501', '--primary-file', '/private/primary.json', '--receipt', '/private/new-receipt.json']
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(installer.sys, 'argv', argv))
+            stack.enter_context(patch.object(installer.os, 'geteuid', return_value=0))
+            boundaries = [stack.enter_context(patch.object(Path, 'exists', return_value=False)),
+                          stack.enter_context(patch.object(Path, 'is_symlink', return_value=False)),
+                          stack.enter_context(patch.object(installer, 'read_json', return_value={})),
+                          stack.enter_context(patch.object(installer, 'prepare_receipt', return_value={})),
+                          stack.enter_context(patch.object(installer, 'atomic_json'))]
+            with self.assertRaisesRegex(ValueError, '^nonroot_prepare_required$'):
+                installer.main()
+            for boundary in boundaries:
+                boundary.assert_not_called()
 
     def test_receipt_cannot_reuse_shared_uid_or_gid_alias(self):
         for users, groups in [({'_kinda_clock': 502, 'other': 502}, {'_kinda_clock': 503}),
@@ -197,7 +245,10 @@ class InstallerTests(unittest.TestCase):
             for name in ('chown', 'fchown'):
                 stack.enter_context(patch.object(installer.os, name))
             stack.enter_context(patch.object(installer.os, 'geteuid', return_value=0))
-            stack.enter_context(patch.object(installer, 'check_receipt', return_value=None))
+            stack.enter_context(patch.object(installer.time, 'time', return_value=100))
+            stack.enter_context(patch.object(installer, 'installed_receipt', return_value=None))
+            stack.enter_context(patch.object(installer, 'identities', return_value=({'api': 501}, {'staff': 501, 'busy': 502})))
+            stack.enter_context(patch.object(installer, 'source_commit', side_effect=AssertionError('root install must not execute repo git')))
             stack.enter_context(patch.object(installer, 'protected'))
             stack.enter_context(patch.object(installer, 'verify_primary', side_effect=lambda value: value))
             stack.enter_context(patch.object(installer, 'check_installed'))

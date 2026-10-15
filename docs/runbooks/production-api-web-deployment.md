@@ -32,6 +32,8 @@ SNTP parser는 확인된 `+0.062763 +/- 0.006118 time.apple.com 17.253.114.35` �
 
 일반 사용자 준비·검사는 다음 형태다. `--receipt`는 새 절대 경로여야 하고 receipt 유효기간은 준비 후 60초다. 오래된 receipt/관측 ID는 재사용하지 않는다. Source 디렉터리는 검토한 clean commit의 `scripts/clock-attestor`이며 source hash가 바뀌면 중단한다.
 
+`prepare`는 일반 사용자 전용이다. UID0 호출은 source·계정 목록·primary·hash·Git·receipt 접근 전에 거절하며 보호 staging에서도 예외가 없다. 관리자 단계는 독립 고정한 receipt로 `check/install`만 수행하고 사용자 저장소의 Git을 실행하지 않는다.
+
 ```sh
 /usr/bin/python3 -I -S scripts/clock-attestor/installer.py prepare \
   --receipt /absolute/private/clock-install-receipt.json \

@@ -222,19 +222,33 @@ describe("complete Korean holiday provider and immutable cache", () => {
   });
 
   it("hash mismatch and missing coverage never become an empty holiday list", async () => {
+    const { holidayDatasetPayloadHash } = require("./holiday-dataset.service");
     const h = harness();
     // The Jan1 promotion regression intentionally populates 2027. Use explicitly
     // absent fixture years so this missing-coverage assertion is order independent.
     expect(await cached(2040)).toBeNull();
     expect(await cached(2041)).toBeNull();
     await expect(h.service.loadCoverage("2040-12-31", "2041-01-01")).rejects.toMatchObject({ status: 409 });
-    const data = { country: "KR", source: "kasi", year: 2030, revision: "corrupt-test", fetchedAt: new Date(instant),
+    const semantic = { country: "KR", source: "kasi", year: 2030, coverageFrom: "2030-01-01", coverageUntil: "2030-12-31",
+      dates: [{ date: "2030-01-01", names: ["신정"] }] };
+    const payloadHash = holidayDatasetPayloadHash(semantic);
+    const data = { ...semantic, revision: "corrupt-test", fetchedAt: new Date(instant),
       coverageFrom: new Date("2030-01-01T00:00:00Z"), coverageUntil: new Date("2030-12-31T00:00:00Z"),
-      payloadHash: `sha256:${"a".repeat(64)}`, dates: [], complete: true,
-      completenessProof: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, totalCount: 0, pageCount: 1,
-        numOfRows: 2, pages: [{ page: 1, itemCount: 0 }] })) };
-    const invalid = await db.holidayDataset.create({ data });
-    await db.holidayYearCoverage.create({ data: { country: "KR", year: 2030, datasetId: invalid.id } });
+      payloadHash, complete: true,
+      completenessProof: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, totalCount: i === 0 ? 1 : 0, pageCount: 1,
+        numOfRows: 2, pages: [{ page: 1, itemCount: i === 0 ? 1 : 0 }] })) };
+    const dataset = await db.holidayDataset.create({ data });
+    await db.holidayYearCoverage.create({ data: { country: "KR", year: 2030, datasetId: dataset.id } });
+    // Positive control: the nonempty dataset/proof is consumable, so the
+    // empty-year guard cannot mask this regression. Complete rows are immutable;
+    // the corrupt copy needs its own valid revision, then only the pointer moves.
+    expect(await h.service.loadCoverage("2030-01-01", "2030-12-31")).toEqual([
+      { ...semantic, revision: "corrupt-test", fetchedAt: instant, payloadHash }
+    ]);
+    const wrongHash = `sha256:${"a".repeat(64)}`;
+    expect(payloadHash).not.toBe(wrongHash);
+    const invalid = await db.holidayDataset.create({ data: { ...data, revision: "corrupt-test-invalid", payloadHash: wrongHash } });
+    await db.holidayYearCoverage.update({ where: { country_year: { country: "KR", year: 2030 } }, data: { datasetId: invalid.id } });
     await expect(h.service.loadCoverage("2030-01-01", "2030-12-31")).rejects.toMatchObject({ status: 409 });
     await expect(h.service.loadCoverage("2026-02-30", "2026-03-01")).rejects.toMatchObject({ status: 400 });
   });

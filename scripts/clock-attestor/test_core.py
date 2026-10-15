@@ -48,12 +48,29 @@ class SntpTests(unittest.TestCase):
         self.assertEqual(parse_sntp("+0.058639 +/- 0.005864 time.apple.com 17.253.14.253\n"), (58.639, 5.864))
         self.assertEqual(parse_sntp("-0.058639 +/- 0.005864 time.apple.com 17.253.14.253"), (-58.639, 5.864))
 
-    def test_rejects_missing_or_ambiguous_results_units_and_nonfinite(self):
-        for text in ("", "+0.1 ms +/- 0.01 ms", "+0.1 +/- -0.01 time.apple.com",
-                     "NaN +/- 0.01 time.apple.com", "+0.1 +/- Infinity time.apple.com",
-                     "+0.1 +/- 0.01 time.apple.com\n+0.2 +/- 0.01 time.apple.com",
-                     "warning\n+0.1 +/- 0.01 time.apple.com", "+0.1 +/- 0.01 seconds",
-                     "+1e-3 +/- 0.01 time.apple.com", "+0.1 +/- 0.01 +0.2 +/- 0.01"):
+    def test_rejects_one_invalid_field_in_otherwise_valid_sntp_line(self):
+        valid = "+0.1 +/- 0.01 time.apple.com 17.253.14.253"
+        self.assertEqual(parse_sntp(valid), (100, 10))
+        for before, after in (("+0.1", "NaN"), ("+0.1", "+Infinity"),
+                              ("0.01", "-0.01"), ("0.01", "NaN"), ("0.01", "Infinity"),
+                              ("+0.1", "+1e-3"), ("+0.1", "+0.1 ms"),
+                              ("0.01", "0.01 ms"), ("time.apple.com", "seconds"),
+                              ("17.253.14.253", "999.253.14.253")):
+            text = valid.replace(before, after, 1)
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                parse_sntp(text)
+
+    def test_rejects_multiple_individually_valid_results_or_diagnostic_line(self):
+        first = "+0.1 +/- 0.01 time.apple.com 17.253.14.253"
+        second = "+0.2 +/- 0.02 time.apple.com 17.253.14.254"
+        self.assertEqual(parse_sntp(first), (100, 10))
+        self.assertEqual(parse_sntp(second), (200, 20))
+        for text in (first + "\n" + second, first + "\n" + second + "\n", "warning\n" + first):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                parse_sntp(text)
+
+    def test_rejects_missing_result_or_ip(self):
+        for text in ("", "+0.1 +/- 0.01 time.apple.com"):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 parse_sntp(text)
 
