@@ -18,7 +18,8 @@ import {
 import type { AuthUser } from "../../../api/auth";
 import { isApiStatus } from "../../../api/client";
 import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
-import type { Dashboard } from "../../../api/queries";
+import { getControlDashboard, type Dashboard } from "../../../api/queries";
+import { BioEventSetup, BioEventSetupError, isSelectableVehicleEventSource } from "./bio-event-setup";
 import { LoadingState, Button, ConfirmDialog, FeedbackState, StatusBadge, Text, useSessionStatus, useSessionToast, type SessionStatusItem  } from "../../../components/ui";
 import { formatControlTimestamp } from "../control-time";
 import { VehicleEventDialog } from "./VehicleEventDialog";
@@ -65,6 +66,11 @@ export function VehicleEventControlPanel({
   const [lastRefreshSuccess, setLastRefreshSuccess] = useState<{ scope: string; at: number } | null>(null);
   const [visiblePollFailure, setVisiblePollFailure] = useState<{ scope: string; error: unknown } | null>(null);
   const canManage = role === "admin";
+  const dashboardRef = useRef(dashboard);
+  dashboardRef.current = dashboard;
+  const [bioSetup] = useState(() => new BioEventSetup());
+  const actionBusy = useRef(false);
+  const [preparingScope, setPreparingScope] = useState<string | null>(null);
   const { filter, appliedQuery, pageIndex, isSearchPending, changeFilter, changePage } = useAutomationListState(operationScopeKey);
   const listScopeKey = JSON.stringify([operationScopeKey, appliedQuery, filter.status, filter.syncStatus, filter.limit]);
   const currentListScope = useRef(listScopeKey);
@@ -208,17 +214,28 @@ export function VehicleEventControlPanel({
   useSessionStatus(`control:event:${scopeKey}:${siteId}`, statusItems);
   // Mutation-level callbacks survive observer unmount; per-call callbacks below only update scoped UI state.
   const saveMutation = useMutation({
-    mutationFn: ({ operationSiteId, ruleId, input }: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null; ruleId: string | null; input: CreateVehicleEventRuleInput }) => ruleId
-      ? updateVehicleEventRule(operationSiteId, ruleId, input)
-      : createVehicleEventRule(operationSiteId, input),
+    mutationFn: async (variables: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null; ruleId: string | null; input: CreateVehicleEventRuleInput }) => {
+      await prepareBioSources(variables, variables.input.sourceFixtureIds);
+      assertOperationCurrent(variables);
+      return variables.ruleId ? updateVehicleEventRule(variables.operationSiteId, variables.ruleId, variables.input)
+        : createVehicleEventRule(variables.operationSiteId, variables.input);
+    },
+    onSettled: () => { actionBusy.current = false; },
     onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
     onError: (error, variables) => {
       expireMutationPrincipal(error, variables);
     }
   });
   const toggleMutation = useMutation({
-    mutationFn: ({ operationSiteId, ruleId, status }: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null; ruleId: string; status: "enabled" | "disabled" }) =>
-      updateVehicleEventRule(operationSiteId, ruleId, { status }),
+    mutationFn: async (variables: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null; ruleId: string; status: "enabled" | "disabled"; rule: VehicleEventRuleResponse }) => {
+      // Disable must not depend on RF readiness or issue a new sensor-mode SET.
+      if (variables.status === "enabled" && variables.rule.sensorProtocol === "bio-usb-pulse") {
+        await prepareBioSources(variables, variables.rule.sourceFixtureIds, variables.rule.gatewayId);
+      }
+      assertOperationCurrent(variables);
+      return updateVehicleEventRule(variables.operationSiteId, variables.ruleId, { status: variables.status });
+    },
+    onSettled: () => { actionBusy.current = false; },
     onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
     onError: (error, variables) => {
       expireMutationPrincipal(error, variables);
@@ -307,6 +324,40 @@ export function VehicleEventControlPanel({
     return auth?.user ? principalKey(auth.user) : null;
   }
 
+  function assertOperationCurrent(variables: { operationScope: string; operationGeneration: number; operationPrincipal: string | null }) {
+    if (!mounted.current || authBlockedRef.current || !isCurrent(variables.operationScope, variables.operationGeneration)
+      || currentPrincipal() !== variables.operationPrincipal) throw new BioEventSetupError("화면 또는 로그인 상태가 변경되어 설정을 중단했습니다.");
+  }
+
+  async function prepareBioSources(variables: { operationSiteId: string; operationScope: string; operationGeneration: number; operationPrincipal: string | null }, fixtureIds: string[], requiredGatewayId?: string) {
+    assertOperationCurrent(variables);
+    const source = dashboardRef.current?.floors.flatMap(floor => floor.fixtures).find(fixture => fixture.id === fixtureIds[0]);
+    if (!requiredGatewayId && source?.vehicleEventSource?.sensorProtocol !== "bio-usb-pulse") return;
+    if (!source?.gateway) throw new BioEventSetupError("감지 조명의 연결을 확인해 주세요.");
+    setPreparingScope(variables.operationScope);
+    try {
+      await bioSetup.prepare({ siteId: variables.operationSiteId, gatewayId: requiredGatewayId ?? source.gateway.id, fixtureIds,
+        scopeKey: JSON.stringify([variables.operationScope, variables.operationGeneration, variables.operationPrincipal]),
+        current: () => { try { assertOperationCurrent(variables); return true; } catch { return false; } },
+        dashboard: () => dashboardRef.current,
+        refresh: async () => {
+          assertOperationCurrent(variables);
+          const latest = await getControlDashboard(variables.operationSiteId);
+          assertOperationCurrent(variables);
+          // Never publish an old principal's response into a new session cache.
+          queryClient.setQueryData(["dashboard", variables.operationSiteId, "with-fixtures"], latest);
+          return latest;
+        }
+      });
+    } finally {
+      if (mounted.current && isCurrent(variables.operationScope, variables.operationGeneration)) setPreparingScope(null);
+    }
+  }
+
+  function mutationMessage(error: unknown) {
+    return error instanceof BioEventSetupError ? error.message : vehicleEventMutationErrorMessage(error);
+  }
+
   function expireMutationPrincipal(error: unknown, variables: { operationScope: string; operationGeneration: number; operationPrincipal: string | null }) {
     if (!isScheduleUnauthorized(error) || currentPrincipal() !== variables.operationPrincipal) return;
     if (mounted.current && !isCurrent(variables.operationScope, variables.operationGeneration)) return;
@@ -362,21 +413,22 @@ export function VehicleEventControlPanel({
   }
 
   function save(input: CreateVehicleEventRuleInput) {
-    if (authBlockedRef.current) return;
+    if (authBlockedRef.current || actionBusy.current) return;
+    actionBusy.current = true;
     const operationScope = operationScopeKey;
     const operationGeneration = scopeGeneration;
     const ruleId = editingRule?.id ?? null;
     setMutationError("");
     saveMutation.mutate({ operationSiteId: siteId, operationScope, operationGeneration, operationPrincipal: currentPrincipal(), ruleId, input }, {
-      onSuccess: () => {
-        if (!isCurrent(operationScope, operationGeneration) || authBlockedRef.current) return;
+      onSuccess: (_result, variables) => {
+        if (!isCurrent(operationScope, operationGeneration) || authBlockedRef.current || currentPrincipal() !== variables.operationPrincipal) return;
         setDialogOpen(false);
         setEditingRule(null);
         publishSuccess(`control:event:${operationScope}:${siteId}:save:${ruleId ?? "new"}`, ruleId ? "이벤트 규칙을 수정했습니다." : "이벤트 규칙을 만들었습니다. Gateway 적용 상태를 확인해 주세요.");
       },
-      onError: (error) => {
-        if (!isCurrent(operationScope, operationGeneration) || authBlockedRef.current) return;
-        setMutationError(vehicleEventMutationErrorMessage(error));
+      onError: (error, variables) => {
+        if (!isCurrent(operationScope, operationGeneration) || authBlockedRef.current || currentPrincipal() !== variables.operationPrincipal) return;
+        setMutationError(mutationMessage(error));
       }
     });
   }
@@ -397,29 +449,36 @@ export function VehicleEventControlPanel({
   function canToggle(rule: VehicleEventRuleResponse) {
     // Explicit disable remains available even after readiness is lost. The
     // server revalidates admission when the operator requests activation.
-    return rule.status === "enabled" || rule.sensorProtocol !== "bio-usb-pulse" || bioSourcesReady(rule);
+    if (rule.status === "enabled" || rule.sensorProtocol !== "bio-usb-pulse") return true;
+    const sources = dashboard?.site.id === siteId ? dashboard.floors.flatMap(floor => floor.fixtures) : [];
+    return rule.sourceFixtureIds.length === 1 && rule.sourceFixtureIds.every(id => sources.some(source => source.id === id
+      && source.gateway?.id === rule.gatewayId && source.vehicleEventSource?.sensorProtocol === "bio-usb-pulse"
+      && isSelectableVehicleEventSource(source)));
   }
 
   function toggle(rule: VehicleEventRuleResponse) {
-    if (authBlockedRef.current) return;
+    if (authBlockedRef.current || actionBusy.current) return;
     if (!canToggle(rule)) return;
+    actionBusy.current = true;
     const operationScope = operationScopeKey;
     const operationGeneration = scopeGeneration;
     const status = rule.status === "enabled" ? "disabled" : "enabled";
-    toggleMutation.mutate({ operationSiteId: siteId, operationScope, operationGeneration, operationPrincipal: currentPrincipal(), ruleId: rule.id, status }, {
-      onSuccess: () => {
-        if (isCurrent(operationScope, operationGeneration) && !authBlockedRef.current) {
+    toggleMutation.mutate({ operationSiteId: siteId, operationScope, operationGeneration, operationPrincipal: currentPrincipal(), ruleId: rule.id, status, rule }, {
+      onSuccess: (_result, variables) => {
+        if (isCurrent(operationScope, operationGeneration) && !authBlockedRef.current && currentPrincipal() === variables.operationPrincipal) {
           setToggleErrors((current) => {
             const next = { ...current };
             delete next[rule.id];
             return next;
           });
-          publishSuccess(`control:event:${operationScope}:${siteId}:toggle:${rule.id}`, status === "enabled" ? "이벤트 규칙을 활성화했습니다." : "이벤트 규칙을 비활성화했습니다.");
+          publishSuccess(`control:event:${operationScope}:${siteId}:toggle:${rule.id}`, rule.sensorProtocol === "bio-usb-pulse"
+            ? status === "enabled" ? "활성 설정을 전송했습니다. Gateway 적용 상태를 확인해 주세요." : "비활성 설정을 전송했습니다. Gateway 적용 상태를 확인해 주세요."
+            : status === "enabled" ? "이벤트 규칙을 활성화했습니다." : "이벤트 규칙을 비활성화했습니다.");
         }
       },
-      onError: (error) => {
-        if (!isCurrent(operationScope, operationGeneration) || authBlockedRef.current) return;
-        setToggleErrors((current) => ({ ...current, [rule.id]: { scope: operationScope, name: rule.name, message: vehicleEventMutationErrorMessage(error) } }));
+      onError: (error, variables) => {
+        if (!isCurrent(operationScope, operationGeneration) || authBlockedRef.current || currentPrincipal() !== variables.operationPrincipal) return;
+        setToggleErrors((current) => ({ ...current, [rule.id]: { scope: operationScope, name: rule.name, message: mutationMessage(error) } }));
       }
     });
   }
@@ -451,10 +510,13 @@ export function VehicleEventControlPanel({
 
   function renderActions(rule: VehicleEventRuleResponse) {
     if (!canManage) return null;
-    return <AutomationRuleActions name={rule.name} enabled={rule.status === "enabled"} disabled={isMutating || isAuthBlocked} toggleDisabled={!canToggle(rule)}
+    const error = toggleErrors[rule.id];
+    return <div className="grid min-w-0 gap-2"><AutomationRuleActions name={rule.name} enabled={rule.status === "enabled"} disabled={isMutating || isAuthBlocked} toggleDisabled={!canToggle(rule)}
       touchClassName={rule.sensorProtocol === "bio-usb-pulse" ? "max-compact:size-13" : undefined}
       onToggle={() => toggle(rule)} onEdit={opener => beginEdit(rule, opener)}
-      onDelete={opener => { deleteReturnFocusRef.current = opener; setDeleteCandidate(rule); setMutationError(""); }} />;
+      onDelete={opener => { deleteReturnFocusRef.current = opener; setDeleteCandidate(rule); setMutationError(""); }} />
+      {rule.sensorProtocol === "bio-usb-pulse" && error?.scope === operationScopeKey
+        ? <Text role="alert" variant="caption" tone="danger">{error.message}</Text> : null}</div>;
   }
 
   const columns: DataGridColumn<VehicleEventRuleResponse>[] = [
@@ -480,6 +542,7 @@ export function VehicleEventControlPanel({
         {!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : null}
         {canManage && !isAuthBlocked ? <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : null}
       </>} />
+      {preparingScope === operationScopeKey ? <Text role="status" aria-live="polite">센서 설정 중입니다. 잠시만 기다려 주세요.</Text> : null}
       {hasGlobalContract && !isAuthBlocked ? <AutomationRuleControls label="이벤트" filter={filter}
         filteredTotal={isSearchPending ? undefined : firstPage?.filteredTotal}
         pageIndex={currentPageIndex} currentPageCount={isSearchPending ? 0 : rules.length}

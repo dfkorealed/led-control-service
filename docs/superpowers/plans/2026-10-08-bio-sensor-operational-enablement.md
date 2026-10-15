@@ -8,6 +8,30 @@
 
 **Tech Stack:** React, NestJS/Prisma/PostgreSQL, MQTT, Raspberry Pi BIO Gateway.
 
+## 10월15일 후속 UI 실사용 준비 — codex/bio-runtime-recovery-20261015
+
+- [x] 사용자 요청으로 단독 진행·Gateway 진단/수정 배포/일시 중단을 포함한다. 실제 움직임 시험은 별도 시작하며 ID/기본 밝기/규칙 내용/인증/ACL/DB를 보존한다.
+- [x] 중지된 Web/API/broker를 기존 .env·TLS·ACL 그대로 복구했다. 기존 leaf dev만 사용해 migration/ACL render/PKI 변경0, ready200/5up·Web 화면·조명4online을 확인했다. 새 protected supervisor는 `.local/bio-sensor-recovery-20261015-z93iY6ZT`다.
+- [x] 정식 UI 자동 ensure_sensor 후 센서 연결됨→활성 snapshot 적용 실패를 재현하고 규칙을 즉시 비활성으로 되돌렸다. 기존 비활성 APPLIED만으로 성공을 선언하지 않는다.
+- [x] generation 전체에 고착된 decoder fence의 복구 결함을 RED1/36PASS로 재현하고, fault 이후 독립된 새 healthy interval에만 source별 재자격을 허용했다. 같은/이전 시각 proof·revision churn·새 fault 재차단을 보호한다. 직접3files71PASS·Gateway typecheck0이다.
+- [x] clean45ecabec의 정식 ARM64 bundle/default verify→정확 image load/identity 검사→새 암호화3root backup/로컬 복호 검증(52members/67,206,701regularbytes/plaintext0)→동일 launch/security로 Gateway 교체했다. 기존 runtime/backup 보존·정상TERMexit0·hosts/밝기/센서쓰기0·새health5true/singleUSBowner1이다.
+- [x] 실제 새 활성26은 decoder preflight를 넘어 recompute에서 거절됐고25로 rollback됐다. 현재 활성 스케줄1개가4조명 전부를 포함하여 센서 source와 겹침을 확인했다. 사용자에게 시험 동안 스케줄 비활성화 허용을 질문했고, 이벤트는27비활성 APPLIED로 복귀했다.
+- [x] 추가 최소 회귀: V3 거절 ACK가V1로 낮아져 API가 무시하는 RED1, paused schedule/event도 source를 점유하는 RED2를 재현했다. V3 exact version 유지·product disabled reservation 제외로 고쳤으며 enabled source 충돌은 계속 차단한다. 후속검증/새image적용은 이어진다.
+- [x] 후속 eebe6533를 정식 ARM64 bundle/default verify·정확 image/무USB identity 검사·새 encrypted3root52members/67,220,912bytes 로컬 검증 후 반영했다. 두 번째도 정상TERMexit0/hosts·밝기·mode 직접쓰기0/launch·매핑·귀속 보존·singleUSBowner1/health5true다. 첫 read-only guard의 일시 mqttOutboxPending1은 중단/명령0으로 보류했고, 후속 fresh guard0 뒤에만 실제 교체했다. 원 guard/증거는 보존했다.
+- [x] 정식 UI에서 준비 ready→기존 스케줄 충돌28 ‘적용 실패’ 표시→29비활성 APPLIED까지 최소 확인했다. 기존 잘못된V1/26거절 outbox1개는 증거로 보존되며 임의 삭제/응답 위조하지 않았다. 새V3거절/29응답은 정상 수신 확인됐고 새 runtime error log0이다. 실제 감지·밝기 복귀 검증으로 확대하지 않는다.
+- [x] 정식 UI에서 자동 준비·활성 snapshot31APPLIED와 센서 연결됨을 확인했다. DB도 desired31/applied31/error null·event1enabled/schedule0enabled로 일치한다. 사용자 직접 시작을 위해 이벤트는 다시 비활성화했다. 실제 움직임·밝기 복귀 시험은 하지 않았다.
+- [x] 별도 브랜치의 변경을 메인 `codex/mvp1-cloud-web`에 ff-only 병합했다(00988e8e). 메인에서도 관련5files101PASS를 재확인했고 사용자AGENTS/랜딩3경로 diff SHA가 전후 동일하다. 기존·추가 사용자 dirty는 stage하지 않으며 root 상태판의 기존 미커밋 내용도 보존한다. 작업 branch/worktree/암호화backup/원 실패 기록은 삭제하지 않는다.
+- [x] Ruling: 추가 UI 확인에서 기존 ‘조명 스케줄’은10월12일 종료/다음실행없음/4대의 과거 시험 설정임을 확인했다. 현재 운전 중단에 대한 앞선 질문은 새 증거로 해소되어, 사용자 test-ready 범위의 되돌릴 수 있는 만료 시험 설정 정리로 status만 비활성화했다. 날짜/반복/대상/밝기 내용은 그대로 보존한다. 시행 전 사용자에게 새 증거·변경 이유를 알렸다. 활성31 성공 뒤 사용자 시작 전 event OFF로 복귀했다.
+- [x] 최종32APPLIED/desired=applied/error null·event0enabled/schedule0enabled·API200/5up·실제UI4online/맨위센서연결됨을 확인했다. `/tmp/sensor-ui-test-ready-20261015.png`와 보호 `task-5-test-ready-handoff.json`을 남기고 이벤트 페이지를 사용자에게 유지한다. 실제 움직임 시험은 아직 시작하지 않았다.
+
+## 10월15일 승인된 센서 내장 제품 직접 설정
+
+- [x] 사용자 승인한 센서 선택→실행 조명→밝기/유지→저장·활성화 흐름을 별도 `codex/sensor-one-step-setup-20261015`에서 구현한다. 일반 준비/확인 UI를 제거하고 선택 후보와 실행 eligibility를 분리한다.
+- [x] 기존 API의 자동 ensure_sensor/동일 요청 재개/최신 eligibility 확인을 저장·전원에 연결했다. 불확정 POST/GET·진행 중 준비·이전 ready의 현재 링크 유실·중복 클릭·현장/로그인/배정/권한 변화와 실패 안내 회귀를 확인했다. 새 schema/API/권한/DB/장비 변경은 없다.
+- [x] 직접 관련 테스트 5파일141개(마지막 predicate 공통화 전), 공통화 뒤 predicate/coordinator 재검증, PC1440/모바일390 저장·자동 준비·활성화 및 실패 재시도 fake browser 3개, 타입 포함 Web build/UI policy를 검증한다. 원 no-module harness 오류·UI 5건 RED·폐기된 수동 패널 기대/문구 보완·ready checkpoint/권한 회수/실패 안내 RED를 보호 기록으로 구분한다.
+- [x] 직접 최종 리뷰 뒤 `1f3036ab`를 메인에 ff-only 병합했다. 사용자 AGENTS/랜딩 변경3경로 diff SHA는 동일하다. 메인에서 dialog/coordinator36개 재검증과 정식 UI의 전원버튼enabled·센서/실행 조명 선택·수동 준비 패널 없음·저장enabled를 읽기로 확인했다. 실제 저장/센서SET/활성화0이며 화면은 `/tmp/sensor-one-step-settings-20261015.jpg`다. root project-status의 기존 사용자 수정을 보존해 요약만 갱신하고 원장/백업/worktree는 유지한다.
+- [ ] 실장비 활성 snapshot의 `bio_pulse_control_unavailable` 세부 진단/복구와 실제 감지·복귀는 별도 승인된 운영 작업으로 이어간다. UI 간소화·mock 검증은 장비 성공을 보장하지 않는다.
+
 ## 10월14일 모든 조명 공통 준비 UI 보완
 
 - [x] 사용자 `진행해줘`로 기존 공통 패널의 등록 연결 확인→센서 사용 설정 설계를 승인했다. 센서모드 전환의 자체점등 가능성을 설명했고 실제 이벤트 활성화/움직임 시험은 하지 않는다. 로컬API만 검증 후 정상 재기동하는 추가 승인도 받았다.

@@ -44,7 +44,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
   private readonly nativeRevisions = new Map<string, number>();
   private readonly fixtureRevisions = new Map<string, number>();
   private stopped = false;
-  private decoderFaultGeneration: number | null = null;
+  private decoderFault: { generation: number; monotonicMs: number } | null = null;
   private readonly intake = new BioSensorPulseIntake();
   private profiles: readonly BioSensorPulseProfile[];
   private authority?: BioPulseAuthorityProvider;
@@ -75,7 +75,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
       }));
       this.unsubscribers.push(options.client.onEvent(event => {
         if (event.kind === "invalid-notification") {
-          this.decoderFaultGeneration = options.client.sensorSourceSnapshot().generation;
+          this.decoderFault = { generation: options.client.sensorSourceSnapshot().generation, monotonicMs: performance.now() };
           this.revoke("decoder_failed");
         }
       }));
@@ -147,7 +147,7 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
         || ("nativeUuid" in request && !isDeepStrictEqual(parseBioSourceBinding(request), initial.binding))) return null;
       nativeUuid = initial.binding.nativeUuid;
       const nativeRevision = this.nativeRevisions.get(nativeUuid) ?? 0;
-      const current = () => this.current(revision, generation, requireHealthy)
+      const current = () => this.current(revision, generation)
         && (this.fixtureRevisions.get(request.sourceFixtureId) ?? 0) === fixtureRevision
         && (this.nativeRevisions.get(nativeUuid!) ?? 0) === nativeRevision;
       const first = await this.options.mappings.findByFixtureId(request.sourceFixtureId);
@@ -205,18 +205,18 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     }
   }
 
-  private current(revision: number, generation: number, requireHealthy = true): boolean {
+  private current(revision: number, generation: number): boolean {
     const state = this.options.client.sensorSourceSnapshot();
     return !this.stopped && this.revision === revision && state.generation === generation
-      && state.ready && state.transportConnected && state.protocolReady && (!requireHealthy || this.decoderFaultGeneration !== generation);
+      && state.ready && state.transportConnected && state.protocolReady;
   }
 
   private readAuthority(fixtureId: string, generation: number, requireHealthy = true, snapshotRevision?: number): BioSourceAuthority | null {
     const revision = this.revision;
-    if (!this.current(revision, generation, requireHealthy)) return null;
+    if (!this.current(revision, generation)) return null;
     const supplied = this.authority?.read(fixtureId, { epoch: this.epoch, generation },
       snapshotRevision === undefined ? undefined : { snapshotRevision, requireHealthy });
-    if (!this.current(revision, generation, requireHealthy) || !supplied || !supplied.independentlyQualified) return null;
+    if (!this.current(revision, generation) || !supplied || !supplied.independentlyQualified) return null;
     const value = structuredClone(supplied);
     const binding = parseBioSourceBinding(value.binding);
     const observation = value.observation;
@@ -227,6 +227,12 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
       || !["healthy", "degraded", "unverified"].includes(observation.health)
       || observation.connectionEpoch !== this.epoch || observation.connectionGeneration !== generation
       || !Number.isFinite(observation.healthySinceMonotonicMs) || observation.healthySinceMonotonicMs < 0) return null;
+    // Decoder faults revoke queued receipts immediately. Recovery is source-specific:
+    // only a new independently commissioned/ACKed GET healthy interval after the
+    // fault qualifies again. Revision churn, pulses, or the old proof cannot lift
+    // this fence; keeping it until USB reconnect would strand successful UI setup.
+    if (requireHealthy && this.decoderFault?.generation === generation
+      && observation.healthySinceMonotonicMs <= this.decoderFault.monotonicMs) return null;
     // An independently healthy source still has no pulse authority without an approved
     // exact firmware/sensor/body profile. Production's registry deliberately remains empty.
     if (!this.profiles.some(profile => profile.id === binding.profileId

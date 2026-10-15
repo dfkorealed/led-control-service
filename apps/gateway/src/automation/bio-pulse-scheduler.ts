@@ -151,8 +151,12 @@ export class BioPulseControlCore {
         targets.add(target);
       }
     }
-    if (snapshot.schedules.some(schedule => schedule.fixtureIds.some(id => sources.has(id.toLowerCase()))) ||
-      snapshot.vehicleEventRules.some(rule => rule.targetFixtureIds.some(id => sources.has(id.toLowerCase())))) {
+    // Product drafts/paused rules reserve nothing, just like target overlap
+    // above. Keep the synthetic legacy seam's conservative all-rules behavior.
+    if (snapshot.schedules.some(schedule => (!this.profile.enabledRulesOnly || schedule.status === "enabled")
+      && schedule.fixtureIds.some(id => sources.has(id.toLowerCase()))) ||
+      snapshot.vehicleEventRules.some(rule => (!this.profile.enabledRulesOnly || rule.status === "enabled")
+        && rule.targetFixtureIds.some(id => sources.has(id.toLowerCase())))) {
       throw new Error("bio_source_target_forbidden");
     }
     const state = this.store.read();

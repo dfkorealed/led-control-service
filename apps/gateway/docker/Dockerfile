@@ -32,7 +32,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends procps \
     && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Frozen lockfile records the workspace hook checksum; the builder must use the
+# same hook instead of silently installing a different dependency graph.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
 COPY patches patches
 COPY apps/gateway/package.json apps/gateway/package.json
 COPY packages/automation-engine/package.json packages/automation-engine/package.json

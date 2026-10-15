@@ -400,6 +400,26 @@ describe("production BIO local bootstrap/lifecycle (software qualification only)
       await vi.waitFor(() => expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 80, bioMode: "force-on" }));
     } finally { await f.connection.stopAndDrain(); f.source.stop(); await f.scheduleRuntime.stopAndDrain(); }
   });
+  it.each(["schedule", "event"] as const)("a disabled %s does not reserve an active BIO source, but re-enabling it is rejected", async kind => {
+    const f = await fixture();
+    const { payloadHash: _hash, ...base } = f.snapshot();
+    const schedule = { id: c, name: "paused schedule", status: "disabled" as "enabled" | "disabled",
+      activeFrom: "2026-10-02T00:00:00Z", activeUntil: "2026-10-03T00:00:00Z", localStartTime: "00:00", localEndTime: "01:00",
+      excludeWeekends: false, excludeHolidays: false, recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+      action: { dimmingEnabled: true, brightnessPercent: 45 }, fixtureIds: [a] };
+    const event = { ...base.vehicleEventRules[0]!, id: c, status: "disabled" as "enabled" | "disabled",
+      sensorProtocol: "bluez-stateful" as const, sourceFixtureIds: [c], targetFixtureIds: [a] };
+    const make = (revision: number, status: "enabled" | "disabled") => rehash({ ...base, revision, schemaVersion: 3, holidayDatasets: [],
+      schedules: kind === "schedule" ? [{ ...schedule, status }] : [],
+      vehicleEventRules: kind === "event" ? [...base.vehicleEventRules, { ...event, status }] : base.vehicleEventRules } as never);
+    try {
+      await expect(f.automationRuntime.hotReload(make(4, "disabled"))).resolves.toMatchObject({ status: "applied", schemaVersion: 3 });
+      expect(f.writes).toEqual([]); expect(f.genericWrites).toEqual([]);
+      await expect(f.automationRuntime.hotReload(make(5, "enabled"))).rejects.toThrow("snapshot_recompute_failed");
+      expect(f.automationRuntime.currentRevision).toBe(4);
+      expect(f.writes).toEqual([]); expect(f.genericWrites).toEqual([]);
+    } finally { await f.connection.stopAndDrain(); f.source.stop(); await f.scheduleRuntime.stopAndDrain(); }
+  });
   it.each(["bio-usb-pulse", "bluez-stateful"] as const)("ignores disabled %s target reservations but still rejects enabled overlap", async sensorProtocol => {
     const f = await fixture();
     try {

@@ -15,7 +15,7 @@ export function EventSensorStatus({ name, ready, sources }: {
   const restorationReported = sources.some(source => source.bioPulseTelemetry?.restorationPending === true);
   return <div role="group" aria-label={`${name} 센서 상태`} className="flex min-w-0 flex-wrap justify-end gap-1 pt-1">
     <StatusBadge tone={ready ? "success" : "warning"} icon={ready ? CircleCheck : TriangleAlert}>
-      {ready ? "센서 준비 완료" : "준비 확인 필요"}
+      {ready ? "센서 연결됨" : "설정 시 자동 연결"}
     </StatusBadge>
     {needsInspection ? <StatusBadge role="alert" tone="danger" icon={TriangleAlert}>센서 점검 필요</StatusBadge> : null}
     {restorationReported ? <StatusBadge role="alert" tone="warning" icon={TriangleAlert}
