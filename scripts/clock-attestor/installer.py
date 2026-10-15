@@ -17,6 +17,21 @@ from pathlib import Path
 from uuid import uuid4
 from uuid import UUID
 
+def bootstrap_acl(path):
+    # This gate must remain stdlib-only: importing a shared local helper before
+    # checking its own ACL would cross the very boundary being established.
+    try:
+        result = subprocess.run(('/bin/ls', '-lde', str(path)), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2,
+                                env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}, check=False)
+        lines = result.stdout.splitlines()
+        if (result.returncode or result.stderr or len(lines) != 1
+                or not lines[0].split() or b'+' in lines[0].split()[0]):
+            raise ValueError('acl_unavailable_or_present')
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise SystemExit('unprotected_program_acl')
+
+
 if __name__ == '__main__':
     if not sys.flags.isolated or not sys.flags.no_site:
         raise SystemExit('python_isolated_no_site_required')
@@ -26,10 +41,12 @@ if __name__ == '__main__':
             info = item.lstat()
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
                 raise SystemExit('root_requires_protected_staging')
+            bootstrap_acl(item)
         for name in ('core.py', 'daemon.py', 'installer.py', 'operator.py'):
             info = (directory / name).lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
                 raise SystemExit('unprotected_program_file')
+            bootstrap_acl(directory / name)
     sys.path.insert(0, str(directory))
 
 from core import ClockTrustState, PrimaryBinding

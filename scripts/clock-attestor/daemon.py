@@ -17,6 +17,21 @@ from uuid import uuid4
 
 # -I deliberately excludes the script directory. Add only the verified installation
 # directory, never cwd/PYTHONPATH; tests import through their own discovery path.
+def bootstrap_acl(path):
+    # This gate must remain stdlib-only: importing a shared local helper before
+    # checking its own ACL would cross the very boundary being established.
+    try:
+        result = subprocess.run(('/bin/ls', '-lde', str(path)), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2,
+                                env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'}, check=False)
+        lines = result.stdout.splitlines()
+        if (result.returncode or result.stderr or len(lines) != 1
+                or not lines[0].split() or b'+' in lines[0].split()[0]):
+            raise ValueError('acl_unavailable_or_present')
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise SystemExit('unprotected_program_acl')
+
+
 if __name__ == '__main__':
     if not sys.flags.isolated or not sys.flags.no_site:
         raise SystemExit('python_isolated_no_site_required')
@@ -25,10 +40,12 @@ if __name__ == '__main__':
         info = item.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
             raise SystemExit('unprotected_program_path')
+        bootstrap_acl(item)
     for name in ('core.py', 'daemon.py', 'installer.py', 'operator.py'):
         info = (directory / name).lstat()
         if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
             raise SystemExit('unprotected_program_file')
+        bootstrap_acl(directory / name)
     sys.path.insert(0, str(directory))
 
 from core import ClockSample, ClockTrustState, MAX_FRAME_BYTES, canonical_bytes, parse_request, parse_sntp
@@ -186,10 +203,35 @@ class ClockService:
             self.condition.notify_all()
 
 
-def receive_frame(connection):
+def remaining_timeout(connection, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise socket.timeout('ipc_deadline_expired')
+    connection.settimeout(remaining)
+
+
+def cancel_connection(connection):
+    # close() on another thread does not reliably wake pending recv on Darwin.
+    try:
+        connection.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    connection.close()
+
+
+def send_frame(connection, raw, deadline):
+    remaining_timeout(connection, deadline)
+    connection.sendall(raw)
+    remaining_timeout(connection, deadline)
+
+
+def receive_frame(connection, deadline=None):
+    deadline = time.monotonic() + 1 if deadline is None else deadline
     raw = bytearray()
     while True:
+        remaining_timeout(connection, deadline)
         chunk = connection.recv(MAX_FRAME_BYTES + 1 - len(raw))
+        remaining_timeout(connection, deadline)
         if not chunk:
             break
         raw.extend(chunk)
@@ -277,19 +319,20 @@ def run_server(service, collector, path=SOCKET):
             except Exception:
                 shutdown()
 
-    def worker(connection):
+    def worker(connection, deadline):
         try:
             with connection:
-                connection.settimeout(1.0)
+                remaining_timeout(connection, deadline)
                 uid, _gid = connection.getpeereid()
                 if uid not in (0, service.api_uid):
                     return
                 # Timer is an absolute lifetime bound, not a reset on every recv chunk.
-                deadline = time.monotonic() + 1.0
-                timer = threading.Timer(1.0, lambda: connection.close())
+                timer = threading.Timer(max(0, deadline - time.monotonic()), cancel_connection, (connection,))
                 timer.start()
                 try:
-                    connection.sendall(service.handle(receive_frame(connection), uid, lambda: time.monotonic() < deadline))
+                    raw = receive_frame(connection, deadline)
+                    reply = service.handle(raw, uid, lambda: time.monotonic() < deadline)
+                    send_frame(connection, reply, deadline)
                 finally:
                     timer.cancel()
         except (OSError, ValueError, PermissionError):
@@ -323,7 +366,7 @@ def run_server(service, collector, path=SOCKET):
                 if not slots.acquire(False):
                     connection.close()
                     continue
-                child = threading.Thread(target=worker, args=(connection,))
+                child = threading.Thread(target=worker, args=(connection, time.monotonic() + 1.0))
                 with guard:
                     workers.add(child)
                 child.start()

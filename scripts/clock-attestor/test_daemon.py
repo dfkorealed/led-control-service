@@ -4,6 +4,7 @@ import importlib.util
 import socket
 import subprocess
 import threading
+import time
 import tempfile
 import os
 from pathlib import Path
@@ -54,6 +55,8 @@ class SocketChunks:
         self.chunks = list(chunks)
     def recv(self, size):
         return self.chunks.pop(0) if self.chunks else b''
+    def settimeout(self, value):
+        pass
 
 
 class DaemonTests(unittest.TestCase):
@@ -146,6 +149,30 @@ class DaemonTests(unittest.TestCase):
         for chunks in [[b'{}'], [b'{}\n', b'junk'], [b'x' * 16385], [b'{}\n{}\n']]:
             with self.subTest(chunks=chunks), self.assertRaises(ValueError):
                 receive_frame(SocketChunks(chunks))
+
+    def test_absolute_receive_deadline_bounds_delayed_partial_and_missing_eof(self):
+        for chunk in (b'{', b'{}\n'):
+            with self.subTest(chunk=chunk):
+                reader, writer = socket.socketpair()
+                finish = threading.Event()
+                def send_late():
+                    if not finish.wait(0.6):
+                        writer.sendall(chunk)
+                    finish.wait(2)
+                sender = threading.Thread(target=send_late)
+                sender.start()
+                started = time.monotonic()
+                try:
+                    reader.settimeout(1)
+                    with self.assertRaises((socket.timeout, TimeoutError)):
+                        receive_frame(reader, deadline=started + 1)
+                    elapsed = time.monotonic() - started
+                    self.assertLess(elapsed, 1.3, 'deadline restarted after partial receive: %.3fs' % elapsed)
+                finally:
+                    finish.set()
+                    sender.join(2)
+                    reader.close()
+                    writer.close()
 
     def test_inflight_is_shared_while_observer_keeps_running(self):
         entered, finish, waiting = threading.Event(), threading.Event(), threading.Event()

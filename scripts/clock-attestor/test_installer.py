@@ -214,8 +214,9 @@ class InstallerTests(unittest.TestCase):
         directory = Path(__file__).absolute().parent
         # Run real -I import semantics with only the filesystem trust syscall
         # injected. --help exits before OS/service/clock/socket boundaries.
-        code = '''import os,sys,runpy,stat
+        code = '''import os,sys,runpy,stat,subprocess
 assert "site" not in sys.modules
+subprocess.run=lambda argv,**kwargs: subprocess.CompletedProcess(argv,0,b"-rw-r--r-- 1 root wheel 10 Oct 15 00:00 fixture\\n",b"")
 from pathlib import Path
 from types import SimpleNamespace
 original=Path.lstat
@@ -234,7 +235,8 @@ runpy.run_path(sys.argv[0],run_name="__main__")
 
     def test_privileged_bootstrap_rejects_user_owned_sibling_before_import(self):
         directory = Path(__file__).absolute().parent
-        code = '''import os,sys,runpy,stat
+        code = '''import os,sys,runpy,stat,subprocess
+subprocess.run=lambda argv,**kwargs: subprocess.CompletedProcess(argv,0,b"-rw-r--r-- 1 root wheel 10 Oct 15 00:00 fixture\\n",b"")
 from pathlib import Path
 from types import SimpleNamespace
 original=Path.lstat
@@ -250,6 +252,42 @@ runpy.run_path(sys.argv[0],run_name="__main__")
             result = subprocess.run(['/usr/bin/python3', '-I', '-S', '-c', code, str(directory / name)], capture_output=True, text=True, timeout=5)
             self.assertNotEqual(result.returncode, 0, name)
             self.assertNotIn('usage:', result.stdout)
+
+    def test_privileged_bootstrap_rejects_acl_before_local_import_sentinel(self):
+        directory = Path(__file__).absolute().parent
+        code = '''import os,sys,runpy,subprocess,builtins
+from pathlib import Path
+from types import SimpleNamespace
+target=Path(sys.argv[2])
+original_stat=Path.lstat
+def metadata(path):
+    value=original_stat(path)
+    return SimpleNamespace(st_mode=value.st_mode & ~0o022,st_uid=0)
+Path.lstat=metadata
+os.geteuid=lambda:0
+def run(argv,**kwargs):
+    assert tuple(argv[:2])==("/bin/ls","-lde"),argv
+    acl=Path(argv[-1])==target
+    stdout=b"-rw-r--r--+ 1 root wheel 10 Oct 15 00:00 fixture\\n 0: user:501 allow write\\n" if acl else b"-rw-r--r-- 1 root wheel 10 Oct 15 00:00 fixture\\n"
+    return subprocess.CompletedProcess(argv,0,stdout,b"")
+subprocess.run=run
+original_import=builtins.__import__
+def observed_import(name,*args,**kwargs):
+    if name in ("core","daemon","installer"):
+        print("LOCAL_IMPORT_SENTINEL",flush=True)
+    return original_import(name,*args,**kwargs)
+builtins.__import__=observed_import
+sys.argv=[sys.argv[1],"--help"]
+runpy.run_path(sys.argv[0],run_name="__main__")
+'''
+        for name in ('daemon.py', 'operator.py', 'installer.py'):
+            for target in (directory / 'core.py', directory.parent):
+                with self.subTest(name=name, target=target):
+                    result = subprocess.run(['/usr/bin/python3', '-I', '-S', '-c', code,
+                                             str(directory / name), str(target)], capture_output=True, text=True, timeout=5)
+                    self.assertNotIn('LOCAL_IMPORT_SENTINEL', result.stdout)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('unprotected_program_acl', result.stderr)
 
 
 if __name__ == '__main__':
