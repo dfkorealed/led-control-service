@@ -74,6 +74,28 @@ function harness() {
 }
 
 describe("BioSensorPulseSource", () => {
+  it("recovers a decoder fence only from an independently requalified post-fault healthy interval", async () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+    const h = harness(), request = { sourceFixtureId: fixtureId, snapshotRevision: 1 };
+    try {
+      expect(await h.source.preflight(request, { requireHealthy: true })).not.toBeNull();
+      h.event({ kind: "invalid-notification" });
+      expect(await h.source.preflight(request, { requireHealthy: true })).toBeNull();
+      // Revision churn or replay of the old proof must not clear the fault.
+      h.setRevision(2); h.authorityChanged();
+      expect(await h.source.preflight(request, { requireHealthy: true })).toBeNull();
+      h.setHealthSince(100);
+      expect(await h.source.preflight(request, { requireHealthy: true })).toBeNull();
+      clock.mockReturnValue(120); h.setHealthSince(110); h.authorityChanged(fixtureId);
+      expect((await h.source.preflight(request, { requireHealthy: true }))?.binding.capabilityRevision).toBe(2);
+      h.emit(); await flush(); expect(h.pulses).toHaveLength(1);
+      // A second fault fences the newly qualified source again.
+      h.event({ kind: "invalid-notification" }); h.emit(); await flush();
+      expect(h.pulses).toHaveLength(1);
+      expect(await h.source.preflight(request, { requireHealthy: true })).toBeNull();
+    } finally { h.source.stop(); clock.mockRestore(); }
+  });
+
   it.each([true, false])("fences only the changed uncached source across pending identity reads (same=%s)", async same => {
     const h = harness(), release = h.deferMapping();
     const pending = h.source.preflight({ sourceFixtureId: fixtureId, snapshotRevision: 1 }, { requireHealthy: true });

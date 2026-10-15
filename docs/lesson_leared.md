@@ -1,5 +1,10 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-15 / BIO decoder fence의 무효화와 재자격 수명을 맞춘다
+
+- 전송 세대 전체의 영구 fault는 새 센서 준비·GET 성공 뒤에도 pulse source만 계속 차단하여 UI 준비 완료와 실행 자격이 어긋날 수 있다. fault 시 단조 시각과 세대를 보존하고, 같은 세대에서는 fault 이후 시작된 독립적인 정상 구간만 source별 재자격으로 인정한다.
+- 잘못된 패킷 직후 대기 작업 취소, 과거 proof/동일 시각 거부, revision 변경만으로 복구 금지, 복구 후 새 fault 재차단을 함께 검사한다. valid pulse나 UI 표시를 재자격 근거로 사용하지 않는다. 실장비의 일반 거절 코드만으로 내부 원인을 확정하지 않고 새 활성 적용 응답을 별도로 확인한다.
+
 ## 2026-10-14 / 공통 로딩은 실제 요청·일시 중지·도메인 대기를 구분한다
 
 - React Query `isPending`만으로 애니메이션을 시작하지 않는다. 최초 offline의 `pending/paused`는 연결 대기이고, 미완성 날짜로 비활성화한 새 query의 `pending/idle`은 입력 안내다. actual Query `onlineManager` 재개·cached현장→새현장과 표시에 전달한 metadata를 함께 검사한다.

@@ -8,6 +8,16 @@
 
 **Tech Stack:** React, NestJS/Prisma/PostgreSQL, MQTT, Raspberry Pi BIO Gateway.
 
+## 10월15일 후속 UI 실사용 준비 — codex/bio-runtime-recovery-20261015
+
+- [x] 사용자 요청으로 단독 진행·Gateway 진단/수정 배포/일시 중단을 포함한다. 실제 움직임 시험은 별도 시작하며 ID/기본 밝기/규칙 내용/인증/ACL/DB를 보존한다.
+- [x] 중지된 Web/API/broker를 기존 .env·TLS·ACL 그대로 복구했다. 기존 leaf dev만 사용해 migration/ACL render/PKI 변경0, ready200/5up·Web 화면·조명4online을 확인했다. 새 protected supervisor는 `.local/bio-sensor-recovery-20261015-z93iY6ZT`다.
+- [x] 정식 UI 자동 ensure_sensor 후 센서 연결됨→활성 snapshot 적용 실패를 재현하고 규칙을 즉시 비활성으로 되돌렸다. 기존 비활성 APPLIED만으로 성공을 선언하지 않는다.
+- [x] generation 전체에 고착된 decoder fence의 복구 결함을 RED1/36PASS로 재현하고, fault 이후 독립된 새 healthy interval에만 source별 재자격을 허용했다. 같은/이전 시각 proof·revision churn·새 fault 재차단을 보호한다. 직접3files71PASS·Gateway typecheck0이다.
+- [ ] clean commit의 정식 ARM64 bundle/default verify→정확 image load/identity 검사→새 암호화3root backup/로컬 복호 검증→동일 launch/security로 Gateway 교체한다. 이전 runtime/backup은 보존한다.
+- [ ] 정식 UI에서 자동 준비·활성 snapshot APPLIED와 최신 자격을 확인하고 규칙을 비활성으로 돌려 사용자 시험 준비를 마친다. 실패하면 실제 원인을 추가 진단하며 성공으로 축약하지 않는다.
+- [ ] 변경을 메인 개발 브랜치에 병합하고 메뉴·상태판·체크리스트 및 실제 시험 안내를 최신화한다.
+
 ## 10월15일 승인된 센서 내장 제품 직접 설정
 
 - [x] 사용자 승인한 센서 선택→실행 조명→밝기/유지→저장·활성화 흐름을 별도 `codex/sensor-one-step-setup-20261015`에서 구현한다. 일반 준비/확인 UI를 제거하고 선택 후보와 실행 eligibility를 분리한다.
