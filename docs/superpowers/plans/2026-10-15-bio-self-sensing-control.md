@@ -33,7 +33,7 @@
 
 - [x] Task1 장비 명령·시간단위 정적 근거와 실제 확인 필요 범위 판정
 - [x] Task2 기존 BIO 유지시간 1초 코드·DB 변경 파일·격리 UI 검증 (운영 미반영)
-- [ ] Task3 자기 설정 codec/client — 읽기 전용 구현·실장비3대18응답 확인 완료, 설정 쓰기·단계별 복귀는 미검증
+- [ ] Task3 자기 설정 codec/client — 저수준 적용/복구 코드·한정 검증 완료, 실제1초 쓰기·단계별 복귀는 미검증
 - [ ] Task4 자기 제어 공통 계약·서버 저장/검증
 - [ ] Task5 Gateway 내구 적용·복구 연결
 - [ ] Task6 자기 제어 UI·한정 검증·문서·병합
@@ -41,6 +41,10 @@
 Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 다르면 자기 제어 Task3–6을 추측해 구현하지 않는다. 확인된 근거와 필요한 다음 행동을 기록한다. 독립적인 Task2는 진행할 수 있지만 전체 자기 제어 완료로 표현하지 않는다.
 
 ### 현재 검증과 관문
+
+- 후속 코드 실행: 원 설정6GET과필수 intent callback·단일큐·각SET 독립GET/전체6GET·부분실패/소유권변경/USB세대변경 거절을 저수준 SDK에 구현했다. standby/hold SET의 근거는 동일APK의 RemoteCommand/CommandMapper/TimeInterval이며 high/mode의 기존 convention을 보존한다. 높은 밝기0·phase1·표현불가128초 등은 새 적용에서 거절하고 원interval0/장시간은 복구 시 보존한다. 실제 규칙/호환 프로파일에는 연결하지 않았다.
+- Task3 소프트웨어 검증: 최초 새codec5/설정변환7/client7 semantic RED, 추가 extra-field/GET permit/세대 guard3 RED→직접관련4파일287PASS·Gateway타입/build exit0·diff0이다. fake endpoint만 대체하고 실제 client/decoder/queue를 사용했다. 시험 fixture는 실제 읽기와 정적 SET 근거를 구분하며1초SET/광출력 verified=false다. 사용자 단독 지시에 따라 직접 검토하며 독립 에이전트 리뷰는 아니다.
+- Ruling: 출력 단계 의미를 확정하기 전에는 제품 연결을 하지 않되, 이미 근거가 확보된 정확한 byte변환과 원 phase 보존·검증형 SDK는 오프라인으로 먼저 구현한다. 위험은 아직 물리 검증이 없는 SDK를 잘못 연결하는 것이므로 일반 준비/규칙 경로에 호출·capability 승격을 추가하지 않는다. 전체 UI/서버/Gateway 통합 검증 후 메인에 병합하며 부분1초 UI만 먼저 노출하지 않는다.
 
 - 10월15일 읽기 전용 승인 결과: 방습등1·2와 B1-L006에서6GET씩 총18개의 UUID/주소/network 일치 응답을 확보했다. 세 대 모두 fingerprint `deviceType1/firmware5.5.8.12889/sensor2/infrared1/ambient0/hardware3`다. 방습등1·2는 high30%/standby10%/hold5초/standby interval5초/delayMode0/force-on, B1-L006은 high100%와 force-off이며 나머지 설정은 같다. 현재 저장값 조회이지1초 SET·광출력·단계별 복귀의 검증은 아니다.
 - 운전 복귀: exact 기존 컨테이너/이미지 `eebe6533`·Config/HostConfig/정렬한Mounts 불변, 진단 전후3root 전체 metadata/hash 불변, USB owner1과 새 lifetime의health5true·6대online·등록/설정digest 보존·V3 revision39 APPLIED·명령/outbox/lease0을 확인했다. 영구배포/DB migration/API·브로커 재시작/조명설정 SET0이며 다른 채팅 공유0이다.
@@ -83,9 +87,10 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 **Interfaces:** `BioSelfSensorConfiguration { highBrightnessPercent: number; standbyBrightnessPercent: number; holdSeconds: number }`. `readSelfSensorConfiguration(target, control)`와 `configureSelfSensor(target, desired, control)`는 현재 물리 신원과 독립 readback을 검증한다. Task1 근거 없는 operation은 생성하지 않는다.
 
 - [x] 승인된 읽기 전용 확인: 방습등1·2/기존1대의 실제6항목 응답과 동일 fingerprint를 확보하고 원 운전 복귀를 확인한다.1초 쓰기·실제 자동복귀와 구분한다.
-- [ ] Task1의 확인된 바이트를 literal fixture로 두고1초·최대값·다른장비응답·손상응답·표현불가·부분쓰기/모드보존 실패 회귀를 먼저 추가해 RED를 확인한다.
-- [ ] 확인된 직렬화와 parser, 전체 설정 GET 및 변경/독립 재조회만 구현한다. 불일치 때 observed 설정을 보존하며 자동 재시도하지 않는다.
-- [ ] 해당 codec/client 회귀·Gateway타입과 diff를 확인하고 커밋한다. 실제 광출력 성공으로 확대하지 않는다.
+- [x] 확인된 byte·정규화 읽기 fixture와1초·최대값·다른network·표현불가·부분쓰기/모드보존·소유권·연결세대·내구intent 실패 회귀를 확인했다.
+- [x] 저수준 직렬화와 parser, 전체 설정 GET 및 변경/독립 재조회를 구현했다. 불일치 시 observed 설정을 보존하며 자동 SET 재시도/자동 복구를 하지 않는다. 설정 복구는 전체 현재값/원raw를 검증한다.
+- [x] 직접관련4파일287PASS·Gateway타입/build·diff와 직접 검토를 확인했다. 실제 광출력 성공으로 확대하지 않는다.
+- [ ] 실장비1초 SET/readback·감지 후 기본 밝기 복귀와 원 설정 복구를 최소1대로 확인한다. 읽기 전용 승인을 설정 쓰기 승인으로 재사용하지 않는다. 이 확인 전 제품 Task4–6의 단계 의미/firmware 자격을 추측하지 않는다.
 
 ### Task 4: 자기 제어의 저장과 공통 계약
 

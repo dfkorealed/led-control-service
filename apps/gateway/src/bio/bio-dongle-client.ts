@@ -18,6 +18,8 @@ import {
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioDeviceReadTimeoutError, BioUsbError } from "./bio-usb-error";
 import type { CommandWriteControl } from "../commands/command-rf-drain";
+import { assertRestorableSelfSensorConfiguration, buildSelfSensorConfiguration, encodeExactBioHoldInterval,
+  sameSelfSensorConfiguration, type BioSelfSensorConfiguration } from "./bio-self-sensor-configuration";
 
 export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }>
   | { kind: "invalid-notification"; reason?: "BIO_PULSE_SUBSCRIBER_FAILED" };
@@ -82,6 +84,13 @@ export interface BioSelfSensorConfigurationObservation {
   bioMode: BioControlMode;
   rawHoldInterval: number;
   rawStandbyInterval: number;
+}
+
+export type BioSelfSensorMutationStage = "standby_brightness" | "hold_interval" | "high_brightness" | "mode";
+export interface BioSelfSensorOperationControl extends BioOperationControl {
+  /** Required durable intent. Failure must prevent this and all later SETs. */
+  beforeSelfSensorMutation: (context: { original: BioSelfSensorConfigurationObservation;
+    desired: BioSelfSensorConfigurationObservation; stage: BioSelfSensorMutationStage }) => Promise<void>;
 }
 
 type ReadbackEvent = BioReadbackResponse;
@@ -451,29 +460,139 @@ export class BioDongleClient {
   /** Read-only qualification: no source readiness/capability or optical result is
    * inferred. Own the entire read bundle so a queued SET cannot split its fields. */
   async readSelfSensorConfiguration(target: BioVerifiedLampTarget, control: BioOperationControl = {}): Promise<BioSelfSensorConfigurationObservation> {
-    const resolved = this.resolveReadbackTarget(target);
-    const expected = { ...resolved, networkId: resolved.target.networkId };
     return this.operationQueue.run(async () => {
       throwIfOperationStopped(control);
       await this.waitUntilReadyIfReconnecting(control);
-      const read = (kind: Exclude<BioReadbackOperation["kind"], "setControlMode">) =>
-        this.requestReadbackOwned({ kind, target: resolved.target }, expected, control);
-      const high = await read("readHighBrightness");
-      const standby = await read("readStandbyBrightness");
-      const delay = await read("readDelayMode");
-      const hold = await read("readHoldInterval");
-      const standbyInterval = await read("readStandbyInterval");
-      const mode = await read("readControlMode");
-      if (high.kind !== "high-brightness-report" || standby.kind !== "standby-brightness-report"
-        || delay.kind !== "delay-mode-report" || hold.kind !== "hold-interval-report"
-        || standbyInterval.kind !== "standby-interval-report" || mode.kind !== "control-mode-report"
-        || high.brightnessPercent === null || standby.brightnessPercent === null) {
-        throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO self-sensor configuration is incomplete");
-      }
-      return { highBrightnessPercent: high.brightnessPercent, standbyBrightnessPercent: standby.brightnessPercent,
-        holdSeconds: hold.seconds, standbySeconds: standbyInterval.seconds, delayMode: delay.delayMode,
-        bioMode: mode.mode, rawHoldInterval: hold.rawInterval, rawStandbyInterval: standbyInterval.rawInterval };
+      return this.readSelfSensorConfigurationOwned(target, control);
     });
+  }
+
+  private async readSelfSensorConfigurationOwned(target: BioVerifiedLampTarget, control: BioOperationControl): Promise<BioSelfSensorConfigurationObservation> {
+    const resolved = this.resolveReadbackTarget(target);
+    const expected = { ...resolved, networkId: resolved.target.networkId };
+    throwIfOperationStopped(control);
+    const read = (kind: Exclude<BioReadbackOperation["kind"], "setControlMode">) =>
+      this.requestReadbackOwned({ kind, target: resolved.target }, expected, control);
+    const high = await read("readHighBrightness");
+    const standby = await read("readStandbyBrightness");
+    const delay = await read("readDelayMode");
+    const hold = await read("readHoldInterval");
+    const standbyInterval = await read("readStandbyInterval");
+    const mode = await read("readControlMode");
+    if (high.kind !== "high-brightness-report" || standby.kind !== "standby-brightness-report"
+      || delay.kind !== "delay-mode-report" || hold.kind !== "hold-interval-report"
+      || standbyInterval.kind !== "standby-interval-report" || mode.kind !== "control-mode-report"
+      || high.brightnessPercent === null || standby.brightnessPercent === null) {
+      throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO self-sensor configuration is incomplete");
+    }
+    return { highBrightnessPercent: high.brightnessPercent, standbyBrightnessPercent: standby.brightnessPercent,
+      holdSeconds: hold.seconds, standbySeconds: standbyInterval.seconds, delayMode: delay.delayMode,
+      bioMode: mode.mode, rawHoldInterval: hold.rawInterval, rawStandbyInterval: standbyInterval.rawInterval };
+  }
+
+  /** Low-level configuration only. Not wired to product rules or a readiness
+   * declaration until the exact firmware's self-control behavior is qualified. */
+  async configureSelfSensor(target: BioVerifiedLampTarget, desired: BioSelfSensorConfiguration,
+    control: BioSelfSensorOperationControl): Promise<BioSelfSensorConfigurationObservation> {
+    this.assertSelfSensorIntent(control);
+    encodeExactBioHoldInterval(desired.holdSeconds);
+    const boundTarget = { ...target }, boundDesired = { ...desired };
+    return this.operationQueue.run(async () => {
+      throwIfOperationStopped(control);
+      await this.waitUntilReadyIfReconnecting(control);
+      const guarded = this.selfSensorGenerationControl(control);
+      const original = await this.readSelfSensorConfigurationOwned(boundTarget, guarded);
+      const intended = buildSelfSensorConfiguration(original, boundDesired);
+      return this.applySelfSensorConfigurationOwned(boundTarget, original, intended, guarded);
+    });
+  }
+
+  async restoreSelfSensorConfiguration(target: BioVerifiedLampTarget, original: BioSelfSensorConfigurationObservation,
+    expectedCurrent: BioSelfSensorConfigurationObservation, control: BioSelfSensorOperationControl): Promise<BioSelfSensorConfigurationObservation> {
+    this.assertSelfSensorIntent(control);
+    assertRestorableSelfSensorConfiguration(original);
+    assertRestorableSelfSensorConfiguration(expectedCurrent);
+    // This implementation never changes phase/standby duration. An altered
+    // original cannot gain an unimplemented SET via the restoration path.
+    if (original.delayMode !== expectedCurrent.delayMode || original.rawStandbyInterval !== expectedCurrent.rawStandbyInterval) {
+      throw new BioUsbError("BIO_SELF_CONFIGURATION_UNSUPPORTED", "BIO original phase changed");
+    }
+    const boundTarget = { ...target }, boundOriginal = { ...original }, boundExpected = { ...expectedCurrent };
+    return this.operationQueue.run(async () => {
+      throwIfOperationStopped(control);
+      await this.waitUntilReadyIfReconnecting(control);
+      const guarded = this.selfSensorGenerationControl(control);
+      const observed = await this.readSelfSensorConfigurationOwned(boundTarget, guarded);
+      if (!sameSelfSensorConfiguration(observed, boundExpected)) {
+        throw Object.assign(new BioUsbError("BIO_SELF_CONFIGURATION_OWNERSHIP_CHANGED", "BIO self-sensor configuration has another owner"), {
+          observedConfiguration: observed
+        });
+      }
+      return this.applySelfSensorConfigurationOwned(boundTarget, observed, boundOriginal, guarded);
+    });
+  }
+
+  private selfSensorGenerationControl(control: BioSelfSensorOperationControl): BioSelfSensorOperationControl {
+    const generation = this.transport.snapshot().generation;
+    const current = () => {
+      const state = this.transport.snapshot();
+      if (!state.ready || state.generation !== generation) {
+        throw new BioUsbError("BIO_SELF_CONFIGURATION_GENERATION_CHANGED", "BIO original configuration belongs to a retired USB generation");
+      }
+    };
+    return { ...control,
+      beforeWrite: async () => { current(); await control.beforeWrite?.(); current(); },
+      mayStartWrite: () => { current(); return control.mayStartWrite?.() ?? true; }
+    };
+  }
+
+  private assertSelfSensorIntent(control: BioSelfSensorOperationControl): void {
+    if (typeof control?.beforeSelfSensorMutation !== "function") {
+      throw new BioUsbError("BIO_SELF_DURABLE_INTENT_REQUIRED", "BIO self-sensor mutation requires durable intent");
+    }
+  }
+
+  private async applySelfSensorConfigurationOwned(target: BioVerifiedLampTarget, original: BioSelfSensorConfigurationObservation,
+    desired: BioSelfSensorConfigurationObservation, control: BioSelfSensorOperationControl): Promise<BioSelfSensorConfigurationObservation> {
+    const resolved = this.resolveReadbackTarget(target);
+    const expected = { ...resolved, networkId: resolved.target.networkId };
+    type Mutation = { stage: BioSelfSensorMutationStage; operation: BioOperation;
+      read: Exclude<BioReadbackOperation["kind"], "setControlMode">; matches: (report: BioReadbackResponse) => boolean };
+    const mutations: Mutation[] = [];
+    if (original.standbyBrightnessPercent !== desired.standbyBrightnessPercent) mutations.push({ stage: "standby_brightness",
+      operation: { kind: "setStandbyBrightness", target: resolved.target, rawStandbyBrightness: percentToBioRaw(desired.standbyBrightnessPercent) },
+      read: "readStandbyBrightness", matches: r => r.kind === "standby-brightness-report" && r.brightnessPercent === desired.standbyBrightnessPercent });
+    if (original.rawHoldInterval !== desired.rawHoldInterval) mutations.push({ stage: "hold_interval",
+      operation: { kind: "setHoldInterval", target: resolved.target, rawInterval: desired.rawHoldInterval },
+      read: "readHoldInterval", matches: r => r.kind === "hold-interval-report" && r.rawInterval === desired.rawHoldInterval });
+    if (original.highBrightnessPercent !== desired.highBrightnessPercent) mutations.push({ stage: "high_brightness",
+      operation: { kind: "setHighBrightness", target: resolved.target, rawHighBrightness: percentToBioRaw(desired.highBrightnessPercent) },
+      read: "readHighBrightness", matches: r => r.kind === "high-brightness-report" && r.brightnessPercent === desired.highBrightnessPercent });
+    // Mode activation is last: a parameter mismatch must never switch a manual
+    // lamp into sensor mode. Already-sensor lamps still require durable ownership.
+    if (original.bioMode !== desired.bioMode) mutations.push({ stage: "mode",
+      operation: { kind: "setControlMode", target: resolved.target, mode: desired.bioMode },
+      read: "readControlMode", matches: r => r.kind === "control-mode-report" && r.mode === desired.bioMode });
+    for (const mutation of mutations) {
+      throwIfOperationStopped(control);
+      await control.beforeSelfSensorMutation({ original: structuredClone(original), desired: structuredClone(desired), stage: mutation.stage });
+      throwIfOperationStopped(control);
+      await this.sendDirect(mutation.operation, control);
+      const report = await this.requestReadbackOwned({ kind: mutation.read, target: resolved.target }, expected, control);
+      if (!mutation.matches(report)) {
+        const observed = await this.readSelfSensorConfigurationOwned(target, control);
+        throw Object.assign(new BioUsbError("BIO_SELF_CONFIGURATION_STATE_MISMATCH", "BIO self-sensor setting GET did not match"), {
+          observedConfiguration: observed
+        });
+      }
+    }
+    const observed = await this.readSelfSensorConfigurationOwned(target, control);
+    if (!sameSelfSensorConfiguration(observed, desired)) {
+      throw Object.assign(new BioUsbError("BIO_SELF_CONFIGURATION_STATE_MISMATCH", "BIO self-sensor configuration GET did not match"), {
+        observedConfiguration: observed
+      });
+    }
+    return observed;
   }
 
   /**
@@ -887,7 +1006,9 @@ export class BioDongleClient {
     // Set that already ran. It neither consumes the Set permit nor increments
     // Set drain counts. Other callers' write callbacks retain their old meaning.
     const transportControl = control.mayStartWrite &&
-      (operation.kind === "readHighBrightness" || operation.kind === "readControlMode")
+      (operation.kind === "readHighBrightness" || operation.kind === "readControlMode"
+        || operation.kind === "readStandbyBrightness" || operation.kind === "readDelayMode"
+        || operation.kind === "readHoldInterval" || operation.kind === "readStandbyInterval")
       ? { signal: control.signal, deadlineAt: control.deadlineAt }
       : control;
     const response = decodeBioResponse(await this.transport.request(request, transportControl));

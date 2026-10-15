@@ -51,6 +51,8 @@ export type BioOperation = { kind: "probe" | "scan" | "stopScan" }
   | { kind: "assignAddress"; target: BioLampTarget; nativeUuid: string; logicalAddress: number }
   | { kind: "readHighBrightness"; target: BioLampTarget }
   | { kind: "setHighBrightness"; target: BioLampTarget; rawHighBrightness: number }
+  | { kind: "setStandbyBrightness"; target: BioLampTarget; rawStandbyBrightness: number }
+  | { kind: "setHoldInterval"; target: BioLampTarget; rawInterval: number }
   | { kind: "readControlMode"; target: BioLampTarget }
   | { kind: "readStandbyBrightness" | "readDelayMode" | "readHoldInterval" | "readStandbyInterval"; target: BioLampTarget }
   | { kind: "setControlMode"; target: BioLampTarget; mode: BioControlMode };
@@ -138,8 +140,8 @@ function requireUnicast(target: BioLampTarget): Extract<BioLampTarget, { kind: "
   return target;
 }
 
-/** 설치 앱1.2.0 캡처 제어와 아래 출처를 명시한 정적 센서 GET만 허용한다.
- * 새 GET 근거를 설정 쓰기나 실제 firmware 호환 승인으로 확대하지 않는다. */
+/** 설치 앱1.2.0 캡처 제어와 아래 출처를 명시한 정적 센서 설정 명령만 허용한다.
+ * 저수준 직렬화/조회 성공을 실제 firmware의 자기 제어 호환 승인으로 확대하지 않는다. */
 export function encodeBioCommand(operation: BioOperation, sequence: number): BioUsbRequest {
   unsigned(sequence, 255);
   // 0A는 동글의 GET_NWK: 조명용 15-byte header/body가 없고 payload 길이도 0이다.
@@ -192,13 +194,29 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
       // 4E=조회(GET), 12=control mode 항목. 응답 body는 4F 12 <mode>다.
       body = [0x4e, 0x12];
       break;
+    case "setStandbyBrightness":
+      target = requireUnicast(operation.target);
+      if (bioRawToPercent(operation.rawStandbyBrightness) === null) throw new BioEvidenceUnavailableError();
+      // APK1.1.314 RemoteCommand.setStandbyBright: base0x4c/DPID20,
+      // same Percent serializer as high brightness. CD suppresses the inner
+      // answer; only a later independent GET can establish configuration truth.
+      body = [0xcd, 0x14, operation.rawStandbyBrightness];
+      break;
+    case "setHoldInterval":
+      target = requireUnicast(operation.target);
+      unsigned(operation.rawInterval, 255);
+      // APK1.1.314 RemoteCommand.setDelayTime + TimeInterval: preserve the
+      // exact raw byte for restoration, including zero/old long durations.
+      // New user durations must pass exact representability before reaching here.
+      body = [0xcd, 0x17, operation.rawInterval];
+      break;
     case "readStandbyBrightness":
     case "readDelayMode":
     case "readHoldInterval":
     case "readStandbyInterval":
       // Static APK 1.1.314: Scene/RemoteCommand property IDs and
       // OPC_LAMP_SETTING_GET=0x4e. Read-only qualification support, not HIL proof
-      // or permission to configure every firmware. No SET counterpart is enabled.
+      // or permission to configure every firmware. SET and readback remain separate.
       target = requireUnicast(operation.target);
       body = [0x4e, { readStandbyBrightness: 0x14, readDelayMode: 0x16,
         readHoldInterval: 0x17, readStandbyInterval: 0x18 }[operation.kind]];

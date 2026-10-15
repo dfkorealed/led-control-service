@@ -8,22 +8,25 @@
 - `20261015160000_bio_event_hold_one_second`는 CHECK만 교체하는 순방향 migration이다. 자기 소유 임시 PostgreSQL에서 기존 행/밝기 보존과 BIO1초 허용·BlueZ1초/범위 밖 거절을 확인했다. 운영 DB에는 미적용이다.
 - Gateway에 자기 센서 설정의 읽기 전용 조회를 추가했다. 6개GET을 한 직렬화 구간에서 읽고 UUID/주소/네트워크/항목별 응답을 확인한다. 다른 네트워크 응답·누락/timeout을 값으로 채우지 않으며 자기 설정 SET이나 센서 readiness 승격은 하지 않는다.
 - 승인 후 방습등1·2와 기존 B1-L006의 실제6항목씩18응답을 확인했다. 세 대의 센서 유형/펌웨어가 같고 유지시간5초·대기 밝기10%·대기구간5초·delayMode0이다. 방습등1·2의 high는30%/force-on, 기존1대는100%/force-off다. 현재 설정 확인일 뿐 실제 감지 출력이나1초 쓰기의 성공은 아니다. 기존 Gateway를 같은 버전/설정으로 재개했고6대online·새health/USB owner1·등록/설정digest 보존을 확인했다.
+- 별도 브랜치에 저수준 자기 설정 적용/복구 client를 구현했다. 원 설정6GET→필수 내구 intent callback→변경 항목 SET/독립GET→전체6GET을 하나의 큐에서 처리한다. standby/hold/high를 검증한 뒤 마지막에 sensor 모드로 전환하며 force-on/off를 일반 자기 제어로 사용하지 않는다. 실패 시 자동 재전송/자동 복구는 하지 않고 관측값을 보존한다. 복구는 현재 전체 설정이 호출자가 보존한 적용값과 같을 때만 원 설정을 쓰며0초·장시간 원raw를 그대로 복구한다.
 
 ### 미구현
 
-- 자기 조명 설정 쓰기·공통 자기 제어 필드/저장·내구 복구·`감지한 조명도 제어` UI 연결은 아직 미구현이다. 설정 GET의 실장비 응답은 확보했지만 단계별 기본 밝기 복귀 의미와 실제1초 설정은 추가 확인이 필요하다.
+- 저수준 설정 쓰기/복구 코드는 구현했지만 제품 규칙의 공통 자기 제어 필드/서버 저장·Gateway 내구 복구·`감지한 조명도 제어` UI 연결은 아직 미구현이다. intent callback의 실제 내구 저장소 연결과 firmware 자격 확인도 후속이다. 단계별 기본 밝기 복귀 의미와 실제1초 설정은 추가 확인이 필요하다.
 - 메인 병합·운영 DB migration·새 기능의 영구 서비스/Gateway 반영·실제1초/감지/복귀 검증은 수행하지 않았다. 승인된 일시 조회·기존 운전 복귀와 새 기능 배포는 구분한다. 기존/신규 조명 공통 지원은 목표이지 현재 모든 제품의 검증 완료가 아니다.
 
 ### 부족하거나 개선이 필요한 기능
 
 - 정적 근거 APK1.1.314의 TimeInterval은1~127초를 초 단위로, 그 이상을 분 단위로 표현한다. 장비 자체 설정의128초 같은 값을 임의 반올림하지 않는다. 기존 센서 프로파일은 새 자기 제어의 물리 지원 근거를 대신하지 않는다.
 - 현재3대의 설정 응답은 확인했지만 장비의1단계/2단계 출력 전환과 실제1초 적용은 미검증이다. 조회 성공만으로 자기 제어 금지를 해제하거나 source를 force-on/off 대상으로 보내지 않는다.
+- 저수준 적용은 확인된 phase0을 보존하고 알 수 없는 phase1 전환을 추측하지 않는다. 높은 밝기0% 및 복구할 수 없는 원 상태는 거절한다. SET 앞의 원 설정이 속한 USB 세대가 바뀌거나 intent 저장이 실패하면 쓰기를 멈춘다. 이 코드는 아직 실제 규칙/준비/protocol 선언에 연결하지 않았으며 센서 자격을 자동 승격하지 않는다.
 
 ### 관련 파일
 
 - `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`, 같은 이름의 설계 문서(`docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`).
 - `packages/shared/src/automation-contracts.ts`, `apps/api/src/automation/dto/vehicle-event-rule.dto.ts`, `apps/api/prisma/migrations/20261015160000_bio_event_hold_one_second/migration.sql`, `docs/database-schema.md`.
 - `apps/gateway/src/bio/bio-command-codec.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/web/src/features/control/automation/vehicle-event-form.ts`, `apps/web/src/features/control/automation/VehicleEventDialog.tsx` 및 해당 회귀.
+- `apps/gateway/src/bio/bio-self-sensor-configuration.ts`, 같은 이름의 test, `apps/gateway/test/fixtures/bio-self-sensor-configuration.json`, `apps/gateway/src/bio/bio-usb-error.ts`.
 
 ### 갱신 규칙
 

@@ -21,6 +21,28 @@ function response(name: string): BioFrame {
 }
 
 describe("BIO installed 1.2.0 traced command codec", () => {
+  it.each([
+    [{ kind: "setStandbyBrightness", rawStandbyBrightness: 0 }, "cd1400"],
+    [{ kind: "setStandbyBrightness", rawStandbyBrightness: 81 }, "cd1451"],
+    [{ kind: "setHoldInterval", rawInterval: 2 }, "cd1702"],
+    [{ kind: "setHoldInterval", rawInterval: 254 }, "cd17fe"],
+    [{ kind: "setHoldInterval", rawInterval: 61 }, "cd173d"]
+  ])("encodes static APK self-sensor SET without changing control mode: %j", (operation, body) => {
+    const target = { kind: "unicast", networkId: 0, logicalAddress: 0x1234 };
+    const encoded = encodeBioCommand({ ...(operation as object), target } as BioOperation, 75);
+    expect(encoded.command).toBe(0x10);
+    expect(Buffer.from(encoded.payload).subarray(15).toString("hex")).toBe(body);
+    expect(Buffer.from(encoded.payload).readUInt16BE(11)).toBe(0x1234);
+  });
+  it.each([
+    {kind:"setStandbyBrightness",rawStandbyBrightness:127,target:{kind:"unicast",networkId:0,logicalAddress:0x1234}},
+    {kind:"setStandbyBrightness",rawStandbyBrightness:81,target:{kind:"broadcast",networkId:0}},
+    {kind:"setHoldInterval",rawInterval:2,target:{kind:"broadcast",networkId:0}},
+    {kind:"setHoldInterval",rawInterval:256,target:{kind:"unicast",networkId:0,logicalAddress:0x1234}},
+    {kind:"setHoldInterval",rawInterval:-1,target:{kind:"unicast",networkId:0,logicalAddress:0x1234}}
+  ] satisfies BioOperation[])("rejects invalid or broadcast self-sensor writes", operation=>{
+    expect(()=>encodeBioCommand(operation,75)).toThrow();
+  });
   it("records static APK address evidence without claiming hardware validation", () => {
     expect(fixture.staticEvidence).toEqual(expect.objectContaining({
       installedApkSha256: "38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d",
