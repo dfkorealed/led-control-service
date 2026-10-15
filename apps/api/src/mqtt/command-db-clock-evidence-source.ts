@@ -185,7 +185,9 @@ function parseEvidence(raw: Buffer, nonce: string, configuredPrimary: ObjectValu
     value.version !== 1 || value.nonce !== nonce || !UUID.test(value.producerBootId) || !UUID.test(value.observationId) || !date(value.issuedAt) || !primary(value.primary)) return null;
   for (const key of ["offsetMs", "uncertaintyMs", "readBracketMs"]) {
     const number = value[key];
-    if (typeof number !== "number" || !Number.isFinite(number) || Math.abs(number * 1000 - Math.round(number * 1000)) > 1e-8 ||
+    // The byte comparison above preserves this exact spelling. An arithmetic
+    // tolerance would admit tiny exponents and excess fractional precision.
+    if (typeof number !== "number" || !Number.isFinite(number) || !/^-?(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(JSON.stringify(number)) ||
       (key !== "offsetMs" && number < 0)) return null;
   }
   const budget = Math.abs(Math.round(value.offsetMs * 1000)) + Math.round(value.uncertaintyMs * 1000) + Math.round(value.readBracketMs * 1000) + 2000;

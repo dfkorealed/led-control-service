@@ -79,6 +79,24 @@ describe("protected Unix DB clock evidence reader", () => {
     respond = (socket, nonce) => socket.end(reply(nonce, raw)); expect(await read()).toBeNull();
   });
   it.each([
+    ["offsetMs", "1e-12"], ["offsetMs", "0.001000000001"],
+    ["uncertaintyMs", "1e-12"], ["uncertaintyMs", "0.001000000001"],
+    ["readBracketMs", "1e-12"], ["readBracketMs", "0.001000000001"]
+  ])("rejects an otherwise healthy wire with only %s changed to %s", async (key, token) => {
+    const raw = sample.replace(new RegExp(`"${key}":[^,}]+`), `"${key}":${token}`);
+    expect(JSON.parse(raw)).toEqual({ ...JSON.parse(sample), [key]: Number(token) });
+    respond = (socket, nonce) => socket.end(reply(nonce, raw));
+    expect(await read()).toBeNull();
+  });
+  it.each([
+    ["offsetMs", "-0.001", -0.001], ["offsetMs", "0.001", 0.001],
+    ["uncertaintyMs", "0.001", -58.639], ["readBracketMs", "0.001", -58.639]
+  ])("preserves healthy three-decimal %s=%s", async (key, token, offsetMs) => {
+    const raw = sample.replace(new RegExp(`"${key}":[^,}]+`), `"${key}":${token}`);
+    respond = (socket, nonce) => socket.end(reply(nonce, raw));
+    expect(await read()).toMatchObject({ offsetMs, issuedAt: new Date("2026-10-15T00:00:00.300Z") });
+  });
+  it.each([
     ["wrong nonce", (v: any) => { v.nonce = "99999999-9999-4999-8999-999999999999"; }],
     ["stale", (v: any) => { v.issuedAt = "2026-10-14T23:59:59.399Z"; }],
     ["future", (v: any) => { v.issuedAt = "2026-10-15T00:00:00.501Z"; }],
