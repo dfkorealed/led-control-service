@@ -14,7 +14,7 @@
 - [x] 선행 거절 두 코드만 dimming POST에서 별도로 처리하는 RED2→focused10PASS 회귀를 추가했다. 상태조회/알 수 없는409/만료/실제확인필요 거절은 계속 잠그며 자동재전송·storage 강제삭제·서버 gate 완화는 없다.
 - [x] 관련 Web212PASS/기존5FAIL·서버 계약5PASS·타입 포함Web build exit0·Chromium1440/390의 reload/새UUID/unknown잠금2PASS를 확인했다. 수정 전 메인도208PASS/동일5FAIL로 이력창·roving focus 실패는 이번 변경과 분리한다. 첫 E2E fixture 좌표 겹침·이전 버튼명/반응형 locator 오류는 fixture/selector만 교정했다. 사용자 단독 진행·최소 테스트 지시에 따라 직접 diff/서버 생성 전 순서/소유 경계 재검토이며 독립 에이전트 리뷰·전체suite·HIL 성공 주장은 하지 않는다.
 - [x] 소유6파일 `f711be9f`만 별도 브랜치→메인 ff-only 반영했다. 기존UI수리·사용자dirty·상태판 기존 내용과 장비/규칙/DB 상태는 보존했다. 메인 focused10PASS를 재확인했다. 기존5실패는 무관한 수정으로 확대하지 않으며 현재 상태판의 병행 작업 기록은 전체 stage하지 않는다.
-- [ ] 이전버전이 이미 저장한 원인코드 없는 replayRejected는 임의 이관/해제하지 않는다. 원 요청의 상태와 기존 정상 세션 종료/재로그인 경로로 복구하고 최종UI를 확인한다. 실제 SET은 사용자 명시 새 적용으로만 실행한다.
+- [x] 사용자가 정상 로그아웃/재로그인을 완료한 뒤 실제 수동 화면의 기존 경고 없음·조명4대 온라인·선택/밝기 입력 enabled를 확인했다. B1-L002를 선택해 전송 가능/적용 버튼 enabled까지 확인했고 적용은 누르지 않았다. 원인코드 없는 replayRejected 임의 이관/저장소 직접삭제/원 요청 재전송0이다. 최종 화면은 `/tmp/manual-control-unlocked-20261015.png`다. 실제 SET은 사용자 명시 새 적용으로만 실행한다.
 
 ## 10월15일 후속 UI 실사용 준비 — codex/bio-runtime-recovery-20261015
 
