@@ -55,7 +55,6 @@
 - Task7 `e0f85b22` 구현: named11files201/201 뒤 최종 downgrade durability 회귀23/23·type/build/diff0과 소유26files를 확인했다. 독립 리뷰 C0/I2는 지연된 APPLIED receipt의 server/Gateway settlement 불일치와 마지막 비동기 preflight의 mapping fence 부재다. Root는 실제 API/outbox/runtime/bootstrap를 좁게 대조하고 원 담당자 fixround1에 release/outbox/production covering+type/diff만 배정했다. 추가 전체 suite/HIL/운영은 없으며 Web handoff는 재리뷰 통과 후다. Bundle1.0mb 표시는 실행 실패/성능 회귀로 주장하지 않는다.
 
 - Task7 fixround1 `1fe9ff53`: actual RED→covering release/outbox/production3files56/56·type/diff0, 독립 scoped 재리뷰 I1/I2 모두 ADDRESSED·새C/I/M0·out-of-scope0이다. 서버가 확정한 과거 복귀 proof와 현재 output 관측을 분리하고 ACK 관측을 직렬 handoff 경계로 쓴다. Offline 최신 자동 목표는 유지하며 후속 ordinary configuration은 trusted hooks/current-time shared evaluator/독립GET로 재조정한다. Final mapping epoch/source/transport native fence와 stop cleanup을 검토했다. 추가 build/전체 cohort/운영0이며 pre-fix Gateway build의1.0mb 표시를 별도 보존한다. Task7 완료, 지정 Web 연결/최소 UI QA·최종리뷰·안전한 로컬 머지가 남았다.
-
 ## 2026-10-14~15 전체 Web UI 간격 디자인 시스템 겹침 점검 — 감사·정리 완료, UI 수정 없음
 
 - 사용자는 각 페이지와 기능의 간격 공통화, 디자인 시스템 불일치, 겹침과 텍스트 잘림을 확인하고 정리하도록 요청했다. 이번 범위는 점검과 보고이며 UI 수리, API·DB·장비·운영 서비스 변경은 포함하지 않는다.
