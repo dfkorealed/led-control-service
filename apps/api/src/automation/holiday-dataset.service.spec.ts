@@ -212,17 +212,22 @@ describe("complete Korean holiday provider and immutable cache", () => {
 
   it("rolls back new dataset and pointer if the snapshot promotion hook fails", async () => {
     const old = await cached(2026);
-    const h = harness(undefined, { onPromoted: async () => { throw new Error("snapshot unavailable"); } });
+    const h = harness(undefined, { onPromoted: async () => { throw new Error("private snapshot URL/credential fixture"); } });
     h.state.changed = true;
     const beforeCount = await db.holidayDataset.count();
-    expect((await h.service.refreshYear(2026)).status).toBe("failed");
+    expect(await h.service.refreshYear(2026)).toEqual({ status: "failed", revision: old?.dataset.revision,
+      reason: "holiday_refresh_failed" });
     expect(await cached(2026)).toEqual(old);
     expect(await db.holidayDataset.count()).toBe(beforeCount);
   });
 
   it("hash mismatch and missing coverage never become an empty holiday list", async () => {
     const h = harness();
-    await expect(h.service.loadCoverage("2026-12-31", "2027-01-01")).rejects.toMatchObject({ status: 409 });
+    // The Jan1 promotion regression intentionally populates 2027. Use explicitly
+    // absent fixture years so this missing-coverage assertion is order independent.
+    expect(await cached(2040)).toBeNull();
+    expect(await cached(2041)).toBeNull();
+    await expect(h.service.loadCoverage("2040-12-31", "2041-01-01")).rejects.toMatchObject({ status: 409 });
     const data = { country: "KR", source: "kasi", year: 2030, revision: "corrupt-test", fetchedAt: new Date(instant),
       coverageFrom: new Date("2030-01-01T00:00:00Z"), coverageUntil: new Date("2030-12-31T00:00:00Z"),
       payloadHash: `sha256:${"a".repeat(64)}`, dates: [], complete: true,
@@ -243,6 +248,42 @@ describe("complete Korean holiday provider and immutable cache", () => {
     expect((await service.loadCoverage("2026-01-01", "2026-12-31"))[0].revision).toBe(old?.dataset.revision);
     await service.onModuleInit();
     expect(liveCalls).toBe(0);
+  });
+
+  it.each([false, true])("zero-holiday whole year never replaces a verified cache (nonholiday rows=%s)", async nonholiday => {
+    const baseline = harness();
+    await baseline.service.refreshYear(2034);
+    const old = await cached(2034);
+    const count = await db.holidayDataset.count({ where: { year: 2034 } });
+    const empty = harness({ fetchMonth: async input => ({ ...page(input.year, input.month, input.page),
+      ...(nonholiday && input.month === 1 ? { totalCount: 1,
+        items: [{ date: "2034-01-01", name: "기념일", isHoliday: false }] } : {}) }) });
+    expect(await empty.service.refreshYear(2034)).toEqual({ status: "failed", revision: old?.dataset.revision,
+      reason: "holiday_provider_unavailable" });
+    expect(await cached(2034)).toEqual(old);
+    expect(await db.holidayDataset.count({ where: { year: 2034 } })).toBe(count);
+    expect(empty.state.promotions).toHaveLength(0);
+    expect((await empty.service.loadCoverage("2034-01-01", "2034-12-31"))[0].revision).toBe(old?.dataset.revision);
+  });
+
+  it("zero-holiday whole year creates no coverage", async () => {
+    const h = harness({ fetchMonth: async input => page(input.year, input.month, input.page) });
+    expect(await h.service.refreshYear(2035)).toEqual({ status: "failed", revision: null, reason: "holiday_provider_unavailable" });
+    expect(await cached(2035)).toBeNull();
+    expect(await db.holidayDataset.count({ where: { year: 2035 } })).toBe(0);
+  });
+
+  it("a coherent zero-holiday cached whole year is unavailable", async () => {
+    const { holidayDatasetPayloadHash } = require("./holiday-dataset.service");
+    const h = harness();
+    const semantic = { country: "KR", source: "kasi", year: 2035, coverageFrom: "2035-01-01", coverageUntil: "2035-12-31", dates: [] };
+    const empty = await db.holidayDataset.create({ data: { ...semantic, revision: randomUUID(), fetchedAt: new Date(instant),
+      coverageFrom: new Date("2035-01-01Z"), coverageUntil: new Date("2035-12-31Z"),
+      payloadHash: holidayDatasetPayloadHash(semantic), complete: true,
+      completenessProof: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, totalCount: 0, pageCount: 1,
+        numOfRows: 2, pages: [{ page: 1, itemCount: 0 }] })) } });
+    await db.holidayYearCoverage.create({ data: { country: "KR", year: 2035, datasetId: empty.id, complete: true } });
+    await expect(h.service.loadCoverage("2035-01-01", "2035-12-31")).rejects.toMatchObject({ status: 409 });
   });
 
   it("periodic_refresh_and_shutdown", async () => {

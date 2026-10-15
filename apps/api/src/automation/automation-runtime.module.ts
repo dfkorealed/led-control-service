@@ -10,6 +10,8 @@ import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.serv
 import { AuditModule } from "../audit/audit.module";
 import { BioClassificationReconciliationService } from "../registration/bio-classification-reconciliation.service";
 import { HOLIDAY_DATASET_PROMOTION, HolidayDatasetService } from "./holiday-dataset.service";
+import { HOLIDAY_PROVIDER } from "./holiday-provider";
+import { createConfiguredHolidayProvider } from "./holiday-provider-config";
 
 @Module({
   imports: [PrismaModule, AccessModule, AuditModule],
@@ -18,6 +20,7 @@ import { HOLIDAY_DATASET_PROMOTION, HolidayDatasetService } from "./holiday-data
     BioSensorProfilesService,
     BioSensorPreparationService,
     AutomationClock,
+    { provide: HOLIDAY_PROVIDER, useFactory: () => createConfiguredHolidayProvider(process.env) },
     HolidayDatasetService,
     AutomationMqttConsumerService,
     AutomationSnapshotService,

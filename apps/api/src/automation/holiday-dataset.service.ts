@@ -116,6 +116,9 @@ export class HolidayDatasetService implements OnModuleInit, OnModuleDestroy {
         if (!first || seenRows.size !== first.totalCount) throw new Error("holiday_provider_invalid_response");
         proof.push({ month, totalCount: first.totalCount, pageCount, numOfRows: first.numOfRows, pages });
       }
+      // KR has public holidays every year. A completely empty future/source year
+      // cannot prove coverage even if all twelve individual empty months are valid.
+      if (dates.size === 0) throw new Error("holiday_provider_unavailable");
       const prefix = String(year).padStart(4, "0");
       const semantic: SemanticDataset = { country: "KR", source: "kasi", year, coverageFrom: `${prefix}-01-01`, coverageUntil: `${prefix}-12-31`,
         dates: [...dates].sort(([a], [b]) => compare(a, b)).map(([date, names]) => ({ date, names: [...names].sort(compare) })) };
@@ -191,7 +194,7 @@ function verifiedSnapshot(row: HolidayDataset): HolidayDatasetSnapshot | null {
       revision: row.revision, fetchedAt: row.fetchedAt.toISOString(), coverageFrom: row.coverageFrom.toISOString().slice(0, 10),
       coverageUntil: row.coverageUntil.toISOString().slice(0, 10), payloadHash: row.payloadHash, dates: row.dates });
     const proof = row.completenessProof as unknown as MonthProof[];
-    if (!row.complete || !Array.isArray(proof) || proof.length !== 12 || holidayDatasetPayloadHash(snapshot) !== snapshot.payloadHash
+    if (!row.complete || snapshot.dates.length === 0 || !Array.isArray(proof) || proof.length !== 12 || holidayDatasetPayloadHash(snapshot) !== snapshot.payloadHash
       || snapshot.dates.some((entry, index) => (index > 0 && compare(snapshot.dates[index - 1].date, entry.date) >= 0)
         || entry.names.some((name, i) => i > 0 && compare(entry.names[i - 1], name) >= 0))) return null;
     for (let index = 0; index < 12; index++) {

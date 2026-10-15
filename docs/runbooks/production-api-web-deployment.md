@@ -4,6 +4,14 @@
 
 ## 적용 범위와 사전 조건
 
+### 공휴일 서버 provider — 보호 파일 연결 경계
+
+`KASI_HOLIDAY_SERVICE_KEY_PATH`는 API 프로세스에만 주입하는 보호 파일의 절대 경로다. 키 자체를 env 값·Git·Web `VITE_*`·Gateway·문서·로그에 넣지 않는다. 현재 API UID 소유의 symlink 아닌 regular 0600 파일과 같은 UID 소유 상위 0700 디렉터리를 준비한다. Loader는 no-follow open 후 동일 descriptor의 fstat와 최대 513바이트 bounded read를 사용하며 512바이트 초과를 거절한다. 값은 URL decode 없이 `[A-Za-z0-9+/%=._-]` 16~256자의 단일 키만 허용하며 끝 LF 하나만 허용한다. 내부 공백/개행·끝 개행 2개·잘못된 owner/mode/경로·읽기 오류는 provider unavailable로 처리하고 API 전체 부팅은 중단하지 않는다.
+
+현재 커밋의 검증은 임시 키 fixture·차단된 외부 transport·자기 소유 disposable PostgreSQL에 한정한다. 원본 보호 키, 실제 provider 및 운영 DB를 읽거나 설정·재시작하지 않았다. 실제 적용 단계에서는 source/대상/API 프로세스 귀속과 보호 파일 메타데이터를 새로 확인한 뒤 승인된 경로만 연결한다. Container에는 별도로 승인된 서버 전용 read-only mount와 UID/mode 일치가 필요하며 `.env.example` 추가만으로 production Compose mount를 준비한 것으로 간주하지 않는다.
+
+기존 lifecycle가 시작 시 서울 당해/다음해와 이후 일일 갱신을 수행한다. 운영 연결 뒤 2026/2027 각각 12개월·모든 페이지·빈 월의 완전성을 확인해야 한다. 한국 연도 전체 실제 휴일 0개는 미래 공식 제공 범위의 증거가 아니므로 unavailable로 남으며 정상 캐시를 덮어쓰지 않는다. 부분 실패/승격 hook 실패는 기존 pointer·revision·snapshot을 보존하고 coverage 누락인 휴일 제외 저장/활성화는 계속 거절한다. 키·raw 요청 URL·provider 오류 body를 출력하지 않고 기존 키의 승인 만료/트래픽 범위 안에서만 사용한다. 이 단계는 신규 운영계정 신청·약관 동의·Gateway/HIL·시각 관문 해제를 포함하지 않는다.
+
 ### Command Set 세대 egress 준비 — 운영 전환 OFF
 
 `COMMAND_SET_EGRESS_ENABLED=0`이 기본이다. 기존 API identity의 Set/Get과 수집은 계속 동작한다. ACL은 `sites/#` 대신 아래 명시적 권한으로 좁히되 OFF에서는 `sites/+/gateways/+/commands/dimming`과 구형 `sites/+/commands/dimming` write를 유지한다. `infra/mosquitto.acl.example`은 production Compose가 mount하는 OFF 예시이며 기존 Gateway onboarding의 `%u` scoped pattern도 유지한다. 전환 시에는 이 파일을 전체 Gateway 목록의 renderer 결과로 교체해야 한다. 전역 `pattern`은 새 Set principal에도 다른 권한을 주므로 ON에서는 남기지 않는다.

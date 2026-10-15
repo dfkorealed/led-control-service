@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 공휴일 보호 파일·provider 연결 — 소프트웨어
+
+### 구현 완료
+
+- 서버 전용 `KASI_HOLIDAY_SERVICE_KEY_PATH`에서 절대 경로의 현재 API UID 소유 regular 0600 키 파일과 상위 0700 디렉터리를 확인해 기존 `KasiHolidayProvider`를 실제 `HOLIDAY_PROVIDER` factory에 연결한다. Symlink와 잘못된 권한·형식·파일 오류는 키/경로/URL 출력 없이 unavailable이며 API 부팅은 계속한다.
+- 기존 최초 당해/다음해와 일일 갱신, 12개월/모든 페이지·빈 월 검증, 같은 transaction의 pointer·revision·snapshot 승격을 유지한다. 한국 연도 전체의 실제 휴일이 0개면 새 coverage 승격과 기존 빈 캐시 소비를 거절하고 정상 검증 캐시를 보존한다.
+
+### 미구현
+
+- 실제 보호 키 설정·provider 수집·2026/2027 coverage 승격과 운영 API 재시작은 아직 실행하지 않았다. 테스트는 생성한 임시 키와 자기 소유 disposable PostgreSQL만 사용한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 실제 연결 전 두 연도의 완전 coverage, 공식 제공 범위/할당량과 기존 키 승인 유효성을 확인해야 한다. 누락 coverage는 평일로 간주하지 않으며 clock·V3 ACK·MQTT·Gateway/HIL의 별도 운영 관문도 유지한다.
+
+### 관련 파일
+
+- `apps/api/src/automation/holiday-provider-config.ts`, `holiday-provider-config.spec.ts`, `automation-runtime.module.ts`, `holiday-dataset.service.ts`, `holiday-dataset.service.spec.ts`(앞 두 파일과 같은 디렉터리), `.env.example`, `docs/runbooks/production-api-web-deployment.md`.
+
+### 갱신 규칙
+
+- 소프트웨어 fixture 검증과 실제 키 설정·수집·coverage 승격 증거를 구분한다. 키 값·원문 URL/오류 body는 문서·로그·클라이언트에 기록하지 않는다.
+
 ## 2026-10-15 메인·DB 반영 및 로컬 서비스 복구 완료
 
 ### 구현 완료
