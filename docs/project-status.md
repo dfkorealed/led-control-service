@@ -2,6 +2,12 @@
 
 기준일: 2026-10-15
 
+## 2026-10-15 실제 조명 등록 삭제 — 서면 설계 검토 대기
+
+- 사용자는 admin의 등록 삭제·공장 초기화 제외·서버/Gateway 연결 정리·이력 보존·진행 작업/규칙 연결 시 차단·재등록 방향을 승인했다. 별도 `codex/fixture-registration-removal-20261015`에서 기존 `docs/superpowers/specs/2026-09-12-settings-assets-operations-design.md`의 같은 날짜 추가 설계에 누적한다.
+- 현재 삭제 API/UI는 없다. 물리 CASCADE에 따른 제어·전력 원장 소실과 Gateway mapping만 지울 때 이미 캡처한 명령의 실행 위험을 확인했다. 제안은 내구 삭제 확인 뒤 운영 퇴역, 과거 FK/주소와 등록 세대 fence 보존이다. 설계 체크리스트의 조사만 완료이며 서면 검토/실행 계획/제품 구현·검증은 미완료다.
+- 읽기 전용 조사와 문서 작성만 했다. 실제 삭제/RF/SSH·사용자 DB/migration·서비스 재시작·배포는 실행하지 않는다. MAIN의 사용자 AGENTS/기존 상태판 변경은 보존한다.
+
 ## 2026-10-15 이벤트 기준 조명·추가 실패 소프트웨어 수리 병합 — 실제 등록 복구 승인 대기
 
 - 사용자 기준 B1-L004/실행 B1-L006 및 일반 실패 안내를 별도 `codex/event-source-create-fix-20261015`(base c3f11789)에서 조사한다. 체크리스트는 `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`다. 기존 자기 감지 구현 브랜치와 MAIN 사용자 변경은 보존한다.
