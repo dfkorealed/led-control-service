@@ -150,6 +150,23 @@ describe("VehicleEventControlPanel", () => {
       expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
     });
 
+  it.each([409, 401])("shows preparation %s separately and retains auth expiry handling without saving", async status => {
+    const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
+    mocks.requestBioSensorPreparation.mockRejectedValue(new ApiError("setup", status,
+      { message: "BIO completed registration graph mismatch" }));
+    const d = readyBioDashboard(); d.capabilities = { read: true, control: true, manage: true, commission: true };
+    d.floors[0].fixtures[0].vehicleEventSource!.sourceEligible = false;
+    const queryClient = testQueryClient(); const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderPanel("admin", { dashboard: d, queryClient }); await screen.findByText(draft.name); chooseRowAction(draft.name, "수정");
+    const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(status === 401 ? "로그인 세션이 만료되었습니다." : "센서 준비 전 등록 연결 확인이 필요합니다.");
+    expect(mocks.createVehicleEventRule).not.toHaveBeenCalled(); expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+    expect(mocks.getBioSensorPreparation).not.toHaveBeenCalled();
+    if (status === 401) await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: authMeQueryKey }));
+  });
+
   it("automatically prepares when saving an unready BIO rule without exposing setup controls", async () => {
     const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
     mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });

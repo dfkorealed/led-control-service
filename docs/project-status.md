@@ -2,6 +2,13 @@
 
 기준일: 2026-10-15
 
+## 2026-10-15 이벤트 기준 조명·추가 실패 조사 및 수리 진행
+
+- 사용자 기준 B1-L004/실행 B1-L006 및 일반 실패 안내를 별도 `codex/event-source-create-fix-20261015`(base c3f11789)에서 조사한다. 체크리스트는 `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`다. 기존 자기 감지 구현 브랜치와 MAIN 사용자 변경은 보존한다.
+- source identity/활성 규칙 sourceFixtureIds 필터는 존재한다. 현재 localhost READ ONLY 증거는 규칙0/최근7일 이벤트 실행0, applied39와 exact hash의 V3 payload event0이다. Pi 현재 메모리/디스크 및 제품 자체 sensor 반응은 아직 미확인이다.
+- L004의 실제 UUID/address/gateway/site/session/등록 원장 귀속은 맞지만 Discovery.status=discovered 및 legacy bluez_stateful로 남아 기준 후보에서 제외된다. 기존 revalidation query→검증 결과 apply→BIO 분류/센서 준비 경로를 확인했다. 일반 온라인 표시와 현재 sourceEligible는 별개다.
+- Web은 준비 API 실패와 규칙 저장 실패를 구분하고 source 차단 사유/기존 설정 복구 링크를 보완했다. 직접 6파일167/167·격리 Chromium PC/모바일2/2·타입/build/UI policy exit0이다. Gateway는 실제 공통 경로의 정상 무관 C 거부/hold 비연장·A 정상 적용/기한 복귀 3/3·type/diff0이며 독립 검토 I1(null 반환 관측 단언) 보완 후 ADDRESSED·새 C/I/M0·Ready YES다. 현재 [x]원인 조사, [x]Web최종검증, [x]Gateway회귀, [x]Web독립검토, [ ]소프트웨어통합, [x]실제L004복구경계 기록이다. Web도 Ready YES·새 C/I/M0이다. 실제 등록 재확인 query→검증 apply→분류/센서 준비는 기존 ID/기본 밝기를 유지하나 장비 모드 설정 가능성이 있어 저장소의 운영 승인 관문을 적용해 후속 구체 승인을 받는다. RF/DB쓰기/서비스재시작/배포는 실행하지 않았다.
+
 ## 2026-10-15 재현된 Web UI 문제 8개 수정 완료 — 검증 한계 인계
 
 - 사용자 승인 범위는 확정된 8개 문제(통계 2곳을 묶은 총 9곳)의 레이아웃·스크롤·읽기 폭 수리다. 기존 기능과 안전 정책은 유지하고, P3 간격/디자인 후보 6개·API/DB/장비/인증 정책·실제 서비스 재시작은 포함하지 않는다.

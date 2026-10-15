@@ -11,6 +11,8 @@ import {
   scheduleMutationErrorMessage,
   scheduleQueryKey,
   vehicleEventRuleQueryKey,
+  vehicleEventMutationErrorMessage,
+  bioSensorPreparationErrorMessage,
   updateSchedule,
   updateVehicleEventRule,
   type CreateScheduleInput
@@ -156,5 +158,24 @@ describe("schedule API", () => {
     expect(scheduleMutationErrorMessage(new Error("network"))).toBe(
       "스케줄 변경을 완료하지 못했습니다. 연결 상태를 확인해 주세요."
     );
+  });
+});
+
+
+describe("event failure causes", () => {
+  it.each([
+    [409, { code: "bio_source_target_forbidden", operation: "event" }, "감지 센서로 사용 중인 조명은 실행 대상으로 지정할 수 없습니다."],
+    [400, { code: "bio_target_activation_conflict" }, "다른 활성 이벤트와 실행 조명이 겹칩니다. 다른 이벤트를 비활성화하거나 실행 대상을 바꿔 주세요."],
+    [503, { code: "gateway_deployment_read_only" }, "점검 중에는 이벤트 규칙을 변경할 수 없습니다. 잠시 후 다시 시도해 주세요."]
+  ])("explains known rule rejection %s %j", (status, body, expected) => {
+    expect(vehicleEventMutationErrorMessage(new ApiError("private detail", status as number, body))).toBe(expected);
+  });
+  it.each([
+    [409, { message: "BIO completed registration graph mismatch" }, "센서 준비 전 등록 연결 확인이 필요합니다. 설정의 현장 관리에서 해당 조명의 등록 연결을 확인해 주세요."],
+    [503, { code: "gateway_deployment_read_only" }, "점검 중에는 센서 준비를 요청할 수 없습니다. 잠시 후 다시 시도해 주세요."],
+    [409, { message: "unrecognized private detail" }, "센서 준비가 현재 등록 또는 설정 상태와 충돌했습니다. 설정의 현장 관리에서 등록 연결과 센서 준비 상태를 확인해 주세요."],
+    [401, null, "로그인 세션이 만료되었습니다."]
+  ])("distinguishes preparation rejection %s %j", (status, body, expected) => {
+    expect(bioSensorPreparationErrorMessage(new ApiError("private detail", status as number, body))).toBe(expected);
   });
 });

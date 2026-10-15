@@ -3,6 +3,8 @@ import { ArrowDown } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
+import { LinkButton } from "../../../components/ui/LinkButton";
+import { bioSensorBlockSummary } from "./BioSensorPreparationPanel";
 import { isSelectableVehicleEventSource } from "./bio-event-setup";
 import { Button, Checkbox, Heading, ModalDialog, Slider, Text, TextField } from "../../../components/ui";
 import { resolveControlSelection, type ControlSelection } from "../control-selection";
@@ -122,6 +124,8 @@ export function VehicleEventDialog({
   const targetSourceResolution = resolveControlSelection(dashboard, targetSelection);
   const sourceSummary = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isSelectableVehicleEventSource);
   const targetSummary = vehicleEventTargetSnapshotSummary(targetSelection, values.targetFixtureIds, dashboard);
+  const registrationBlocked = dashboard.floors.some(floor => floor.fixtures.some(fixture =>
+    !isSelectableVehicleEventSource(fixture) && fixture.bioSensorPreparation?.blockedReasons.includes("binding_changed")));
   const selectedHoldPreset = customHoldOpen ? "custom" : values.holdSeconds;
 
   function change(patch: Partial<VehicleEventFormValues>) {
@@ -223,6 +227,10 @@ export function VehicleEventDialog({
         )}
       >
         <legend className="sr-only">{view === "source" ? "감지 센서 선택" : "실행할 조명 선택"}</legend>
+        {view === "source" && registrationBlocked ? <div className="grid gap-2">
+          <Text variant="caption">등록 연결 재확인이 필요한 조명이 있습니다. 설정의 현장 관리에서 해당 조명을 선택해 등록 연결 확인과 센서 준비를 진행해 주세요.</Text>
+          <LinkButton variant="secondary" href={`/settings/site?${new URLSearchParams({ siteId: dashboard.site.id })}#bio-sensor-preparation`}>등록 연결 확인하러 가기</LinkButton>
+        </div> : null}
         {view === "target" ? <Text variant="caption" tone="secondary">{vehicleEventTargetStorageCopy(targetSelection, values.targetFixtureIds)}</Text> : null}
         <SpatialTargetSelector
           siteId={dashboard.site.id}
@@ -231,6 +239,7 @@ export function VehicleEventDialog({
           displaySelection={view === "target" ? { mode: "fixtures", fixtureIds: values.targetFixtureIds } : undefined}
           allowedModes={view === "source" ? ["fixtures"] : undefined}
           fixtureFilter={view === "source" ? isSelectableVehicleEventSource : targetEligible}
+          fixtureBlockedReason={view === "source" ? bioSensorBlockSummary : undefined}
           fixtureFilterReason={view === "source" ? "현재 현장에 연결된 센서 조명을 선택해 주세요." : "감지 센서는 실행 대상에서 제외됩니다. 다른 실행 조명을 선택하세요."}
           requiredGatewayId={view === "target" ? sourceGatewayId : null}
           disabled={isPending}

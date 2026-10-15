@@ -15,6 +15,7 @@ import { BioCapabilityDeliveryController } from "../bio/bio-capability-delivery"
 import { CommissionedBioPulseAuthorityProvider } from "../bio/bio-pulse-authority-provider";
 import { BioSensorPulseSource } from "../bio/bio-sensor-pulse-source";
 import type { BioSensorPulseCandidate } from "../bio/bio-command-codec";
+import type { BioConfigurationState } from "../bio/bio-dongle-client";
 import { createGatewayAutomationServices, connectBioPulseSource } from "../index";
 import { FileAutomationStateStore } from "./automation-state-store";
 import { FileAutomationConfigStore } from "./automation-config-store";
@@ -65,6 +66,7 @@ async function commonHarness() {
   }
   const candidates = new Set<(value: BioSensorPulseCandidate) => void>(), states = new Set<() => void>();
   const reads: string[] = [], writes: unknown[] = [];
+  const targetWrites: Array<{ fixtureId: string; configuration: BioConfigurationState }> = [];
   let configuration = { configuredHighBrightnessPercent: 30, bioMode: "sensor" as "sensor" | "force-on" | "force-off" };
   const client = { sensorSourceSnapshot: () => ({ generation, ready: true, protocolReady: true, transportConnected: true }),
     onSensorSourceState: (fn: () => void) => { states.add(fn); return () => { states.delete(fn); }; }, onEvent: () => () => {},
@@ -94,7 +96,8 @@ async function commonHarness() {
       execute: async () => { throw new Error("BIO may not use generic Set"); }, bioProductPulse: { scope, source, targetPort: {
         readBioState: async id => { reads.push(id); return { target: { kind: "unicast", nativeUuid: devices[2].nativeUuid,
           logicalAddress: devices[2].logicalAddress, networkId: 0 }, configuration: { ...configuration } }; },
-        restoreBioState: async (_id, _target, value) => { configuration = { ...value }; writes.push({ ...value }); return { ...value }; }
+        restoreBioState: async (id, _target, value) => { configuration = { ...value }; writes.push({ ...value });
+          targetWrites.push({ fixtureId: id, configuration: { ...value } }); return { ...value }; }
       } } });
     await services.scheduleRuntime.initialize(); await services.automationRuntime.initialize();
     const intake = connectBioPulseSource(source, services.scheduleRuntime);
@@ -128,9 +131,94 @@ async function commonHarness() {
   const pulse = (index = 0, sequence = 1) => { for (const fn of candidates) fn({ kind: "sensor-status-candidate", innerOpcode: 9,
     innerBody: Buffer.from(asset.profile.bodyHexes[0], "hex"), generation, receivedMonotonicMs: mono, deviceUuid: devices[index].deviceUuid,
     logicalAddress: devices[index].logicalAddress, networkId: 0, sequence, destination: 0, rssiDbm: -40, ttl: 1, control: false }); };
-  return { ...first, boot, pulse, at, advance, handoff, devices, mappings, catalog, dir, scope, reads, writes,
+  return { ...first, boot, pulse, at, advance, handoff, devices, mappings, catalog, dir, scope, reads, writes, targetWrites,
     configuration: () => ({ ...configuration }), reconnect: () => { generation++; for (const fn of states) fn(); } };
 }
+
+// Break caught: a confirmed, independently healthy C must not acquire the
+// disabled C rule's authority, start A's target, or renew A's existing hold.
+it("only the configured source starts and renews the target while another commissioned sensor cannot extend its hold", async () => {
+  const f = await commonHarness();
+  for (const i of [0, 1, 2]) await f.prepare(i);
+  for (const i of [0, 1, 5]) await f.live(i);
+  const sourceId = asset.fixtures[0].fixtureId, otherId = asset.fixtures[1].fixtureId, targetId = asset.fixtures[2].fixtureId;
+  const [sourceRule, otherRule] = f.handoff.snapshots[0].payload.vehicleEventRules;
+  expect(sourceRule).toMatchObject({ status: "enabled", sourceFixtureIds: [sourceId], targetFixtureIds: [targetId], holdSeconds: 10 });
+  expect(otherRule).toMatchObject({ status: "disabled", sourceFixtureIds: [otherId] });
+  expect(await f.mappings.findByFixtureId(otherId)).toMatchObject({ status: "confirmed", nativeUuid: f.devices[1].nativeUuid });
+  expect(f.delivery.acknowledgedCommissionProof(otherId)?.capabilityRevision).toBe(1);
+  expect(f.monitor.snapshot(otherId)).not.toBeNull();
+  f.at(450); await f.automationRuntime.hotReload(f.handoff.snapshots[0].payload);
+
+  async function otherPulse(sequence: number) {
+    // The USB callback schedules an async identity lookup. Observe the real
+    // authority's actual null result before treating its read as completion:
+    // non-null would continue through another async mapping read and is not a
+    // drain barrier. Never let the zero-write assertions race that continuation.
+    const read = f.provider.read.bind(f.provider);
+    const decisions: Array<ReturnType<typeof read>> = [];
+    let consumed!: () => void;
+    const reachedAuthority = new Promise<void>(resolve => { consumed = resolve; });
+    const observer = vi.spyOn(f.provider, "read").mockImplementation((...args) => {
+      const result = read(...args);
+      if (args[0] === otherId) { decisions.push(result); queueMicrotask(consumed); }
+      return result;
+    });
+    try { f.pulse(1, sequence); await reachedAuthority; expect(decisions[0]).toBeNull(); }
+    finally { observer.mockRestore(); }
+    await f.scheduleRuntime.tick();
+  }
+  async function advanceHealthy(amount: number) {
+    f.advance(amount);
+    await f.monitor.probe(sourceId); await f.monitor.probe(otherId);
+  }
+  async function sourcePulse(sequence: number) {
+    // Await the real source handoff, then its already-enqueued runtime work.
+    // vi.waitFor would advance fake Date without this harness's monotonic clock.
+    let received!: () => void;
+    const handedOff = new Promise<void>(resolve => { received = resolve; });
+    const unsubscribe = f.source.subscribe(input => {
+      if (input.sourceFixtureId === sourceId && input.receipt.sequence === sequence) received();
+    });
+    try { f.pulse(0, sequence); await handedOff; await f.scheduleRuntime.tick(); }
+    finally { unsubscribe(); }
+  }
+
+  await otherPulse(1);
+  expect(f.reads.filter(id => id === targetId)).toEqual([]);
+  expect(f.targetWrites).toEqual([]);
+  expect(f.scheduleRuntime.state().vehicleRules).toEqual({});
+
+  const startedAt = Date.now();
+  await sourcePulse(1);
+  expect(f.targetWrites).toHaveLength(1);
+  expect(f.targetWrites[0]).toEqual({ fixtureId: targetId,
+    configuration: { configuredHighBrightnessPercent: 75, bioMode: "force-on" } });
+  expect(Date.parse(f.scheduleRuntime.state().vehicleRules[sourceRule.id]!.holdUntil!)).toBe(startedAt + 10000);
+  const activationId = f.scheduleRuntime.state().bioActivationsByRule[sourceRule.id]!.activationId;
+
+  await advanceHealthy(4000);
+  await sourcePulse(2);
+  expect(Date.parse(f.scheduleRuntime.state().vehicleRules[sourceRule.id]!.holdUntil!)).toBe(startedAt + 14000);
+  await advanceHealthy(4000); await advanceHealthy(2001);
+  await f.scheduleRuntime.tick();
+  expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 75, bioMode: "force-on" });
+  expect(f.scheduleRuntime.state().bioActivationsByRule[sourceRule.id]!.activationId).toBe(activationId);
+
+  await advanceHealthy(2999);
+  const holding = f.scheduleRuntime.state().vehicleRules[sourceRule.id];
+  await otherPulse(2);
+  expect(f.scheduleRuntime.state().vehicleRules[sourceRule.id]).toEqual(holding);
+  expect(f.scheduleRuntime.state().vehicleRules[otherRule.id]).toBeUndefined();
+  expect(f.targetWrites).toHaveLength(1);
+  await advanceHealthy(1001); await f.scheduleRuntime.tick();
+  expect(f.targetWrites).toEqual([
+    { fixtureId: targetId, configuration: { configuredHighBrightnessPercent: 75, bioMode: "force-on" } },
+    { fixtureId: targetId, configuration: { configuredHighBrightnessPercent: 30, bioMode: "sensor" } }
+  ]);
+  expect(f.scheduleRuntime.state().vehicleRules[sourceRule.id]).toBeUndefined();
+  expect(f.scheduleRuntime.state().bioActivationsByRule[sourceRule.id]!.completed).toBe(true);
+});
 
 it("Task6: actual three-source preparation/live producers match immutable API handoffs and restore a full pulse hold", async () => {
   const f = await commonHarness();

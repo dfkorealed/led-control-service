@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-15 이벤트에서 센서 등록 연결 복구 위치 안내
+
+### 구현 완료
+
+- 현장 관리의 기존 `등록 조명 센서 준비` 구역에 고정 이동 목적지를 제공한다. 이벤트에서 현재 `siteId`를 보존해 이동하고, 등록 연결 재확인이 필요한 legacy 조명도 기존 목록에서 직접 선택할 수 있다.
+- 등록 연결 재확인 전에는 기존 공통 `등록 연결 확인`만 사용할 수 있고 센서 사용 설정은 차단된다. 검증 결과 적용과 최신 dashboard의 준비 가능 판정 후 기존 센서 준비 API가 분류·준비를 진행한다. 새 등록 API나 직접 DB 복구 경로를 추가하지 않는다.
+
+### 미구현
+
+- 실제 장비 조회·등록 복구 적용·센서 모드 설정·이벤트 활성화는 이번 소프트웨어 수리에서 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 링크 이동 후 대상 조명을 목록에서 직접 선택해야 한다. 등록 연결 확인 완료만으로 센서 자격이 주어지지 않으며, 별도 센서 준비와 현재 서버 사용 가능 판정이 필요하다. 현재 연결·권한·assignment가 달라지면 기존 차단을 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx`, `BioSensorSettingsPanel.test.tsx`, 기존 공통 `apps/web/src/features/control/automation/{BioSensorPreparationPanel.tsx,components/BioRegistrationConnectionCheck.tsx}`.
+- `apps/web/e2e/event-source-create.spec.ts` — PC 1,440px·모바일 390px 기존 복구 위치 접근 및 장비/저장 요청 0건 확인.
+
+### 갱신 규칙
+
+- 기존 등록 재확인·센서 준비의 권한/귀속/증거/기한 검사를 보존한다. 이동·fixture 검증을 실제 운영 데이터 복구로 표현하지 않는다.
+
 ## 2026-10-15 편집·등록·현장·계정 읽기 영역 수리
 
 ### 구현 완료
