@@ -13,7 +13,7 @@
 - [x] 사용자 승인한 센서 선택→실행 조명→밝기/유지→저장·활성화 흐름을 별도 `codex/sensor-one-step-setup-20261015`에서 구현한다. 일반 준비/확인 UI를 제거하고 선택 후보와 실행 eligibility를 분리한다.
 - [x] 기존 API의 자동 ensure_sensor/동일 요청 재개/최신 eligibility 확인을 저장·전원에 연결했다. 불확정 POST/GET·진행 중 준비·이전 ready의 현재 링크 유실·중복 클릭·현장/로그인/배정/권한 변화와 실패 안내 회귀를 확인했다. 새 schema/API/권한/DB/장비 변경은 없다.
 - [x] 직접 관련 테스트 5파일141개(마지막 predicate 공통화 전), 공통화 뒤 predicate/coordinator 재검증, PC1440/모바일390 저장·자동 준비·활성화 및 실패 재시도 fake browser 3개, 타입 포함 Web build/UI policy를 검증한다. 원 no-module harness 오류·UI 5건 RED·폐기된 수동 패널 기대/문구 보완·ready checkpoint/권한 회수/실패 안내 RED를 보호 기록으로 구분한다.
-- [ ] 직접 최종 리뷰/메인 병합·정식 화면의 수동 준비 패널 제거 확인. root 사용자 project-status 수정은 보존한 채 이번 요약을 별도 반영하고 원장/백업/worktree를 삭제하지 않는다.
+- [x] 직접 최종 리뷰 뒤 `1f3036ab`를 메인에 ff-only 병합했다. 사용자 AGENTS/랜딩 변경3경로 diff SHA는 동일하다. 메인에서 dialog/coordinator36개 재검증과 정식 UI의 전원버튼enabled·센서/실행 조명 선택·수동 준비 패널 없음·저장enabled를 읽기로 확인했다. 실제 저장/센서SET/활성화0이며 화면은 `/tmp/sensor-one-step-settings-20261015.jpg`다. root project-status의 기존 사용자 수정을 보존해 요약만 갱신하고 원장/백업/worktree는 유지한다.
 - [ ] 실장비 활성 snapshot의 `bio_pulse_control_unavailable` 세부 진단/복구와 실제 감지·복귀는 별도 승인된 운영 작업으로 이어간다. UI 간소화·mock 검증은 장비 성공을 보장하지 않는다.
 
 ## 10월14일 모든 조명 공통 준비 UI 보완
