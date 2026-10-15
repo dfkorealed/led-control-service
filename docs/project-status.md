@@ -2,6 +2,12 @@
 
 기준일: 2026-10-15
 
+## 2026-10-15 BIO 실사용 운영 후속 — 인증키 준비·서면 설계 검토 대기
+
+- 사용자는 Gateway 배포·시각 검증·공휴일/MQTT 연결과 변경·최소 연관 테스트를 요청했고 특일 정보 키를 발급했다. 키는 원본 checkout의 ignored `.local/secrets/kasi-holiday-service-key`에 0600(상위0700)으로 저장했으며, 기존 provider의 실제2026-10조회/정규화1회가 성공했다. 키/URL/원문은 출력하지 않았고 서버 자동 수집/DB 승격은 아직 연결하지 않았다.
+- `773abdba`에서 별도 `codex/bio-operational-enablement-20261015` 작업 공간을 만들고 [운영 적용 설계](superpowers/specs/2026-10-15-bio-operational-enablement-design.md)를 작성했다. 원본의 AGENTS/landing/상태판 미커밋 변경을 수정하지 않는다. 현재는 서면 설계 검토 단계이며 상세 실행 계획/제품 구현/관리자 설치·Gateway 배포·ACL reload·RF는 미실행이다.
+- 새롭게 필요한 경계는 API와 다른 UID의 DB-host 시각 제공자와 BIO 세 root 전체 복원 가능한 업그레이드 도구다. 관리자 설치/시간원 신뢰 가정·점검 창을 설계에 명시했다. 기존 V2→V3 실제 선언/현재 ACK·공휴일 완전 coverage·최소 ACL까지 확인하기 전 실사용 완료로 표현하지 않는다. 다른 세션의 비활성 센서 UI 시험 규칙·등록/밝기/센서 설정·백업은 보존한다.
+
 ## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어·메인·DB 반영 및 로컬 서비스 복구 완료
 
 - 최종 결과(2026-10-15): 추가 사용자 승인으로 기존 API/Web/broker group을 정상 종료하고 환경·인증서·ACL을 그대로 재사용해 새 owned supervisor로 기동했다. 상위 TERM이 남긴 정확한 orphan3493/3528만 정상TERM했고 oldgroup은 모두reap됐다. SIGKILL·설정 생성/PKI/ACLrender·DB재적용·Gateway/RF/HIL은 없었다. 08:51:40KST 새API live/ready200·postgres/redis/mqtt/objectStorage/cadConverter5up·Web200, 총괄의 후속 독립 trusted TLS/HTTP 검사도200/5up이다. 기존22staticfile·1592제품/보호 source SHA 및4dirty를 유지했다. 브라우저 기존 오류 상태는 정상reload 후 실제스케줄 목록1건·달력1건/새공통추가를읽기로확인했으며 저장/활성화/장비명령은0이다.
