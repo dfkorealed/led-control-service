@@ -12,7 +12,53 @@
 
 Producer는 상태 접근을 직렬화하고 read/probe/approve 판단 직전에 새 wall/continuous/primary 관측을 주입해야 한다. 정지한 observer의 과거 wall만으로 freshness를 판단해서는 안 된다. 관측 ID는 fresh boot UUID와 boot 내 증가 revision으로 생성하며 재시작 전 ID를 복원하지 않는다. 정확 4개 generation 상태 외 값·boolean·unsafe integer·clear가 현재 세대보다 큰 상태·overflow는 증거 발급을 닫는다.
 
-SNTP parser는 확인된 `+0.062763 +/- 0.006118 time.apple.com 17.253.114.35` 형태의 단일 seconds 결과만 받는다. 합쳐진 discovery 출력만으로 stdout/stderr 분리를 추정하지 않으며, producer 구현은 두 채널·exit·750ms deadline을 별도로 검증해야 한다. 일반 SNTP는 인증된 NTS가 아니므로 관리 호스트/네트워크와 시간원을 신뢰하는 한계가 있다. 전용 UID·보호 설치·Unix peer 검증·서비스/reader 연결은 후속 단계이며, 이 순수 소프트웨어 검증은 운영 관문 해제·설치·실제 시각 건강·epoch continuity를 증명하지 않는다.
+SNTP parser는 확인된 `+0.062763 +/- 0.006118 time.apple.com 17.253.114.35` 형태의 단일 seconds 결과만 받는다. 합쳐진 discovery 출력에는 다른 주소의 timeout 진단과 1.10초 실행도 있었으므로 건강 증거로 사용하지 않는다. Producer는 stdout/stderr·exit·750ms deadline을 별도로 검증한다. 일반 SNTP는 인증된 NTS가 아니므로 관리 호스트/네트워크와 시간원을 신뢰하는 한계가 있다. 아래 독립 producer/설치 도구의 소프트웨어 검증과 실제 관리자 설치·API reader 연결·운영 시각 건강·epoch continuity는 별개다.
+
+### 독립 Mac clock producer — 보호 설치와 관리자 절차
+
+`scripts/clock-attestor/daemon.py`, `installer.py`, `operator.py`를 구현했다. 이 절의 명령은 승인된 운영 적용 단계에서만 실행하며 현재 소프트웨어 검증 중 실제 설치·SNTP 조회·계정 생성·서비스 시작은 하지 않았다. 설치 root는 `/Library/Application Support/Kinda/ClockAttestor`, launchd label은 `com.kinda.clock-attestor`, plist는 `/Library/LaunchDaemons/com.kinda.clock-attestor.plist`로 고정한다. Runtime artifact는 정확히 `core.py`, `daemon.py`, `installer.py`, `operator.py`, `protocol-v1.json` 다섯 파일이다.
+
+설정 `config.json`은 exact `version,producerUid,producerGid,apiUid,primary,sourceCommit,fileHashes`만 담는다. `primary`의 exact 필드는 `startedAt,address,port,pid,processStartedAt,dataDirectory,executable`이다. 앞 세 값은 운영자가 기존 DB 연결로 새로 읽은 native primary wire와 일치해야 한다. 뒤 네 값은 같은 호스트 PostgreSQL의 PID, `LC_ALL=C /bin/ps -p PID -o lstart=` 결과, 절대 data directory, 커널 `proc_pidpath`가 반환한 실제 `postgres` executable이다. 원격 주소는 거절하고 loopback/native만 지원한다. DB credential은 어떤 파일에도 넣지 않는다.
+
+운영자는 기존 연결로 primary를 새로 읽어 일곱 필드만 있는 JSON을 만들고, `postmaster.pid` PID/epoch seconds/port/ready 및 실행 프로세스 신원과 대조한다. `prepare/check/install`은 이를 재확인한다. 상시 producer는 private PostgreSQL data directory를 읽지 않고, 같은 PID의 `ps` 시작 신원과 커널 executable을 재확인한다. API reader의 **같은 transaction primary wire 비교**가 반드시 함께 있어야 하며, 새 DB 프로세스는 자동 재결속하지 않는다. DB 디렉터리 권한이나 API 그룹 구성은 변경하지 않는다.
+
+일반 사용자 준비·검사는 다음 형태다. `--receipt`는 새 절대 경로여야 하고 receipt 유효기간은 준비 후 60초다. 오래된 receipt/관측 ID는 재사용하지 않는다. Source 디렉터리는 검토한 clean commit의 `scripts/clock-attestor`이며 source hash가 바뀌면 중단한다.
+
+```sh
+/usr/bin/python3 -I -S scripts/clock-attestor/installer.py prepare \
+  --receipt /absolute/private/clock-install-receipt.json \
+  --primary-file /absolute/private/fresh-primary.json --api-uid API_UID
+/usr/bin/python3 -I -S scripts/clock-attestor/installer.py check \
+  --receipt /absolute/private/clock-install-receipt.json
+```
+
+최초 관리자 bootstrap의 신뢰 기준은 사용자 쓰기 가능한 receipt 자체가 아니다. **독립 검토된 commit과 다섯 artifact의 SHA-256을 운영 인계에서 별도로 고정**하고 아래 순서로 대조한다.
+
+1. OS 도구로 root 소유·0700의 새 staging을 root 보호 ancestor 아래 만든다. 예시는 `/Library/Application Support/Kinda/ClockAttestorBootstrap-검증한UUID`이며 실제 UUID/경로를 확정한다. 기존 동명 경로나 symlink를 덮어쓰지 않는다. Ancestor·interpreter·파일이 API 쓰기 가능하거나 ACL이 있으면 중단한다.
+2. `/usr/bin/install -o root -g wheel -m 0644`로 다섯 artifact를 각각 staging에 복사하고 receipt는 `-m 0600`으로 복사한다. 파일마다 원본/대상을 명시하고 재귀 복사나 source repo 실행을 하지 않는다. Root shell의 정제된 환경에서 `/usr/bin/shasum -a 256`으로 staging의 **installer를 포함한 모든 다섯 파일**이 독립 고정 SHA와 일치하는지 먼저 확인한다. Receipt의 `sourceCommit/fileHashes/primary/apiUid`도 운영자가 확인한다.
+3. 아래처럼 검증한 staging의 installer를 실행한다. `sudo python ...repo/installer.py`는 사용하지 않는다. `-I -S`는 cwd/PYTHONPATH/user site와 global site의 `.pth` startup을 모두 배제한다. Installer는 root에서 보호되지 않은 sibling/ancestor를 거절하고, 사용자 repo의 git filter/fsmonitor를 root로 실행하지 않는다. Root 단계는 고정 receipt와 source bytes hash를 비교한다.
+
+```sh
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestorBootstrap-검증한UUID/installer.py" install \
+  --receipt "/Library/Application Support/Kinda/ClockAttestorBootstrap-검증한UUID/receipt.json"
+```
+
+Installer가 내보내는 plist의 argv는 `/usr/bin/python3 -I -S <고정 prefix>/daemon.py --config <고정 prefix>/config.json`이며 저장소를 실행하지 않는다. `_kinda_clock` UID/GID는 directory 목록에서 각각 501 이상 최저 미사용 값을 택한다. API와 같은 UID, `nobody`, 다른 계정과 공유하는 UID/GID 및 자신의 root 보호 receipt로 증명되지 않은 기존 이름을 거절한다. Shell `/usr/bin/false`, home `/var/empty`, password `*`, disabled authentication을 확인한다. Prefix/root 프로그램/config는 root 소유, prefix0755/config0644, runtime은 producer0755, state는 producer0700, generations와 producer lock은 producer0600이다. 기존 generations를 지우거나 초기화하지 않는다.
+
+Socket `runtime/evidence.sock`는 producer 소유0666이다. 이는 cross-UID 연결 허용이며 API가 socket 경로를 교체하거나 부모 디렉터리에 쓰는 권한은 없다. 매 연결의 kernel `getpeereid`로 설정 API UID는 `read`만, UID0은 `status/probe/approve`만 허용한다. 다른 UID는 프레임 처리 전에 거절한다. 한 연결에 한 canonical LF 요청을 보내고 **client `shutdown(SHUT_WR)` 뒤 EOF까지 응답**을 읽는다. 양쪽 최대16KiB/전체1초 deadline이며 partial/추가 bytes/EOF 누락은 거절한다. Observer/외부 수집과 socket 대기는 분리된다.
+
+Producer는 100ms마다 Darwin `mach_continuous_time`(sleep 포함)과 wall/primary를 관측하고 요청 판단 직전에도 새로 읽는다. 미지원 OS/counter/peer API는 시작 거절이다. 독립 collection은 고정 `/usr/bin/sntp -t 1 time.apple.com`만 사용하며 timeout/late/stderr/nonzero/여러 결과는 unavailable이다. 같은 in-flight를 합치고 원 시작시각 기준 1초 미만만 캐시한다. 실패한 API read도 같은 1초 동안 unavailable로 공유해 외부 시간원을 반복 조회하지 않는다. Root probe만 새 독립 표본을 요청하며 승인 전 각 probe가 정상인지 직접 확인한다.
+
+```sh
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestor/operator.py" status
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestor/operator.py" probe
+# 정상 probe를 총 3회 독립 실행한 뒤 마지막 응답의 exact observationId를 사용한다.
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestor/operator.py" approve --observation-id LAST_EXACT_UUID
+```
+
+`operator status/probe/approve`는 모두 UID0 제어 명령이다. `installer status --receipt <file>`은 읽기 전용 설치/launchd 존재 검사이며 관리자 승인·시각 건강을 뜻하지 않는다. 승인 중 관측이 바뀌거나 timeout이면 자동 재시도/재승인하지 않는다. 판단 직전에 IPC가 만료됐으면 승인/늦은 표본을 거절한다. 승인 저장 후 응답이 유실되면 `status`로 확인하며 자동 재승인하지 않는다. 재시작마다 fresh boot UUID와 증가한 step generation 때문에 새 3표본/승인이 필요하다. 장애 시 새 start/delivery는 차단하며 epoch continuity를 제공하지 않는다.
+
+설치 실패 rollback은 자기 `system/com.kinda.clock-attestor`만 bootout하며 계정·상태·staging을 보존한다. 실행 파일 일부 교체 뒤 실패한 경우도 자동 구버전 기동/세대 삭제를 하지 않는다. 운영자가 exact receipt·hash·launchd 상태를 확인하고 재설치/재결속한다. 승인된 수동 정지도 `sudo /bin/launchctl bootout system/com.kinda.clock-attestor`만 사용하며 다른 launchd job·DB·API를 중지하지 않는다. 실제 별도 UID에서의 `ps/proc_pidpath` 가시성, 시스템 Python/ACL 메타데이터, live SNTP 750ms 충족 및 launchd 재시작 증거는 운영 설치 단계에서 확인해야 한다. 테스트 fixture 통과를 그 증거로 대체하지 않는다.
 
 ### 공휴일 서버 provider — 보호 파일 연결 경계
 

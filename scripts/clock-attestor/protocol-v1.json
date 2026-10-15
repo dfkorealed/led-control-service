@@ -276,6 +276,7 @@
     }
   },
   "x-wire": {
+    "transport": "Unix stream 한 연결에 한 요청/응답. 요청 canonical LF 프레임 전송 후 client shutdown(SHUT_WR); producer는 EOF까지 검증한 뒤 응답하고 close한다. 양쪽은 EOF까지 최대16KiB와 전체1초 deadline을 적용한다. 뒤늦은 trailing bytes/partial/no EOF는 거절한다. API UID read만, UID0 status/probe/approve만 허용한다.",
     "encoding": "UTF-8, BOM 없음, object key 사전순, 공백 없음, 마지막 LF 정확히 하나, 최대 16384 bytes",
     "numbers": "유한 수. 지수/불필요한 끝0/negative zero 금지. 소수 최대3자리. offset 0.001ms half-away-from-zero 반올림, uncertainty/readBracket 같은 단위 올림. 0.0은 0.",
     "validation": "중복/prototype/unknown key 거절. 제한 domain으로 재직렬화한 bytes가 원 프레임과 정확히 같아야 한다. boolean은 number/integer가 아니다. LF 이후 추가 bytes/CRLF 거절.",

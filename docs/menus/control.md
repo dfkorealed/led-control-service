@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 독립 Mac clock producer — 소프트웨어
+
+### 구현 완료
+
+- 별도 비로그인 `_kinda_clock` 계정용 launchd installer와 독립 시각 producer, UID0 관리자 `status/probe/approve` 도구를 구현했다. API UID는 kernel peer 확인 후 `read`만 허용한다. Root 보호 설치물/config·full artifact hash·정확 primary/process·sleep 포함 counter·100ms 관측과 요청 직전 재관측을 검증한다.
+- 원 SNTP 시작시각을 유지하고 stdout/stderr/exit/750ms deadline을 분리 검증한다. In-flight 공유, 1초 미만 캐시/실패 backoff, single-producer lock, 세대4개 원자 저장, 시작/step/primary 변화 뒤 독립3표본과 exact 관측 관리자 승인을 적용한다. 잘못된/늦은/불완전 증거는 새 시작 허가로 바꾸지 않는다.
+
+### 미구현
+
+- 실제 관리자 설치·서비스 기동·독립 UID의 native 프로세스 가시성·실시간 SNTP 건강·API reader 연결과 운영 승인 증거는 후속 단계다. 이번 테스트는 주입한 clock/command/socket 및 임시 파일만 사용했다. 실제 밝기 SET·시간제 시작/종료·센서 HIL은 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 일반 SNTP는 NTS 인증 증명이 아니며 관리 호스트/네트워크를 신뢰한다. Remote/Docker VM DB와 epoch continuity는 지원하지 않는다. API의 동일 transaction primary 비교와 V3 적용 확인·MQTT·Gateway 운영 관문이 별도로 필요하다. Timeout을 늘리거나 UID/파일 권한을 넓혀 건강 판정을 만들지 않는다.
+
+### 관련 파일
+
+- `scripts/clock-attestor/{core.py,daemon.py,installer.py,operator.py,protocol-v1.json,test_daemon.py,test_installer.py}`, `scripts/clock-attestor/fixtures/evidence-v1.json`, `docs/runbooks/production-api-web-deployment.md`.
+
+### 갱신 규칙
+
+- 소프트웨어 테스트, 관리자 설치, 3표본/exact 승인, API 연결, 실장비 결과를 구분해 갱신한다. Fresh receipt·hash·primary를 재확인하며 credential이나 승인 관측을 재사용 가능한 설정으로 문서화하지 않는다.
+
 ## 2026-10-15 공휴일 보호 파일·provider 연결 — 소프트웨어
 
 ### 구현 완료
