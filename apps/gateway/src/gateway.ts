@@ -188,7 +188,10 @@ export async function handleAutomationConfigPayload(
       throw error;
     }
     acknowledgement = automationConfigAppliedSchema.parse({
-      schemaVersion: value && typeof value === "object" && "schemaVersion" in value && value.schemaVersion === 2 ? 2 : 1,
+      // Rejections must retain V3 too: a V1 rejection cannot acknowledge the
+      // server's exact V3 snapshot and otherwise leaves the UI pending forever.
+      schemaVersion: value && typeof value === "object" && "schemaVersion" in value
+        && (value.schemaVersion === 2 || value.schemaVersion === 3) ? value.schemaVersion : 1,
       gatewayId: runtime.gatewayId,
       revision: error.revision,
       payloadHash: error.payloadHash,

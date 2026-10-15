@@ -6,18 +6,20 @@
 
 - 잘못된 패킷은 기존처럼 즉시 권한과 대기 감지를 무효화한다. 이후 같은 USB 연결에서 새 센서 설정·독립 GET·수신 확인으로 fault 이후 시작된 정상 구간이 검증되면 해당 센서만 다시 사용할 수 있다. 이전 proof·동일 시각·revision 증가만으로 차단을 풀지 않는다.
 - 관련3파일71개와 Gateway 타입 검증이 통과했다. 정상 UI에서 자동 설정 완료 뒤 활성 규칙 거절을 재현하고 시험 규칙은 다시 비활성화했다.
+- 새 정상 ARM64 Gateway45ecabec를 실제 반영하고 자동 설정 ready를 확인했다. 이후 거절은 기존 활성 스케줄4조명이 센서 역할과 겹치는 별도 원인이다. 시험 규칙27은 다시 비활성 APPLIED로 복귀했다. ID/매핑/기본밝기/인증/ACL을 보존했고 암호화3root52members backup을 로컬에서 복호 검증했다.
+- V3 snapshot 거절도 같은V3 응답으로 수신 확인한다. 과거V1로 잘못 낮춰 ‘적용 대기’가 계속 남던 경로를 회귀로 보호한다. 비활성 스케줄/이벤트는 product 센서 source를 예약하지 않되, 활성 상태의 source/target 충돌 차단은 유지한다.
 
 ### 미구현
 
-- 새 Gateway 배포 및 실제 활성 snapshot 적용 응답은 아직 확인 전이다. 소프트웨어 회귀 통과를 실제 연동 완료로 표시하지 않는다.
+- 후속 V3 ACK/비활성 예약 수정의 장비 반영과 충돌 없는 실제 활성 snapshot 적용은 아직 확인 전이다. 소프트웨어 회귀 통과를 실제 연동 완료로 표시하지 않는다.
 
 ### 부족하거나 개선이 필요한 기능
 
-- 기존 Gateway는 거절 원인을 `bio_pulse_control_unavailable`로 묶는다. 이번 수정으로 실제 활성 적용이 복구되는지 별도로 확인하고, 다른 거절 원인이면 추가 진단한다. 움직임·밝기 복귀 시험은 사용자의 시작 신호 뒤 진행한다.
+- 활성 스케줄에 센서 source가 포함되면 기존 source 전용 정책상 충돌한다. 현재 현장의 스케줄을 시험 동안 잠시 끌지 사용자 답변을 기다리며 임의 변경하지 않는다. 움직임·밝기 복귀 시험은 사용자의 시작 신호 뒤 진행한다.
 
 ### 관련 파일
 
-- `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-sensor-pulse-source.test.ts`.
+- `apps/gateway/src/bio/bio-sensor-pulse-source.ts`, `bio-sensor-pulse-source.test.ts`, `apps/gateway/src/gateway.ts`, `automation/bio-pulse-scheduler.ts`, `automation/automation-runtime.test.ts`, `automation/production-bio-pulse-integration.test.ts`.
 
 ### 갱신 규칙
 

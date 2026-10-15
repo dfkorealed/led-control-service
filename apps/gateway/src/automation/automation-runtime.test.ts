@@ -33,12 +33,12 @@ describe("AutomationRuntime", () => {
     await expect(runtime.initialize()).resolves.toBeUndefined(); expect(events).toEqual(["stage", "rollback", "retain", "degraded"]);
     healthy = true; await runtime.hotReload(snapshot); expect(events.slice(-3)).toEqual(["stage", "recompute", "commit"]);
   });
-  it("rejects a handcrafted enabled BIO V2 rule before storage, activation or RF", async () => {
+  it.each([2, 3])("rejects an enabled BIO V%s rule with its exact ACK version before storage, activation or RF", async version => {
     const store = memoryStore();
     const recompute = vi.fn(async () => ({}));
     const applyDesiredState = vi.fn(async () => {});
     const runtime = createRuntime(store, { recompute, applyDesiredState });
-    const candidate = automationSnapshot(5, { schemaVersion: 2, vehicleEventRules: [{
+    const candidate = automationSnapshot(5, { schemaVersion: version, ...(version === 3 ? { holidayDatasets: [] } : {}), vehicleEventRules: [{
       id: "00000000-0000-4000-8000-000000000011", name: "BIO", sensorProtocol: "bio-usb-pulse",
       status: "enabled", sourceFixtureIds: ["00000000-0000-4000-8000-000000000012"],
       targetFixtureIds: ["00000000-0000-4000-8000-000000000013"],
@@ -51,12 +51,12 @@ describe("AutomationRuntime", () => {
     expect(runtime.currentSnapshot).toBeNull();
     const recorded = vi.fn(async () => {});
     await expect(handleAutomationConfigPayload(Buffer.from(JSON.stringify(candidate)), runtime, recorded))
-      .resolves.toMatchObject({ schemaVersion: 2, status: "rejected", errorCode: "bio_pulse_control_unavailable" });
-    expect(recorded).toHaveBeenCalledWith(expect.objectContaining({ schemaVersion: 2, status: "rejected" }));
+      .resolves.toMatchObject({ schemaVersion: version, status: "rejected", errorCode: "bio_pulse_control_unavailable" });
+    expect(recorded).toHaveBeenCalledWith(expect.objectContaining({ schemaVersion: version, status: "rejected" }));
     expect(store.apply).not.toHaveBeenCalled();
-    const disabled = automationSnapshot(6, { schemaVersion: 2,
+    const disabled = automationSnapshot(6, { schemaVersion: version, ...(version === 3 ? { holidayDatasets: [] } : {}),
       vehicleEventRules: candidate.vehicleEventRules.map(rule => ({ ...rule, status: "disabled" })) } as never);
-    await expect(runtime.hotReload(disabled)).resolves.toMatchObject({ schemaVersion: 2, status: "applied" });
+    await expect(runtime.hotReload(disabled)).resolves.toMatchObject({ schemaVersion: version, status: "applied" });
     expect(applyDesiredState).not.toHaveBeenCalled();
     const restarted = createRuntime(memoryStore(candidate), { recompute, applyDesiredState });
     await expect(restarted.initialize()).rejects.toMatchObject({ code: "bio_pulse_control_unavailable" });

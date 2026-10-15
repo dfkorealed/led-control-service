@@ -14,7 +14,10 @@
 - [x] 중지된 Web/API/broker를 기존 .env·TLS·ACL 그대로 복구했다. 기존 leaf dev만 사용해 migration/ACL render/PKI 변경0, ready200/5up·Web 화면·조명4online을 확인했다. 새 protected supervisor는 `.local/bio-sensor-recovery-20261015-z93iY6ZT`다.
 - [x] 정식 UI 자동 ensure_sensor 후 센서 연결됨→활성 snapshot 적용 실패를 재현하고 규칙을 즉시 비활성으로 되돌렸다. 기존 비활성 APPLIED만으로 성공을 선언하지 않는다.
 - [x] generation 전체에 고착된 decoder fence의 복구 결함을 RED1/36PASS로 재현하고, fault 이후 독립된 새 healthy interval에만 source별 재자격을 허용했다. 같은/이전 시각 proof·revision churn·새 fault 재차단을 보호한다. 직접3files71PASS·Gateway typecheck0이다.
-- [ ] clean commit의 정식 ARM64 bundle/default verify→정확 image load/identity 검사→새 암호화3root backup/로컬 복호 검증→동일 launch/security로 Gateway 교체한다. 이전 runtime/backup은 보존한다.
+- [x] clean45ecabec의 정식 ARM64 bundle/default verify→정확 image load/identity 검사→새 암호화3root backup/로컬 복호 검증(52members/67,206,701regularbytes/plaintext0)→동일 launch/security로 Gateway 교체했다. 기존 runtime/backup 보존·정상TERMexit0·hosts/밝기/센서쓰기0·새health5true/singleUSBowner1이다.
+- [x] 실제 새 활성26은 decoder preflight를 넘어 recompute에서 거절됐고25로 rollback됐다. 현재 활성 스케줄1개가4조명 전부를 포함하여 센서 source와 겹침을 확인했다. 사용자에게 시험 동안 스케줄 비활성화 허용을 질문했고, 이벤트는27비활성 APPLIED로 복귀했다.
+- [x] 추가 최소 회귀: V3 거절 ACK가V1로 낮아져 API가 무시하는 RED1, paused schedule/event도 source를 점유하는 RED2를 재현했다. V3 exact version 유지·product disabled reservation 제외로 고쳤으며 enabled source 충돌은 계속 차단한다. 후속검증/새image적용은 이어진다.
+- [ ] 후속 수정의 정식 ARM64 bundle·기존보존 검증·새backup 후 같은 절차로 반영한다. 스케줄 비활성화는 사용자 답변 전 실행하지 않는다.
 - [ ] 정식 UI에서 자동 준비·활성 snapshot APPLIED와 최신 자격을 확인하고 규칙을 비활성으로 돌려 사용자 시험 준비를 마친다. 실패하면 실제 원인을 추가 진단하며 성공으로 축약하지 않는다.
 - [ ] 변경을 메인 개발 브랜치에 병합하고 메뉴·상태판·체크리스트 및 실제 시험 안내를 최신화한다.
 
