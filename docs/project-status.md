@@ -20,6 +20,20 @@
 - `773abdba`에서 별도 `codex/bio-operational-enablement-20261015` 작업 공간을 만들고 [운영 적용 설계](superpowers/specs/2026-10-15-bio-operational-enablement-design.md)2456c806와 [실행 계획](superpowers/plans/2026-10-15-bio-operational-enablement.md)d2bcf63b를작성·검토했다. 사용자2026-10-15“진행해”로계획승인을확인하고총괄오케스트레이터/담당역할구현·독립검토를시작한다. SDD교차검토/격리환경준비단계이며Tasks1–8은미완료, 원본AGENTS/landing/상태판미커밋변경과실행서비스는보존한다. 관리자설치·Gateway배포·ACLreload·RF는아직미실행이다.
 - 새롭게 필요한 경계는 API와 다른 UID의 DB-host 시각 제공자와 BIO 세 root 전체 복원 가능한 업그레이드 도구다. 관리자 설치/시간원 신뢰 가정·점검 창을 설계에 명시했다. 기존 V2→V3 실제 선언/현재 ACK·공휴일 완전 coverage·최소 ACL까지 확인하기 전 실사용 완료로 표현하지 않는다. 다른 세션의 비활성 센서 UI 시험 규칙·등록/밝기/센서 설정·백업은 보존한다.
 
+## 2026-10-15 센서 UI 실사용 준비 완료 — 수정/장비 반영/메인 병합·활성 적용 확인
+
+- 사용자 후속 `테스트 가능하게 끝까지 진행` 범위에서 단독 진행했다. 중지된 Web/API/broker를 기존 .env/인증/ACL 그대로 복구해 ready200/5up·조명4online을 확인했다. migration/PKI/ACLrender0이며 현재 supervisor는 `.local/bio-sensor-recovery-20261015-z93iY6ZT`다.
+- 별도 `codex/bio-runtime-recovery-20261015`에서 decoder fault 이후 새 독립 정상 구간의 재자격, V3 거절 ACK 버전 유지, 비활성 schedule/event의 source 예약 제외, Docker frozen-install hook 누락을 수정했다. RED→관련5files101PASS·Gateway typecheck0, 정식 ARM64/default verify2개 뒤 새3root 암호화 backup 각각 로컬 검증→동일 launch/security로 실제 반영했다. 현재 exact Gateway source eebe6533이며 매핑/귀속/ID/기본밝기/주소/인증/ACL은 보존됐다.
+- 실제UI 자동 준비ready 뒤 기존 활성 스케줄이4등 전체를 포함해 센서 source와 충돌함을 확인했다. 첫26 거절은 잘못된V1 ACK로 UI대기에 남았고, 보완 후28은 정상 적용실패 표시·29비활성 APPLIED로 수렴했다. 현재 이벤트0enabled/스케줄1enabled다. 구버전V1/26 outbox1개는 과거 증거로 보존하며 위조·강제삭제0이다.
+- 이후 실제 스케줄 UI에서10월12일 종료/다음실행없음인 과거 시험 설정임을 확인했다. 앞선 현재 운전 중지 질문은 새 증거로 해소되었음을 사용자에게 알리고 시험준비 범위에서 내용 보존·status만 비활성으로 정리했다. 센서 규칙 활성31은 UI/DB 모두 APPLIED였고 사용자 직접 시작을 위해 다시 OFF했다. 최종32APPLIED/desired=applied/error null·event0enabled/schedule0enabled·API200/5up·실제UI4online이며 screenshot `/tmp/sensor-ui-test-ready-20261015.png`를 남겼다. 실제 움직임·유지·복귀 시험은 아직이다. 실제 운영/backup 결과와 체크리스트는 `docs/superpowers/plans/2026-10-08-bio-sensor-operational-enablement.md`다.
+- 메인 codex/mvp1-cloud-web에 ff-only 병합 후 관련101PASS를 재확인했다. 사용자AGENTS/랜딩3경로 diff SHA는 `5797ae74856cb72beb4295e7cb0d32c4a1d62257682e44ef6a3765837c0c53e9`로 전후 동일하고, 추가 landing.content.test/field-day PricingSection/pricing 문서 dirty도 건드리지 않는다. 상태판의 기존 미커밋 부분은 전체 stage/commit하지 않고 보존한다.
+
+## 2026-10-15 센서 이벤트 설정 간소화 — 코드·메인·정식 화면 반영 완료
+
+- 사용자 승인: 센서 내장 제품은 사용자 준비/확인 단계 없이 선택→밝기/유지시간→저장·활성화한다. 기존 준비 API를 내부 순차 처리하고 실제 live eligibility/admission은 유지한다. 별도 `codex/sensor-one-step-setup-20261015`에서 직접 구현하며 기존 root 사용자 변경은 보존한다.
+- 실행 기록은 feature worktree `.superpowers/sdd/sensor-one-step-setup-20261015/progress.md`다. 자동 준비/중복 방지→일반 화면 정리/저장·전원 연결→한정 검증/문서/병합 순서다. 실장비 SET·규칙 활성화 시험/게이트웨이 배포·API 재시작·DB 변경은 이번 코드 검증에서 수행하지 않는다.
+- 별도 브랜치 `1f3036ab`를 main에 ff-only 반영했다. 관련5파일141PASS·공통화뒤25PASS·메인 dialog/coordinator36PASS, 격리 fake Chromium1440/390 설정·저장·활성화/실패 재시도3PASS, 타입 포함Web build/UI policy0위반을 확인했다. 메인 실제 UI의 준비버튼 없음·실행 조명/저장/전원버튼 enabled를 읽기로 확인하고 `/tmp/sensor-one-step-settings-20261015.jpg`를 인계한다. 사용자AGENTS/랜딩3경로diff SHA 동일, project-status 기존변경은 덮거나 전체commit하지 않았다. 단독 직접리뷰이며 기존 장비 `bio_pulse_control_unavailable`의 세부 진단/수리·실제 감지/복귀는 여전히 별도 운영 과제다.
+
 ## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어·메인·DB 반영 및 로컬 서비스 복구 완료
 
 - 최종 결과(2026-10-15): 추가 사용자 승인으로 기존 API/Web/broker group을 정상 종료하고 환경·인증서·ACL을 그대로 재사용해 새 owned supervisor로 기동했다. 상위 TERM이 남긴 정확한 orphan3493/3528만 정상TERM했고 oldgroup은 모두reap됐다. SIGKILL·설정 생성/PKI/ACLrender·DB재적용·Gateway/RF/HIL은 없었다. 08:51:40KST 새API live/ready200·postgres/redis/mqtt/objectStorage/cadConverter5up·Web200, 총괄의 후속 독립 trusted TLS/HTTP 검사도200/5up이다. 기존22staticfile·1592제품/보호 source SHA 및4dirty를 유지했다. 브라우저 기존 오류 상태는 정상reload 후 실제스케줄 목록1건·달력1건/새공통추가를읽기로확인했으며 저장/활성화/장비명령은0이다.
@@ -59,6 +73,15 @@
 - Task7 `e0f85b22` 구현: named11files201/201 뒤 최종 downgrade durability 회귀23/23·type/build/diff0과 소유26files를 확인했다. 독립 리뷰 C0/I2는 지연된 APPLIED receipt의 server/Gateway settlement 불일치와 마지막 비동기 preflight의 mapping fence 부재다. Root는 실제 API/outbox/runtime/bootstrap를 좁게 대조하고 원 담당자 fixround1에 release/outbox/production covering+type/diff만 배정했다. 추가 전체 suite/HIL/운영은 없으며 Web handoff는 재리뷰 통과 후다. Bundle1.0mb 표시는 실행 실패/성능 회귀로 주장하지 않는다.
 
 - Task7 fixround1 `1fe9ff53`: actual RED→covering release/outbox/production3files56/56·type/diff0, 독립 scoped 재리뷰 I1/I2 모두 ADDRESSED·새C/I/M0·out-of-scope0이다. 서버가 확정한 과거 복귀 proof와 현재 output 관측을 분리하고 ACK 관측을 직렬 handoff 경계로 쓴다. Offline 최신 자동 목표는 유지하며 후속 ordinary configuration은 trusted hooks/current-time shared evaluator/독립GET로 재조정한다. Final mapping epoch/source/transport native fence와 stop cleanup을 검토했다. 추가 build/전체 cohort/운영0이며 pre-fix Gateway build의1.0mb 표시를 별도 보존한다. Task7 완료, 지정 Web 연결/최소 UI QA·최종리뷰·안전한 로컬 머지가 남았다.
+## 2026-10-14~15 전체 Web UI 간격 디자인 시스템 겹침 점검 — 감사·정리 완료, UI 수정 없음
+
+- 사용자는 각 페이지와 기능의 간격 공통화, 디자인 시스템 불일치, 겹침과 텍스트 잘림을 확인하고 정리하도록 요청했다. 이번 범위는 점검과 보고이며 UI 수리, API·DB·장비·운영 서비스 변경은 포함하지 않는다.
+- 기준은 현재 `fa5ab18b`와 공통 로딩 적용 후의 미커밋 변경이다. Web 소스와 정책 기준 642개 파일의 SHA를 시작 시점에 기록했다. 이전 작업과 사용자 변경을 보존하며 완료 시 다시 대조한다.
+- 담당 영역은 공통 고객 셸·모니터링·제어, 설정·등록·맵 편집, 통계·운영자·인증·공개 화면으로 분리했다. 독립 mock 브라우저와 증거 경로를 사용하고 실제 서비스의 변경 요청은 보내지 않는다.
+- 실행 체크리스트(writing-plans): [x] 현재 소스와 디자인 기준 확인, [x] 메뉴별 소스 및 대표 브라우저 상태 점검, [x] 공통 원인 중복 제거와 재현 여부 분류, [x] 근거 연결 보고서와 개선 우선순위 정리, [x] 소스 보존 및 범위 확인 후 인계.
+- 결과는 `.local/ui-audit-20261014/report.md`와 영역별 report/findings/coverage에 정리했다. 브라우저 재현 P2는 9개 발생 지점이며 통계 수치 넘침 두 위치를 같은 원인으로 묶으면 8개 개선 항목이다. 별도 간격·디자인 시스템 P3 관측 항목은 6개이며 역할 및 승인 예외 합의 필요를 표시했다. 맵 편집 본문/기록, 수동 제어 지도 버튼, 긴 명령 상세, 등록 장비 정보, 현장 폼, 통계 KPI, 사용자 초기화 대상 ID의 접근·판독 손실이 우선 개선 대상이다. UI 수리는 수행하지 않았다.
+- 공통·운영 기능44개 소스/37개 일부 브라우저·PNG153, 설정7route/기능군40개 소스/36개 일부 브라우저·최종상태199, 통계·운영자·인증·공개11route/캡처155 및 별도hit4상태를 기록했다. 캡처·렌더 성공을 모든 상태의 UI PASS로 표현하지 않으며 source-only·미검증 입력/비동기/실기기 상태를 coverage에 명시했다. 정책0/0이나 이전 로딩 검증도 전체 시각 통과를 대체하지 않는다.
+- 최종 Web/정책642개 SHA와 HEAD를 대조해 변경0을 확인했다. 실제 외부 변경/장비/HIL·기존 서비스 재시작0, 본인 소유15321/15322/15323 감사 서버만 정리했다. 실제200%확대·OS키보드·Safari/native·모든 상호작용은 미검증이며 공통/운영 초기 runner raw 일부 미보존은 재구성 기록/최종 재캡처와 구분했다. 전체 unit/type/build 재실행·커밋/머지/push는 하지 않았다.
 
 ## 2026-10-14 공통 로딩 전체 Web 적용 — 구현·소프트웨어 검증·읽기 전용 리뷰 완료
 
