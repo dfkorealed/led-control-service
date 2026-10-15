@@ -1,5 +1,27 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-15 배포 HTTP 읽기 전용 점검 창 — 소프트웨어
+
+### 구현 완료
+
+- API `GATEWAY_DEPLOYMENT_READ_ONLY=1`일 때 로그인·등록·설정 저장을 포함한 unsafe HTTP 요청은 body parser/handler 전에 503/`gateway_deployment_read_only`와 `Retry-After: 60`으로 차단한다. GET/HEAD/OPTIONS는 기존 정책을 따르고 점검 응답에 `X-Kinda-Read-Only: 1`을 제공한다. 기본 미설정/0은 기존 처리이며 다른 값은 부팅을 거절한다.
+
+### 미구현
+
+- 실제 환경 설정·재시작·등록/설정 쓰기·장비 HIL은 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이 flag는 worker drain·규칙 비활성화를 대신하지 않는다. 기존 accepted 작업/복구와 MQTT 처리는 유지하므로 배포 수렴 확인을 별도로 수행해야 한다. 자동 검증은 자체 HTTP app/counter에 한정한다.
+
+### 관련 파일
+
+- `apps/api/src/gateway-deployment-read-only.ts`, `gateway-deployment-read-only.spec.ts`(같은 디렉터리), `apps/api/src/main.ts`, `.env.example`, `docs/runbooks/production-api-web-deployment.md`.
+
+### 갱신 규칙
+
+- 소프트웨어 차단 검증과 실제 적용·drain·장비 결과를 구분하고 기존 등록·설정·인증/권한을 보존한다.
+
 ## 2026-10-14 공통 로딩 표시 적용
 
 ### 구현 완료

@@ -1,5 +1,27 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 배포 HTTP 읽기 전용 점검 창 — 소프트웨어
+
+### 구현 완료
+
+- API의 `GATEWAY_DEPLOYMENT_READ_ONLY=1`은 body parser 전에 새 제어 등 모든 unsafe HTTP 요청을 503/`gateway_deployment_read_only`·`Retry-After: 60`으로 차단한다. GET/HEAD/OPTIONS는 기존 정책으로 처리하며 점검 응답은 `X-Kinda-Read-Only: 1`로 표시한다. 미설정/0은 기존 동작을 유지하고 다른 값은 부팅 거절한다.
+
+### 미구현
+
+- 실제 운영 설정 적용·API 재시작·장비 제어/HIL은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- HTTP 입구만 차단하므로 이미 accepted된 작업·end/만료 복구·worker·MQTT는 별도로 수렴·drain해야 한다. 규칙 비활성화를 대신하지 않으며, 테스트의 자체 recovery sentinel을 실제 worker 복구 증거로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/api/src/gateway-deployment-read-only.ts`, `gateway-deployment-read-only.spec.ts`(같은 디렉터리), `apps/api/src/main.ts`, `.env.example`, `docs/runbooks/production-api-web-deployment.md`.
+
+### 갱신 규칙
+
+- 점검 flag의 HTTP 동작과 실제 배포·worker drain·장비 검증을 구분하고 기존 인증·CSRF·권한과 accepted 작업 보존을 함께 확인한다.
+
 아래 clock·KASI 항목은 BIO 운영 후속 Task1/3/4의 소프트웨어 준비 상태다. 센서 UI·Gateway 항목은 메인 담당자가 기록한 별도 작업의 당시 검증·배포 이력을 함께 보존한 것으로, 이번 문서 병합에서 운영 결과를 새로 확인한 것은 아니다. 운영 후속 Task8의 현재 장비·설정·V3 적용 상태 재확인과 실제 clock 설치·provider 연결은 별도 미완료 관문으로 유지한다.
 
 ## 2026-10-15 API 보호 Unix clock reader — 소프트웨어

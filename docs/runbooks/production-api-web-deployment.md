@@ -4,6 +4,14 @@
 
 ## 적용 범위와 사전 조건
 
+### Gateway 배포 HTTP 쓰기 차단 점검 창
+
+`GATEWAY_DEPLOYMENT_READ_ONLY`는 미설정 또는 정확한 `0`이면 기존 HTTP 처리를 유지하고, 정확한 `1`이면 점검 창을 적용한다. 빈 문자열·공백·오타 등 다른 값은 부팅을 거절한다. 시작 시 읽는 설정이므로 적용·해제는 승인된 API 재시작 절차로 진행한다. 이번 구현에서는 실제 환경 값을 변경하거나 재시작하지 않았다.
+
+관측 미들웨어 뒤, JSON body parser 앞에서 GET/HEAD/OPTIONS만 기존 인증·CSRF·권한·handler로 넘긴다. 점검 창의 모든 HTTP 응답에는 `X-Kinda-Read-Only: 1`이 붙는다. 로그인·새 명령·등록·설정 저장을 포함한 POST/PUT/PATCH/DELETE 및 기타 unsafe method는 parser나 handler 실행 전에 HTTP 503, `{ "statusCode": 503, "code": "gateway_deployment_read_only" }`, `Retry-After: 60`으로 종료한다. Health 읽기의 기존 dependency key와 body는 바꾸지 않는다. 허용된 읽기는 기존 보안 정책을 계속 따른다.
+
+이 설정은 HTTP 요청 입구만 차단한다. 기존 accepted 명령·end/만료 복구·MQTT 처리·백그라운드 worker를 삭제하거나 해제하지 않으며, worker drain 또는 규칙 비활성화를 대신하지 않는다. 배포 전 기존 accepted 작업의 수렴과 worker/규칙 상태를 별도로 확인하고, source·대상·프로세스·등록 귀속 및 배포 승인을 새로 확인한다. 실제 POST로 차단을 시험하거나 밝기 SET·규칙 활성화·장비 쓰기를 보내지 않는다. 자동 검증은 자체 HTTP app/parser·handler counter에 한정하며 실제 worker recovery 또는 운영 배포 성공의 증거가 아니다.
+
 ### 독립 DB-host 시각 증거 — wire·순수 상태 기계
 
 현재 Mac native PostgreSQL primary용 private [wire v1](../../scripts/clock-attestor/protocol-v1.json)과 [공유 fixture](../../scripts/clock-attestor/fixtures/evidence-v1.json)를 고정했다. `core.py`는 주입한 wall/continuous 관측과 표본만 검사하며 OS 시각·SNTP·프로세스·DB를 읽거나 변경하지 않는다. UTF-8·사전순 key·공백 없는 JSON·마지막 LF 하나·16KiB 한도를 지키고 중복/unknown/prototype key와 비정규 숫자 표현을 거절한다. 정상 응답의 `offsetMs`는 실제 signed offset을 0.001ms로 반올림하고 uncertainty/bracket은 올림한다. admission은 원 offset 절대값까지 마이크로초로 올려 `abs(offset)+uncertainty+readBracket+2ms <=100ms`를 보수적으로 검사한다.

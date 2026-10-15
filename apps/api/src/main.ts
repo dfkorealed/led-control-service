@@ -3,6 +3,7 @@ import { config } from "dotenv";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { configureApiBodyParser } from "./api-body-parser";
+import { installGatewayDeploymentReadOnly } from "./gateway-deployment-read-only";
 import { AppModule } from "./app.module";
 import { createApiRuntimeLifecycle, enableApiShutdownHooks } from "./api-lifecycle";
 import { createApiHttpsOptions } from "./api-tls-options";
@@ -36,6 +37,7 @@ async function bootstrap(
   const runtime = createApiRuntimeLifecycle(app);
   registerRuntime(runtime);
   installApiObservability(app);
+  installGatewayDeploymentReadOnly(app, process.env);
   configureApiBodyParser(app);
   enableApiShutdownHooks(app);
   runtime.bind(app.getHttpServer());
