@@ -113,6 +113,8 @@ Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호
 
 ### Task 5: 배포 중 HTTP 쓰기 차단 점검 창
 
+시작 전 통합: 메인47931f9a의committedGateway수정을격리브랜치4977f66d로보존통합했다. MAIN7dirty/기존API·clock21파일해시불변/두쪽제어문서순서보존을확인했고 MAIN에는쓰지않았다. Task5를진행하며별도실배포기록의초기Gateway전제변경은읽기재평가한다.
+
 **Owner:** backend. **Files:** Create `apps/api/src/gateway-deployment-read-only.ts`, `gateway-deployment-read-only.spec.ts`; Modify `apps/api/src/main.ts`, `.env.example`, `docs/runbooks/production-api-web-deployment.md`, `docs/menus/control.md`, `docs/menus/settings.md`.
 
 **Interfaces:** `installGatewayDeploymentReadOnly(app:NestExpressApplication,env:NodeJS.ProcessEnv):void`를 export하고 `main.ts`의 observability 설치 뒤/body parser 앞에서 호출한다. flag는 미설정/`0`이면 기존 동작, `1`이면 read-only이며 다른 값은 부팅을 거절한다.
