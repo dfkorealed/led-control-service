@@ -42,6 +42,16 @@
 
 - Task7 fixround1 `1fe9ff53`: actual RED→covering release/outbox/production3files56/56·type/diff0, 독립 scoped 재리뷰 I1/I2 모두 ADDRESSED·새C/I/M0·out-of-scope0이다. 서버가 확정한 과거 복귀 proof와 현재 output 관측을 분리하고 ACK 관측을 직렬 handoff 경계로 쓴다. Offline 최신 자동 목표는 유지하며 후속 ordinary configuration은 trusted hooks/current-time shared evaluator/독립GET로 재조정한다. Final mapping epoch/source/transport native fence와 stop cleanup을 검토했다. 추가 build/전체 cohort/운영0이며 pre-fix Gateway build의1.0mb 표시를 별도 보존한다. Task7 완료, 지정 Web 연결/최소 UI QA·최종리뷰·안전한 로컬 머지가 남았다.
 
+## 2026-10-14~15 전체 Web UI 간격 디자인 시스템 겹침 점검 — 감사·정리 완료, UI 수정 없음
+
+- 사용자는 각 페이지와 기능의 간격 공통화, 디자인 시스템 불일치, 겹침과 텍스트 잘림을 확인하고 정리하도록 요청했다. 이번 범위는 점검과 보고이며 UI 수리, API·DB·장비·운영 서비스 변경은 포함하지 않는다.
+- 기준은 현재 `fa5ab18b`와 공통 로딩 적용 후의 미커밋 변경이다. Web 소스와 정책 기준 642개 파일의 SHA를 시작 시점에 기록했다. 이전 작업과 사용자 변경을 보존하며 완료 시 다시 대조한다.
+- 담당 영역은 공통 고객 셸·모니터링·제어, 설정·등록·맵 편집, 통계·운영자·인증·공개 화면으로 분리했다. 독립 mock 브라우저와 증거 경로를 사용하고 실제 서비스의 변경 요청은 보내지 않는다.
+- 실행 체크리스트(writing-plans): [x] 현재 소스와 디자인 기준 확인, [x] 메뉴별 소스 및 대표 브라우저 상태 점검, [x] 공통 원인 중복 제거와 재현 여부 분류, [x] 근거 연결 보고서와 개선 우선순위 정리, [x] 소스 보존 및 범위 확인 후 인계.
+- 결과는 `.local/ui-audit-20261014/report.md`와 영역별 report/findings/coverage에 정리했다. 브라우저 재현 P2는 9개 발생 지점이며 통계 수치 넘침 두 위치를 같은 원인으로 묶으면 8개 개선 항목이다. 별도 간격·디자인 시스템 P3 관측 항목은 6개이며 역할 및 승인 예외 합의 필요를 표시했다. 맵 편집 본문/기록, 수동 제어 지도 버튼, 긴 명령 상세, 등록 장비 정보, 현장 폼, 통계 KPI, 사용자 초기화 대상 ID의 접근·판독 손실이 우선 개선 대상이다. UI 수리는 수행하지 않았다.
+- 공통·운영 기능44개 소스/37개 일부 브라우저·PNG153, 설정7route/기능군40개 소스/36개 일부 브라우저·최종상태199, 통계·운영자·인증·공개11route/캡처155 및 별도hit4상태를 기록했다. 캡처·렌더 성공을 모든 상태의 UI PASS로 표현하지 않으며 source-only·미검증 입력/비동기/실기기 상태를 coverage에 명시했다. 정책0/0이나 이전 로딩 검증도 전체 시각 통과를 대체하지 않는다.
+- 최종 Web/정책642개 SHA와 HEAD를 대조해 변경0을 확인했다. 실제 외부 변경/장비/HIL·기존 서비스 재시작0, 본인 소유15321/15322/15323 감사 서버만 정리했다. 실제200%확대·OS키보드·Safari/native·모든 상호작용은 미검증이며 공통/운영 초기 runner raw 일부 미보존은 재구성 기록/최종 재캡처와 구분했다. 전체 unit/type/build 재실행·커밋/머지/push는 하지 않았다.
+
 ## 2026-10-14 공통 로딩 전체 Web 적용 — 구현·소프트웨어 검증·읽기 전용 리뷰 완료
 
 - 사용자의 적용 승인으로 `fa5ab18b`의 현재 checkout에서 Web 표시만 갱신한다. 기존 맵의 LoaderCircle/20px/reduced-motion을 `components/ui/LoadingIndicator.tsx`의 시각 요소와 inline 상태, `LoadingState.tsx`의 패널 상태로 재사용한다. Button/IconTooltipButton·라우트/목록/상세/다이얼로그·검색/다음 페이지·실제 요청 버튼에 연결하며 API/query 조건·장비/DB/인증 로직은 변경하지 않는다.
