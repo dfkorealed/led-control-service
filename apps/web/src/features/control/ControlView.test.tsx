@@ -1865,10 +1865,30 @@ describe("ControlView 대상 선택", () => {
   });
 
   it.each([
+    [{ code: "bio_source_target_forbidden", operation: "manual" }, /이벤트 감지용 조명이 포함/],
+    [{ code: "temporary_control_lease_conflict" }, /시간제 제어 중인 조명이 포함/]
+  ])("does not strand controls or replay a Set rejected before admission: %j", async (body, message) => {
+    mocks.apiPost.mockRejectedValueOnce(Object.assign(new Error("not admitted"), { status: 409, body }))
+      .mockResolvedValueOnce({ id: commandIds.default, dispatchCount: 1 });
+    renderControl(); selectFixture("B2-L001"); fireEvent.click(applyButton());
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(applyButton()).toBeEnabled(); expect(fixtureMarker("B2-L001")).toBeEnabled();
+    expect(screen.queryByText(/안전을 위해 재전송할 수 없습니다/)).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+    // No automatic replay: only a new explicit Apply can create a fresh UUID.
+    fireEvent.click(applyButton());
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+    expect(mocks.apiPost.mock.calls[1][1].clientRequestId).not.toBe(mocks.apiPost.mock.calls[0][1].clientRequestId);
+  });
+
+  it.each([
     [409, { code: "command_request_expired" }],
     [409, { code: "command_requires_verification", caseId: "case-1", blockingCaseCount: 1 }],
     [410, { code: "command_expired" }],
-    [409, { code: "unexpected_future_safety_code" }]
+    [409, { code: "unexpected_future_safety_code" }],
+    [409, { code: "bio_source_target_forbidden" }],
+    [409, { code: "bio_source_target_forbidden", operation: "identify" }]
   ])("keeps the manual hold after a safety-sensitive %s response %#", async (status, body) => {
     mocks.apiPost.mockRejectedValueOnce(Object.assign(new Error("unsafe to retry"), { status, body }));
     renderControl();

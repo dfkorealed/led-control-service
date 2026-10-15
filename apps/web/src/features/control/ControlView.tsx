@@ -545,7 +545,7 @@ export function ControlView({
         !ownsRequestScope(generation, requestUserId, request.siteId)
         || !ownsActiveCommandSession(requestUserId, commandSession.generation)
       ) return;
-      if (isDefinitiveCommandRejection(error) || isGatewayRecommissionRejection(error)) {
+      if (isDefinitiveCommandRejection(error) || isPreAdmissionDimmingRejection(error)) {
         clearActiveCommandRequest(requestUserId, request.siteId, request.clientRequestId);
         if (getActiveCommandStorageError()) return;
         setActiveRequest(null);
@@ -1028,12 +1028,19 @@ function isSafetySensitiveCommandError(error: unknown): boolean {
   return status === 404 || status === 409 || status === 410;
 }
 
-function isGatewayRecommissionRejection(error: unknown): error is { status: number; body?: unknown } {
+function isPreAdmissionDimmingRejection(error: unknown): error is { status: number; body?: unknown } {
   // The server checks an existing clientRequestId first, then rejects fresh
-  // Sets before creating a Command while the recommission fence is active.
-  // Keep this exception scoped to dimming POST, not Get-only status checks.
-  return Boolean(error && typeof error === "object" && "status" in error
-    && error.status === 409 && commandErrorCode(error) === "gateway_recommission_in_progress");
+  // Sets before creating a Command while these policy/ownership fences are active.
+  // Their rejection creates neither a Command nor MQTT outbox entry, unlike an
+  // expired replay or an unknown outcome. Never generalize this allowlist to
+  // other 409s or Get-only status checks. A source rejection must name this
+  // operation explicitly; a malformed/future variant remains fail-closed.
+  if (!error || typeof error !== "object" || !("status" in error) || error.status !== 409) return false;
+  const code = commandErrorCode(error);
+  if (code === "gateway_recommission_in_progress" || code === "temporary_control_lease_conflict") return true;
+  const body = "body" in error ? error.body : null;
+  return code === "bio_source_target_forbidden" && !!body && typeof body === "object"
+    && "operation" in body && body.operation === "manual";
 }
 
 function commandErrorCode(error: unknown): string | null {
@@ -1052,6 +1059,8 @@ function safetyRejectionCaseId(error: unknown): string | null {
 
 function definitiveRejectionMessage(error: { status: number; body?: unknown }): string {
   if (error.status === 403) return "제어 권한이 없습니다. 권한을 확인한 뒤 다시 시도하세요.";
+  if (error.status === 409 && commandErrorCode(error) === "bio_source_target_forbidden") return "이벤트 감지용 조명이 포함되어 있습니다. 이벤트 제어를 끄거나 감지 조명을 대상에서 제외한 뒤 새로 적용하세요. 이번 요청은 조명에 전송되지 않았습니다.";
+  if (error.status === 409 && commandErrorCode(error) === "temporary_control_lease_conflict") return "시간제 제어 중인 조명이 포함되어 있습니다. 해당 시간제 제어 종료 후 새로 적용하세요. 이번 요청은 조명에 전송되지 않았습니다.";
   if (error.status === 409 && commandErrorCode(error) === "gateway_recommission_in_progress") return "게이트웨이 재등록이 진행 중입니다. 완료 후 새 제어 요청으로 다시 시도하세요.";
   if (error.status === 409) return "동일 요청 ID가 다른 제어 내용과 충돌했습니다. 새 제어 요청을 실행하세요.";
   return `제어 요청이 거부되었습니다(${error.status}). 입력과 권한을 확인하세요.`;

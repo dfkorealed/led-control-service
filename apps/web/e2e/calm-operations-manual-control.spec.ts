@@ -97,6 +97,50 @@ const viewports = [
   { width: 320, height: 740 }
 ] as const;
 
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`${viewport.width}px 전송 전 수동 거절은 편집을 유지하고 불확정 거절만 잠근다`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await installManualControlFixture(page, "admin", "ready", [fixtures[0]]);
+    const requests: Array<{ clientRequestId: string }> = [];
+    const rejections = [
+      { code: "bio_source_target_forbidden", operation: "manual" },
+      { code: "temporary_control_lease_conflict" },
+      { code: "unexpected_future_safety_code" }
+    ];
+    await page.route("**/api/commands/dimming", async route => {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({ status: 409, json: rejections[requests.length - 1] });
+    });
+    await page.goto(`/control?siteId=${ids.site}&mode=manual`);
+    const marker = page.getByRole("button", { name: /^B2-L01 / });
+    const apply = page.getByRole("button", { name: /밝기 적용/ });
+    const status = page.getByRole("status", { name: viewport.width < 760 ? "제어 중요 상태" : "명령 진행 상태" });
+    await marker.click();
+    await apply.click();
+    await expect(status).toContainText("이벤트 감지용 조명이 포함");
+    await expect(apply).toBeEnabled();
+    await expect(marker).toBeEnabled();
+    expect(requests).toHaveLength(1);
+    // A reload must not replay an unadmitted request or restore its false hold.
+    await page.reload();
+    await expect(marker).toBeEnabled();
+    expect(requests).toHaveLength(1);
+    await marker.click();
+    await apply.click();
+    await expect(status).toContainText("시간제 제어 중인 조명이 포함");
+    await expect(apply).toBeEnabled();
+    expect(requests).toHaveLength(2);
+    expect(requests[1].clientRequestId).not.toBe(requests[0].clientRequestId);
+    await apply.click();
+    await expect(status).toContainText("안전을 위해 재전송할 수 없습니다");
+    await expect(apply).toBeDisabled();
+    await expect(marker).toBeDisabled();
+    await page.reload();
+    await expect(marker).toBeDisabled();
+    expect(requests).toHaveLength(3);
+  });
+}
+
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
   test(`${viewport.width}px 최근 이력은 실행 패널 아래 compact bar로 남는다`, async ({ page }) => {
     await page.setViewportSize(viewport);
