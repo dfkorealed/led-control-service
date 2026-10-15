@@ -65,11 +65,13 @@ wire v1은 newline-framed 단일 JSON이다. 요청 `{version:1,op:"read",nonce:
 
 wire canonical 형식은 UTF-8, object key 사전순, 공백 없는 JSON+마지막 LF 하나다. 숫자는 지수/불필요한 끝0/negative-zero 없이 소수점3자리 이하로 표기한다. offset은0.001ms로 반올림하고 uncertainty/bracket은 같은 단위로 올림해 보수성을 유지한다. 오차 합계는 integer microseconds로 계산한다. Python/JS 양쪽은 이 제한된 domain의 재직렬화 bytes 일치를 확인해 duplicate/비정규 표현을 거절한다. 이 형식과 정상/오류/0.0→0·fractional 경계 예시는 protocol/fixture에 함께 고정한다.
 
-- [ ] **1. RED 테스트 작성:** 초 단위 `+0.058639 +/- 0.005864 ...`를 58.639/5.864ms로 파싱하고 잘못된 단위·음수 uncertainty·NaN/Infinity·모호/다중 결과를 거절한다. 오차 합계 정확100ms/초과, 측정 원시각1초/초과·미래100ms/초과, 관측 gap1초/초과, wall/continuous 변화10ms/초과, 시작/재시작 deny, primary 불일치, 정상3표본 전/후 exact 관측 root 승인과 오래된 승인 거절을 고정한다. 과거 표본의 `issuedAt`은 새 nonce에서도 불변이어야 한다.
-- [ ] **2. RED 확인:** `/usr/bin/python3 -m unittest discover -s scripts/clock-attestor -p 'test_core.py' -v`. 실제 SNTP·OS 시각·DB는 접근하지 않는다.
-- [ ] **3. 구현:** 새 boot/generation은 우선 deny, continuous 관측100ms·gap1000ms·step10ms 관문을 구현한다. `abs(offset)+uncertainty+readBracket+2 <=100`을 강제하되 wire `offsetMs`는 signed 실제 값이다. clear는 같은 primary의 독립 정상3표본과 현재 observationId에 대한 UID0 승인만 가능하다. epoch continuity는 만들지 않는다. 부정확한 표본/세대 상태는 새 증거가 아니라 unavailable이다.
-- [ ] **4. GREEN 확인:** Step 2, protocol/fixture의 exact keys·중복/unknown key 거절, `git diff --check`. 현재 SNTP가 인증된 NTS라는 주장을 하지 않는다.
-- [ ] **5. 커밋·검토:** producer/consumer private wire 계약과 fixture를 총괄 승인 후 커밋하고 다음 소비 작업에 정확 커밋을 전달한다. 독립 검토는 Focus 2를 확인한다.
+- [x] **1. RED 테스트 작성:** 초 단위 `+0.058639 +/- 0.005864 ...`를 58.639/5.864ms로 파싱하고 잘못된 단위·음수 uncertainty·NaN/Infinity·모호/다중 결과를 거절한다. 오차 합계 정확100ms/초과, 측정 원시각1초/초과·미래100ms/초과, 관측 gap1초/초과, wall/continuous 변화10ms/초과, 시작/재시작 deny, primary 불일치, 정상3표본 전/후 exact 관측 root 승인과 오래된 승인 거절을 고정한다. 과거 표본의 `issuedAt`은 새 nonce에서도 불변이어야 한다.
+- [x] **2. RED 확인:** `/usr/bin/python3 -m unittest discover -s scripts/clock-attestor -p 'test_core.py' -v`. 실제 SNTP·OS 시각·DB는 접근하지 않는다.
+- [x] **3. 구현:** 새 boot/generation은 우선 deny, continuous 관측100ms·gap1000ms·step10ms 관문을 구현한다. `abs(offset)+uncertainty+readBracket+2 <=100`을 강제하되 wire `offsetMs`는 signed 실제 값이다. clear는 같은 primary의 독립 정상3표본과 현재 observationId에 대한 UID0 승인만 가능하다. epoch continuity는 만들지 않는다. 부정확한 표본/세대 상태는 새 증거가 아니라 unavailable이다.
+- [x] **4. GREEN 확인:** Step 2, protocol/fixture의 exact keys·중복/unknown key 거절, `git diff --check`. 현재 SNTP가 인증된 NTS라는 주장을 하지 않는다.
+- [x] **5. 커밋·검토:** producer/consumer private wire 계약과 fixture를 총괄 승인 후 커밋하고 다음 소비 작업에 정확 커밋을 전달한다. 독립 검토는 Focus 2를 확인한다.
+
+검증 기록: `19d2ac4e`, Python3.9.6 직접18/18·diff0, 독립검토 spec준수/Approved·C/I0. 초기 RED는 import scaffolding이며 이후 semantic 회귀와 구현 후 별도 stub 검증을 구분했다. 잘못된 SNTP 표본의 다른 필드까지 비정상인 Minor1은 최종검토로 추적한다. Task3/4의 실제 수집·fresh observe·IPC/JS 검증 및 운영 적용은 아직이다.
 
 ### Task 3: 독립 producer·launchd 설치·관리자 승인 도구
 

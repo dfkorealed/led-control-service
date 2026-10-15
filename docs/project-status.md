@@ -4,6 +4,7 @@
 
 ## 2026-10-15 BIO 실사용 운영 후속 — 계획 승인·격리 구현 시작
 
+- Task2 `19d2ac4e`: clock canonical wire/SNTP parser·純 주입 trust core와 공통fixture를 구현해 Python3.9.6 직접18/18·diff0, 독립검토 spec준수/Approved·C/I0를 확인했다. 시작/재시작·step/gap/primary latch·3표본/root승인·원 issuedAt 보존이 핵심이다. SNTP 잘못된 표본 테스트의 의미 분리 Minor1은 최종검토에 남긴다. 초기 import RED와 후속 semantic RED를 구분했으며 Task3 독립 daemon/installer를 시작한다. 실제 설치/시각 gate·API reader·배포/운영은 아직이다.
 - Task1 `d61a8fa7`: 보호파일 KASI loader·실제 Nest provider DI·연도 전체0건 승격/캐시 거절을 구현했다. 지정2suite78/78·APItypecheck/diff0, 독립검토 spec준수/Approved·C/I0다. 앞선2027 fixture로 인한 기존 missing-coverage 테스트 순서 의존을 명시적 누락2040/2041로 분리했고, 기존 corrupted-hash fixture를 더 명확히 할 Minor1은 최종검토에 남긴다. Task1은 완료, Task2 시각 wire/core를 시작한다. 실제 키/운영DB/provider·서비스·Pi 변경0이며 Tasks2–8/운영완료는 아직이다.
 - 사용자는 Gateway 배포·시각 검증·공휴일/MQTT 연결과 변경·최소 연관 테스트를 요청했고 특일 정보 키를 발급했다. 키는 원본 checkout의 ignored `.local/secrets/kasi-holiday-service-key`에 0600(상위0700)으로 저장했으며, 기존 provider의 실제2026-10조회/정규화1회가 성공했다. 키/URL/원문은 출력하지 않았고 서버 자동 수집/DB 승격은 아직 연결하지 않았다.
 - `773abdba`에서 별도 `codex/bio-operational-enablement-20261015` 작업 공간을 만들고 [운영 적용 설계](superpowers/specs/2026-10-15-bio-operational-enablement-design.md)2456c806와 [실행 계획](superpowers/plans/2026-10-15-bio-operational-enablement.md)d2bcf63b를작성·검토했다. 사용자2026-10-15“진행해”로계획승인을확인하고총괄오케스트레이터/담당역할구현·독립검토를시작한다. SDD교차검토/격리환경준비단계이며Tasks1–8은미완료, 원본AGENTS/landing/상태판미커밋변경과실행서비스는보존한다. 관리자설치·Gateway배포·ACLreload·RF는아직미실행이다.
