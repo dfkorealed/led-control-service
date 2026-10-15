@@ -95,17 +95,21 @@ wire canonical 형식은 UTF-8, object key 사전순, 공백 없는 JSON+마지�
 
 ### Task 4: API의 보호 Unix socket reader와 BIO admission 연결
 
-**Owner:** backend. **Files:** Create `apps/api/src/mqtt/command-db-clock-evidence-source.ts`, `command-db-clock-evidence-source.spec.ts`; Modify `mqtt.module.ts`, `command-db-clock-health.service.spec.ts`, `apps/api/src/temporary-controls/temporary-controls.integration.spec.ts`, `.env.example`, `docs/menus/control.md`.
+**Owner:** backend. **Files:** Create `apps/api/src/mqtt/command-db-clock-evidence-source.ts`, `command-db-clock-evidence-source.spec.ts`; Modify `mqtt.module.ts`, `command-db-clock-health.service.ts`(기존 미등록 설명 주석만), `command-db-clock-health.service.spec.ts`, `apps/api/src/temporary-controls/temporary-controls.integration.spec.ts`, `.env.example`, `docs/menus/control.md`.
 
 Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호0755 runtime과 kernel peer 인증을 사용한다. root config.primary는 exact7키(`startedAt,address,port,pid,processStartedAt,dataDirectory,executable`)이며 API 그룹/DB 폴더 권한을 넓히지 않는다. 요청 canonical LF 하나를 `socket.end(frame)`로 write-half-close하고 응답 EOF까지 총1초 안에 읽어 later-chunk trailing/partial frame을 거절한다.
 
 **Interfaces:** `UnixCommandDbClockEvidenceSource implements CommandDbClockEvidenceSource`의 `read():Promise<CommandDbClockEvidence|null>`와 `createConfiguredCommandDbClockEvidenceSource(env:NodeJS.ProcessEnv):CommandDbClockEvidenceSource|undefined`를 export한다. `COMMAND_DB_CLOCK_EVIDENCE_SOURCE` useFactory가 소비한다. `COMMAND_DB_CLOCK_SOCKET_PATH`가 없으면 기존 optional deny이고, 설정되면 Task 3의 고정 canonical prefix/socket만 허용한다. `readEpochContinuity`는 제공하지 않는다. Task 2 fixture와 wire를 소비한다.
 
-- [ ] **1. RED 테스트 작성:** socket/non-symlink·보호된 ancestor·producer UID가 API/root/nobody와 다른 경계, 교체된 inode/owner, wrong nonce/중복/unknown key/초과/partial/trailing frame·timeout·stale/future·오차 합계 초과를 거절한다. healthy wire만 Date 객체로 매핑한다. 실제 Nest binding과 같은 transaction primary 비교를 확인한다. 새 BIO clock 통합 테스트는 clock 실패 때 신규 reserve/outbox0, 기존 replay/query/accepted expiry recovery 보존을 고정한다. epoch 호출에는 계속 durable continuity 부재 오류가 나야 한다.
-- [ ] **2. RED 확인:** `pnpm --filter @led-control/api exec jest src/mqtt/command-db-clock-evidence-source.spec.ts src/mqtt/command-db-clock-health.service.spec.ts --runInBand`; 새 통합 케이스는 `src/temporary-controls/temporary-controls.integration.spec.ts --runInBand -t 'operational clock reader'`로 별도 실행한다. 임시 IPC/자기 소유 PG fixture만 사용한다.
-- [ ] **3. 구현:** 한 요청 nonce·총 IPC deadline1000ms·16KiB 상한·Task2 canonical JSON 규칙으로 파싱한다. 예상 producer UID는 API가 수정할 수 없는 Task3의 root-owned0644 `config.json`에서 읽고, same UID/root/nobody는 거절한다. socket/설정/보호 ancestor metadata를 연결 전후 재확인하고 raw 응답·path·Error를 노출하지 않는다. nonce 오류/교체/EOF/timeout은 null이다. uncertainty 포함 상한을 reader에서도 검사하고 원 `issuedAt`/signed offset/세대·primary를 보존한다. 기존 `CommandDbClockHealth`의100ms/1000ms/같은tx비교를 완화하지 않는다.
-- [ ] **4. GREEN 확인:** Step 2, 직접 관련 `command-clock-responder.service.spec.ts`, `temporary-control-publisher.spec.ts`, API typecheck, `git diff --check`. 이 범위의 unit/PG 성공을 실제 producer 설치로 기록하지 않는다.
-- [ ] **5. 커밋·검토:** Focus 1/2/3과 module default-off·epoch 미지원·accepted intent 보존을 독립 검토한다.
+- [x] **1. RED 테스트 작성:** socket/non-symlink·보호된 ancestor·producer UID가 API/root/nobody와 다른 경계, 교체된 inode/owner, wrong nonce/중복/unknown key/초과/partial/trailing frame·timeout·stale/future·오차 합계 초과를 거절한다. healthy wire만 Date 객체로 매핑한다. 실제 Nest binding과 같은 transaction primary 비교를 확인한다. 새 BIO clock 통합 테스트는 clock 실패 때 신규 reserve/outbox0, 기존 replay/query/accepted expiry recovery 보존을 고정한다. epoch 호출에는 계속 durable continuity 부재 오류가 나야 한다.
+- [x] **2. RED 확인:** `pnpm --filter @led-control/api exec jest src/mqtt/command-db-clock-evidence-source.spec.ts src/mqtt/command-db-clock-health.service.spec.ts --runInBand`; 새 통합 케이스는 `src/temporary-controls/temporary-controls.integration.spec.ts --runInBand -t 'operational clock reader'`로 별도 실행한다. 임시 IPC/자기 소유 PG fixture만 사용한다.
+- [x] **3. 구현:** 한 요청 nonce·총 IPC deadline1000ms·16KiB 상한·Task2 canonical JSON 규칙으로 파싱한다. 예상 producer UID는 API가 수정할 수 없는 Task3의 root-owned0644 `config.json`에서 읽고, same UID/root/nobody는 거절한다. socket/설정/보호 ancestor metadata를 연결 전후 재확인하고 raw 응답·path·Error를 노출하지 않는다. nonce 오류/교체/EOF/timeout은 null이다. uncertainty 포함 상한을 reader에서도 검사하고 원 `issuedAt`/signed offset/세대·primary를 보존한다. 기존 `CommandDbClockHealth`의100ms/1000ms/같은tx비교를 완화하지 않는다.
+- [x] **4. GREEN 확인:** Step 2, 직접 관련 `command-clock-responder.service.spec.ts`, `temporary-control-publisher.spec.ts`, API typecheck, `git diff --check`. 이 범위의 unit/PG 성공을 실제 producer 설치로 기록하지 않는다.
+- [x] **5. 커밋·검토:** Focus 1/2/3과 module default-off·epoch 미지원·accepted intent 보존을 독립 검토한다.
+
+중간 기록: `25fe8b32` 지정unit87/87·관련11/11·선택PG1/1(23개이름필터제외)·APItype/diff0 뒤 독립검토에서 소수3자리/비지수 strict wire를 tolerance가 느슨하게 허용하는 Important1건을 확인했다. 원 담당자의 fixround1을 진행하며 당시 Task4는 미완료, 실제 운영은0이다.
+
+완료 기록: fixround1 `7a9abde5`, 6개의 otherwise-valid 단일필드 숫자회귀 semanticRED→지정unit97/97·APItype/diff0. 한정 재검토1건ADDRESSED/새C/I0이며 Task4완료다. 다른 담당자의 최신Gateway 수정(메인47931f9a)만 격리브랜치에 먼저 통합한 뒤 Task5를 진행한다. 실제환경/키/OS/DB/Pi 쓰기는 아직0이다.
 
 ### Task 5: 배포 중 HTTP 쓰기 차단 점검 창
 

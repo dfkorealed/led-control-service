@@ -4,6 +4,8 @@
 
 ## 2026-10-15 BIO 실사용 운영 후속 — 계획 승인·격리 구현 시작
 
+- Task4완료 `7a9abde5`: strict숫자wire Important1건을6개단일필드RED→지정unit97/97·APItype/diff0으로수리했고 한정재검토ADDRESSED/새C/I0다. 기존관련11/11·선택PG1/1은그전코드의증거이며 숫자만수리한뒤불필요하게재실행하지않았다. APIreader/optionalDI·epoch미지원·accepted복구경계의소프트웨어관문을완료했다. Task5전메인47931f9a의committed Gateway수정만격리브랜치로통합하며 기존7dirty/다른담당자의장비설정은보존한다. 실제운영반영은아직이다.
+- Task4중간 `25fe8b32`: 보호Unix reader/DI·기존accepted복구 경계의 unit87/87·직접관련11/11·선택PG1/1(23namefilter제외)·APItype/diff0다. 독립검토는 숫자 wire의 소수3자리/비지수 제한이 tolerance로 느슨해진 Important1건을 확인해 원 담당자의 fixround1을 시작한다. Task4완료/실제시각gate·서비스·운영검증은 아직이다.
 - Task3완료 `e7104980`: IPC전체deadline과import전ACL Important2건을 원 담당자가semantic53개8FAIL→53/53·diff0으로수리했고, 한정재검토2건모두ADDRESSED/새C/I0다. daemon/보호installer/operator·primary7/half-close/-I-S와별도계정/보호설치계약을확정했다. 실제OS설치/별도UID프로세스조회/launchd/실제SNTP750ms관문은Task8미실행이다. Task4 API보호reader를시작하며 기존accepted end/recovery·epoch미지원 경계를유지한다. 아래Task3검토지적은수리전중간이력이다.
 - Task3 중간 `648d73f0`: daemon/보호 installer/operator·primary7/half-close/-I-S를 구현해 지정clock51/51·diff0다. 독립검토는 IPC 전체1초 deadline과 import 전 ACL확인의 Important2건을 발견해 원 담당자의 fixround1을 진행한다. Task3완료/설치/운영 성공으로 기록하지 않으며 실제 OS/DB/Pi/키/provider 작업0이다.
 - Task2 `19d2ac4e`: clock canonical wire/SNTP parser·純 주입 trust core와 공통fixture를 구현해 Python3.9.6 직접18/18·diff0, 독립검토 spec준수/Approved·C/I0를 확인했다. 시작/재시작·step/gap/primary latch·3표본/root승인·원 issuedAt 보존이 핵심이다. SNTP 잘못된 표본 테스트의 의미 분리 Minor1은 최종검토에 남긴다. 초기 import RED와 후속 semantic RED를 구분했으며 Task3 독립 daemon/installer를 시작한다. 실제 설치/시각 gate·API reader·배포/운영은 아직이다.
