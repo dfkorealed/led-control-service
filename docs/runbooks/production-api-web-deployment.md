@@ -4,6 +4,16 @@
 
 ## 적용 범위와 사전 조건
 
+### 독립 DB-host 시각 증거 — wire·순수 상태 기계
+
+현재 Mac native PostgreSQL primary용 private [wire v1](../../scripts/clock-attestor/protocol-v1.json)과 [공유 fixture](../../scripts/clock-attestor/fixtures/evidence-v1.json)를 고정했다. `core.py`는 주입한 wall/continuous 관측과 표본만 검사하며 OS 시각·SNTP·프로세스·DB를 읽거나 변경하지 않는다. UTF-8·사전순 key·공백 없는 JSON·마지막 LF 하나·16KiB 한도를 지키고 중복/unknown/prototype key와 비정규 숫자 표현을 거절한다. 정상 응답의 `offsetMs`는 실제 signed offset을 0.001ms로 반올림하고 uncertainty/bracket은 올림한다. admission은 원 offset 절대값까지 마이크로초로 올려 `abs(offset)+uncertainty+readBracket+2ms <=100ms`를 보수적으로 검사한다.
+
+기동/재기동은 step 세대를 증가시켜 기본 deny다. 100ms 주기로 sleep 포함 continuous counter를 관측하며 공백 1초 초과 또는 wall/continuous 변화 차이 10ms 초과는 step latch, 고정 primary/process 불일치는 failover latch다. 원 표본은 발급시각 기준 1초 이내/미래 100ms 이내만 사용하고 새 nonce로 발급시각을 바꾸지 않는다. 같은 primary의 독립 정상 3표본과 현재 관측 UUID에 대한 UID0 승인이 있어야 세대를 clear한다. `status`는 수집하지 않으며 `probe`가 캐시와 다른 표본 한 개를 수집한다. 관리자 invocation은 독립 probe 3개와 마지막 관측의 approve를 수행할 수 있지만 관측 변경 시 자동 재시도하지 않는다.
+
+Producer는 상태 접근을 직렬화하고 read/probe/approve 판단 직전에 새 wall/continuous/primary 관측을 주입해야 한다. 정지한 observer의 과거 wall만으로 freshness를 판단해서는 안 된다. 관측 ID는 fresh boot UUID와 boot 내 증가 revision으로 생성하며 재시작 전 ID를 복원하지 않는다. 정확 4개 generation 상태 외 값·boolean·unsafe integer·clear가 현재 세대보다 큰 상태·overflow는 증거 발급을 닫는다.
+
+SNTP parser는 확인된 `+0.062763 +/- 0.006118 time.apple.com 17.253.114.35` 형태의 단일 seconds 결과만 받는다. 합쳐진 discovery 출력만으로 stdout/stderr 분리를 추정하지 않으며, producer 구현은 두 채널·exit·750ms deadline을 별도로 검증해야 한다. 일반 SNTP는 인증된 NTS가 아니므로 관리 호스트/네트워크와 시간원을 신뢰하는 한계가 있다. 전용 UID·보호 설치·Unix peer 검증·서비스/reader 연결은 후속 단계이며, 이 순수 소프트웨어 검증은 운영 관문 해제·설치·실제 시각 건강·epoch continuity를 증명하지 않는다.
+
 ### 공휴일 서버 provider — 보호 파일 연결 경계
 
 `KASI_HOLIDAY_SERVICE_KEY_PATH`는 API 프로세스에만 주입하는 보호 파일의 절대 경로다. 키 자체를 env 값·Git·Web `VITE_*`·Gateway·문서·로그에 넣지 않는다. 현재 API UID 소유의 symlink 아닌 regular 0600 파일과 같은 UID 소유 상위 0700 디렉터리를 준비한다. Loader는 no-follow open 후 동일 descriptor의 fstat와 최대 513바이트 bounded read를 사용하며 512바이트 초과를 거절한다. 값은 URL decode 없이 `[A-Za-z0-9+/%=._-]` 16~256자의 단일 키만 허용하며 끝 LF 하나만 허용한다. 내부 공백/개행·끝 개행 2개·잘못된 owner/mode/경로·읽기 오류는 provider unavailable로 처리하고 API 전체 부팅은 중단하지 않는다.
