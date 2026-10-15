@@ -2,6 +2,12 @@
 
 기준일: 2026-10-15
 
+## 2026-10-15 BIO 자기 감지 제어 설계 검토
+
+- 사용자는 방습등1·2를 포함해 감지한 조명 자신의 밝기/유지시간 설정을 요청했고, 최소1초·기존/신규 공통 지원으로 보정해 진행을 승인했다. 별도 `codex/bio-self-sensing-control-20261015`에서 서면 설계를 작성했다. 기존 자기 제어 제외 정책을 단순 해제하지 않고 sensor 모드 유지·장비 자체 설정 경로를 제안한다.
+- 검토 문서는 `docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`다. 유지시간/기본 밝기의 명령·단위·독립 조회와1초 지원 근거를 먼저 확인하며, 미확인 장비에 명령을 추측하지 않는다. 동일 설정 UI 제공과 모든 장비의 물리 지원 완료는 구분한다.
+- 현재는 서면 설계 검토 단계다. 제품 코드/계약/DB/장비 변경·테스트·배포0이며 상세 실행 계획은 서면 설계 승인 뒤 작성한다. 기존 ID/규칙/설정과 메인의 사용자/병행 UI 미커밋 변경을 보존한다.
+
 ## 2026-10-15 BIO 실사용 운영 후속 — 소프트웨어 검토 완료·관리자 설치 대기
 
 - 최종 검토 수리 `5980e637`: root prepare의 Git 실행 I1과 fixture M1/M2를 한정 수리해 clock57/57·holiday hash mismatch1/1(43 이름 제외)·diff0, 독립 재검토 모두 ADDRESSED/새C/I/Minor0·software integration Approved다. 실제 source/install/policy 권한 경계·결정과 위험은 실행 계획/원 검토 보고서에 보존한다. 관리자 `sudo -n -v` exit1·보호 ClockAttestor 미설치로 운영 적용은 미완료다. 실제 KASI coverage/새ACL/운영 재시작·계정/OS서비스/장비 쓰기0이며 기존 runtime을 유지한다.
