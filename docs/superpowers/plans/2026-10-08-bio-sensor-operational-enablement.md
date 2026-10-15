@@ -22,6 +22,7 @@
 - [x] 정식 UI에서 자동 준비·활성 snapshot31APPLIED와 센서 연결됨을 확인했다. DB도 desired31/applied31/error null·event1enabled/schedule0enabled로 일치한다. 사용자 직접 시작을 위해 이벤트는 다시 비활성화했다. 실제 움직임·밝기 복귀 시험은 하지 않았다.
 - [x] 별도 브랜치의 변경을 메인 `codex/mvp1-cloud-web`에 ff-only 병합했다(00988e8e). 메인에서도 관련5files101PASS를 재확인했고 사용자AGENTS/랜딩3경로 diff SHA가 전후 동일하다. 기존·추가 사용자 dirty는 stage하지 않으며 root 상태판의 기존 미커밋 내용도 보존한다. 작업 branch/worktree/암호화backup/원 실패 기록은 삭제하지 않는다.
 - [x] Ruling: 추가 UI 확인에서 기존 ‘조명 스케줄’은10월12일 종료/다음실행없음/4대의 과거 시험 설정임을 확인했다. 현재 운전 중단에 대한 앞선 질문은 새 증거로 해소되어, 사용자 test-ready 범위의 되돌릴 수 있는 만료 시험 설정 정리로 status만 비활성화했다. 날짜/반복/대상/밝기 내용은 그대로 보존한다. 시행 전 사용자에게 새 증거·변경 이유를 알렸다. 활성31 성공 뒤 사용자 시작 전 event OFF로 복귀했다.
+- [x] 최종32APPLIED/desired=applied/error null·event0enabled/schedule0enabled·API200/5up·실제UI4online/맨위센서연결됨을 확인했다. `/tmp/sensor-ui-test-ready-20261015.png`와 보호 `task-5-test-ready-handoff.json`을 남기고 이벤트 페이지를 사용자에게 유지한다. 실제 움직임 시험은 아직 시작하지 않았다.
 
 ## 10월15일 승인된 센서 내장 제품 직접 설정
 
