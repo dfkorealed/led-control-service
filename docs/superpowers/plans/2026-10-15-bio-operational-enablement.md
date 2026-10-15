@@ -167,7 +167,7 @@ Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호
 
 **Owner:** qa_reviewer→총괄 통합→gateway/운영·backend 순차 운영. **Files:** 기존 runbook/영향 메뉴/`docs/project-status.md`/본 체크리스트. 실제 `.env`/ACL·서비스 설치·Pi journal/evidence는 ignored 또는 보호된 운영 경로에만 둔다.
 
-- [ ] **1. 전체 diff 검토:** 실제 구현 Tasks1–5 커밋과 소유 경계·최소 검증 로그, Tasks6/7 보류의 runtime/bundle 근거를 한 독립 검토자가 판정한다. C/I가 있으면 원 구현자 수리와 해당 지적만 재검토한다. 검토 중 총괄/다른 구현자는 제품 파일을 쓰지 않는다.
+- [x] **1. 전체 diff 검토:** 실제 구현 Tasks1–5 커밋과 소유 경계·최소 검증 로그, Tasks6/7 보류의 runtime/bundle 근거를 한 독립 검토자가 판정한다. C/I가 있으면 원 구현자 수리와 해당 지적만 재검토한다. 검토 중 총괄/다른 구현자는 제품 파일을 쓰지 않는다.
 - [ ] **2. 안전한 로컬 머지:** 원본 HEAD/dirty/hash·현재 담당 작업을 다시 확인한다. 겹치는 사용자 변경은 자동 stash/커밋/덮어쓰기하지 않는다. 필요 시 기존 승인된 담당자 협의로 안전한 커밋 경계를 만든 뒤 일반 local merge한다. 원본 userdirty·DB·현재 runtime/cert/ACL SHA 보존을 대조한다. 원격 push/PR은 하지 않는다.
 - [x] **3. 기존 exact release 확인:** 실제 active image와 보존 production bundle을 기존 `gateway-release-bundle.mjs verify`로 대조했다(exit0). `eebe6533` full commit/config digest/policy/archive/inventory/SPDX/testMode=false·linux/arm64가 일치한다. 보고서 `current-runtime-inventory-follow-up.md`의 exact 경로/manifest SHA를 보존한다. 새 image/no-device preflight/build/deploy는 실행하거나 완료로 주장하지 않으며 기존 source의 불필요한 재빌드를 하지 않는다.
 - [ ] **4. 운영 설치 가능 여부:** fresh Mac DB-host/primary/Pi 귀속·NTP 상태, 백업 custody·recipient, 단독 USB owner·현재 규칙·대기0·인증서 남은 유효기간을 재확인한다. `sudo -n` 권한이 없으면 사용자가 수행할 exact 설치 단계로 넘기고 OS 보안을 우회하지 않는다. Task3 설치→새3표본/현재 observation 관리자 승인→실제 보호 IPC/같은 read-only DB transaction health 판정을 확인한다. 기존 epoch gate는 그대로 OFF/미지원이다.
@@ -178,6 +178,24 @@ Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호
 - [ ] **9. 증거·문서·인계 커밋:** 실제source/image/설정diff·백업/복구가능성·서비스/시각/coverage/ACL/V3판정을비밀값없이보존한다. 기존단계의실패·미실행과최종상태를구분해영향메뉴/runbook/정본/체크리스트를같이갱신한다. finaldocs때문에HEAD가달라지면image의실제코드SHA와제품diff0을명시하며마지막docsHEAD의image라고오인시키지않는다. `git diff --check`뒤소유문서만커밋/로컬반영한다. 실사용준비완료와실제점등/유지/복귀HIL미실행을명확히구분한다.
 
 ## 계획 자체 검토·현재 상태
+
+### 2026-10-15 소프트웨어 최종 검토 완료·관리자 설치 handoff
+
+- 최종 통합 검토는 `a65de3bf`에서 C0/I1/M2였다. I1 root prepare의 사용자 Git 실행을 첫 단계 EUID0 거절과 CLI 선행 거절로 수리하고 M1 corrupted-hash/M2 SNTP fixture의 실패 원인을 분리했다. 수정 `5980e6373bf9391d1eb61d0e4441954ad57c51ee`는 clock semantic RED2→57/57·holiday 정확 hash mismatch1/1(43 이름 제외)·diff0이며 독립 한정 재검토는 모두 ADDRESSED/새C/I/Minor0, software integration Approved다. 처음 holiday fixture의 immutable DB trigger 오류는 fixture 실패로 보존했고 제품 RED/완료로 둔갑시키지 않았다.
+- 관리자 설치는 실제 권한 부족으로 미실행이다. `sudo -n -v`는 password required/exit1, 보호 prefix ENOENT였다. API/Web/broker는 기존4000/5173/8883 listener를 유지하며 이 작업의 운영 재시작·OS 계정/서비스 설치·실제 KASI coverage·ACL 쓰기0이다. 실제 primary/영수증/소스/해시는 설치 직전에 다시 결속하고 60초 fresh receipt를 사용해야 한다. 아래 해시나 보고서의 PID를 receipt 대신 재사용하지 않는다.
+- 관리자 절차는 [production runbook의 독립 clock 설치 절차](../../runbooks/production-api-web-deployment.md)를 사용한다. **nonroot prepare → 독립 pin된 다섯 파일과 receipt를 OS 도구로 root0700 protected staging에 복사 → staged bytes/hash/owner/ACL 대조 → 보호 staged Python install → 별도 UID 가시성·새3표본·현재 observation root approve → 실제 API reader/같은 transaction primary 검증** 순서다. 비밀번호를 채팅/키 파일에 저장하거나 사용자 repo Python을 root로 실행하지 않는다. 현재 API 환경·키·인증서·ACL을 보존하는 후속 적용은 이 관문 뒤에 재개한다.
+- Main 담당자 협의: 랜딩5파일 `5f2bd455`, UI 감사10행 `195c2573`, 센서 담당 본인14행 `420e865a`가 각각 소유자 검증·커밋으로 보존됐다. 원래 사용자 AGENTS와 감사 제목 앞 **소유 불명 빈 줄 삭제1행**은 아직 Main dirty이며 임의 stage/commit/stash/복구하지 않는다. 이 잔여 변경의 안전한 보존 경계가 없으면 로컬 병합도 보류한다.
+- 준비된 브랜치/작업 공간/ignored 원 검증 보고서와 기존 DB·Gateway 백업을 유지한다. 실제 clock/KASI/ACL 관문·최종 snapshot·정상 admission 확인은 미완료이며 전체 기능 실사용 준비/실제 점등 HIL 성공을 주장하지 않는다.
+
+관리자 staging에서 독립 대조할 최종 검토 source `5980e637`의 파일 SHA256 (설치 직전 clean reviewed source와 다시 비교):
+
+| 파일 | SHA256 |
+| --- | --- |
+| core.py | `3d91cb6b17403bafc7fdd9930acb4d2d7d6b127569b444026afb9a737aa43df3` |
+| daemon.py | `82c254d17367b4a4fb2794f61e3c5f996e094c4ab0b8231dda3801af7ae893fb` |
+| installer.py | `86d669b805754756f1b727d926ea64f395b378161b4f50f86e098d6f4d2ef9b2` |
+| operator.py | `24b9c71e47579b5e8ea9e6273ea022a68eb1217b11f9a1d05e886bda5213aaac` |
+| protocol-v1.json | `2a7f787e5a4ab3576f9bc53cc3353e2df407737f294a4d8ec8db7c3ab7ce7637` |
 
 - [x] Spec §1–8을 Tasks1–8과 연결했고 제외 범위·보호 경계·역할 순서를 반영했다.
 - [x] Review Focus 5개를 소유 Task의 RED·운영 확인 항목에 배치했다.

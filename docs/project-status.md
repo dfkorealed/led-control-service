@@ -2,8 +2,10 @@
 
 기준일: 2026-10-15
 
-## 2026-10-15 BIO 실사용 운영 후속 — 계획 승인·격리 구현 시작
+## 2026-10-15 BIO 실사용 운영 후속 — 소프트웨어 검토 완료·관리자 설치 대기
 
+- 최종 검토 수리 `5980e637`: root prepare의 Git 실행 I1과 fixture M1/M2를 한정 수리해 clock57/57·holiday hash mismatch1/1(43 이름 제외)·diff0, 독립 재검토 모두 ADDRESSED/새C/I/Minor0·software integration Approved다. 실제 source/install/policy 권한 경계·결정과 위험은 실행 계획/원 검토 보고서에 보존한다. 관리자 `sudo -n -v` exit1·보호 ClockAttestor 미설치로 운영 적용은 미완료다. 실제 KASI coverage/새ACL/운영 재시작·계정/OS서비스/장비 쓰기0이며 기존 runtime을 유지한다.
+- 병합 준비의 기존 Main 변경은 각 소유자가 랜딩5파일5f2bd455·UI감사10행195c2573·센서기록14행420e865a로 보존했다. Main의 사용자 AGENTS와 소유불명 빈줄삭제1행은 그대로다. 자동 stash/commit/복구하지 않으며 안전한 보존 경계 없이는 최종Main merge를 완료로 표시하지 않는다. 브랜치/검증 원 증거/기존 백업을 남기고 관리자 인증 및 잔여 사용자 문서 경계가 해결된 뒤 실제 clock·2026/2027coverage·exact6MQTTgrant·최종V3snapshot을 검증한다. 현재는 전체 실사용 준비/HIL 완료가 아니다.
 - 실행 재판정: 다른 담당자의 실제 ARM64 `eebe6533` image/config digest와 보존 production bundle을 기존 verifier로 대조(exit0)하고 현재 배정 V3/temporary1/readback/durableLease·desired/applied32 APPLIED 동일hash를 fresh 읽기로 확인했다. Gateway/engine/shared diff0이므로 불필요한 중복 배포와 Tasks6/7 upgrade-tool 구현은 미구현 보류한다. 기존 Gateway/USB/영속root/backup/historical V1·26 rejectedACK1은 보존한다. 남은 clock/KASI/ACL은 아직 운영 적용하지 않았다. `sudo -n -v` exit1·보호 ClockAttestor 미설치로 관리자 인증 설치가 필요하며 gate 완화/sameUID 대체 없이 정확한 설치 절차를 인계한다.
 - Task5완료 `2a76f78b`: HTTP 점검 창 exact defaultoff/0/1·unsafe503/parser 이전·정상모드불변 구현의 semanticRED15FAIL/2PASS→17/17·APItype/build/diff0, 독립 검토 Approved/C/I/Minor0·지정Jest17/17/diff0을 확인했다. actual runtime flag/endpoint·DB/장비 쓰기는0이다. actual worker recovery를 자체sentinel로 입증했다고 주장하지 않는다. Tasks1–5 최종 통합 검토/보존 로컬 머지와 관리자 설치·실제 provider/coverage/ACL 적용은 남아 있다.
 - 메인동기화 `4977f66d`: committed47931f9a의Gateway/센서수정을격리브랜치에보존통합했다. 제어문서충돌1개만담당역할이양쪽합집합으로해결했고 Root대조는원본문서두쪽순서보존/MAIN7dirty·기존21제품SHA불변/Gateway·engine·shared의MAIN대비diff0/clean·diff0다. 최종MAIN머지/실제운영은아직이며Task5점검HTTP모드를시작한다. 다른담당자의Gateway실배포기록으로초기V2/V6전제가달라졌을가능성을읽기로재확인중이며중복배포여부는아직결정하지않았다.
