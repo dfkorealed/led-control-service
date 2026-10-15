@@ -7,8 +7,8 @@ const container = "mx-auto w-[min(1180px,calc(100%-72px))] phone-wide:max-w-[360
 // CSS clamps both the original999px badge radius and the shared9999px pill
 // radius to half its height, preserving the same circular end caps.
 const plans = [
-  { name: "Basic", price: "99,000원", summary: "조명 운영의 기본을 한곳에서 시작하세요.", items: ["모든 기본 기능", "로그 3개월 보존", "보고서 월 10회 생성"], featured: false },
-  { name: "Plus", price: "199,000원", summary: "더 긴 기록과 넉넉한 보고서가 필요하다면.", items: ["모든 기본 기능", "로그 1년 보존", "보고서 무제한 생성", "AI 기능 · 도입 상담 시 안내"], featured: true }
+  { name: "Basic", price: "99,000원", priceUnit: "/ 월", summary: "조명 운영의 기본을 한곳에서 시작하세요.", items: ["모든 기본 기능", "로그 3개월 보존", "보고서 월 10회 생성"], featured: false },
+  { name: "Plus", price: "준비중", priceUnit: null, summary: "더 긴 기록과 넉넉한 보고서가 필요하다면.", items: ["모든 기본 기능", "로그 1년 보존", "보고서 무제한 생성", "AI 기능 · 도입 상담 시 안내"], featured: true }
 ] as const;
 
 export type LandingPlan = "Basic" | "Plus";
@@ -20,7 +20,7 @@ export function PricingSection({ onInquiry }: { onInquiry: (event: MouseEvent<HT
       <div className="pricing-grid grid grid-cols-2 gap-5 items-stretch landing-wide:landing-stack:grid-cols-1">{plans.map(plan => <Card key={plan.name} role="article" aria-label={plan.name} variant={plan.featured ? "landingPlanFeatured" : "landingPlan"} className={`pricing-card ${plan.featured ? "pricing-card--featured" : ""}`}>
         <div className="pricing-card__head flex justify-between items-center gap-3 text-brand-blue text-landing-plan-name font-[850]"><span>{plan.name}</span>{plan.featured && <small className="py-2 px-2.5 rounded-pill bg-action-primary-soft text-landing-plan-badge font-extrabold">더 넓은 운영 범위</small>}</div>
         <p className="pricing-card__summary min-h-[55px] mt-4.5 mb-2 text-content-secondary text-landing-plan-summary landing-wide:landing-stack:min-h-0">{plan.summary}</p>
-        <div className="pricing-card__price flex items-baseline gap-landing-pricing-value-row-gap pb-landing-pricing-value-row-bottom-inset border-b border-border-subtle"><strong className="text-landing-price font-bold">{plan.price}</strong><span className="text-content-secondary text-landing-price-unit">/ 월</span></div>
+        <div className="pricing-card__price flex items-baseline gap-landing-pricing-value-row-gap pb-landing-pricing-value-row-bottom-inset border-b border-border-subtle"><strong className="text-landing-price font-bold">{plan.price}</strong>{plan.priceUnit && <span className="text-content-secondary text-landing-price-unit">{plan.priceUnit}</span>}</div>
         <ul className="grid gap-4.5 m-landing-pricing-features-margin p-0 list-none">{plan.items.map(item => <li key={item} className="flex gap-3 items-start text-landing-plan-feature"><span className="grid place-items-center flex-none size-[21px] rounded-landing-ellipse bg-action-primary-soft text-brand-blue text-landing-plan-feature-marker font-black" aria-hidden="true">✓</span>{item}</li>)}</ul>
         <Button type="button" variant={plan.featured ? "landingPlanPrimary" : "landingPlanSecondary"} className="pricing-card__button w-full mt-auto" onClick={event => onInquiry(event, plan.name)} aria-label={`${plan.name} 도입 상담`}>{plan.name} 도입 상담 <span aria-hidden="true">↗</span></Button>
       </Card>)}</div>
