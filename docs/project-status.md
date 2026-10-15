@@ -2,10 +2,10 @@
 
 기준일: 2026-10-15
 
-## 2026-10-15 BIO 실사용 운영 후속 — 인증키 준비·서면 설계 검토 대기
+## 2026-10-15 BIO 실사용 운영 후속 — 설계 승인·실행 계획 검토 대기
 
 - 사용자는 Gateway 배포·시각 검증·공휴일/MQTT 연결과 변경·최소 연관 테스트를 요청했고 특일 정보 키를 발급했다. 키는 원본 checkout의 ignored `.local/secrets/kasi-holiday-service-key`에 0600(상위0700)으로 저장했으며, 기존 provider의 실제2026-10조회/정규화1회가 성공했다. 키/URL/원문은 출력하지 않았고 서버 자동 수집/DB 승격은 아직 연결하지 않았다.
-- `773abdba`에서 별도 `codex/bio-operational-enablement-20261015` 작업 공간을 만들고 [운영 적용 설계](superpowers/specs/2026-10-15-bio-operational-enablement-design.md)를 작성했다. 원본의 AGENTS/landing/상태판 미커밋 변경을 수정하지 않는다. 현재는 서면 설계 검토 단계이며 상세 실행 계획/제품 구현/관리자 설치·Gateway 배포·ACL reload·RF는 미실행이다.
+- `773abdba`에서 별도 `codex/bio-operational-enablement-20261015` 작업 공간을 만들고 [운영 적용 설계](superpowers/specs/2026-10-15-bio-operational-enablement-design.md)를 작성했다. 사용자2026-10-15진행요청으로서면설계2456c806승인을확인하고 [실행 계획](superpowers/plans/2026-10-15-bio-operational-enablement.md)을작성·자체검토했다. 기존총괄오케스트레이터/담당역할구현·독립검토방식을유지하며Tasks1–8/계획검토관문은미완료다. 원본AGENTS/landing/상태판미커밋변경을수정하지않고제품구현/관리자설치·Gateway배포·ACLreload·RF는미실행이다.
 - 새롭게 필요한 경계는 API와 다른 UID의 DB-host 시각 제공자와 BIO 세 root 전체 복원 가능한 업그레이드 도구다. 관리자 설치/시간원 신뢰 가정·점검 창을 설계에 명시했다. 기존 V2→V3 실제 선언/현재 ACK·공휴일 완전 coverage·최소 ACL까지 확인하기 전 실사용 완료로 표현하지 않는다. 다른 세션의 비활성 센서 UI 시험 규칙·등록/밝기/센서 설정·백업은 보존한다.
 
 ## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어·메인·DB 반영 및 로컬 서비스 복구 완료
