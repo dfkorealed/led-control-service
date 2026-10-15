@@ -2,6 +2,12 @@
 
 기준일: 2026-10-15 (Asia/Seoul)
 
+## 실행 중 근거 갱신 (2026-10-15, 원 배포 전제 대체)
+
+원 설계 뒤 다른 담당자가 BIO V3 runtime을 이미 배포했다. Fresh actual image/현재 배정 capability/DB와 Pi의 revision32·동일 hash APPLIED를 대조했고, 보존된 production ARM64 `eebe6533d119ccf9d305e4edf6f9f2d675679949` bundle의 기존 verifier도 실제 config digest/policy/archive/inventory/SPDX 대조 exit0이다. Gateway/engine/shared source는 이 배포→MAIN47931→이번 feature 사이 diff0이다. 따라서 아래 §2의 초기 V2/440ead0 관측과 §7의 중복 배포 필요성은 현재에 적용하지 않는다. Tasks6/7 세 root upgrade 도구는 미구현 보류하고 이미 정상 실행 중인 runtime을 보존·재사용한다. 기존 historical rejected V1/26 ACK1·V6 원본 state도 지우거나 새 버전으로 강제 쓰지 않는다.
+
+이번 완료 조건은 보호 clock/실제 KASI coverage/exact MQTT 권한 및 최종 current snapshot 검증으로 좁힌다. 원래 §7의 세부 교체 요구사항은 미래 교체 시 별도 검토할 기록이며 이번에 구현/검증한 도구가 아니다. 실제 시간제 start/end·RF/HIL은 계속 제외한다. `sudo -n -v`가 관리자 인증을 요구하고 보호 ClockAttestor가 미설치이므로 인증된 로컬 관리자 설치가 남아 있다. 권한 우회·same-UID 증거 합성·시각 안전 관문 완화는 하지 않는다. 상세 실행 계획의 재판정과 own SDD의 runtime 두 보고서를 근거로 삼는다.
+
 ## 1. 목적과 승인 경계
 
 이미 병합한 BIO 시간제 제어·스케줄 달력을 실제 로컬 현장에 연결한다. 남은 Gateway 배포, DB-host 시각 신뢰 증거, 공휴일 자동 수집, MQTT 최소 권한을 함께 충족해야 실사용 준비 완료로 판정한다. 기존 조명 등록·기본 밝기·센서 설정·지도·비활성 시험 규칙·사용자 미커밋 변경은 보존한다.

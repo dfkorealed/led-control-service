@@ -4,6 +4,8 @@
 
 ## 2026-10-15 BIO 실사용 운영 후속 — 계획 승인·격리 구현 시작
 
+- 실행 재판정: 다른 담당자의 실제 ARM64 `eebe6533` image/config digest와 보존 production bundle을 기존 verifier로 대조(exit0)하고 현재 배정 V3/temporary1/readback/durableLease·desired/applied32 APPLIED 동일hash를 fresh 읽기로 확인했다. Gateway/engine/shared diff0이므로 불필요한 중복 배포와 Tasks6/7 upgrade-tool 구현은 미구현 보류한다. 기존 Gateway/USB/영속root/backup/historical V1·26 rejectedACK1은 보존한다. 남은 clock/KASI/ACL은 아직 운영 적용하지 않았다. `sudo -n -v` exit1·보호 ClockAttestor 미설치로 관리자 인증 설치가 필요하며 gate 완화/sameUID 대체 없이 정확한 설치 절차를 인계한다.
+- Task5완료 `2a76f78b`: HTTP 점검 창 exact defaultoff/0/1·unsafe503/parser 이전·정상모드불변 구현의 semanticRED15FAIL/2PASS→17/17·APItype/build/diff0, 독립 검토 Approved/C/I/Minor0·지정Jest17/17/diff0을 확인했다. actual runtime flag/endpoint·DB/장비 쓰기는0이다. actual worker recovery를 자체sentinel로 입증했다고 주장하지 않는다. Tasks1–5 최종 통합 검토/보존 로컬 머지와 관리자 설치·실제 provider/coverage/ACL 적용은 남아 있다.
 - 메인동기화 `4977f66d`: committed47931f9a의Gateway/센서수정을격리브랜치에보존통합했다. 제어문서충돌1개만담당역할이양쪽합집합으로해결했고 Root대조는원본문서두쪽순서보존/MAIN7dirty·기존21제품SHA불변/Gateway·engine·shared의MAIN대비diff0/clean·diff0다. 최종MAIN머지/실제운영은아직이며Task5점검HTTP모드를시작한다. 다른담당자의Gateway실배포기록으로초기V2/V6전제가달라졌을가능성을읽기로재확인중이며중복배포여부는아직결정하지않았다.
 - Task4완료 `7a9abde5`: strict숫자wire Important1건을6개단일필드RED→지정unit97/97·APItype/diff0으로수리했고 한정재검토ADDRESSED/새C/I0다. 기존관련11/11·선택PG1/1은그전코드의증거이며 숫자만수리한뒤불필요하게재실행하지않았다. APIreader/optionalDI·epoch미지원·accepted복구경계의소프트웨어관문을완료했다. Task5전메인47931f9a의committed Gateway수정만격리브랜치로통합하며 기존7dirty/다른담당자의장비설정은보존한다. 실제운영반영은아직이다.
 - Task4중간 `25fe8b32`: 보호Unix reader/DI·기존accepted복구 경계의 unit87/87·직접관련11/11·선택PG1/1(23namefilter제외)·APItype/diff0다. 독립검토는 숫자 wire의 소수3자리/비지수 제한이 tolerance로 느슨해진 Important1건을 확인해 원 담당자의 fixround1을 시작한다. Task4완료/실제시각gate·서비스·운영검증은 아직이다.

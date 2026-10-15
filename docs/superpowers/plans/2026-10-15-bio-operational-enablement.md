@@ -4,11 +4,19 @@
 
 **Goal:** 기존 BIO 시간제 제어·달력의 공휴일/시각/MQTT/Gateway 운영 관문을 충족하고 실제 점등 시험과 구분해 실사용 준비 상태로 인계한다.
 
-**Architecture:** 기존 API·MQTT·DB 계약은 유지한다. Mac DB-host의 별도 UID producer→보호 Unix socket→API reader와 BIO 전용 세 root 백업·복원/업그레이드 도구를 추가한다. API 점검 창 아래에서 실제 환경을 순차 적용하고, current V3/ACK·시각·coverage·권한을 확인한 뒤 정상 admission을 연다.
+**Architecture:** 기존 API·MQTT·DB 계약은 유지한다. Mac DB-host의 별도 UID producer→보호 Unix socket→API reader와 공휴일 DI·HTTP 점검 창을 추가한다. 아래 2026-10-15 실행 재판정에 따라 이미 배포·검증된 BIO runtime을 재사용하고, 불필요한 세 root 업그레이드 도구 구현/교체는 보류한다. current V3/ACK·시각·coverage·권한을 확인하기 전 실사용 준비 완료로 판정하지 않는다.
 
 **Tech Stack:** Node 22 / pnpm 9.15.0, NestJS/Jest/Prisma PostgreSQL 16, Python 3.9+ 표준 라이브러리, macOS launchd/Unix socket/SNTP, Docker ARM64/Buildx, OpenSSL 3 CMS, Mosquitto mTLS, Gateway Vitest/esbuild.
 
 **Spec:** `docs/superpowers/specs/2026-10-15-bio-operational-enablement-design.md` (설계 커밋 `2456c806`, 사용자 2026-10-15 진행 승인).
+
+## 2026-10-15 실행 재판정 — 기존 배포 보존·관리자 설치 대기
+
+원 계획 작성 뒤 다른 담당자가 production ARM64 `eebe6533d119ccf9d305e4edf6f9f2d675679949`를 배포했다. Fresh strict SSH/읽기 전용 DB 조사로 실제 image `sha256:b2b1b4293db2d2ac6868b5e074b0a8ae95f6f85fcc45e9fb15c2913f24101487`, 현재 배정 V3/temporaryControl1/readback/durableLease, desired/applied32·APPLIED·동일 hash를 확인했다. 보존된 실제 production bundle의 기존 verifier도 policy/expected full commit/config digest/inventory/SPDX 대조 exit0이다. Gateway/engine/shared는 해당 배포 source→MAIN47931→이번 feature 사이 diff0이다.
+
+따라서 **Tasks6/7은 미구현 보류**다. 이 기능을 설치하기 위한 중복 교체·새 백업/복원 도구는 이번 목표에 불필요하며 Gateway/USB/영속 root를 중지·변환하지 않는다. 아래 원래 세부사항은 향후 실제 교체 시 재설계할 기록이지 현재 수행/완료 주장이나 검증된 도구가 아니다. Disk V6은 현재 parser가 V10으로 메모리 복원 후 첫 mutation 때 쓰는 동작과 일치하며, 실제 시간제 durable mutation/HIL 완료 증거는 아니다. historical V1/26 rejected ACK1도 삭제하지 않는다.
+
+남은 운영 관문은 Mac 보호 clock 설치·현 시각/primary 증거, 실제 KASI 2026/2027 complete coverage와 그 snapshot, exact6 MQTT grant다. `sudo -n -v`는 exit1(관리자 인증 필요), 보호 ClockAttestor prefix는 미설치다. 관리자 인증 없이 설치/서비스 계정 생성·same-UID 대체·gate 완화를 하지 않는다. 소프트웨어 검토/보존 병합 이후 정확한 관리자 설치 절차를 인계하며, 운영 재시작/coverage/ACL 쓰기는 아직 미실행이다.
 
 ## Global Constraints
 
@@ -119,13 +127,17 @@ Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호
 
 **Interfaces:** `installGatewayDeploymentReadOnly(app:NestExpressApplication,env:NodeJS.ProcessEnv):void`를 export하고 `main.ts`의 observability 설치 뒤/body parser 앞에서 호출한다. flag는 미설정/`0`이면 기존 동작, `1`이면 read-only이며 다른 값은 부팅을 거절한다.
 
-- [ ] **1. RED 테스트 작성:** mode1의 모든 HTTP GET/HEAD/OPTIONS는 통과하고 POST/PUT/PATCH/DELETE와 다른 unsafe method는 handler·body parser/DB 부작용 전에503/`gateway_deployment_read_only`인지 고정한다. mode1 응답은 `X-Kinda-Read-Only: 1`, mode0는 header/상태/본문 변경0이다. flag typo·로그인/새 명령 차단, health 읽기와 기존 accepted worker recovery가 middleware로 삭제/해제되지 않음을 확인한다.
-- [ ] **2. RED 확인:** `pnpm --filter @led-control/api exec jest src/gateway-deployment-read-only.spec.ts --runInBand`. 자기 소유 HTTP app과 counter를 사용하며 운영 endpoint를 호출하지 않는다.
-- [ ] **3. 구현:** main의 지정 위치에 middleware를 한 번 설치한다. 기존 authentication/CSRF/권한 정책을 우회하지 않고 점검 시 모든 unsafe 요청을 먼저 닫는다. `Retry-After: 60`을 제공하고 health body의 고정 dependency key는 바꾸지 않는다. 이 flag가 worker drain이나 규칙 비활성화를 대신하지 않는다고 문서화한다.
-- [ ] **4. GREEN 확인:** Step 2와 API typecheck/build, `git diff --check`. 신규 기능 테스트를 위해 실제 POST/장비 쓰기를 보내지 않는다.
-- [ ] **5. 커밋·검토:** HTTP 처리 순서·정상 모드 비변경·Focus 1을 독립 검토한다.
+- [x] **1. RED 테스트 작성:** mode1의 모든 HTTP GET/HEAD/OPTIONS는 통과하고 POST/PUT/PATCH/DELETE와 다른 unsafe method는 handler·body parser/DB 부작용 전에503/`gateway_deployment_read_only`인지 고정한다. mode1 응답은 `X-Kinda-Read-Only: 1`, mode0는 header/상태/본문 변경0이다. flag typo·로그인/새 명령 차단, health 읽기와 기존 accepted worker recovery가 middleware로 삭제/해제되지 않음을 확인한다.
+- [x] **2. RED 확인:** `pnpm --filter @led-control/api exec jest src/gateway-deployment-read-only.spec.ts --runInBand`. 자기 소유 HTTP app과 counter를 사용하며 운영 endpoint를 호출하지 않는다.
+- [x] **3. 구현:** main의 지정 위치에 middleware를 한 번 설치한다. 기존 authentication/CSRF/권한 정책을 우회하지 않고 점검 시 모든 unsafe 요청을 먼저 닫는다. `Retry-After: 60`을 제공하고 health body의 고정 dependency key는 바꾸지 않는다. 이 flag가 worker drain이나 규칙 비활성화를 대신하지 않는다고 문서화한다.
+- [x] **4. GREEN 확인:** Step 2와 API typecheck/build, `git diff --check`. 신규 기능 테스트를 위해 실제 POST/장비 쓰기를 보내지 않는다.
+- [x] **5. 커밋·검토:** HTTP 처리 순서·정상 모드 비변경·Focus 1을 독립 검토한다.
+
+완료 기록: `2a76f78b`의 semantic RED15FAIL/2PASS→최종17/17·APItype/build/diff0, 독립 검토 Approved/C/I/Minor0 및 지정 Jest17/17/diff0을 확인했다. 실제 middleware 활성화·운영 호출·DB/장비 쓰기는0이며 실제 worker recovery는 sentinel로 대체 입증하지 않았다.
 
 ### Task 6: BIO 세 root의 quiesced CMS 백업·검증·전체 복원
+
+**실행 판정: 미구현 보류.** 위 기존 runtime/bundle 재평가로 이번 적용에 필요하지 않다. 아래는 당초 교체 전제의 역사적 요구사항이며 체크하지 않는다.
 
 **Owner:** gateway/운영. **Files:** Create `scripts/bio-upgrade/state_archive.py`, `test_state_archive.py`; Modify `docs/runbooks/raspberry-pi-gateway-appliance.md`.
 
@@ -138,6 +150,8 @@ Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호
 - [ ] **5. 커밋·검토:** Focus 4와 실제 CMS 증거·중단 행렬을 독립 검토하고, archive/receipt 계약을 Task 7에 전달한다.
 
 ### Task 7: BIO 전용 업그레이드 journal·상태 복사본 preflight
+
+**실행 판정: 미구현 보류.** 새 image를 배포하지 않으므로 이번 적용의 선행 조건에서 제외했다. 아래는 향후 교체 시 별도 재검토할 요구사항이며 구현/시험 완료가 아니다.
 
 **Owner:** gateway/운영. **Files:** Create `scripts/gateway-bio-upgrade.mjs`, `scripts/bio-upgrade/upgrade.py`, `test_upgrade.py`, `scripts/gateway-bio-upgrade.test.mjs`, `apps/gateway/src/bio-upgrade-state-preflight.ts`, `bio-upgrade-state-preflight.test.ts`, `apps/gateway/docker/bio-upgrade-preflight-contract.test.mjs`; Modify `apps/gateway/package.json`, `apps/gateway/docker/Dockerfile`, `docs/runbooks/raspberry-pi-gateway-appliance.md`, `docs/menus/control.md`, `docs/menus/settings.md`, `docs/menus/monitoring.md`.
 
@@ -153,13 +167,13 @@ Task3 확정 경계(소비 시 동일 적용): producer 소유0666 socket/보호
 
 **Owner:** qa_reviewer→총괄 통합→gateway/운영·backend 순차 운영. **Files:** 기존 runbook/영향 메뉴/`docs/project-status.md`/본 체크리스트. 실제 `.env`/ACL·서비스 설치·Pi journal/evidence는 ignored 또는 보호된 운영 경로에만 둔다.
 
-- [ ] **1. 전체 diff 검토:** Tasks1–7 커밋과 소유 경계·최소 검증 로그를 한 독립 검토자가 판정한다. C/I가 있으면 원 구현자 수리와 해당 지적만 재검토한다. 검토 중 총괄/다른 구현자는 제품 파일을 쓰지 않는다.
+- [ ] **1. 전체 diff 검토:** 실제 구현 Tasks1–5 커밋과 소유 경계·최소 검증 로그, Tasks6/7 보류의 runtime/bundle 근거를 한 독립 검토자가 판정한다. C/I가 있으면 원 구현자 수리와 해당 지적만 재검토한다. 검토 중 총괄/다른 구현자는 제품 파일을 쓰지 않는다.
 - [ ] **2. 안전한 로컬 머지:** 원본 HEAD/dirty/hash·현재 담당 작업을 다시 확인한다. 겹치는 사용자 변경은 자동 stash/커밋/덮어쓰기하지 않는다. 필요 시 기존 승인된 담당자 협의로 안전한 커밋 경계를 만든 뒤 일반 local merge한다. 원본 userdirty·DB·현재 runtime/cert/ACL SHA 보존을 대조한다. 원격 push/PR은 하지 않는다.
-- [ ] **3. exact release 준비:** 검토된 clean 격리 commit에서 `pnpm gateway:appliance:build`로 production ARM64 bundle을 만든다. 해당 invocation이 반환한 exact bundle과40자 commit을 `BIO_BUNDLE`/`BIO_RELEASE_COMMIT`으로 결속해 `node scripts/gateway-release-bundle.mjs verify --bundle "$BIO_BUNDLE" --policy apps/gateway/release-policy.json --expected-commit "$BIO_RELEASE_COMMIT"`로 검증한다. image/archive/inventory/policy/commit의 exact 결속과 no-device preflight를 기록한다. 이전 test-only bundle을 사용하지 않으며 빌드 자체를 배포 완료로 기록하지 않는다.
+- [x] **3. 기존 exact release 확인:** 실제 active image와 보존 production bundle을 기존 `gateway-release-bundle.mjs verify`로 대조했다(exit0). `eebe6533` full commit/config digest/policy/archive/inventory/SPDX/testMode=false·linux/arm64가 일치한다. 보고서 `current-runtime-inventory-follow-up.md`의 exact 경로/manifest SHA를 보존한다. 새 image/no-device preflight/build/deploy는 실행하거나 완료로 주장하지 않으며 기존 source의 불필요한 재빌드를 하지 않는다.
 - [ ] **4. 운영 설치 가능 여부:** fresh Mac DB-host/primary/Pi 귀속·NTP 상태, 백업 custody·recipient, 단독 USB owner·현재 규칙·대기0·인증서 남은 유효기간을 재확인한다. `sudo -n` 권한이 없으면 사용자가 수행할 exact 설치 단계로 넘기고 OS 보안을 우회하지 않는다. Task3 설치→새3표본/현재 observation 관리자 승인→실제 보호 IPC/같은 read-only DB transaction health 판정을 확인한다. 기존 epoch gate는 그대로 OFF/미지원이다.
 - [ ] **5. 공휴일/점검 창 연결:** 기존 환경을 private memory로 보존하고 KASI path·clock socket·`GATEWAY_DEPLOYMENT_READ_ONLY=1`만 명시 추가해 owned API를 정상 재기동한다. 원본 runtime의 leaf/descendant 신원을 새로 확인하고 `dev.mjs`의 PKI/환경 재생성·과거 PID 재사용은 하지 않는다. read-only header/health200/5up과 본래 쓰기 handler가 없는 `POST /health/live`의 빈 본문 요청503·부작용0을 확인하며 실제 명령 endpoint로 검증 요청을 보내지 않는다. 실제 2026/2027년12개월/페이지를 수집해 complete pointer/hash·snapshot 승격을 읽기로 검증한다. 실패한 연도를 평일/빈 coverage로 간주하지 않는다.
 - [ ] **6. 최소 MQTT 권한 적용:** DB/Pi current assignment가 같은 단일 scope만 `DEV_TEMPORARY_CONTROL_SCOPES`에 설정한다. canonical base와현재ACL을대조하고6grant외diff0·기존권한/PKI불변을확인한뒤 exact broker reload한다. disposable mTLS 직접 회귀는 `DEV_MQTT_ACL_INTEGRATION=1 node --test --test-name-pattern='temporary control exact site and Gateway delivery' scripts/dev-mqtt-acl.integration.test.mjs` 하나만 실행한다. 실제 broker에서는6grant/신원/연결·ready를 확인하며 유효한 장치 제어 payload를 발행하지 않는다.
-- [ ] **7. 실제 BIO 교체:** Step4/5/6의 fresh evidence와pending0/drain을Task7receipt에결속해stage/upgrade한다. 새동일시점3rootCMSbackup→off-Piverify/drill통과전candidate를시작하지않는다. health6항목·restart0·단일USBowner·증가heartbeat3회·actualV3/temporary/durable/readback/currentrevision/hashACK·clockmarker를확인한다. 이상시Task7의명시복구경계로만처리하고기존backup/oldcontainer는남긴다.
+- [ ] **7. 기존 BIO 보존·최종 snapshot 확인:** Gateway 교체/정지/USB 변경은 하지 않는다. Step4/5/6 뒤 기존 exact runtime의 health·current assignment V3/temporary/durable/readback·현재 revision/hash APPLIED ACK와 새 holiday dataset 반영을 fresh 읽기로 확인한다. historical rejected ACK는 성공 ACK와 구분해 보존하고 outbox0을 만들려고 삭제/위조하지 않는다. 기존 backup/oldcontainer는 남긴다. 운영 관문 미충족 시 실제 시간제 사용 가능으로 판정하지 않는다.
 - [ ] **8. 정상 운전 재개·읽기 검증:** 모든관문통과뒤`GATEWAY_DEPLOYMENT_READ_ONLY=0`으로ownedAPI를정상재기동한다. live/ready200·5up/Web200·read-onlyheader부재, 실제스케줄목록/달력/주말·휴일표시·시간제선택UI를읽기전용으로확인한다. 새start/SET/시험규칙활성화는하지않는다. metadata·등록·기본밝기·센서설정/비활성규칙·키/인증서보존을대조한다. UI수정이필요하면지정담당자로전환하고그변경의최소검증을추가한다.
 - [ ] **9. 증거·문서·인계 커밋:** 실제source/image/설정diff·백업/복구가능성·서비스/시각/coverage/ACL/V3판정을비밀값없이보존한다. 기존단계의실패·미실행과최종상태를구분해영향메뉴/runbook/정본/체크리스트를같이갱신한다. finaldocs때문에HEAD가달라지면image의실제코드SHA와제품diff0을명시하며마지막docsHEAD의image라고오인시키지않는다. `git diff --check`뒤소유문서만커밋/로컬반영한다. 실사용준비완료와실제점등/유지/복귀HIL미실행을명확히구분한다.
 
