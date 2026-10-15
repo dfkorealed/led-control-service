@@ -1,5 +1,27 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-15 공통 셸의 편집 화면 높이 소유권 분리
+
+### 구현 완료
+
+- CustomerShell의 맵 편집 route만 짧은 화면의 계정·메뉴·도구와 최소 작업 영역을 세로 스크롤한다. 모니터링의 지도·내비게이션·계정·full-view 분기와 저장된 공통 맵 소비 계약은 유지한다.
+
+### 미구현
+
+- 실제 장비·실기기 WebView·Safari·OS 가상 키보드·HIL 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 직접 수리 대상은 설정 맵 편집이다. 모니터링 전체 감사를 새로 수행한 것으로 기록하지 않으며 설정→모니터링 공통 맵 검증과 최종 범위는 `.local/ui-eight-fixes-20261015/report.md`를 따른다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/e2e/settings-floor-editor.spec.ts`, `apps/web/e2e/ui-eight-layout-regressions.spec.ts`.
+
+### 갱신 규칙
+
+- 공통 셸은 route별 overflow·높이 소유권을 구별하고 정상 모니터링/full-view의 기존 예외를 보존한다. mock 브라우저 결과를 실제 장비 완료로 표시하지 않는다.
+
 ## 2026-10-14 공통 로딩 표시 적용
 
 ### 구현 완료

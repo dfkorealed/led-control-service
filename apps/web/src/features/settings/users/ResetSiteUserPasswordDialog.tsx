@@ -56,7 +56,7 @@ export function ResetSiteUserPasswordDialog({ siteId, user, returnFocusElement, 
       <Button type="submit" form="reset-site-user-password" variant="primary" isLoading={isPending} loadingLabel="처리 중">비밀번호 초기화</Button>
     </>}
   >
-    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-control bg-surface-inset p-4"><dt>사용자</dt><dd>{user.name}</dd><dt>로그인 아이디</dt><dd>{user.loginId}</dd></dl>
+    <dl className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-2 rounded-control bg-surface-inset p-4 compact:grid-cols-[auto_minmax(0,1fr)]"><dt>사용자</dt><dd className="min-w-0 wrap-anywhere">{user.name}</dd><dt>로그인 아이디</dt><dd className="min-w-0 wrap-anywhere">{user.loginId}</dd></dl>
     <form id="reset-site-user-password" className="mt-5 grid gap-4" onSubmit={submit} noValidate>
       <PasswordField ref={passwordRef} id="reset-temporary-password" label="새 임시 비밀번호" autoComplete="new-password" value={password} onChange={(value) => { setPassword(value); setError(""); }} />
       <PasswordField id="reset-temporary-password-confirmation" label="임시 비밀번호 확인" autoComplete="new-password" value={confirmation} onChange={(value) => { setConfirmation(value); setError(""); }} />

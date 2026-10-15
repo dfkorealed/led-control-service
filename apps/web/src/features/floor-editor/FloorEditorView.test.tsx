@@ -540,11 +540,13 @@ describe("FloorEditorView", () => {
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null });
   });
 
-  it("keeps the workspace inside its finite viewport without wrapping camera controls", () => {
+  it("reserves a size-contained workspace minimum without wrapping camera controls", () => {
     renderEditor();
     expect(screen.getByRole("group", { name: "지도 확대 축소" })).toHaveClass("shrink-0", "flex-nowrap");
     const workspace = screen.getByTestId("floor-editor-layout");
-    expect(workspace).toHaveClass("min-h-0");
+    // Actual short-screen scroll and finite desktop geometry are exercised by
+    // ui-eight-layout-regressions.spec.ts; jsdom only checks this layout contract.
+    expect(workspace).toHaveClass("min-h-64", "[contain:size]");
     expect(workspace).not.toHaveClass("min-h-[242px]");
     expect(workspace.parentElement).toHaveClass("min-h-0", "overflow-hidden");
     expect(screen.getByTestId("editor-toolbar")).toHaveClass("shrink-0");

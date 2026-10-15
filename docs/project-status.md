@@ -2,6 +2,20 @@
 
 기준일: 2026-10-15
 
+## 2026-10-15 재현된 Web UI 문제 8개 수정 완료 — 검증 한계 인계
+
+- 사용자 승인 범위는 확정된 8개 문제(통계 2곳을 묶은 총 9곳)의 레이아웃·스크롤·읽기 폭 수리다. 기존 기능과 안전 정책은 유지하고, P3 간격/디자인 후보 6개·API/DB/장비/인증 정책·실제 서비스 재시작은 포함하지 않는다.
+- writing-plans 체크리스트: [x] 기준·보존·범위 확인, [x] SET-003 편집 본문, [x] OPS-001 지도 조작, [x] SET-004 기록/복구, [x] OPS-002 긴 명령 상세, [x] SET-001 등록 정보, [x] SET-002 현장 폼, [x] BUS-001/002 통계 수치, [x] SET-008 초기화 대상 ID, [x] 모바일·PC 및 현재 기능 32개 회귀, [x] 독립 종합 검토·인계.
+- 맵 편집은 셸의 세로 스크롤과 최소 256px/size containment로 320×600의 본문 0px를 해소하고, 기록 탭의 단일 reader로 긴 조명명에서도 버전/복구에 접근한다. 수동 지도는 실제 콘텐츠 588px 미만에서 선택 정보를 아래로 흘리며 587/588/589px 전환의 선택·지도 DOM·배율·열린 이력을 보존한다. 긴 명령 상세는 100개 UUID 끝까지 스크롤하고 위험 조작의 disabled를 유지한다.
+- 등록 정보는 모바일 전체 행 읽기 폭을 확보했다. 현장 폼은 긴 층 선택값의 min-content 전파(doc351→320)와 PC 중간 폭 저장 열의 입력 압축을 수리했다. 공통 통계 카드는 수치·단위를 숨기거나 축소하지 않고 내부 Text Range를 보존하며, 초기화 창은 긴 로그인 ID를 줄바꿈한다. 독립 검토의 Save 아이콘 수축 Minor1은 실제 RED2→국소 shrink-0→16×16 GREEN2로 해소했다.
+- Chromium의 320×600/390×844 touch, 759/760·1023/1024·1120·1440px와 대표 light/dark에서 최종 32PASS(42.6초)를 확인했다. 실제 tap/click/wheel·DOM 키보드 focus·Range/box·중심과 4px 안쪽 hit 증거이며, 스크롤 보조를 모든 조상 접근/실기기 native touch gesture·OS 가상 키보드·Safari/WebKit·HIL의 증명으로 확대하지 않는다.
+- Root의 최신 제품 freeze 검증은 Web typecheck/build exit0, UI 정책 79PASS/0FAIL·기존/신규 위반0, diff --check exit0이다. build의 chunk-size 경고는 완화하지 않았다. 원 명령/세션/결과는 `.local/ui-eight-fixes-20261015/root-validation.json`에 기록한다.
+- 전체 unit은 시작 3830PASS/6FAIL/3SKIP(261파일) → 최신 3834PASS/6FAIL/3SKIP(261파일)이며 전체 GREEN이 아니다. ControlView5건은 동일하고 CAD는 시작 common-map true/principal 대신 최신 onSaved-purge 조건이 실패해 원인을 확정하지 않는다. 중간에 새로 드러난 shell2건은 실제 RED2 후 기존 계정/화면 보호 단언을 유지한 class 정합화와 주석 1단어 수정으로 focused9PASS를 확인했다. 정책 검사 자체는 변경하지 않았다.
+- 기존 기능 선별 브라우저는 맵 저장→모니터링·dirty logout·터치 이동/편집권·전송 전 거절 안전 처리 6PASS이며, 다른 6개는 오래된 heading/버튼 locator에서 멈춰 실제 동작 실패와 구분한다. 별도 현재 UI 선택→메모리 명령·현장 입력 검증/저장·초기화 pending/초점 3PASS는 최종 32개에 포함되며, 실행되지 않은 예전 전체 관리 여정을 대체했다고 주장하지 않는다. CAD 9개 조건 focused PASS도 전체 unit의 잔여 실패를 무효화하지 않는다.
+- 기준 HEAD28132b30 이후 외부 f711be9f/418a01f8/d03583ff가 추가됐다. ControlView·해당 unit·기존 수동 E2E의 외부 안전 수리와 문서를 보존하며 현재 d03583ff에서 검증한다. 사용자 AGENTS·package/lock·랜딩 SHA는 시작과 같고 index는 비어 있다. 소유자 1명만 제품을 수정했으며 총괄은 결과/체크리스트를 통합한다.
+- 원 재현·중간 오류·RED/GREEN·최종 캡처는 `.local/ui-eight-fixes-20261015/report.md`와 연결된 로그에 분리 보존한다. 메뉴별 설정/제어/통계/모니터링 문서를 갱신했고, source20/동결 시점 증거1157개 SHA와 보고서 링크19개를 대조했다. 독립 종합 검토 `review/final-review.md`는 승인 범위의 새 Critical0/Important0/Minor0이며 전체 저장소 GREEN·모든 여정·운영 준비 승인은 아니다. 전용15331 리스너0·기존5173/4000 유지를 읽기로 확인했다. 이 구현·검증 단계에서는 커밋·배포·실제 장비 쓰기를 하지 않았다.
+- 총괄의 병합 준비 요청에 따라 검증된 소유 20파일과 이 UI 상태 항목만 로컬 보존 커밋으로 분리한다. 사용자 AGENTS와 다른 담당자의 수동 제어/BIO 설계 기록은 포함하지 않고 작업공간에 보존한다. 기존 unit6FAIL·구형 브라우저 spec6FAIL 한계는 그대로이며 추가 배포·API 재시작·MQTT/장비 변경은 하지 않는다.
+
 ## 2026-10-15 BIO 실사용 운영 후속 — 소프트웨어 검토 완료·관리자 설치 대기
 
 - 최종 검토 수리 `5980e637`: root prepare의 Git 실행 I1과 fixture M1/M2를 한정 수리해 clock57/57·holiday hash mismatch1/1(43 이름 제외)·diff0, 독립 재검토 모두 ADDRESSED/새C/I/Minor0·software integration Approved다. 실제 source/install/policy 권한 경계·결정과 위험은 실행 계획/원 검토 보고서에 보존한다. 관리자 `sudo -n -v` exit1·보호 ClockAttestor 미설치로 운영 적용은 미완료다. 실제 KASI coverage/새ACL/운영 재시작·계정/OS서비스/장비 쓰기0이며 기존 runtime을 유지한다.

@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-15 편집·등록·현장·계정 읽기 영역 수리
+
+### 구현 완료
+
+- 맵 편집의 계정·설정 메뉴·복귀·도구 높이를 보존하면서 고객 셸이 짧은 화면의 세로 넘침을 스크롤한다. 작업 영역은 최소 256px와 size containment를 사용해 탭 내용이 지도를 늘리거나 본문을 0px로 압축하지 않는다. 기록 탭은 조명 위치 확인과 버전·복구를 하나의 읽기 스크롤에서 제공한다.
+- 모바일 등록 결과의 시리얼·UUID는 한 행의 읽기 폭을 확보하고 선택·상태·식별은 다음 행으로 흐른다. 현장의 긴 층 선택값이 조명 목록 전체 최소 폭을 늘리던 경로를 수리하고, 중간 PC 폭의 이름·정격전력·저장 열은 수축 가능한 비례 열을 사용한다. 긴 식별자와 저장 문구는 줄바꿈하고 저장 아이콘은 16×16px를 유지한다.
+- 비밀번호 초기화 대상 정보는 모바일 한 열과 긴 로그인 ID 줄바꿈을 사용한다. 기존 검증·저장/복구·식별·권한·pending·세션 정책은 유지한다. 원인별 실제 AppRoot geometry/hit/scroll RED→GREEN을 보존했다.
+
+### 미구현
+
+- 실제 장비 식별·등록·복구/HIL, OS 가상 키보드, Safari/WebKit과 실기기 WebView 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 외부/API 전달이 차단된 메모리 fixture의 Chromium 결과다. 전체 단위 테스트의 기존 실패와 최종 수치는 상태판 및 `.local/ui-eight-fixes-20261015/report.md`에 구별한다. P3 간격·제목·일반 패널 inset 정합성 후보는 포함하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/features/floor-editor/FloorEditorView.tsx`, `apps/web/src/features/registration/RegistrationPanel.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/users/ResetSiteUserPasswordDialog.tsx`, `apps/web/e2e/ui-eight-layout-regressions.spec.ts`, `apps/web/playwright.ui-eight.config.ts`.
+
+### 갱신 규칙
+
+- 편집권 확보와 map-ready를 구별해 정상 편집 상태를 측정한다. 320×600·390×844 touch와 759/760·1023/1024·1120·1440px에서 입력·전체 텍스트·스크롤 뒤 hit를 검사하고 계정/복귀/52px 탭/44px 조작을 축소하지 않는다.
+
 ## 2026-10-15 배포 HTTP 읽기 전용 점검 창 — 소프트웨어
 
 ### 구현 완료

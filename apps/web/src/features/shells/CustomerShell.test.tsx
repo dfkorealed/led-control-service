@@ -465,11 +465,13 @@ describe("customer shell site context", () => {
     expect(settingsShell?.parentElement).not.toHaveClass("[&>section]:grid-rows-[auto_auto_minmax(0,1fr)]");
   });
 
-  it("bounds the editor shell to the viewport while preserving account access", async () => {
+  it("bounds the editor shell with a scrollable minimum workspace while preserving account access", async () => {
     renderShell("/settings/floor-plans/floor-b2/edit?siteId=site");
     const settingsShell = (await screen.findByRole("navigation", { name: "설정 메뉴" })).closest("section");
     const content = settingsShell?.parentElement;
-    expect(content).toHaveClass("min-h-0", "grid-rows-[auto_minmax(0,1fr)]", "overflow-hidden");
+    // Real 320px scroll/hit and finite desktop geometry live in the browser
+    // regression; this assertion keeps the shell's scroll ownership explicit.
+    expect(content).toHaveClass("min-h-0", "grid-rows-[auto_minmax(min-content,1fr)]", "overflow-y-auto");
     expect(content?.closest("main")).toHaveClass("min-h-0", "overflow-hidden");
     expect(content?.closest("[data-app-shell]")).toHaveClass("h-dvh", "min-h-0", "overflow-hidden");
     expect(screen.getByRole("region", { name: "내 계정" })).toBeVisible();

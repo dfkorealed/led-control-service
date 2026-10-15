@@ -1,5 +1,28 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-15 큰 수치의 카드 내부 읽기 폭
+
+### 구현 완료
+
+- MetricContent는 전체 수치·단위를 유지하면서 줄바꿈하고 MetricCard의 단일 열은 `minmax(0,1fr)`로 수축한다. 개요 에너지 요약·분석 상세는 15rem 읽기 폭을 기준으로 열 수를 결정한다.
+- 분석 1024px light/dark와 개요 390px의 123,456.78kWh·19,753,085원·연 987,654.32kWh에 대해 카드 밖 Text Range RED→GREEN을 확인했다. 문서 폭뿐 아니라 카드 내부 텍스트·상태 배지·scrollWidth도 검사한다. 수치·단위 숨김/말줄임·임의 축소·전역 typography/token 변경은 없다.
+
+### 미구현
+
+- 실제 전력 수집·서버 보고서 생성·실기기·OS 키보드·Safari 검증은 이번 표시 수리에 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 정상 형식의 메모리 대형 수치 fixture이며 실제 운영 값이라고 주장하지 않는다. P3 일반 패널 inset·통계 하위 메뉴 간격 정합성은 별도 후속이다.
+
+### 관련 파일
+
+- `apps/web/src/components/ui/MetricContent.tsx`, `apps/web/src/components/ui/MetricCard.tsx`, `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`, `apps/web/src/features/statistics/analysis/EnergyRankingDetailPanel.tsx`, `apps/web/e2e/ui-eight-layout-regressions.spec.ts`, `.local/ui-eight-fixes-20261015/report.md`.
+
+### 갱신 규칙
+
+- 모든 숫자·단위·배지를 보존하고 320/390/1024/1440px와 관련 경계에서 실제 Range/box·내부 넘침을 확인한다. 문서 전체 가로 폭만으로 통과를 판정하지 않는다.
+
 ## 2026-10-14 공통 로딩 표시 적용
 
 ### 구현 완료

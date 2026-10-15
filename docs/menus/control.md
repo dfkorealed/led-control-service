@@ -1,5 +1,29 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 지도 가용 폭과 긴 확인 명령 상세 읽기 영역
+
+### 구현 완료
+
+- 수동 공간 선택기는 사이드바·실행 패널을 제외한 실제 콘텐츠 폭을 관찰한다. 지도 320px + 기존 선택 패널 256px + 간격 12px의 588px 미만에서는 선택 정보를 지도 아래에 배치하고 충분한 폭에서는 기존 두 열을 유지한다. 지도·선택·실행·이력을 보존하며 카메라 44px와 조명 48px hit를 축소하지 않는다.
+- 확인 필요한 명령은 목록·상세 전체를 본문 한 곳에서 스크롤하고 닫기·이전/다음은 바깥에 유지한다. 100개 UUID의 마지막 텍스트까지 wheel 뒤 읽을 수 있으며 실제 상태 확인 요청·위험 승인은 계속 비활성이다.
+- 실제 587/588/589px 콘텐츠 경계의 resize에서 선택·지도 DOM·배율·열린 이력 수명을 확인했다. 시간제 제어와 승인·잠금·재전송 정책은 변경하지 않는다.
+
+### 미구현
+
+- 실제 명령 전송·장비 상태 확인·위험 승인 활성화·Raspberry Pi/조명 HIL은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- fail-closed 메모리 fixture의 Chromium 증거를 OS 키보드·실기기·Safari 결과로 확대하지 않는다. 전체 unit의 기존 실패와 작업 중 외부에서 병합된 전송 전 거절 후속은 최종 보고서에서 시작 기준과 구별한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx`, `apps/web/src/features/control/CommandVerificationCases.tsx`, `apps/web/e2e/ui-eight-layout-regressions.spec.ts`, `apps/web/playwright.ui-eight.config.ts`, `.local/ui-eight-fixes-20261015/report.md`.
+
+### 갱신 규칙
+
+- viewport만으로 가용 지도 폭을 판단하지 않는다. 759/760·1023/1024·1120·1440px, 실제 588px 열 경계와 320/390px 긴 상세를 scroll/hit로 검사하고 selection/camera/history/modal·제어 안전 정책의 수명을 보존한다.
+
 ## 2026-10-15 수동 제어의 전송 전 거절과 불확정 결과 구분
 
 ### 구현 완료

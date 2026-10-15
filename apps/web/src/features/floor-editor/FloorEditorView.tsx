@@ -631,9 +631,10 @@ export function FloorEditorView({
 
       {/* Canvas errors must stay actionable above an open narrow panel. Bound
           that notice to 80px and reserve 96px including its existing top inset. */}
-      {/* The toolbar keeps its intrinsic height; the workspace and panels
-          shrink into the remaining viewport height instead of growing the page. */}
-      <div className="relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden" data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
+      {/* A short screen scrolls the shell chrome instead of collapsing the
+          canvas and information tabs to zero. Size containment keeps long tab
+          contents from changing that minimum or resizing the map on tab change. */}
+      <div className="relative flex min-h-64 min-w-0 flex-1 gap-3 overflow-hidden [contain:size]" data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
         {/* Keep panels mounted while collapsed: import jobs, form drafts and the
             fixture drag registry must outlive a layout-only visibility change. */}
         {/* Opacity/pointer-events expose the drop surface without removing or
@@ -691,7 +692,9 @@ export function FloorEditorView({
           <UnderlineTabPanel tabsId={panelTabsId} value="layers" activeValue={panelTab} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} mapEditor={map} />}
           </UnderlineTabPanel>
-          <UnderlineTabPanel tabsId={panelTabsId} value="details" activeValue={panelTab} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+          {/* One reader owns both identify and history overflow. Neither child
+              may consume the other's scroll area when a fixture is selected. */}
+          <UnderlineTabPanel tabsId={panelTabsId} value="details" activeValue={panelTab} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain [&>section]:shrink-0">
           <FixtureIdentifyPanel floorId={floorId} readOnly={readOnly || isMutationPending} leaseToken={leaseToken} leaseFence={leaseFence} />
           <RevisionPanel
             historyEntryRef={historyEntry}
@@ -760,7 +763,7 @@ function RevisionPanel({
   onRestore: (revision: number) => void;
 }) {
   return (
-    <section ref={historyEntryRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-t border-border-subtle p-3" aria-label="맵 버전">
+    <section ref={historyEntryRef} tabIndex={-1} className="flex flex-none flex-col gap-3 border-t border-border-subtle p-3" aria-label="맵 버전">
       <div className="grid shrink-0 gap-1">
         <Text variant="overline" tone="secondary">버전</Text>
         <Heading as="h3" variant="card-title">변경 기록</Heading>
@@ -774,7 +777,7 @@ function RevisionPanel({
       ) : null}
       {!isLoading && !isError && revisions.length === 0 ? <Text variant="body-sm" tone="secondary">저장된 버전이 없습니다.</Text> : null}
       {!isLoading && !isError && revisions.length > 0 ? (
-        <ol className="m-0 grid min-h-0 flex-1 list-none content-start gap-0 overflow-y-auto overscroll-contain p-0" data-testid="editor-revision-list">
+        <ol className="m-0 grid flex-none list-none content-start gap-0 p-0" data-testid="editor-revision-list">
           {revisions.map((revision) => (
             <li className="flex items-center justify-between gap-2.5 border-t border-border-default py-2.5 first:border-t-0 first:pt-0" key={revision.revision}>
               <div className="grid min-w-0 gap-0.5">
