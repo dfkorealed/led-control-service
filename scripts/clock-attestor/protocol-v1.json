@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "독립 DB-host 시각 증거 private wire v1",
+  "description": "승인된 Mac native primary용 private 계약. 이 schema 외에 x-wire/x-trust의 byte 정규성과 교차 필드 관문을 반드시 적용한다.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/approveRequest"
+    },
+    {
+      "$ref": "#/$defs/evidence"
+    },
+    {
+      "$ref": "#/$defs/unavailable"
+    },
+    {
+      "$ref": "#/$defs/control"
+    }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "op",
+        "nonce"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "op": {
+          "enum": [
+            "read",
+            "status",
+            "probe"
+          ]
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    "approveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "op",
+        "nonce",
+        "observationId"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "op": {
+          "const": "approve"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "observationId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    "primary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startedAt",
+        "address",
+        "port"
+      ],
+      "properties": {
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "port": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "nonce",
+        "producerBootId",
+        "observationId",
+        "issuedAt",
+        "offsetMs",
+        "uncertaintyMs",
+        "readBracketMs",
+        "stepGeneration",
+        "clearedStepGeneration",
+        "failoverGeneration",
+        "clearedFailoverGeneration",
+        "primary"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "producerBootId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "observationId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "offsetMs": {
+          "type": "number",
+          "multipleOf": 0.001
+        },
+        "uncertaintyMs": {
+          "type": "number",
+          "multipleOf": 0.001,
+          "minimum": 0
+        },
+        "readBracketMs": {
+          "type": "number",
+          "multipleOf": 0.001,
+          "minimum": 0
+        },
+        "stepGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "clearedStepGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "failoverGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "clearedFailoverGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "primary": {
+          "$ref": "#/$defs/primary"
+        }
+      }
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "nonce",
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "status": {
+          "const": "unavailable"
+        },
+        "reason": {
+          "enum": [
+            "not_approved",
+            "sample_unavailable",
+            "clock_unhealthy",
+            "primary_changed",
+            "request_invalid"
+          ]
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "nonce",
+        "status",
+        "observationId",
+        "consecutiveSamples",
+        "stepGeneration",
+        "failoverGeneration",
+        "primary"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "approved"
+          ]
+        },
+        "observationId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "consecutiveSamples": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "stepGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "failoverGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "primary": {
+          "$ref": "#/$defs/primary"
+        }
+      }
+    }
+  },
+  "x-wire": {
+    "transport": "Unix stream 한 연결에 한 요청/응답. 요청 canonical LF 프레임 전송 후 client shutdown(SHUT_WR); producer는 EOF까지 검증한 뒤 응답하고 close한다. 양쪽은 EOF까지 최대16KiB와 전체1초 deadline을 적용한다. 뒤늦은 trailing bytes/partial/no EOF는 거절한다. API UID read만, UID0 status/probe/approve만 허용한다.",
+    "encoding": "UTF-8, BOM 없음, object key 사전순, 공백 없음, 마지막 LF 정확히 하나, 최대 16384 bytes",
+    "numbers": "유한 수. 지수/불필요한 끝0/negative zero 금지. 소수 최대3자리. offset 0.001ms half-away-from-zero 반올림, uncertainty/readBracket 같은 단위 올림. 0.0은 0.",
+    "validation": "중복/prototype/unknown key 거절. 제한 domain으로 재직렬화한 bytes가 원 프레임과 정확히 같아야 한다. boolean은 number/integer가 아니다. LF 이후 추가 bytes/CRLF 거절.",
+    "requestAuthorization": "read는 설정된 API UID만, status/probe/approve는 kernel peer UID0만. core.approve는 UID0를 다시 검사한다. probe는 캐시와 다른 독립 표본1개, status는 수집하지 않음.",
+    "controlTransport": "core.status()는 version/nonce를 제외한 control body. transport가 version:1과 요청 nonce를 추가한다. core.evidence(nonce)는 완전한 read 응답이다.",
+    "fixtures": "fixtures/evidence-v1.json의 valid/invalid wire는 마지막 LF를 포함한 정확한 프레임 문자열이며 normalization은 입력/독립 예상값이다."
+  },
+  "x-trust": {
+    "freshness": "원 issuedAt 기준 wall age [-100,1000]ms. 캐시/새 nonce/요청 합치기는 issuedAt을 갱신하지 않는다. producer 요청 수집 deadline750ms는 transport가 강제한다.",
+    "budget": "정수 microseconds. producer admission: ceil(abs(rawOffsetMs)*1000)+ceil(uncertaintyMs*1000)+ceil(readBracketMs*1000)+2000<=100000. reader: abs(wireOffsetMs*1000)+wireUncertaintyMs*1000+wireReadBracketMs*1000+2000<=100000. 둘 다 강제.",
+    "observation": "sleep 포함 continuous counter를 transport가 주입, 100ms 관측. read/probe/approve 판단 직전에도 새 wall/continuous/primary 관측을 주입해야 하며 정지한 observer의 과거 wall을 재사용하지 않는다. gap>1000ms 또는 abs(wallDelta-continuousDelta)>10ms 또는 counter 비증가/비정상 관측은 step 세대 증가 및 승인 무효. core는 실제 clock을 읽지 않는다. transport는 모든 state 접근을 직렬화한다.",
+    "persistedGenerations": "빈 dict는 최초 상태. 그 외에는 evidence의 정확4 camelCase generation 키, 0..MAX_SAFE_INTEGER, clear<=current. startup stepGeneration+1, 이전 clear 유지, 새 producerBootId. 잘못된 값/시작 overflow는 ValueError, 실행 중 overflow는 영구 unavailable. durable epoch continuity 아님.",
+    "primary": "설치된 startedAt/address/port와 pid/process_started_at은 고정. 관측 false는 mismatch episode당 failoverGeneration+1 및 latch. true는 정확 같은 configured primary/process의 재확인만 뜻하며 새 primary rebind가 아니다.",
+    "approval": "시작/재시작/step/primary 변화는 deny. same primary의 독립 정상3표본(issuedAt strictly increasing) 후 현재 observationId를 UID0 approve해야만 두 세대를 clear. status는 수집 없음. 승인 전 관측 변경은 자동 재시도 금지.",
+    "observationId": "주입한 fresh producerBootId를 namespace로 UUIDv5(boot UUID, str(per-boot revision)) 생성. revision은1부터 시작해 새 독립 정상 sample 또는 무효화마다 증가하며 같은 boot 내 ID 재사용 없음. 정기 정상 observe/캐시 재사용/status/approve는 유지. sample ID를 요청자가 지정하지 않음.",
+    "badSample": "잘못된/불건강 sample은 캐시/연속개수를 비우고 관측 ID를 회전해 unavailable. 자체로 generation 증가/기존 승인 clear 해제는 아님. 이미 latched generation은 정상3표본+root 승인 없이 복구 불가.",
+    "sntp": "정확 한 줄: signed decimal seconds +/- unsigned decimal seconds time.apple.com numeric-IP 및 선택적 마지막 LF 하나. 예: +0.062763 +/- 0.006118 time.apple.com 17.253.114.35. diagnostics/추가 줄/다중 결과/단위/지수/nonfinite 거절. transport는 stdout/stderr/exit/deadline을 별도 검증.",
+    "limitations": "일반 SNTP는 인증된 NTS가 아니다. 보호된 로컬 호스트/네트워크와 time.apple.com을 신뢰한다. 설치/네트워크/OS clock 조정/DB/epoch/HIL은 core 구현 범위 밖."
+  }
+}

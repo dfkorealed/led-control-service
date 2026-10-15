@@ -1,5 +1,101 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 배포 HTTP 읽기 전용 점검 창 — 소프트웨어
+
+### 구현 완료
+
+- API의 `GATEWAY_DEPLOYMENT_READ_ONLY=1`은 body parser 전에 새 제어 등 모든 unsafe HTTP 요청을 503/`gateway_deployment_read_only`·`Retry-After: 60`으로 차단한다. GET/HEAD/OPTIONS는 기존 정책으로 처리하며 점검 응답은 `X-Kinda-Read-Only: 1`로 표시한다. 미설정/0은 기존 동작을 유지하고 다른 값은 부팅 거절한다.
+
+### 미구현
+
+- 실제 운영 설정 적용·API 재시작·장비 제어/HIL은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- HTTP 입구만 차단하므로 이미 accepted된 작업·end/만료 복구·worker·MQTT는 별도로 수렴·drain해야 한다. 규칙 비활성화를 대신하지 않으며, 테스트의 자체 recovery sentinel을 실제 worker 복구 증거로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/api/src/gateway-deployment-read-only.ts`, `gateway-deployment-read-only.spec.ts`(같은 디렉터리), `apps/api/src/main.ts`, `.env.example`, `docs/runbooks/production-api-web-deployment.md`.
+
+### 갱신 규칙
+
+- 점검 flag의 HTTP 동작과 실제 배포·worker drain·장비 검증을 구분하고 기존 인증·CSRF·권한과 accepted 작업 보존을 함께 확인한다.
+
+아래 clock·KASI 항목은 BIO 운영 후속 Task1/3/4의 소프트웨어 준비 상태다. 센서 UI·Gateway 항목은 메인 담당자가 기록한 별도 작업의 당시 검증·배포 이력을 함께 보존한 것으로, 이번 문서 병합에서 운영 결과를 새로 확인한 것은 아니다. 운영 후속 Task8의 현재 장비·설정·V3 적용 상태 재확인과 실제 clock 설치·provider 연결은 별도 미완료 관문으로 유지한다.
+
+## 2026-10-15 API 보호 Unix clock reader — 소프트웨어
+
+### 구현 완료
+
+- `COMMAND_DB_CLOCK_SOCKET_PATH`를 고정 설치 socket으로 설정했을 때만 실제 Nest source factory가 독립 producer의 `read`에 연결한다. 기본값은 OFF이며 root 0644 config의 exact 7개 필드/primary 7개 필드, 별도 producer UID/GID, root 보호 ancestor·ACL, producer 0755 runtime·0666 socket과 연결 전후 inode/owner를 확인한다. API나 DB 폴더 권한을 넓히지 않는다.
+- 요청은 새 nonce의 canonical LF 프레임 후 write half-close하며, 응답 EOF까지 metadata 검사 포함 전체 1초·16KiB 제한을 적용한다. 중복/unknown/prototype/불완전/trailing JSON, nonce·원 `issuedAt` freshness·uncertainty 포함 총 100ms 오차 관문·세대·설치 primary 불일치는 unavailable이다. 실제 signed offset과 원 발급 시각을 기존 health로 전달하고 같은 DB transaction의 primary·100ms/1000ms 관문을 유지한다.
+- 자기 소유 Unix IPC와 합성 보호 metadata, 일회용 PostgreSQL로 reader 실패 때 신규 session/lease/outbox 0, 기존 replay·조회·end intent·accepted 만료 복구 보존을 확인했다. `readEpochContinuity`는 제공하지 않으며 기존 epoch 호출은 durable continuity 부재로 계속 거절한다.
+
+### 미구현
+
+- 실제 관리자 설치·독립 UID/프로세스·실시간 SNTP·운영 API 연결 및 신규 BIO 실행 허가 증거는 아직 없다. 이번 검증은 실제 시간제 시작/종료·밝기 SET·Gateway 배포·실장비 HIL을 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이 reader는 Mac native 같은 호스트 primary 전용이다. Node socket API에 peer UID 조회가 없어 root 보호 경로/config와 producer 소유 endpoint 교체 불가 조건을 검증하며, producer가 kernel peer UID로 API의 read 권한을 확인한다. 일반 SNTP의 호스트/네트워크 신뢰 가정과 V3 적용 ACK·MQTT·Gateway 운영 관문은 별도로 유지한다.
+
+### 관련 파일
+
+- `apps/api/src/mqtt/command-db-clock-evidence-source.ts`, `command-db-clock-evidence-source.spec.ts`, `command-db-clock-health.service.spec.ts`, `mqtt.module.ts`(앞 파일과 같은 디렉터리), `apps/api/src/temporary-controls/temporary-controls.integration.spec.ts`, `.env.example`, `scripts/clock-attestor/protocol-v1.json`.
+
+### 갱신 규칙
+
+- focused software/임시 PG 증거와 실제 설치·승인·운영 API·하드웨어 결과를 구분한다. 설정값을 켰다는 이유로 운영 성공이나 epoch 활성화를 기록하지 않으며 원 issuedAt·same transaction 관문·accepted intent 보존을 완화하지 않는다.
+
+## 2026-10-15 독립 Mac clock producer — 소프트웨어
+
+### 구현 완료
+
+- 별도 비로그인 `_kinda_clock` 계정용 launchd installer와 독립 시각 producer, UID0 관리자 `status/probe/approve` 도구를 구현했다. API UID는 kernel peer 확인 후 `read`만 허용한다. Root 보호 설치물/config·full artifact hash·정확 primary/process·sleep 포함 counter·100ms 관측과 요청 직전 재관측을 검증한다.
+- 원 SNTP 시작시각을 유지하고 stdout/stderr/exit/750ms deadline을 분리 검증한다. In-flight 공유, 1초 미만 캐시/실패 backoff, single-producer lock, 세대4개 원자 저장, 시작/step/primary 변화 뒤 독립3표본과 exact 관측 관리자 승인을 적용한다. 잘못된/늦은/불완전 증거는 새 시작 허가로 바꾸지 않는다.
+- 검토 보완: IPC 수신·송신마다 전체 1초 마감시간의 잔여값을 적용하고 취소 시 socket shutdown으로 대기 I/O를 깨운다. Daemon/operator/root installer는 local module import 전에 ancestor와 sibling의 ACL까지 확인한다. 지연 socketpair와 ACL 주입 sentinel 회귀로 검증했다.
+- `prepare`는 일반 사용자 전용이며 UID0은 source·계정·primary·hash·Git·receipt 접근 전에 거절한다. 보호 staging의 관리자 `check/install`은 독립 고정 receipt와 source hash만 대조하며 사용자 저장소 Git을 실행하지 않는다. 주입 회귀는 실제 관리자 설치 증거와 구분한다.
+
+### 미구현
+
+- 실제 관리자 설치·서비스 기동·독립 UID의 native 프로세스 가시성·실시간 SNTP 건강·운영 API reader 연결과 운영 승인 증거는 후속 단계다. API reader 자체의 software 검증은 위 별도 항목을 따른다. Producer 테스트는 주입한 clock/command/socket 및 임시 파일만 사용했다. 실제 밝기 SET·시간제 시작/종료·센서 HIL은 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 일반 SNTP는 NTS 인증 증명이 아니며 관리 호스트/네트워크를 신뢰한다. Remote/Docker VM DB와 epoch continuity는 지원하지 않는다. API의 동일 transaction primary 비교와 V3 적용 확인·MQTT·Gateway 운영 관문이 별도로 필요하다. Timeout을 늘리거나 UID/파일 권한을 넓혀 건강 판정을 만들지 않는다.
+
+### 관련 파일
+
+- `scripts/clock-attestor/{core.py,daemon.py,installer.py,operator.py,protocol-v1.json,test_daemon.py,test_installer.py}`, `scripts/clock-attestor/fixtures/evidence-v1.json`, `docs/runbooks/production-api-web-deployment.md`.
+
+### 갱신 규칙
+
+- 소프트웨어 테스트, 관리자 설치, 3표본/exact 승인, API 연결, 실장비 결과를 구분해 갱신한다. Fresh receipt·hash·primary를 재확인하며 credential이나 승인 관측을 재사용 가능한 설정으로 문서화하지 않는다.
+
+## 2026-10-15 공휴일 보호 파일·provider 연결 — 소프트웨어
+
+### 구현 완료
+
+- 서버 전용 `KASI_HOLIDAY_SERVICE_KEY_PATH`에서 절대 경로의 현재 API UID 소유 regular 0600 키 파일과 상위 0700 디렉터리를 확인해 기존 `KasiHolidayProvider`를 실제 `HOLIDAY_PROVIDER` factory에 연결한다. Symlink와 잘못된 권한·형식·파일 오류는 키/경로/URL 출력 없이 unavailable이며 API 부팅은 계속한다.
+- 기존 최초 당해/다음해와 일일 갱신, 12개월/모든 페이지·빈 월 검증, 같은 transaction의 pointer·revision·snapshot 승격을 유지한다. 한국 연도 전체의 실제 휴일이 0개면 새 coverage 승격과 기존 빈 캐시 소비를 거절하고 정상 검증 캐시를 보존한다.
+
+### 미구현
+
+- 실제 보호 키 설정·provider 수집·2026/2027 coverage 승격과 운영 API 재시작은 아직 실행하지 않았다. 테스트는 생성한 임시 키와 자기 소유 disposable PostgreSQL만 사용한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 실제 연결 전 두 연도의 완전 coverage, 공식 제공 범위/할당량과 기존 키 승인 유효성을 확인해야 한다. 누락 coverage는 평일로 간주하지 않으며 clock·V3 ACK·MQTT·Gateway/HIL의 별도 운영 관문도 유지한다.
+
+### 관련 파일
+
+- `apps/api/src/automation/holiday-provider-config.ts`, `holiday-provider-config.spec.ts`, `automation-runtime.module.ts`, `holiday-dataset.service.ts`, `holiday-dataset.service.spec.ts`(앞 두 파일과 같은 디렉터리), `.env.example`, `docs/runbooks/production-api-web-deployment.md`.
+
+### 갱신 규칙
+
+- 소프트웨어 fixture 검증과 실제 키 설정·수집·coverage 승격 증거를 구분한다. 키 값·원문 URL/오류 body는 문서·로그·클라이언트에 기록하지 않는다.
+
 ## 2026-10-15 센서 재설정 후 decoder 차단 복구
 
 ### 구현 완료

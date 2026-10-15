@@ -4,6 +4,80 @@
 
 ## 적용 범위와 사전 조건
 
+### Gateway 배포 HTTP 쓰기 차단 점검 창
+
+`GATEWAY_DEPLOYMENT_READ_ONLY`는 미설정 또는 정확한 `0`이면 기존 HTTP 처리를 유지하고, 정확한 `1`이면 점검 창을 적용한다. 빈 문자열·공백·오타 등 다른 값은 부팅을 거절한다. 시작 시 읽는 설정이므로 적용·해제는 승인된 API 재시작 절차로 진행한다. 이번 구현에서는 실제 환경 값을 변경하거나 재시작하지 않았다.
+
+관측 미들웨어 뒤, JSON body parser 앞에서 GET/HEAD/OPTIONS만 기존 인증·CSRF·권한·handler로 넘긴다. 점검 창의 모든 HTTP 응답에는 `X-Kinda-Read-Only: 1`이 붙는다. 로그인·새 명령·등록·설정 저장을 포함한 POST/PUT/PATCH/DELETE 및 기타 unsafe method는 parser나 handler 실행 전에 HTTP 503, `{ "statusCode": 503, "code": "gateway_deployment_read_only" }`, `Retry-After: 60`으로 종료한다. Health 읽기의 기존 dependency key와 body는 바꾸지 않는다. 허용된 읽기는 기존 보안 정책을 계속 따른다.
+
+이 설정은 HTTP 요청 입구만 차단한다. 기존 accepted 명령·end/만료 복구·MQTT 처리·백그라운드 worker를 삭제하거나 해제하지 않으며, worker drain 또는 규칙 비활성화를 대신하지 않는다. 배포 전 기존 accepted 작업의 수렴과 worker/규칙 상태를 별도로 확인하고, source·대상·프로세스·등록 귀속 및 배포 승인을 새로 확인한다. 실제 POST로 차단을 시험하거나 밝기 SET·규칙 활성화·장비 쓰기를 보내지 않는다. 자동 검증은 자체 HTTP app/parser·handler counter에 한정하며 실제 worker recovery 또는 운영 배포 성공의 증거가 아니다.
+
+### 독립 DB-host 시각 증거 — wire·순수 상태 기계
+
+현재 Mac native PostgreSQL primary용 private [wire v1](../../scripts/clock-attestor/protocol-v1.json)과 [공유 fixture](../../scripts/clock-attestor/fixtures/evidence-v1.json)를 고정했다. `core.py`는 주입한 wall/continuous 관측과 표본만 검사하며 OS 시각·SNTP·프로세스·DB를 읽거나 변경하지 않는다. UTF-8·사전순 key·공백 없는 JSON·마지막 LF 하나·16KiB 한도를 지키고 중복/unknown/prototype key와 비정규 숫자 표현을 거절한다. 정상 응답의 `offsetMs`는 실제 signed offset을 0.001ms로 반올림하고 uncertainty/bracket은 올림한다. admission은 원 offset 절대값까지 마이크로초로 올려 `abs(offset)+uncertainty+readBracket+2ms <=100ms`를 보수적으로 검사한다.
+
+기동/재기동은 step 세대를 증가시켜 기본 deny다. 100ms 주기로 sleep 포함 continuous counter를 관측하며 공백 1초 초과 또는 wall/continuous 변화 차이 10ms 초과는 step latch, 고정 primary/process 불일치는 failover latch다. 원 표본은 발급시각 기준 1초 이내/미래 100ms 이내만 사용하고 새 nonce로 발급시각을 바꾸지 않는다. 같은 primary의 독립 정상 3표본과 현재 관측 UUID에 대한 UID0 승인이 있어야 세대를 clear한다. `status`는 수집하지 않으며 `probe`가 캐시와 다른 표본 한 개를 수집한다. 관리자 invocation은 독립 probe 3개와 마지막 관측의 approve를 수행할 수 있지만 관측 변경 시 자동 재시도하지 않는다.
+
+Producer는 상태 접근을 직렬화하고 read/probe/approve 판단 직전에 새 wall/continuous/primary 관측을 주입해야 한다. 정지한 observer의 과거 wall만으로 freshness를 판단해서는 안 된다. 관측 ID는 fresh boot UUID와 boot 내 증가 revision으로 생성하며 재시작 전 ID를 복원하지 않는다. 정확 4개 generation 상태 외 값·boolean·unsafe integer·clear가 현재 세대보다 큰 상태·overflow는 증거 발급을 닫는다.
+
+SNTP parser는 확인된 `+0.062763 +/- 0.006118 time.apple.com 17.253.114.35` 형태의 단일 seconds 결과만 받는다. 합쳐진 discovery 출력에는 다른 주소의 timeout 진단과 1.10초 실행도 있었으므로 건강 증거로 사용하지 않는다. Producer는 stdout/stderr·exit·750ms deadline을 별도로 검증한다. 일반 SNTP는 인증된 NTS가 아니므로 관리 호스트/네트워크와 시간원을 신뢰하는 한계가 있다. 아래 독립 producer/설치 도구의 소프트웨어 검증과 실제 관리자 설치·API reader 연결·운영 시각 건강·epoch continuity는 별개다.
+
+### 독립 Mac clock producer — 보호 설치와 관리자 절차
+
+`scripts/clock-attestor/daemon.py`, `installer.py`, `operator.py`를 구현했다. 이 절의 명령은 승인된 운영 적용 단계에서만 실행하며 현재 소프트웨어 검증 중 실제 설치·SNTP 조회·계정 생성·서비스 시작은 하지 않았다. 설치 root는 `/Library/Application Support/Kinda/ClockAttestor`, launchd label은 `com.kinda.clock-attestor`, plist는 `/Library/LaunchDaemons/com.kinda.clock-attestor.plist`로 고정한다. Runtime artifact는 정확히 `core.py`, `daemon.py`, `installer.py`, `operator.py`, `protocol-v1.json` 다섯 파일이다.
+
+설정 `config.json`은 exact `version,producerUid,producerGid,apiUid,primary,sourceCommit,fileHashes`만 담는다. `primary`의 exact 필드는 `startedAt,address,port,pid,processStartedAt,dataDirectory,executable`이다. 앞 세 값은 운영자가 기존 DB 연결로 새로 읽은 native primary wire와 일치해야 한다. 뒤 네 값은 같은 호스트 PostgreSQL의 PID, `LC_ALL=C /bin/ps -p PID -o lstart=` 결과, 절대 data directory, 커널 `proc_pidpath`가 반환한 실제 `postgres` executable이다. 원격 주소는 거절하고 loopback/native만 지원한다. DB credential은 어떤 파일에도 넣지 않는다.
+
+운영자는 기존 연결로 primary를 새로 읽어 일곱 필드만 있는 JSON을 만들고, `postmaster.pid` PID/epoch seconds/port/ready 및 실행 프로세스 신원과 대조한다. `prepare/check/install`은 이를 재확인한다. 상시 producer는 private PostgreSQL data directory를 읽지 않고, 같은 PID의 `ps` 시작 신원과 커널 executable을 재확인한다. API reader의 **같은 transaction primary wire 비교**가 반드시 함께 있어야 하며, 새 DB 프로세스는 자동 재결속하지 않는다. DB 디렉터리 권한이나 API 그룹 구성은 변경하지 않는다.
+
+일반 사용자 준비·검사는 다음 형태다. `--receipt`는 새 절대 경로여야 하고 receipt 유효기간은 준비 후 60초다. 오래된 receipt/관측 ID는 재사용하지 않는다. Source 디렉터리는 검토한 clean commit의 `scripts/clock-attestor`이며 source hash가 바뀌면 중단한다.
+
+`prepare`는 일반 사용자 전용이다. UID0 호출은 source·계정 목록·primary·hash·Git·receipt 접근 전에 거절하며 보호 staging에서도 예외가 없다. 관리자 단계는 독립 고정한 receipt로 `check/install`만 수행하고 사용자 저장소의 Git을 실행하지 않는다.
+
+```sh
+/usr/bin/python3 -I -S scripts/clock-attestor/installer.py prepare \
+  --receipt /absolute/private/clock-install-receipt.json \
+  --primary-file /absolute/private/fresh-primary.json --api-uid API_UID
+/usr/bin/python3 -I -S scripts/clock-attestor/installer.py check \
+  --receipt /absolute/private/clock-install-receipt.json
+```
+
+최초 관리자 bootstrap의 신뢰 기준은 사용자 쓰기 가능한 receipt 자체가 아니다. **독립 검토된 commit과 다섯 artifact의 SHA-256을 운영 인계에서 별도로 고정**하고 아래 순서로 대조한다.
+
+1. OS 도구로 root 소유·0700의 새 staging을 root 보호 ancestor 아래 만든다. 예시는 `/Library/Application Support/Kinda/ClockAttestorBootstrap-검증한UUID`이며 실제 UUID/경로를 확정한다. 기존 동명 경로나 symlink를 덮어쓰지 않는다. Ancestor·interpreter·파일이 API 쓰기 가능하거나 ACL이 있으면 중단한다.
+2. `/usr/bin/install -o root -g wheel -m 0644`로 다섯 artifact를 각각 staging에 복사하고 receipt는 `-m 0600`으로 복사한다. 파일마다 원본/대상을 명시하고 재귀 복사나 source repo 실행을 하지 않는다. Root shell의 정제된 환경에서 `/usr/bin/shasum -a 256`으로 staging의 **installer를 포함한 모든 다섯 파일**이 독립 고정 SHA와 일치하는지 먼저 확인한다. Receipt의 `sourceCommit/fileHashes/primary/apiUid`도 운영자가 확인한다.
+3. 아래처럼 검증한 staging의 installer를 실행한다. `sudo python ...repo/installer.py`는 사용하지 않는다. `-I -S`는 cwd/PYTHONPATH/user site와 global site의 `.pth` startup을 모두 배제한다. Installer는 root에서 보호되지 않은 sibling/ancestor를 거절하고, 사용자 repo의 git filter/fsmonitor를 root로 실행하지 않는다. Root 단계는 고정 receipt와 source bytes hash를 비교한다.
+
+```sh
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestorBootstrap-검증한UUID/installer.py" install \
+  --receipt "/Library/Application Support/Kinda/ClockAttestorBootstrap-검증한UUID/receipt.json"
+```
+
+Installer가 내보내는 plist의 argv는 `/usr/bin/python3 -I -S <고정 prefix>/daemon.py --config <고정 prefix>/config.json`이며 저장소를 실행하지 않는다. `_kinda_clock` UID/GID는 directory 목록에서 각각 501 이상 최저 미사용 값을 택한다. API와 같은 UID, `nobody`, 다른 계정과 공유하는 UID/GID 및 자신의 root 보호 receipt로 증명되지 않은 기존 이름을 거절한다. Shell `/usr/bin/false`, home `/var/empty`, password `*`, disabled authentication을 확인한다. Prefix/root 프로그램/config는 root 소유, prefix0755/config0644, runtime은 producer0755, state는 producer0700, generations와 producer lock은 producer0600이다. 기존 generations를 지우거나 초기화하지 않는다.
+
+Socket `runtime/evidence.sock`는 producer 소유0666이다. 이는 cross-UID 연결 허용이며 API가 socket 경로를 교체하거나 부모 디렉터리에 쓰는 권한은 없다. 매 연결의 kernel `getpeereid`로 설정 API UID는 `read`만, UID0은 `status/probe/approve`만 허용한다. 다른 UID는 프레임 처리 전에 거절한다. 한 연결에 한 canonical LF 요청을 보내고 **client `shutdown(SHUT_WR)` 뒤 EOF까지 응답**을 읽는다. 양쪽 최대16KiB/전체1초 deadline이며 각 수신·송신에 남은 시간을 적용한다. Partial/추가 bytes/EOF 누락은 거절하고 취소는 shutdown으로 대기 I/O를 깨운다. Observer/외부 수집과 socket 대기는 분리된다. Daemon/operator/root installer의 ancestor·sibling ACL 검사는 local module import 전에 끝나며 ACL 확인 실패도 import를 허용하지 않는다.
+
+Producer는 100ms마다 Darwin `mach_continuous_time`(sleep 포함)과 wall/primary를 관측하고 요청 판단 직전에도 새로 읽는다. 미지원 OS/counter/peer API는 시작 거절이다. 독립 collection은 고정 `/usr/bin/sntp -t 1 time.apple.com`만 사용하며 timeout/late/stderr/nonzero/여러 결과는 unavailable이다. 같은 in-flight를 합치고 원 시작시각 기준 1초 미만만 캐시한다. 실패한 API read도 같은 1초 동안 unavailable로 공유해 외부 시간원을 반복 조회하지 않는다. Root probe만 새 독립 표본을 요청하며 승인 전 각 probe가 정상인지 직접 확인한다.
+
+```sh
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestor/operator.py" status
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestor/operator.py" probe
+# 정상 probe를 총 3회 독립 실행한 뒤 마지막 응답의 exact observationId를 사용한다.
+sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestor/operator.py" approve --observation-id LAST_EXACT_UUID
+```
+
+`operator status/probe/approve`는 모두 UID0 제어 명령이다. `installer status --receipt <file>`은 읽기 전용 설치/launchd 존재 검사이며 관리자 승인·시각 건강을 뜻하지 않는다. 승인 중 관측이 바뀌거나 timeout이면 자동 재시도/재승인하지 않는다. 판단 직전에 IPC가 만료됐으면 승인/늦은 표본을 거절한다. 승인 저장 후 응답이 유실되면 `status`로 확인하며 자동 재승인하지 않는다. 재시작마다 fresh boot UUID와 증가한 step generation 때문에 새 3표본/승인이 필요하다. 장애 시 새 start/delivery는 차단하며 epoch continuity를 제공하지 않는다.
+
+설치 실패 rollback은 자기 `system/com.kinda.clock-attestor`만 bootout하며 계정·상태·staging을 보존한다. 실행 파일 일부 교체 뒤 실패한 경우도 자동 구버전 기동/세대 삭제를 하지 않는다. 운영자가 exact receipt·hash·launchd 상태를 확인하고 재설치/재결속한다. 승인된 수동 정지도 `sudo /bin/launchctl bootout system/com.kinda.clock-attestor`만 사용하며 다른 launchd job·DB·API를 중지하지 않는다. 실제 별도 UID에서의 `ps/proc_pidpath` 가시성, 시스템 Python/ACL 메타데이터, live SNTP 750ms 충족 및 launchd 재시작 증거는 운영 설치 단계에서 확인해야 한다. 테스트 fixture 통과를 그 증거로 대체하지 않는다.
+
+### 공휴일 서버 provider — 보호 파일 연결 경계
+
+`KASI_HOLIDAY_SERVICE_KEY_PATH`는 API 프로세스에만 주입하는 보호 파일의 절대 경로다. 키 자체를 env 값·Git·Web `VITE_*`·Gateway·문서·로그에 넣지 않는다. 현재 API UID 소유의 symlink 아닌 regular 0600 파일과 같은 UID 소유 상위 0700 디렉터리를 준비한다. Loader는 no-follow open 후 동일 descriptor의 fstat와 최대 513바이트 bounded read를 사용하며 512바이트 초과를 거절한다. 값은 URL decode 없이 `[A-Za-z0-9+/%=._-]` 16~256자의 단일 키만 허용하며 끝 LF 하나만 허용한다. 내부 공백/개행·끝 개행 2개·잘못된 owner/mode/경로·읽기 오류는 provider unavailable로 처리하고 API 전체 부팅은 중단하지 않는다.
+
+현재 커밋의 검증은 임시 키 fixture·차단된 외부 transport·자기 소유 disposable PostgreSQL에 한정한다. 원본 보호 키, 실제 provider 및 운영 DB를 읽거나 설정·재시작하지 않았다. 실제 적용 단계에서는 source/대상/API 프로세스 귀속과 보호 파일 메타데이터를 새로 확인한 뒤 승인된 경로만 연결한다. Container에는 별도로 승인된 서버 전용 read-only mount와 UID/mode 일치가 필요하며 `.env.example` 추가만으로 production Compose mount를 준비한 것으로 간주하지 않는다.
+
+기존 lifecycle가 시작 시 서울 당해/다음해와 이후 일일 갱신을 수행한다. 운영 연결 뒤 2026/2027 각각 12개월·모든 페이지·빈 월의 완전성을 확인해야 한다. 한국 연도 전체 실제 휴일 0개는 미래 공식 제공 범위의 증거가 아니므로 unavailable로 남으며 정상 캐시를 덮어쓰지 않는다. 부분 실패/승격 hook 실패는 기존 pointer·revision·snapshot을 보존하고 coverage 누락인 휴일 제외 저장/활성화는 계속 거절한다. 키·raw 요청 URL·provider 오류 body를 출력하지 않고 기존 키의 승인 만료/트래픽 범위 안에서만 사용한다. 이 단계는 신규 운영계정 신청·약관 동의·Gateway/HIL·시각 관문 해제를 포함하지 않는다.
+
 ### Command Set 세대 egress 준비 — 운영 전환 OFF
 
 `COMMAND_SET_EGRESS_ENABLED=0`이 기본이다. 기존 API identity의 Set/Get과 수집은 계속 동작한다. ACL은 `sites/#` 대신 아래 명시적 권한으로 좁히되 OFF에서는 `sites/+/gateways/+/commands/dimming`과 구형 `sites/+/commands/dimming` write를 유지한다. `infra/mosquitto.acl.example`은 production Compose가 mount하는 OFF 예시이며 기존 Gateway onboarding의 `%u` scoped pattern도 유지한다. 전환 시에는 이 파일을 전체 Gateway 목록의 renderer 결과로 교체해야 한다. 전역 `pattern`은 새 Set principal에도 다른 권한을 주므로 ON에서는 남기지 않는다.

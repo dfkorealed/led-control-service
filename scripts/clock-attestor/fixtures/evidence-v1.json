@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "read_request",
+      "direction": "request",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"op\":\"read\",\"version\":1}\n"
+    },
+    {
+      "name": "status_request",
+      "direction": "request",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"op\":\"status\",\"version\":1}\n"
+    },
+    {
+      "name": "probe_request",
+      "direction": "request",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"op\":\"probe\",\"version\":1}\n"
+    },
+    {
+      "name": "approve_request",
+      "direction": "request",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"op\":\"approve\",\"version\":1}\n"
+    },
+    {
+      "name": "signed_evidence",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "zero_evidence",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":0,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0,\"stepGeneration\":1,\"uncertaintyMs\":0,\"version\":1}\n"
+    },
+    {
+      "name": "fractional_ceiling_evidence",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":0,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.001,\"stepGeneration\":1,\"uncertaintyMs\":0.001,\"version\":1}\n"
+    },
+    {
+      "name": "exact_100ms_evidence",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-90,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":1,\"stepGeneration\":1,\"uncertaintyMs\":7,\"version\":1}\n"
+    },
+    {
+      "name": "null_primary_connection",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":null,\"port\":null,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "not_approved",
+      "direction": "response",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"not_approved\",\"status\":\"unavailable\",\"version\":1}\n"
+    },
+    {
+      "name": "sample_unavailable",
+      "direction": "response",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"sample_unavailable\",\"status\":\"unavailable\",\"version\":1}\n"
+    },
+    {
+      "name": "clock_unhealthy",
+      "direction": "response",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"clock_unhealthy\",\"status\":\"unavailable\",\"version\":1}\n"
+    },
+    {
+      "name": "primary_changed",
+      "direction": "response",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"primary_changed\",\"status\":\"unavailable\",\"version\":1}\n"
+    },
+    {
+      "name": "request_invalid",
+      "direction": "response",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"request_invalid\",\"status\":\"unavailable\",\"version\":1}\n"
+    },
+    {
+      "name": "observed_control",
+      "direction": "response",
+      "wire": "{\"consecutiveSamples\":3,\"failoverGeneration\":0,\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"status\":\"observed\",\"stepGeneration\":1,\"version\":1}\n"
+    },
+    {
+      "name": "approved_control",
+      "direction": "response",
+      "wire": "{\"consecutiveSamples\":3,\"failoverGeneration\":0,\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"status\":\"approved\",\"stepGeneration\":1,\"version\":1}\n"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "duplicate_offset",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "unknown_field",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1,\"unknown\":0}\n"
+    },
+    {
+      "name": "unknown_primary_field",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"pid\":1234,\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "negative_zero",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-0,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0,\"stepGeneration\":1,\"uncertaintyMs\":0,\"version\":1}\n"
+    },
+    {
+      "name": "zero_point_zero",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":0.0,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0,\"stepGeneration\":1,\"uncertaintyMs\":0,\"version\":1}\n"
+    },
+    {
+      "name": "exponent",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58639e-3,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "trailing_fractional_zero",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.8640,\"version\":1}\n"
+    },
+    {
+      "name": "fractional_precision_exceeded",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.8641,\"version\":1}\n"
+    },
+    {
+      "name": "negative_uncertainty",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":-5.864,\"version\":1}\n"
+    },
+    {
+      "name": "unsafe_generation",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":9007199254740992,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "cleared_ahead_of_current",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":2,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "boolean_generation",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":true,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "nan_offset",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":NaN,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "timestamp_without_milliseconds",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "extra_lf",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n\n"
+    },
+    {
+      "name": "crlf",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\r\n"
+    },
+    {
+      "name": "missing_lf",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}"
+    },
+    {
+      "name": "leading_space",
+      "direction": "response",
+      "wire": " {\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "prototype_key",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":-58.639,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1,\"__proto__\":{}}\n"
+    },
+    {
+      "name": "read_with_observation_id",
+      "direction": "request",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"op\":\"read\",\"version\":1}\n"
+    },
+    {
+      "name": "approve_without_observation_id",
+      "direction": "request",
+      "wire": "{\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"op\":\"approve\",\"version\":1}\n"
+    },
+    {
+      "name": "fractional_precision_beyond_decimal_context",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":90.0000000000000000000000000001,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    },
+    {
+      "name": "lossy_large_error_number",
+      "direction": "response",
+      "wire": "{\"clearedFailoverGeneration\":0,\"clearedStepGeneration\":1,\"failoverGeneration\":0,\"issuedAt\":\"2026-10-15T00:00:00.300Z\",\"nonce\":\"22222222-2222-4222-8222-222222222222\",\"observationId\":\"33333333-3333-4333-8333-333333333333\",\"offsetMs\":9007199254740993,\"primary\":{\"address\":\"127.0.0.1\",\"port\":5432,\"startedAt\":\"2026-10-15T00:00:00.000Z\"},\"producerBootId\":\"11111111-1111-4111-8111-111111111111\",\"readBracketMs\":0.125,\"stepGeneration\":1,\"uncertaintyMs\":5.864,\"version\":1}\n"
+    }
+  ],
+  "normalization": [
+    {
+      "name": "zero_and_ceiling",
+      "input": {
+        "offsetMs": -0.0004,
+        "uncertaintyMs": 0.0001,
+        "readBracketMs": 0.0001
+      },
+      "expected": {
+        "offsetMs": 0,
+        "uncertaintyMs": 0.001,
+        "readBracketMs": 0.001
+      },
+      "admitted": true
+    },
+    {
+      "name": "signed_half_away_from_zero",
+      "input": {
+        "offsetMs": -1.2345,
+        "uncertaintyMs": 0,
+        "readBracketMs": 0
+      },
+      "expected": {
+        "offsetMs": -1.235,
+        "uncertaintyMs": 0,
+        "readBracketMs": 0
+      },
+      "admitted": true
+    },
+    {
+      "name": "exact_100ms",
+      "input": {
+        "offsetMs": -90,
+        "uncertaintyMs": 7,
+        "readBracketMs": 1
+      },
+      "expected": {
+        "offsetMs": -90,
+        "uncertaintyMs": 7,
+        "readBracketMs": 1
+      },
+      "admitted": true
+    },
+    {
+      "name": "raw_over_100ms_even_when_wire_offset_rounds_down",
+      "input": {
+        "offsetMs": 90.0004,
+        "uncertaintyMs": 7,
+        "readBracketMs": 1
+      },
+      "expected": null,
+      "admitted": false
+    }
+  ]
+}

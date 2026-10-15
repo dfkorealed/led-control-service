@@ -11,7 +11,7 @@ export interface CommandDbPrimaryIdentity {
   port: number | null;
 }
 
-/** A future DB-host attestor must issue this evidence; MQTT requests cannot supply it. */
+/** An optional protected DB-host attestor issues this evidence; MQTT requests cannot supply it. */
 export interface CommandDbClockEvidence {
   issuedAt: Date;
   offsetMs: number;
@@ -84,8 +84,8 @@ export class CommandDbClockHealth {
   }
 
   private async observeHealthy(tx: Prisma.TransactionClient): Promise<{ now: Date; continuity: string }> {
-    // No production provider is registered until the central DB host has a
-    // trusted sync/step/failover attestor. Missing evidence always denies Set time.
+    // The protected source factory is optional and defaults off. Actual host
+    // installation/approval is separate; missing evidence always denies Set time.
     if (!this.evidenceSource) throw new Error("DB clock attestation unavailable");
     const evidence = await this.evidenceSource.read();
     const [observed] = await tx.$queryRaw<PrimaryObservation[]>`

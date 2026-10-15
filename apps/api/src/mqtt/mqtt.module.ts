@@ -28,7 +28,8 @@ import { CommandLateSetAckService } from "../commands/command-late-set-ack.servi
 import { CommandLegacyGetAckService } from "../commands/command-legacy-get-ack.service";
 import { CommandSafetyDigest } from "../commands/command-safety-digest";
 import { CommandClockResponderService } from "./command-clock-responder.service";
-import { CommandDbClockHealth } from "./command-db-clock-health.service";
+import { COMMAND_DB_CLOCK_EVIDENCE_SOURCE, CommandDbClockHealth } from "./command-db-clock-health.service";
+import { createConfiguredCommandDbClockEvidenceSource } from "./command-db-clock-evidence-source";
 import { CommandPublishEpochService } from "./command-publish-epoch.service";
 import { CommandPublishQuiesceService } from "./command-publish-quiesce.service";
 import { BioRegistrationRevalidationService } from "../registration/bio-registration-revalidation.service";
@@ -63,6 +64,7 @@ import { BioSensorCatalogOutboxService } from "../automation/bio-sensor-catalog-
     CommandLateSetAckService,
     CommandLegacyGetAckService,
     CommandSafetyDigest,
+    { provide: COMMAND_DB_CLOCK_EVIDENCE_SOURCE, useFactory: () => createConfiguredCommandDbClockEvidenceSource(process.env) },
     CommandDbClockHealth,
     CommandPublishEpochService,
     CommandPublishQuiesceService,

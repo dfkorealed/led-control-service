@@ -89,4 +89,12 @@ describe("CommandDbClockHealth", () => {
     await expect(new CommandDbClockHealth({ read: async () => ({ ...healthy, offsetMs: -100 }) })
       .assertHealthy(transaction())).resolves.toEqual(dbNow);
   });
+
+  it.each([
+    ["address", { ...observedPrimary, address: "::1" }],
+    ["port", { ...observedPrimary, port: 5433 }]
+  ])("compares the %s from the same transaction even after an otherwise healthy reader result", async (_name, primary) => {
+    await expect(new CommandDbClockHealth({ read: async () => ({ ...healthy, primary }) })
+      .assertHealthy(transaction())).rejects.toThrow("not current for primary");
+  });
 });
