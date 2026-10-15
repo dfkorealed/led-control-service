@@ -4,6 +4,9 @@
 
 ## 2026-10-15 BIO 자기 감지 제어 설계 검토
 
+- 후속 읽기 전용 승인으로 방습등1·2/기존 B1-L006의6GET씩18실응답을 확보했다. 방습등1·2는 high30%/standby10%/hold5초/standby구간5초/delayMode0/force-on, 기존1대는 high100%/force-off·나머지 동일이다. firmware5.5.8.12889/센서 유형도 같다. 같은 Gateway/image/config와 진단 전후3root metadata/hash를 보존하고 새health5true/USB owner1/6online·등록/설정digest 불변·revision39 APPLIED·명령/outbox/lease0으로 복귀했다. 영구배포·설정SET·DB migration/API·브로커 재시작0이다.1초 쓰기/자기 감지 출력/단계별 복귀는 미검증이다.
+- 진단 guard의 Mounts 순서/기존 startup literal 차단을 실제 증거와 RED→한정 검사로 보완했다. 첫 진단은 설정조회RF0/정상close이며 첫 재개Malformed 종료 후 같은 컨테이너의 명시적 복구1회로 정상화했다. 다음 진단18응답 후 즉시USB postflight 미확정은 추가 쓰기 없는 fresh 조회로 복귀 확정했다. 관련codec/client205PASS·진단 guard3PASS·identity2PASS, 원 실패/기록/백업은 보존한다. 다른 채팅 공유0이며 전체 기능 완료로 기록하지 않는다.
+
 - 사용자는 방습등1·2를 포함해 감지한 조명 자신의 밝기/유지시간 설정을 요청했고, 최소1초·기존/신규 공통 지원으로 보정해 진행을 승인했다. 별도 `codex/bio-self-sensing-control-20261015`에서 서면 설계를 작성했다. 기존 자기 제어 제외 정책을 단순 해제하지 않고 sensor 모드 유지·장비 자체 설정 경로를 제안한다.
 - 검토 문서는 `docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`다. 유지시간/기본 밝기의 명령·단위·독립 조회와1초 지원 근거를 먼저 확인하며, 미확인 장비에 명령을 추측하지 않는다. 동일 설정 UI 제공과 모든 장비의 물리 지원 완료는 구분한다.
 - 사용자가 서면 설계를 확정하고 계획 작성 후 진행을 요청했다. `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`를 작성·자가검토했고 같은 세션 직접 실행을 시작한다. Task1 장비 명령 근거→Task2 최소1초→Task3 codec/client→Task4 계약/서버→Task5 Gateway→Task6 UI/한정검증 순서다. 미확인 명령은 추측하지 않고 자기 제어 관문에서 보류한다. 실제 DB/장비/서비스 반영0이며 기존 ID/규칙/설정과 메인의 사용자/병행 UI 미커밋 변경을 보존한다.

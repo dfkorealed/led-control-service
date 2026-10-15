@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-15 / 읽기 전용 BIO 진단도 기존 초기화와 운전 복귀를 검증한다
+
+- GET 전용 USB 필터에도 기존 transport의 두 zero-trailer startup literal이 필요하다. 일반 CRC 예외를 확대하지 않고 검증된 두 literal의 정확한 값·순서·1회만 허용하며, 이후에는 대상3대의6GET/고정 검색만 허용한다. 이번 첫 필터는 초기화까지 막아 RF 설정조회0으로 실패했으며 원 실패를 보존했다.
+- Docker의 Mounts 배열 순서는 stop 전후 바뀔 수 있다. 중복 destination을 거절하고 destination으로 정렬한 뒤 모든 필드를 대조한다. 경로·RW·보안 설정 차이를 순서 차이처럼 허용하지 않는다.
+- 원 runtime의 정상TERM·진단 close·USB owner0·영속3root 불변 후 같은 ID/image로 재개한다. 즉시 start 결과나 이전 lifetime의 신선한 health 파일만으로 복귀를 확정하지 않고, 새 lifetime 이후 health와 실제 USB owner1·서버 heartbeat·등록/설정digest를 확인한다. 이번 진단은18응답을 읽었지만 즉시 postflight가 미확정으로 끝나 후속 fresh 읽기로 복귀를 확정했다.
+- 현재 설정 조회는 물리1초 SET·감지 출력·단계별 복귀의 검증이 아니다. 공통 fingerprint/GET 성공만으로 새 쓰기 지원을 승격하거나 기존 source 보호를 해제하지 않는다.
+
 ## 2026-10-15 / 서비스 초 단위와 장비의 시간 표현을 구분한다
 
 - BIO 앱의 `TimeInterval`은 하위1bit가 초/분이고 상위7bit가 횟수다.1~127초는 초 단위로 표현되지만 그 이상에서 앱의 `setValue`는 분으로 나누어 버릴 수 있다. 서비스가1초 단위를 허용한다고 장비가1~1,800초의 모든 정수를 정확히 표현하는 것은 아니다.

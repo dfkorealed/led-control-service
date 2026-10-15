@@ -33,7 +33,7 @@
 
 - [x] Task1 장비 명령·시간단위 정적 근거와 실제 확인 필요 범위 판정
 - [x] Task2 기존 BIO 유지시간 1초 코드·DB 변경 파일·격리 UI 검증 (운영 미반영)
-- [ ] Task3 자기 설정 codec/client — 읽기 전용 구현/검증 완료, 설정 쓰기는 실제 응답/단계 의미 확인 대기
+- [ ] Task3 자기 설정 codec/client — 읽기 전용 구현·실장비3대18응답 확인 완료, 설정 쓰기·단계별 복귀는 미검증
 - [ ] Task4 자기 제어 공통 계약·서버 저장/검증
 - [ ] Task5 Gateway 내구 적용·복구 연결
 - [ ] Task6 자기 제어 UI·한정 검증·문서·병합
@@ -41,6 +41,11 @@
 Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 다르면 자기 제어 Task3–6을 추측해 구현하지 않는다. 확인된 근거와 필요한 다음 행동을 기록한다. 독립적인 Task2는 진행할 수 있지만 전체 자기 제어 완료로 표현하지 않는다.
 
 ### 현재 검증과 관문
+
+- 10월15일 읽기 전용 승인 결과: 방습등1·2와 B1-L006에서6GET씩 총18개의 UUID/주소/network 일치 응답을 확보했다. 세 대 모두 fingerprint `deviceType1/firmware5.5.8.12889/sensor2/infrared1/ambient0/hardware3`다. 방습등1·2는 high30%/standby10%/hold5초/standby interval5초/delayMode0/force-on, B1-L006은 high100%와 force-off이며 나머지 설정은 같다. 현재 저장값 조회이지1초 SET·광출력·단계별 복귀의 검증은 아니다.
+- 운전 복귀: exact 기존 컨테이너/이미지 `eebe6533`·Config/HostConfig/정렬한Mounts 불변, 진단 전후3root 전체 metadata/hash 불변, USB owner1과 새 lifetime의health5true·6대online·등록/설정digest 보존·V3 revision39 APPLIED·명령/outbox/lease0을 확인했다. 영구배포/DB migration/API·브로커 재시작/조명설정 SET0이며 다른 채팅 공유0이다.
+- 중간 실패도 보존한다. Mounts 순서만 달라 중단된 guard는 RED1→2PASS로 보완했다. 첫 진단은 기존 zero-trailer startup literal까지 차단해 설정조회 RF0으로 종료했다. exact 두 literal의 순서만 허용하는 RED1→3PASS 뒤 실제18응답을 확보했다. 첫 재개는 malformed frame으로 종료해 sole USB 해제/같은 runtime을 대조한 명시적 복구1회로 정상화했다. 다음 진단 후 start는 성공했지만 즉시USB postflight가 미확정으로 끝나, 추가 쓰기 없이 후속 fresh 읽기로 running/새health/owner1을 확정했다. 성공 projection을 위조하거나 원 실패를 삭제하지 않았다.
+- 임시 진단은 기존 immutable image의 dependency와 검증한 고정 번들을 사용했다. network-none/read-only/cap-drop ALL/UID999·exact USB·RO mesh만 제공했으며 운영 코드·영구 Gateway 버전은 바꾸지 않았다. 이번 codec/client205PASS·진단 guard3PASS·identity2PASS는 새 기능 전체의 완료를 뜻하지 않는다. 상세 기록은 이 계획의 ignored 실행 폴더에0600으로 보존한다.
 
 - APK SHA256 `1fb69b7f6241ab757908fb4a6e8d8359d1127be75c84f5cbbf26740e415ef83e`는 기존 사용자 제공1.1.314와 일치한다. 자체 폴더의 JADX 추출은 의존 라이브러리 등234오류/exit3를 보존했으며 전체 역컴파일 성공으로 기록하지 않는다. 직접 참조한 Scene/TimeInterval/RemoteCommand/CommandMapper는 읽을 수 있다. 기존 캡처 APK1.2.0 SHA256 `38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d`와 혼동하지 않는다.
 - 정적 근거: `RemoteCommand`의 standby DPID20/hold23/standby interval24/delay mode22, `CommandMapper`와 `ILampCommand`의 GET0x4e/STS0x4f, `TimeInterval`의 bits1..7=count/bit0=초·분이다.1초=raw02,127초=fe,1800초=3d다.128초 이상 비정수 분 값은 정확 표현할 수 없고1단계/2단계 enum만으로 실제 기본 밝기 복귀 동작은 확정하지 않는다.
@@ -77,6 +82,7 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 
 **Interfaces:** `BioSelfSensorConfiguration { highBrightnessPercent: number; standbyBrightnessPercent: number; holdSeconds: number }`. `readSelfSensorConfiguration(target, control)`와 `configureSelfSensor(target, desired, control)`는 현재 물리 신원과 독립 readback을 검증한다. Task1 근거 없는 operation은 생성하지 않는다.
 
+- [x] 승인된 읽기 전용 확인: 방습등1·2/기존1대의 실제6항목 응답과 동일 fingerprint를 확보하고 원 운전 복귀를 확인한다.1초 쓰기·실제 자동복귀와 구분한다.
 - [ ] Task1의 확인된 바이트를 literal fixture로 두고1초·최대값·다른장비응답·손상응답·표현불가·부분쓰기/모드보존 실패 회귀를 먼저 추가해 RED를 확인한다.
 - [ ] 확인된 직렬화와 parser, 전체 설정 GET 및 변경/독립 재조회만 구현한다. 불일치 때 observed 설정을 보존하며 자동 재시도하지 않는다.
 - [ ] 해당 codec/client 회귀·Gateway타입과 diff를 확인하고 커밋한다. 실제 광출력 성공으로 확대하지 않는다.
