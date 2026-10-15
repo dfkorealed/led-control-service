@@ -2,6 +2,20 @@
 
 기준일: 2026-10-15
 
+## 2026-10-15 센서 UI 실사용 준비 완료 — 수정/장비 반영/메인 병합·활성 적용 확인
+
+- 사용자 후속 `테스트 가능하게 끝까지 진행` 범위에서 단독 진행했다. 중지된 Web/API/broker를 기존 .env/인증/ACL 그대로 복구해 ready200/5up·조명4online을 확인했다. migration/PKI/ACLrender0이며 현재 supervisor는 `.local/bio-sensor-recovery-20261015-z93iY6ZT`다.
+- 별도 `codex/bio-runtime-recovery-20261015`에서 decoder fault 이후 새 독립 정상 구간의 재자격, V3 거절 ACK 버전 유지, 비활성 schedule/event의 source 예약 제외, Docker frozen-install hook 누락을 수정했다. RED→관련5files101PASS·Gateway typecheck0, 정식 ARM64/default verify2개 뒤 새3root 암호화 backup 각각 로컬 검증→동일 launch/security로 실제 반영했다. 현재 exact Gateway source eebe6533이며 매핑/귀속/ID/기본밝기/주소/인증/ACL은 보존됐다.
+- 실제UI 자동 준비ready 뒤 기존 활성 스케줄이4등 전체를 포함해 센서 source와 충돌함을 확인했다. 첫26 거절은 잘못된V1 ACK로 UI대기에 남았고, 보완 후28은 정상 적용실패 표시·29비활성 APPLIED로 수렴했다. 현재 이벤트0enabled/스케줄1enabled다. 구버전V1/26 outbox1개는 과거 증거로 보존하며 위조·강제삭제0이다.
+- 이후 실제 스케줄 UI에서10월12일 종료/다음실행없음인 과거 시험 설정임을 확인했다. 앞선 현재 운전 중지 질문은 새 증거로 해소되었음을 사용자에게 알리고 시험준비 범위에서 내용 보존·status만 비활성으로 정리했다. 센서 규칙 활성31은 UI/DB 모두 APPLIED였고 사용자 직접 시작을 위해 다시 OFF했다. 최종32APPLIED/desired=applied/error null·event0enabled/schedule0enabled·API200/5up·실제UI4online이며 screenshot `/tmp/sensor-ui-test-ready-20261015.png`를 남겼다. 실제 움직임·유지·복귀 시험은 아직이다. 실제 운영/backup 결과와 체크리스트는 `docs/superpowers/plans/2026-10-08-bio-sensor-operational-enablement.md`다.
+- 메인 codex/mvp1-cloud-web에 ff-only 병합 후 관련101PASS를 재확인했다. 사용자AGENTS/랜딩3경로 diff SHA는 `5797ae74856cb72beb4295e7cb0d32c4a1d62257682e44ef6a3765837c0c53e9`로 전후 동일하고, 추가 landing.content.test/field-day PricingSection/pricing 문서 dirty도 건드리지 않는다. 상태판의 기존 미커밋 부분은 전체 stage/commit하지 않고 보존한다.
+
+## 2026-10-15 센서 이벤트 설정 간소화 — 코드·메인·정식 화면 반영 완료
+
+- 사용자 승인: 센서 내장 제품은 사용자 준비/확인 단계 없이 선택→밝기/유지시간→저장·활성화한다. 기존 준비 API를 내부 순차 처리하고 실제 live eligibility/admission은 유지한다. 별도 `codex/sensor-one-step-setup-20261015`에서 직접 구현하며 기존 root 사용자 변경은 보존한다.
+- 실행 기록은 feature worktree `.superpowers/sdd/sensor-one-step-setup-20261015/progress.md`다. 자동 준비/중복 방지→일반 화면 정리/저장·전원 연결→한정 검증/문서/병합 순서다. 실장비 SET·규칙 활성화 시험/게이트웨이 배포·API 재시작·DB 변경은 이번 코드 검증에서 수행하지 않는다.
+- 별도 브랜치 `1f3036ab`를 main에 ff-only 반영했다. 관련5파일141PASS·공통화뒤25PASS·메인 dialog/coordinator36PASS, 격리 fake Chromium1440/390 설정·저장·활성화/실패 재시도3PASS, 타입 포함Web build/UI policy0위반을 확인했다. 메인 실제 UI의 준비버튼 없음·실행 조명/저장/전원버튼 enabled를 읽기로 확인하고 `/tmp/sensor-one-step-settings-20261015.jpg`를 인계한다. 사용자AGENTS/랜딩3경로diff SHA 동일, project-status 기존변경은 덮거나 전체commit하지 않았다. 단독 직접리뷰이며 기존 장비 `bio_pulse_control_unavailable`의 세부 진단/수리·실제 감지/복귀는 여전히 별도 운영 과제다.
+
 ## 2026-10-14 BIO 전용 시간제 제어·스케줄 달력 — 소프트웨어·메인·DB 반영 및 로컬 서비스 복구 완료
 
 - 최종 결과(2026-10-15): 추가 사용자 승인으로 기존 API/Web/broker group을 정상 종료하고 환경·인증서·ACL을 그대로 재사용해 새 owned supervisor로 기동했다. 상위 TERM이 남긴 정확한 orphan3493/3528만 정상TERM했고 oldgroup은 모두reap됐다. SIGKILL·설정 생성/PKI/ACLrender·DB재적용·Gateway/RF/HIL은 없었다. 08:51:40KST 새API live/ready200·postgres/redis/mqtt/objectStorage/cadConverter5up·Web200, 총괄의 후속 독립 trusted TLS/HTTP 검사도200/5up이다. 기존22staticfile·1592제품/보호 source SHA 및4dirty를 유지했다. 브라우저 기존 오류 상태는 정상reload 후 실제스케줄 목록1건·달력1건/새공통추가를읽기로확인했으며 저장/활성화/장비명령은0이다.
