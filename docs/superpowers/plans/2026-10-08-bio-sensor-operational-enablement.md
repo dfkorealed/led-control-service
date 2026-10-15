@@ -19,9 +19,9 @@
 - [x] 추가 최소 회귀: V3 거절 ACK가V1로 낮아져 API가 무시하는 RED1, paused schedule/event도 source를 점유하는 RED2를 재현했다. V3 exact version 유지·product disabled reservation 제외로 고쳤으며 enabled source 충돌은 계속 차단한다. 후속검증/새image적용은 이어진다.
 - [x] 후속 eebe6533를 정식 ARM64 bundle/default verify·정확 image/무USB identity 검사·새 encrypted3root52members/67,220,912bytes 로컬 검증 후 반영했다. 두 번째도 정상TERMexit0/hosts·밝기·mode 직접쓰기0/launch·매핑·귀속 보존·singleUSBowner1/health5true다. 첫 read-only guard의 일시 mqttOutboxPending1은 중단/명령0으로 보류했고, 후속 fresh guard0 뒤에만 실제 교체했다. 원 guard/증거는 보존했다.
 - [x] 정식 UI에서 준비 ready→기존 스케줄 충돌28 ‘적용 실패’ 표시→29비활성 APPLIED까지 최소 확인했다. 기존 잘못된V1/26거절 outbox1개는 증거로 보존되며 임의 삭제/응답 위조하지 않았다. 새V3거절/29응답은 정상 수신 확인됐고 새 runtime error log0이다. 실제 감지·밝기 복귀 검증으로 확대하지 않는다.
-- [ ] 정식 UI에서 자동 준비·활성 snapshot APPLIED와 최신 자격을 확인하고 규칙을 비활성으로 돌려 사용자 시험 준비를 마친다. 실패하면 실제 원인을 추가 진단하며 성공으로 축약하지 않는다.
+- [x] 정식 UI에서 자동 준비·활성 snapshot31APPLIED와 센서 연결됨을 확인했다. DB도 desired31/applied31/error null·event1enabled/schedule0enabled로 일치한다. 사용자 직접 시작을 위해 이벤트는 다시 비활성화했다. 실제 움직임·밝기 복귀 시험은 하지 않았다.
 - [x] 별도 브랜치의 변경을 메인 `codex/mvp1-cloud-web`에 ff-only 병합했다(00988e8e). 메인에서도 관련5files101PASS를 재확인했고 사용자AGENTS/랜딩3경로 diff SHA가 전후 동일하다. 기존·추가 사용자 dirty는 stage하지 않으며 root 상태판의 기존 미커밋 내용도 보존한다. 작업 branch/worktree/암호화backup/원 실패 기록은 삭제하지 않는다.
-- [ ] 스케줄1개 비활성화 승인 답변이 없어 최종 실장비 활성 적용은 대기하며, 현재29APPLIED/이벤트0enabled/스케줄1enabled를 유지한다. 사용자에게 현재 스케줄과 미완료 경계를 안내한다.
+- [x] Ruling: 추가 UI 확인에서 기존 ‘조명 스케줄’은10월12일 종료/다음실행없음/4대의 과거 시험 설정임을 확인했다. 현재 운전 중단에 대한 앞선 질문은 새 증거로 해소되어, 사용자 test-ready 범위의 되돌릴 수 있는 만료 시험 설정 정리로 status만 비활성화했다. 날짜/반복/대상/밝기 내용은 그대로 보존한다. 시행 전 사용자에게 새 증거·변경 이유를 알렸다. 활성31 성공 뒤 사용자 시작 전 event OFF로 복귀했다.
 
 ## 10월15일 승인된 센서 내장 제품 직접 설정
 
