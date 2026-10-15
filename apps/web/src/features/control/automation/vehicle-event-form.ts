@@ -31,7 +31,7 @@ export function validateVehicleEventForm(values: VehicleEventFormValues, sourceP
   if (values.dimmingEnabled && !integerInRange(values.brightnessPercent, 0, 100)) {
     errors.brightnessPercent = "밝기는 0~100 사이의 정수여야 합니다.";
   }
-  const minimumHold = sourceProtocol === "bio-usb-pulse" ? 10 : 5;
+  const minimumHold = sourceProtocol === "bio-usb-pulse" ? 1 : 5;
   if (!integerInRange(values.holdSeconds, minimumHold, 1_800)) {
     errors.holdSeconds = `유지 시간은 ${minimumHold}~1,800초 사이의 정수여야 합니다.`;
   }

@@ -102,14 +102,14 @@ describe("VehicleEventDialog spatial source and targets", () => {
     expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("sensorProtocol");
   });
 
-  it("preserves activation when changing an enabled BIO rule hold from 60 to 10 seconds", () => {
+  it("preserves activation when changing an enabled BIO rule hold from 60 to 1 second", () => {
     const onSubmit = vi.fn();
     renderVehicleEventDialog({ dashboard: bioDashboard("ready"),
       rule: existingRule({ sensorProtocol: "bio-usb-pulse", status: "enabled", holdSeconds: 60 }), onSubmit });
     fireEvent.click(screen.getByRole("button", { name: "직접 입력" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "유지 시간" }), { target: { value: "10" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "유지 시간" }), { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ status: "enabled", holdSeconds: 10 }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ status: "enabled", holdSeconds: 1 }));
     expect(onSubmit.mock.calls[0][0]).not.toHaveProperty("sensorProtocol");
   });
 

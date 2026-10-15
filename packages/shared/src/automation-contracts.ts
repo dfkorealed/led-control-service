@@ -350,12 +350,13 @@ export const vehicleEventRuleSnapshotV2Schema = z.object({
   sourceFixtureIds: fixtureIdsSchema,
   targetFixtureIds: fixtureIdsSchema,
   action: automationActionV1Schema,
-  holdSeconds: z.number().int().min(5).max(1_800),
+  holdSeconds: z.number().int().min(1).max(1_800),
   sensorProtocol: z.enum(["bluez-stateful", "bio-usb-pulse"])
 }).strict().superRefine((rule, context) => {
-  // BlueZ stateful rules retain the V1 five-second floor; BIO pulses need at least ten seconds.
-  if (rule.sensorProtocol === "bio-usb-pulse" && rule.holdSeconds < 10) {
-    addIssue(context, "holdSeconds", "BIO pulse holdSeconds must be at least 10");
+  // BIO supports a one-second service hold; preserve the legacy stateful floor.
+  // Short pulse holds may expire between detections; do not silently lengthen them.
+  if (rule.sensorProtocol === "bluez-stateful" && rule.holdSeconds < 5) {
+    addIssue(context, "holdSeconds", "BlueZ stateful holdSeconds must be at least 5");
   }
 });
 

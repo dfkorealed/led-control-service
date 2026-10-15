@@ -324,10 +324,10 @@ export function VehicleEventDialog({
                   }}
                 />
                 {customHoldOpen ? (
-                  <TextField ref={holdSecondsInputRef} label="유지 시간" description={`${isBio ? "10" : "5"}~1,800초, 기본 60초. 초 단위로 입력하세요.`} inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
+                  <TextField ref={holdSecondsInputRef} label="유지 시간" description={`${isBio ? "1" : "5"}~1,800초, 기본 60초. 초 단위로 입력하세요.`} inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
                 ) : null}
                 {isBio ? <Text tone="secondary">센서 설정은 자동으로 처리합니다. {rule ? "저장 시 현재 활성 상태를 유지합니다." : "저장 후 목록의 전원 버튼으로 활성화하세요."}</Text> : null}
-                {isBio && Number(values.holdSeconds) === 10 ? <Text role="note" tone="warning">10초 설정에서는 움직임이 이어져도 감지 신호 간격이 길면 조명이 꺼졌다 다시 켜질 수 있습니다.</Text> : null}
+                {isBio && Number(values.holdSeconds) >= 1 && Number(values.holdSeconds) <= 10 ? <Text role="note" tone="warning">짧은 유지시간에서는 움직임이 이어져도 감지 신호 간격이 길면 조명이 꺼졌다 다시 켜질 수 있습니다.</Text> : null}
               </fieldset>
             </section>
 

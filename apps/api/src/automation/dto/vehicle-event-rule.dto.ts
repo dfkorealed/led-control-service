@@ -21,7 +21,8 @@ const vehicleEventRuleFields = {
   sourceFixtureIds: fixtureIdsSchema,
   targetFixtureIds: fixtureIdsSchema,
   action: automationActionV1Schema,
-  holdSeconds: z.number().int().min(5).max(1_800)
+  // Protocol is server-owned and checked after resolving the effective source.
+  holdSeconds: z.number().int().min(1).max(1_800)
 };
 
 const createVehicleEventRuleSchema = z.object({
@@ -49,7 +50,7 @@ export function parseUpdateVehicleEventRuleInput(rawInput: unknown): UpdateVehic
 // Protocol is resolved from the stored node, never accepted from request JSON.
 // Partial updates validate the effective duration after merging the stored rule.
 export function assertVehicleEventRuleHoldSeconds(holdSeconds: number, protocol: VehicleSensorProtocol) {
-  const minimum = protocol === "bio_usb_pulse" ? 10 : 5;
+  const minimum = protocol === "bio_usb_pulse" ? 1 : 5;
   if (!z.number().int().min(minimum).max(1_800).safeParse(holdSeconds).success) {
     throw new BadRequestException("invalid vehicle event rule hold duration");
   }

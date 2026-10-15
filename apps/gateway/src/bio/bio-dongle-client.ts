@@ -11,6 +11,7 @@ import {
   type BioControlMode,
   type BioLampTarget,
   type BioOperation,
+  type BioReadbackResponse,
   type BioResponse,
   type BioSensorPulseCandidate
 } from "./bio-command-codec";
@@ -72,9 +73,21 @@ export interface BioConfigurationState {
   bioMode: BioControlMode;
 }
 
-type ReadbackEvent = Extract<BioResponse, { kind: "high-brightness-report" | "control-mode-report" }>;
+export interface BioSelfSensorConfigurationObservation {
+  highBrightnessPercent: number;
+  standbyBrightnessPercent: number;
+  holdSeconds: number;
+  standbySeconds: number;
+  delayMode: 0 | 1;
+  bioMode: BioControlMode;
+  rawHoldInterval: number;
+  rawStandbyInterval: number;
+}
+
+type ReadbackEvent = BioReadbackResponse;
 type BioReadbackOperation = Extract<BioOperation,
-  { kind: "readHighBrightness" | "readControlMode" | "setControlMode" }>;
+  { kind: "readHighBrightness" | "readControlMode" | "setControlMode"
+    | "readStandbyBrightness" | "readDelayMode" | "readHoldInterval" | "readStandbyInterval" }>;
 
 /**
  * BIO direct-USB 상위 lifecycle client.
@@ -435,6 +448,34 @@ export class BioDongleClient {
     return { configuredHighBrightnessPercent, bioMode: mode.mode };
   }
 
+  /** Read-only qualification: no source readiness/capability or optical result is
+   * inferred. Own the entire read bundle so a queued SET cannot split its fields. */
+  async readSelfSensorConfiguration(target: BioVerifiedLampTarget, control: BioOperationControl = {}): Promise<BioSelfSensorConfigurationObservation> {
+    const resolved = this.resolveReadbackTarget(target);
+    const expected = { ...resolved, networkId: resolved.target.networkId };
+    return this.operationQueue.run(async () => {
+      throwIfOperationStopped(control);
+      await this.waitUntilReadyIfReconnecting(control);
+      const read = (kind: Exclude<BioReadbackOperation["kind"], "setControlMode">) =>
+        this.requestReadbackOwned({ kind, target: resolved.target }, expected, control);
+      const high = await read("readHighBrightness");
+      const standby = await read("readStandbyBrightness");
+      const delay = await read("readDelayMode");
+      const hold = await read("readHoldInterval");
+      const standbyInterval = await read("readStandbyInterval");
+      const mode = await read("readControlMode");
+      if (high.kind !== "high-brightness-report" || standby.kind !== "standby-brightness-report"
+        || delay.kind !== "delay-mode-report" || hold.kind !== "hold-interval-report"
+        || standbyInterval.kind !== "standby-interval-report" || mode.kind !== "control-mode-report"
+        || high.brightnessPercent === null || standby.brightnessPercent === null) {
+        throw new BioUsbError("BIO_CONFIGURATION_UNVERIFIED", "BIO self-sensor configuration is incomplete");
+      }
+      return { highBrightnessPercent: high.brightnessPercent, standbyBrightnessPercent: standby.brightnessPercent,
+        holdSeconds: hold.seconds, standbySeconds: standbyInterval.seconds, delayMode: delay.delayMode,
+        bioMode: mode.mode, rawHoldInterval: hold.rawInterval, rawStandbyInterval: standbyInterval.rawInterval };
+    });
+  }
+
   /**
    * Restore the stored high-brightness setting even for force-off. setOutput(0) only
    * changes mode and therefore cannot restore that setting. Sensor mode does not
@@ -601,7 +642,7 @@ export class BioDongleClient {
 
   private requestReadback(
     operation: BioReadbackOperation,
-    expected: { nativeUuid: string; logicalAddress: number },
+    expected: { nativeUuid: string; logicalAddress: number; networkId?: number },
     control: BioOperationControl = {}
   ): Promise<ReadbackEvent> {
     return this.operationQueue.run(async () => {
@@ -614,14 +655,15 @@ export class BioDongleClient {
 
   private async requestReadbackOwned(
     operation: BioReadbackOperation,
-    expected: { nativeUuid: string; logicalAddress: number },
+    expected: { nativeUuid: string; logicalAddress: number; networkId?: number },
     control: BioOperationControl = {}
   ): Promise<ReadbackEvent> {
     throwIfOperationStopped(control);
-    const expectedKind = operation.kind === "readHighBrightness"
-      ? "high-brightness-report"
-      : "control-mode-report";
-    const waiting = this.waitForReadback(expected, expectedKind, control);
+    const expectedKinds = { readHighBrightness: "high-brightness-report", readControlMode: "control-mode-report",
+      setControlMode: "control-mode-report", readStandbyBrightness: "standby-brightness-report",
+      readDelayMode: "delay-mode-report", readHoldInterval: "hold-interval-report",
+      readStandbyInterval: "standby-interval-report" } as const satisfies Record<BioReadbackOperation["kind"], ReadbackEvent["kind"]>;
+    const waiting = this.waitForReadback(expected, expectedKinds[operation.kind], control);
     let requestAccepted = false;
     try {
       // [확인됨] 캡처상 장치 0x12가 동글 outer 0x11보다 먼저 올 수 있으므로 listener를
@@ -654,7 +696,7 @@ export class BioDongleClient {
   }
 
   private waitForReadback(
-    expected: { nativeUuid: string; logicalAddress: number },
+    expected: { nativeUuid: string; logicalAddress: number; networkId?: number },
     expectedKind: ReadbackEvent["kind"],
     control: BioOperationControl = {}
   ) {
@@ -694,7 +736,8 @@ export class BioDongleClient {
         if (settled) return;
         if (event.kind !== expectedKind
           || event.deviceUuid !== `bio:${expected.nativeUuid}`
-          || event.logicalAddress !== expected.logicalAddress) return;
+          || event.logicalAddress !== expected.logicalAddress
+          || (expected.networkId !== undefined && event.networkId !== expected.networkId)) return;
         matched = true;
         settled = true;
         cleanup();

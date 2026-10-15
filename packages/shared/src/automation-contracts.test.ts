@@ -13,6 +13,7 @@ import {
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
   automationSnapshotV2Schema,
+  automationSnapshotV3Schema,
   automationSnapshotSchema,
   automationConfigAppliedDeliverySchema,
   vehicleEventRuleSnapshotV2Schema,
@@ -154,6 +155,9 @@ describe("automation shared contracts", () => {
   it.each([
     ["bluez-stateful", 5],
     ["bluez-stateful", 1_800],
+    ["bio-usb-pulse", 1],
+    ["bio-usb-pulse", 2],
+    ["bio-usb-pulse", 9],
     ["bio-usb-pulse", 10],
     ["bio-usb-pulse", 60],
     ["bio-usb-pulse", 1_800]
@@ -166,14 +170,18 @@ describe("automation shared contracts", () => {
       vehicleEventRules: [rule]
     };
     expect(automationSnapshotV2Schema.parse(v2Snapshot)).toEqual(v2Snapshot);
+    const v3Snapshot = { ...v2Snapshot, schemaVersion: 3, schedules: [], holidayDatasets: [] };
+    expect(automationSnapshotV3Schema.parse(v3Snapshot)).toEqual(v3Snapshot);
     expect(automationSnapshotV1Schema.safeParse(v2Snapshot).success).toBe(false);
   });
 
   it.each([
-    ["bio-usb-pulse", 9],
+    ["bio-usb-pulse", 0],
+    ["bio-usb-pulse", 1.5],
     ["bio-usb-pulse", 1_801],
     ["bio-usb-pulse", 10.5],
     ["bluez-stateful", 4],
+    ["bluez-stateful", 1],
     ["bluez-stateful", 1_801],
     ["unknown", 60]
   ])("rejects %s V2 vehicle rule with %s-second hold", (sensorProtocol, holdSeconds) => {

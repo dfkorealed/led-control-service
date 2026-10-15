@@ -1,5 +1,33 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-15 BIO 자기 감지 제어 진행 중
+
+### 구현 완료
+
+- 별도 브랜치의 기존 BIO 이벤트 유지시간을 1~1,800초 정수로 확장했다. 기본60초·기존 저장값·BlueZ5초 하한을 보존하며 POST/PATCH/effective 검증·V2/V3 snapshot·화면 입력을 일치시킨다. 1~10초에는 신호 간격보다 짧아 소등/재점등할 수 있다는 안내를 표시한다.
+- `20261015160000_bio_event_hold_one_second`는 CHECK만 교체하는 순방향 migration이다. 자기 소유 임시 PostgreSQL에서 기존 행/밝기 보존과 BIO1초 허용·BlueZ1초/범위 밖 거절을 확인했다. 운영 DB에는 미적용이다.
+- Gateway에 자기 센서 설정의 읽기 전용 조회를 추가했다. 6개GET을 한 직렬화 구간에서 읽고 UUID/주소/네트워크/항목별 응답을 확인한다. 다른 네트워크 응답·누락/timeout을 값으로 채우지 않으며 자기 설정 SET이나 센서 readiness 승격은 하지 않는다.
+
+### 미구현
+
+- 자기 조명 설정 쓰기·공통 자기 제어 필드/저장·내구 복구·`감지한 조명도 제어` UI 연결은 아직 미구현이다. 현재 장비의 설정 조회와 단계별 기본 밝기 복귀 의미를 확인한 뒤 이어간다.
+- 메인 병합·운영 DB migration·서비스/Gateway 반영·실제1초/감지/복귀 검증은 수행하지 않았다. 기존/신규 조명 공통 지원은 목표이지 현재 모든 제품의 검증 완료가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 정적 근거 APK1.1.314의 TimeInterval은1~127초를 초 단위로, 그 이상을 분 단위로 표현한다. 장비 자체 설정의128초 같은 값을 임의 반올림하지 않는다. 기존 센서 프로파일은 새 자기 제어의 물리 지원 근거를 대신하지 않는다.
+- 장비의1단계/2단계 동작과 현재 설정 응답은 아직 확인되지 않았다. 조회부를 만들었다는 이유로 자기 제어 금지를 해제하거나 source를 force-on/off 대상으로 보내지 않는다.
+
+### 관련 파일
+
+- `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`, 같은 이름의 설계 문서(`docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`).
+- `packages/shared/src/automation-contracts.ts`, `apps/api/src/automation/dto/vehicle-event-rule.dto.ts`, `apps/api/prisma/migrations/20261015160000_bio_event_hold_one_second/migration.sql`, `docs/database-schema.md`.
+- `apps/gateway/src/bio/bio-command-codec.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/web/src/features/control/automation/vehicle-event-form.ts`, `apps/web/src/features/control/automation/VehicleEventDialog.tsx` 및 해당 회귀.
+
+### 갱신 규칙
+
+- 브랜치 코드·임시DB·격리 브라우저와 실제 서비스/장비 적용을 구분한다. 자기 조명 지원은 모드 보존·정확 시간 단위·독립 조회·복구 근거를 확인한 뒤 완료로 갱신한다.
+
 ## 2026-10-15 수동 제어의 전송 전 거절과 불확정 결과 구분
 
 ### 구현 완료

@@ -1868,7 +1868,7 @@ PK는 `(gatewayId, assignmentVersion, declarationRevision)`이다. API는 MQTT b
 | `sensorProtocol` | `VehicleSensorProtocol` | 예 | `bluez_stateful`; source MeshNode protocol과 일치해야 함 |
 | `dimmingEnabled` | `Boolean` | 예 | 감지 action 디밍 여부 |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
-| `holdSeconds` | `Int` | 예 | `60`, BlueZ DB check `5..1800`, BIO `10..1800` |
+| `holdSeconds` | `Int` | 예 | `60`, BlueZ DB check `5..1800`, BIO `1..1800` (신규 migration 적용 이후) |
 | `desiredRevision`, `appliedRevision` | `Int` | 예 | `0`; DB check `0 <= appliedRevision <= desiredRevision` |
 | `sourceCount`, `targetCount` | `Int` | 예 | `0`; 각각 DB check `>= 0`, child trigger 유지 | 현재 source/target row 수 |
 | `createdById`, `updatedById` | `String` | 예 | named FK -> `User.id`, delete restrict |

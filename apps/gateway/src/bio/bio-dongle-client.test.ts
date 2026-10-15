@@ -170,6 +170,40 @@ describe("BIO evidence-gated dongle client", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("reads self-sensor configuration without interleaving a queued SET or accepting a foreign-network reply", async () => {
+    const h = harness(); await ready(h);
+    const reading = h.client.readSelfSensorConfiguration(verifiedTarget); void reading.catch(() => {});
+    await flush();
+    const competing = h.client.setControlMode(target, "force-on"); void competing.catch(() => {});
+    const reports = [["4e13", "13ff"], ["4e14", "1400"], ["4e16", "1601"],
+      ["4e17", "1702"], ["4e18", "18f1"], ["4e12", "1200"]] as const;
+    for (const [body, report] of reports) {
+      await flush();
+      expect(commandBodies(h.device).at(-1)).toBe(body);
+      if (body === "4e13") h.device.receive(encodeCrcFrame(0x12,
+        Buffer.from("d300112233445583ff123401fe00014f131a", "hex")).toString("hex"));
+      h.device.receive("55aa1101002055");
+      h.device.receive(encodeCrcFrame(0x12,
+        Buffer.from(`d300112233445583ff123401fe00004f${report}`, "hex")).toString("hex"));
+    }
+    await expect(reading).resolves.toEqual({ highBrightnessPercent: 100, standbyBrightnessPercent: 0,
+      holdSeconds: 1, standbySeconds: 7200, delayMode: 1, bioMode: "sensor",
+      rawHoldInterval: 2, rawStandbyInterval: 241 });
+    await flush();
+    expect(commandBodies(h.device)).toEqual([...reports.map(([body]) => body), "cc1203"]);
+    h.device.receive("55aa1101002055"); await competing; await h.client.close();
+  });
+
+  it("does not fill missing self-sensor settings or issue SET when a read-back times out", async () => {
+    const h = harness(75, { observationTimeoutMs: 10 }); await ready(h);
+    const reading = h.client.readSelfSensorConfiguration(verifiedTarget); void reading.catch(() => {});
+    await flush(); h.device.receive("55aa1101002055");
+    await vi.advanceTimersByTimeAsync(11);
+    await expect(reading).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(commandBodies(h.device)).toEqual(["4e13"]);
+    await h.client.close();
+  });
+
   it("does not let an asynchronous production source lookup block coalesced ACK/readback", async () => {
     const h = harness(); await ready(h);
     let release!: (value: null) => void;

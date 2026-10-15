@@ -31,14 +31,22 @@
 
 ## 실행 현황
 
-- [ ] Task1 장비 명령·시간단위 근거 확인
-- [ ] Task2 기존 BIO 유지시간 1초 공통 검증·화면 반영
-- [ ] Task3 sensor 모드를 유지하는 자기 설정 codec/client
+- [x] Task1 장비 명령·시간단위 정적 근거와 실제 확인 필요 범위 판정
+- [x] Task2 기존 BIO 유지시간 1초 코드·DB 변경 파일·격리 UI 검증 (운영 미반영)
+- [ ] Task3 자기 설정 codec/client — 읽기 전용 구현/검증 완료, 설정 쓰기는 실제 응답/단계 의미 확인 대기
 - [ ] Task4 자기 제어 공통 계약·서버 저장/검증
 - [ ] Task5 Gateway 내구 적용·복구 연결
 - [ ] Task6 자기 제어 UI·한정 검증·문서·병합
 
 Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 다르면 자기 제어 Task3–6을 추측해 구현하지 않는다. 확인된 근거와 필요한 다음 행동을 기록한다. 독립적인 Task2는 진행할 수 있지만 전체 자기 제어 완료로 표현하지 않는다.
+
+### 현재 검증과 관문
+
+- APK SHA256 `1fb69b7f6241ab757908fb4a6e8d8359d1127be75c84f5cbbf26740e415ef83e`는 기존 사용자 제공1.1.314와 일치한다. 자체 폴더의 JADX 추출은 의존 라이브러리 등234오류/exit3를 보존했으며 전체 역컴파일 성공으로 기록하지 않는다. 직접 참조한 Scene/TimeInterval/RemoteCommand/CommandMapper는 읽을 수 있다. 기존 캡처 APK1.2.0 SHA256 `38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d`와 혼동하지 않는다.
+- 정적 근거: `RemoteCommand`의 standby DPID20/hold23/standby interval24/delay mode22, `CommandMapper`와 `ILampCommand`의 GET0x4e/STS0x4f, `TimeInterval`의 bits1..7=count/bit0=초·분이다.1초=raw02,127초=fe,1800초=3d다.128초 이상 비정수 분 값은 정확 표현할 수 없고1단계/2단계 enum만으로 실제 기본 밝기 복귀 동작은 확정하지 않는다.
+- Task2 RED: shared3/API DTO3/Web4/임시DB1 실패를 확인했다. GREEN shared57(V2/V3명시)·API3파일46·Web2파일33·Gateway3파일244(1초재감지연장 포함), PC1440/모바일390의1초 저장/활성화 모의2건, API/Gateway타입·Web타입 포함build 통과다. 자기조회 RED13→fullcodec/client/runtime244PASS이며 원설정누락 timeout에서SET0·외부network거절·대기중SET비개입을 확인했다. 전체suite/HIL 성공 주장은 하지 않는다.
+- Ruling: DB CHECK에도10초 하한이 있어 Task2에 별도 forward migration/실제 disposable PG 검증을 포함했다. 운영 migration은 적용하지 않는다. 공유 계약/소비자 준비만으로 기존 Gateway 배포 전 UI 실사용 가능으로 기록하지 않는다.
+- Ruling: 먼저 구현한 자기 설정 조회는 `BioDongleClient.readSelfSensorConfiguration`에 묶고 일반 쓰기 경로와 분리했다. 실제 조회 응답과 단계별 복귀 의미를 확보하기 전 SET/Task4–6을 추측해 완료하지 않는다. 장비 검증 전에 알리라는 사용자 지시에 따라 읽기 전용 장비 확인의 새 승인을 요청했다.
 
 ---
 
@@ -48,20 +56,20 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 
 **Interfaces:** Produces 현재 APK 해시/버전·serializer/응답 parser·유지시간 범위/단위·standby 밝기 범위/단위와 self 제어 진행 가능 판정. 정적 근거와 실제 장비 근거를 구분한다.
 
-- [ ] 원 APK hash를 기존 기록과 대조하고 자체 실행 기록 폴더에 정적으로 추출한다. 앱 설치/USB 연결/장비 송신은 하지 않는다.
-- [ ] 밝기·유지시간·무감지 밝기 설정과 조회의 호출 경로/바이트 폭/단위를 추적한다. 다른 APK 버전의 값으로 현재 장비를 지원 완료 처리하지 않는다.
-- [ ] 근거를 기록하고 1초/0%/범위·응답 일치 검증의 구현 가능 여부를 판정한다. 불가능하면 명령을 만들어내지 않고 Task3–6을 보류한다.
+- [x] 원 APK hash를 기존 기록과 대조하고 자체 실행 기록 폴더에 정적으로 추출했다. 앱 설치/USB 연결/장비 송신은0이다.
+- [x] 직접 관련 클래스의 명령/단위/바이트 폭과0%대기 밝기를 추적했다. 다른 APK 버전으로 실제 장비 호환을 승격하지 않는다.
+- [x] 판정: 한정 GET/보고 파싱 구현은 가능하며, 자기 설정 쓰기와 실제1초·단계별 복귀는 현재 장비 응답/검증 전 보류한다.
 
 ### Task 2: BIO 유지시간 최소 1초
 
-**Files:** Modify `packages/shared/src/automation-contracts.ts`, `apps/api/src/automation/dto/vehicle-event-rule.dto.ts`, `apps/web/src/features/control/automation/{vehicle-event-form,VehicleEventDialog}.tsx`(form은 `.ts`); Test 해당 기존 shared/API/form/dialog 회귀와 Gateway `vehicle-event-runtime.test.ts`.
+**Files:** Modify `packages/shared/src/automation-contracts.ts`, `apps/api/src/automation/dto/vehicle-event-rule.dto.ts`, `apps/web/src/features/control/automation/vehicle-event-form.ts`, `VehicleEventDialog.tsx`(같은디렉터리); Create migration `20261015160000_bio_event_hold_one_second/migration.sql`; Update `docs/database-schema.md`; Test 해당 shared/API/form/dialog 회귀, `apps/api/src/prisma/bio-event-hold-migration.integration.spec.ts`, Gateway `vehicle-event-runtime.test.ts`.
 
 **Interfaces:** 기존 `holdSeconds: number`를 유지한다. BIO만1~1800, BlueZ는기존5~1800, default60. snapshot/POST/PATCH/effective merge/form 검증의 범위를 일치시킨다.
 
-- [ ] 기존 테스트에 BIO1/2/9허용·0/소수/1801거절·BlueZ1거절·기존10/60보존과 Gateway 마지막수신1초/재감지연장 회귀를 먼저 추가한다.
-- [ ] 해당 이름으로 focused shared/Vitest·API/Jest·Web/form 검사를 실행해 기존10초 제한에 의한 실패를 확인한다.
-- [ ] 기존 validator/문구/짧은유지경고를 최소 수정한다. 광범위한 숫자10 치환이나 기존 BlueZ 하한 변경은 하지 않는다.
-- [ ] 관련 파일 검사와 타입을 확인하고 메뉴 문서·상태판을 갱신해 소유 변경만 커밋한다.
+- [x] 기존 테스트에 BIO1/2/9허용·0/소수/1801거절·BlueZ1거절·기존10/60보존과 Gateway1초 만료/건강 복귀 회귀를 추가했다.
+- [x] focused shared/API/Web와 실제 임시DB에서 기존 하한에 의한 RED를 확인했다.
+- [x] validator/문구/짧은유지경고·DB CHECK를 수정했다. BlueZ 하한/기존 저장값·실제 장비는 변경하지 않았다.
+- [x] 타입·관련GREEN과 문서·직접리뷰 결과를 반영해 검증된1초/읽기전용 slice만 커밋한다. 자기설정쓰기·운영 반영은 포함하지 않는다.
 
 ### Task 3: 자기 조명 설정 codec와 검증 client
 

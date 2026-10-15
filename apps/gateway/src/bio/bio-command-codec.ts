@@ -52,6 +52,7 @@ export type BioOperation = { kind: "probe" | "scan" | "stopScan" }
   | { kind: "readHighBrightness"; target: BioLampTarget }
   | { kind: "setHighBrightness"; target: BioLampTarget; rawHighBrightness: number }
   | { kind: "readControlMode"; target: BioLampTarget }
+  | { kind: "readStandbyBrightness" | "readDelayMode" | "readHoldInterval" | "readStandbyInterval"; target: BioLampTarget }
   | { kind: "setControlMode"; target: BioLampTarget; mode: BioControlMode };
 
 export interface BioReadbackExpectation {
@@ -91,10 +92,16 @@ export type BioResponse =
   | { kind: "outer-ack"; accepted: boolean; status: number; deviceApplied: false }
   | (BioLampObservation & { kind: "discovery"; deviceType: number; firmware: { major: number; minor: number; revision: number; build: number }; sensorType: number; infraredType: number; ambientLightType: number; hardwareType: number })
   | (BioLampObservation & { kind: "high-brightness-report"; rawHighBrightness: number; brightnessPercent: number | null })
+  | (BioLampObservation & { kind: "standby-brightness-report"; rawStandbyBrightness: number; brightnessPercent: number | null })
+  | (BioLampObservation & { kind: "delay-mode-report"; delayMode: 0 | 1 })
+  | (BioLampObservation & { kind: "hold-interval-report" | "standby-interval-report"; rawInterval: number; seconds: number })
   | (BioLampObservation & { kind: "control-mode-report"; mode: BioControlMode })
   | BioSensorStatusCandidate
   | BioAliveStatus
   | { kind: "unsupported-notification"; outerCommand: number; payloadBytes: number };
+
+export type BioReadbackResponse = Extract<BioResponse, { kind: "high-brightness-report" | "control-mode-report"
+  | "standby-brightness-report" | "delay-mode-report" | "hold-interval-report" | "standby-interval-report" }>;
 
 /**
  * 근거의 범위와 확인하지 않은 부분
@@ -131,7 +138,8 @@ function requireUnicast(target: BioLampTarget): Extract<BioLampTarget, { kind: "
   return target;
 }
 
-/** [확인됨] 설치 앱 1.2.0 캡처 조합만 허용하며 임의 opcode/percent 변환을 노출하지 않는다. */
+/** 설치 앱1.2.0 캡처 제어와 아래 출처를 명시한 정적 센서 GET만 허용한다.
+ * 새 GET 근거를 설정 쓰기나 실제 firmware 호환 승인으로 확대하지 않는다. */
 export function encodeBioCommand(operation: BioOperation, sequence: number): BioUsbRequest {
   unsigned(sequence, 255);
   // 0A는 동글의 GET_NWK: 조명용 15-byte header/body가 없고 payload 길이도 0이다.
@@ -183,6 +191,17 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
       target = requireUnicast(operation.target);
       // 4E=조회(GET), 12=control mode 항목. 응답 body는 4F 12 <mode>다.
       body = [0x4e, 0x12];
+      break;
+    case "readStandbyBrightness":
+    case "readDelayMode":
+    case "readHoldInterval":
+    case "readStandbyInterval":
+      // Static APK 1.1.314: Scene/RemoteCommand property IDs and
+      // OPC_LAMP_SETTING_GET=0x4e. Read-only qualification support, not HIL proof
+      // or permission to configure every firmware. No SET counterpart is enabled.
+      target = requireUnicast(operation.target);
+      body = [0x4e, { readStandbyBrightness: 0x14, readDelayMode: 0x16,
+        readHoldInterval: 0x17, readStandbyInterval: 0x18 }[operation.kind]];
       break;
     case "setControlMode": {
       target = operation.target;
@@ -257,7 +276,7 @@ export function decodeBioResponse(frame: BioFrame): BioResponse {
     return { kind: "alive-status", ...header, innerOpcode: 0x0c, innerBody: Buffer.from(p.subarray(16)) };
   }
   // 나머지 opcode를 임의의 센서/밝기 이벤트로 오해하지 않도록 원본 body도 반환하지 않는다.
-  if (opcode !== 0x0a && !(opcode === 0x4f && (p[16] === 0x12 || p[16] === 0x13))) return unsupported;
+  if (opcode !== 0x0a && !(opcode === 0x4f && [0x12, 0x13, 0x14, 0x16, 0x17, 0x18].includes(p[16]))) return unsupported;
   if (opcode === 0x0a) {
     // inner 0A는 *장치 발견 보고*이며 바깥 command 0A(GET_NWK)와 다르다.
     // 전체 payload 28 bytes 중 [16]=장치 종류, [17..19]=펌웨어 major/minor/revision,
@@ -274,6 +293,19 @@ export function decodeBioResponse(frame: BioFrame): BioResponse {
     // APK 표에 정확히 있는 raw만 서비스 퍼센트로 바꾸고 나머지는 null이다.
     return { kind: "high-brightness-report", ...header, rawHighBrightness: p[17], brightnessPercent: bioRawToPercent(p[17]) };
   }
+  if (p[16] === 0x14) return { kind: "standby-brightness-report", ...header,
+    rawStandbyBrightness: p[17], brightnessPercent: bioRawToPercent(p[17]) };
+  if (p[16] === 0x16) {
+    if (p[17] !== 0 && p[17] !== 1) return invalid();
+    return { kind: "delay-mode-report", ...header, delayMode: p[17] };
+  }
+  if (p[16] === 0x17 || p[16] === 0x18) {
+    // APK TimeInterval: bits1..7=count, bit0=seconds(0)/minutes(1).
+    // Preserve raw/zero/long original values for later lossless recovery; the
+    // UI's 1..1800 rule bounds do not redefine an existing device setting.
+    return { kind: p[16] === 0x17 ? "hold-interval-report" : "standby-interval-report", ...header,
+      rawInterval: p[17], seconds: (p[17] >>> 1) * ((p[17] & 1) ? 60 : 1) };
+  }
   if (![0, 1, 3].includes(p[17])) return invalid();
   // inner 4F 12는 mode 보고. 00/01/03 이외 값은 확인된 모드가 아니므로 거절한다.
   return { kind: "control-mode-report", ...header, mode: p[17] === 0 ? "sensor" : p[17] === 1 ? "force-off" : "force-on" };
@@ -285,12 +317,13 @@ export function decodeBioResponse(frame: BioFrame): BioResponse {
  * [추정] UUID/address mismatch는 지연 응답 또는 다른 조명의 비동기 보고일 수 있으므로
  * 값을 현재 요청에 적용하지 않고 payload를 노출하지 않는 MALFORMED_FRAME으로 닫는다.
  */
-export function decodeBioReadback(frame: BioFrame, expected: BioReadbackExpectation): Extract<BioResponse,
-  { kind: "high-brightness-report" | "control-mode-report" }> {
+export function decodeBioReadback(frame: BioFrame, expected: BioReadbackExpectation): BioReadbackResponse {
   const expectedUuid = nativeUuidBytes(expected.nativeUuid).toString("hex");
   unsigned(expected.logicalAddress, 0x7fff, 1);
   const response = decodeBioResponse(frame);
-  if ((response.kind !== "high-brightness-report" && response.kind !== "control-mode-report")
+  if ((response.kind !== "high-brightness-report" && response.kind !== "control-mode-report"
+      && response.kind !== "standby-brightness-report" && response.kind !== "delay-mode-report"
+      && response.kind !== "hold-interval-report" && response.kind !== "standby-interval-report")
     || response.deviceUuid !== `bio:${expectedUuid}`
     || response.logicalAddress !== expected.logicalAddress) return invalid();
   return response;

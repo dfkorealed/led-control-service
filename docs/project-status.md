@@ -7,6 +7,9 @@
 - 사용자는 방습등1·2를 포함해 감지한 조명 자신의 밝기/유지시간 설정을 요청했고, 최소1초·기존/신규 공통 지원으로 보정해 진행을 승인했다. 별도 `codex/bio-self-sensing-control-20261015`에서 서면 설계를 작성했다. 기존 자기 제어 제외 정책을 단순 해제하지 않고 sensor 모드 유지·장비 자체 설정 경로를 제안한다.
 - 검토 문서는 `docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`다. 유지시간/기본 밝기의 명령·단위·독립 조회와1초 지원 근거를 먼저 확인하며, 미확인 장비에 명령을 추측하지 않는다. 동일 설정 UI 제공과 모든 장비의 물리 지원 완료는 구분한다.
 - 사용자가 서면 설계를 확정하고 계획 작성 후 진행을 요청했다. `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`를 작성·자가검토했고 같은 세션 직접 실행을 시작한다. Task1 장비 명령 근거→Task2 최소1초→Task3 codec/client→Task4 계약/서버→Task5 Gateway→Task6 UI/한정검증 순서다. 미확인 명령은 추측하지 않고 자기 제어 관문에서 보류한다. 실제 DB/장비/서비스 반영0이며 기존 ID/규칙/설정과 메인의 사용자/병행 UI 미커밋 변경을 보존한다.
+- 현재 Task1 정적 근거 판정·Task2 최소1초 코드/forward CHECK migration/임시DB/격리UI를 완료했고 Task3의읽기 전용6GET을 구현했다. 자기 설정 SET·Task4–6·메인 병합/운영 반영은 아직이다. APK1.1.314 SHA일치·TimeInterval bit0단위/상위7bit횟수와DPID20/22/23/24를 확인했지만 APK1.2.0 캡처 및 현재 장비 호환으로 확대하지 않는다. 실제1단계/2단계와 기본 복귀 동작은 장비 조회/검증 후 결정한다.
+- 검증은 RED shared3/API DTO3/Web4/DB1 및 신규조회13→shared57·API3파일46·Web2파일33·Gateway3파일244·PC1440/모바일390의1초저장/활성화 mock2PASS, API/Gateway타입·Web타입 포함build exit0이다. 오래된 worktree Prisma client의 타입오류는 main과 realpath/inode가 다른 자체 생성물을 확인한 뒤 해당worktree만 generate해 해소했으며 실제DB migration/운영client 변경0이다. 기존API partial PATCH fixture의 누락 날짜/flat fields, 새GET으로기존unknown이아닌DPID14의거절fixture는현재unknown15로수정했다. 전체suite/HIL 성공이아니다.
+- 사용자에게 실제 장비 검증 전임을 알렸고, 방습등1·2와 기존1대의읽기 전용 조회 및 필요 시최대6~8분 제어중단/기존운전복귀의새승인을요청했다. 승인 전 실제USB/장비/RF/서비스작업은0이다. 자기 제어제한을단순해제하거나새SET을추측해완료하지않는다.
 
 ## 2026-10-15 BIO 실사용 운영 후속 — 소프트웨어 검토 완료·관리자 설치 대기
 

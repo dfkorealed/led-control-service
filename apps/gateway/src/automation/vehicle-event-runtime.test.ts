@@ -63,7 +63,7 @@ describe("BIO pulse occurrence", () => {
     expect(t.state.vehicleRules[ruleId]).toBeDefined();
   });
 
-  it.each([10, 60, 1800])("observes a full %ss after recovery, including an outage between ticks", hold => {
+  it.each([1, 10, 60, 1800])("observes a full %ss after recovery, including an outage between ticks", hold => {
     const t = setup(hold);
     t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
     t.clock.advance(hold * 1000 + 5000);
@@ -175,10 +175,23 @@ describe("BIO pulse occurrence", () => {
     expect(t.state.vehicleRules[ruleId]?.preBrightness[targetFixtureId]).toBe(20);
   });
 
-  it.each([10, 60, 1800])("expires at the monotonic receipt deadline for %s seconds", hold => {
+  it.each([1, 10, 60, 1800])("expires at the monotonic receipt deadline for %s seconds", hold => {
     const t = setup(hold);
     t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
     t.clock.advance(hold * 1000 - 1);
+    expect(t.runtime.reconcile(t.state, t.snapshot, false)).toEqual([]);
+    t.clock.advance(1);
+    expect(t.runtime.reconcile(t.state, t.snapshot, false)).toMatchObject([{ kind: "event_ended", payload: { reason: "hold_expired" } }]);
+  });
+
+  it("extends a one-second hold from the last pulse without recapturing its base", () => {
+    const t = setup(1);
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(1));
+    const startedAt = t.state.vehicleRules[ruleId]!.startedAt;
+    t.clock.advance(750);
+    t.runtime.recordInput(t.state, t.snapshot, t.pulse(2));
+    expect(t.state.vehicleRules[ruleId]).toMatchObject({ startedAt, preBrightness: { [targetFixtureId]: 20 } });
+    t.clock.advance(999);
     expect(t.runtime.reconcile(t.state, t.snapshot, false)).toEqual([]);
     t.clock.advance(1);
     expect(t.runtime.reconcile(t.state, t.snapshot, false)).toMatchObject([{ kind: "event_ended", payload: { reason: "hold_expired" } }]);
