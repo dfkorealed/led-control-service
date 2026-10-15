@@ -8,6 +8,14 @@
 
 **Tech Stack:** React, NestJS/Prisma/PostgreSQL, MQTT, Raspberry Pi BIO Gateway.
 
+## 10월15일 승인된 센서 내장 제품 직접 설정
+
+- [x] 사용자 승인한 센서 선택→실행 조명→밝기/유지→저장·활성화 흐름을 별도 `codex/sensor-one-step-setup-20261015`에서 구현한다. 일반 준비/확인 UI를 제거하고 선택 후보와 실행 eligibility를 분리한다.
+- [x] 기존 API의 자동 ensure_sensor/동일 요청 재개/최신 eligibility 확인을 저장·전원에 연결했다. 불확정 POST/GET·진행 중 준비·이전 ready의 현재 링크 유실·중복 클릭·현장/로그인/배정/권한 변화와 실패 안내 회귀를 확인했다. 새 schema/API/권한/DB/장비 변경은 없다.
+- [x] 직접 관련 테스트 5파일141개(마지막 predicate 공통화 전), 공통화 뒤 predicate/coordinator 재검증, PC1440/모바일390 저장·자동 준비·활성화 및 실패 재시도 fake browser 3개, 타입 포함 Web build/UI policy를 검증한다. 원 no-module harness 오류·UI 5건 RED·폐기된 수동 패널 기대/문구 보완·ready checkpoint/권한 회수/실패 안내 RED를 보호 기록으로 구분한다.
+- [ ] 직접 최종 리뷰/메인 병합·정식 화면의 수동 준비 패널 제거 확인. root 사용자 project-status 수정은 보존한 채 이번 요약을 별도 반영하고 원장/백업/worktree를 삭제하지 않는다.
+- [ ] 실장비 활성 snapshot의 `bio_pulse_control_unavailable` 세부 진단/복구와 실제 감지·복귀는 별도 승인된 운영 작업으로 이어간다. UI 간소화·mock 검증은 장비 성공을 보장하지 않는다.
+
 ## 10월14일 모든 조명 공통 준비 UI 보완
 
 - [x] 사용자 `진행해줘`로 기존 공통 패널의 등록 연결 확인→센서 사용 설정 설계를 승인했다. 센서모드 전환의 자체점등 가능성을 설명했고 실제 이벤트 활성화/움직임 시험은 하지 않는다. 로컬API만 검증 후 정상 재기동하는 추가 승인도 받았다.

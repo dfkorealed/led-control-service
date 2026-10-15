@@ -2,6 +2,8 @@ import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import type { ControlSelection } from "../control-selection";
 import type { ScheduleFormValues } from "./schedule-form";
 import type { VehicleEventFormValues } from "./vehicle-event-form";
+import { isSelectableVehicleEventSource } from "./bio-event-setup";
+export { isVehicleEventSource } from "./bio-event-setup";
 
 export type SchedulePreset = "daily" | "weekday" | "weekend" | "once";
 export type SchedulePresetState = SchedulePreset | "custom";
@@ -132,7 +134,7 @@ export function scheduleSummary(values: ScheduleFormValues, dashboard: Dashboard
 }
 
 export function vehicleEventSummary(values: VehicleEventFormValues, dashboard: Dashboard) {
-  const source = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isVehicleEventSource);
+  const source = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isSelectableVehicleEventSource);
   const target = fixtureIdsSummary(values.targetFixtureIds, dashboard);
   const brightness = values.dimmingEnabled ? values.brightnessPercent : "100";
   return `${source.count > 0 ? source.title : "감지 센서 선택 필요"} 감지 → ${target.count > 0 ? target.title : "실행 조명 선택 필요"} · 밝기 ${brightness}% · ${durationLabel(values.holdSeconds)} 유지`;
@@ -200,16 +202,6 @@ export function fixtureIdsAvailability(
   };
 }
 
-export function isVehicleEventSource(fixture: DashboardFixture) {
-  if (fixture.vehicleEventSource) return fixture.gateway !== null
-    && fixture.vehicleEventSource.sourceEligible && fixture.vehicleEventSource.readiness === "ready";
-  const verifiedAt = fixture.vehicleSensorCapabilityVerifiedAt;
-  return fixture.gateway !== null
-    && fixture.vehicleSensorCapabilityStatus === "supported"
-    && typeof verifiedAt === "string"
-    && isCanonicalIsoTimestamp(verifiedAt);
-}
-
 function recurrenceLabel(values: ScheduleFormValues) {
   const preset = schedulePreset(values);
   if (preset === "daily") return "매일";
@@ -240,9 +232,4 @@ function emptySelectionSummary(): AutomationSelectionSummary {
 function sameDays(actual: readonly number[], expected: readonly number[]) {
   return actual.length === expected.length
     && [...actual].sort((left, right) => left - right).every((day, index) => day === expected[index]);
-}
-
-function isCanonicalIsoTimestamp(value: string) {
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
 }

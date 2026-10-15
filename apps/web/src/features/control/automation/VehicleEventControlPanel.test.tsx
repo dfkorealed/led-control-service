@@ -12,17 +12,21 @@ import { VehicleEventControlPanel } from "./VehicleEventControlPanel";
 import { chooseRowAction, measureAutomationContainer } from "../../../test/automation-list";
 
 const floorMapQuery = vi.hoisted(() => vi.fn());
+const controlDashboardQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../api/queries", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../api/queries")>()),
-  useFloorMapSnapshot: floorMapQuery
+  useFloorMapSnapshot: floorMapQuery,
+  getControlDashboard: controlDashboardQuery
 }));
 
 const mocks = vi.hoisted(() => ({
   createVehicleEventRule: vi.fn(),
   deleteVehicleEventRule: vi.fn(),
   listVehicleEventRules: vi.fn(),
-  updateVehicleEventRule: vi.fn()
+  updateVehicleEventRule: vi.fn(),
+  requestBioSensorPreparation: vi.fn(),
+  getBioSensorPreparation: vi.fn()
 }));
 
 vi.mock("../../../api/automation", async (importOriginal) => ({
@@ -64,6 +68,7 @@ describe("VehicleEventControlPanel", () => {
     mocks.createVehicleEventRule.mockResolvedValue(rule());
     mocks.updateVehicleEventRule.mockResolvedValue(rule());
     mocks.deleteVehicleEventRule.mockResolvedValue({ id: rule().id, deleted: true });
+    controlDashboardQuery.mockResolvedValue(readyBioDashboard());
   });
 
   afterEach(() => {
@@ -77,7 +82,7 @@ describe("VehicleEventControlPanel", () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" })], total: 1, nextCursor: null });
     renderPanel("admin");
     const detail = await screen.findByRole("group", { name: /센서 상태/ });
-    expect(detail).toHaveTextContent("준비 확인 필요");
+    expect(detail).toHaveTextContent("설정 시 자동 연결");
     expect(screen.getByRole("table", { name: "차량 이벤트 목록" })).toContainElement(detail);
     expect(screen.queryByRole("region", { name: /BIO 운영 상태/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/마지막 유효 펄스/)).not.toBeInTheDocument();
@@ -90,7 +95,7 @@ describe("VehicleEventControlPanel", () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
     renderPanel("admin", { dashboard: readyBioDashboard() });
     const detail = await screen.findByRole("group", { name: /센서 상태/ });
-    expect(detail).toHaveTextContent("센서 준비 완료");
+    expect(detail).toHaveTextContent("센서 연결됨");
     expect(detail).not.toHaveTextContent("제품 지원 OFF");
     expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
     const activate = screen.getByRole("button", { name: /활성화$/ });
@@ -99,7 +104,27 @@ describe("VehicleEventControlPanel", () => {
     await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, draft.id, { status: "enabled" }));
   });
 
-  it.each(["ineligible", "missing", "wrong-gateway", "wrong-protocol", "wrong-site", "missing-second-source"])(
+  it("automatically prepares from the power button, blocks duplicate clicks and activates only after current eligibility", async () => {
+    const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
+    const pending = deferredPromise<any>();
+    mocks.requestBioSensorPreparation.mockReturnValue(pending.promise);
+    mocks.getBioSensorPreparation.mockResolvedValue({ commandId: "setup", siteId, fixtureId: sensorFixtureId, status: "ready", supersededAt: null });
+    const d = readyBioDashboard(); d.capabilities = { read: true, control: true, manage: true, commission: true };
+    d.floors[0].fixtures[0].vehicleEventSource!.sourceEligible = false;
+    d.floors[0].fixtures[0].vehicleEventSource!.readiness = "off";
+    renderPanel("admin", { dashboard: d });
+    const activate = await screen.findByRole("button", { name: /활성화$/ });
+    expect(activate).toBeEnabled(); fireEvent.click(activate); fireEvent.click(activate);
+    await waitFor(() => expect(mocks.requestBioSensorPreparation).toHaveBeenCalledTimes(1));
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled(); expect(activate).toBeDisabled();
+    expect(screen.getByText("센서 설정 중입니다. 잠시만 기다려 주세요.")).toBeVisible();
+    await act(async () => pending.resolve({ commandId: "setup", siteId, fixtureId: sensorFixtureId, status: "pending" }));
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, draft.id, { status: "enabled" }));
+    expect(controlDashboardQuery).toHaveBeenCalled();
+  });
+
+  it.each(["missing", "wrong-gateway", "wrong-protocol", "wrong-site", "missing-second-source"])(
     "blocks activation when current BIO evidence is %s", async reason => {
       const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled",
         ...(reason === "missing-second-source" ? { sourceFixtureIds: [sensorFixtureId, "missing-source"] } : {}) });
@@ -124,6 +149,54 @@ describe("VehicleEventControlPanel", () => {
       fireEvent.click(activate);
       expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
     });
+
+  it("automatically prepares when saving an unready BIO rule without exposing setup controls", async () => {
+    const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
+    const pending = deferredPromise<any>(); mocks.requestBioSensorPreparation.mockReturnValue(pending.promise);
+    mocks.getBioSensorPreparation.mockResolvedValue({ commandId: "save", siteId, fixtureId: sensorFixtureId, status: "ready", supersededAt: null });
+    const d = readyBioDashboard(); d.capabilities = { read: true, control: true, manage: true, commission: true };
+    d.floors[0].fixtures[0].vehicleEventSource!.sourceEligible = false;
+    renderPanel("admin", { dashboard: d }); await screen.findByText(draft.name); chooseRowAction(draft.name, "수정");
+    const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
+    expect(within(dialog).queryByRole("button", { name: "센서 사용 설정" })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(mocks.requestBioSensorPreparation).toHaveBeenCalledTimes(1));
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+    await act(async () => pending.resolve({ commandId: "save", siteId, fixtureId: sensorFixtureId }));
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, draft.id, expect.objectContaining({ status: "disabled" })));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "이벤트 수정" })).not.toBeInTheDocument());
+  });
+
+  it("does not activate under a different principal after automatic preparation began", async () => {
+    const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
+    const pending = deferredPromise<any>(); mocks.requestBioSensorPreparation.mockReturnValue(pending.promise);
+    const d = readyBioDashboard(); d.capabilities = { read: true, control: true, manage: true, commission: true };
+    d.floors[0].fixtures[0].vehicleEventSource!.sourceEligible = false;
+    const { queryClient } = renderPanel("admin", { dashboard: d });
+    fireEvent.click(await screen.findByRole("button", { name: /활성화$/ }));
+    await waitFor(() => expect(mocks.requestBioSensorPreparation).toHaveBeenCalledTimes(1));
+    queryClient.setQueryData(authMeQueryKey, { user: { id: "different", role: "admin", organizationId: "other" } });
+    await act(async () => pending.resolve({ commandId: "old", siteId, fixtureId: sensorFixtureId }));
+    expect(mocks.getBioSensorPreparation).not.toHaveBeenCalled(); expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+    expect(screen.queryByText(/활성 설정을 전송했습니다/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a failed automatic setup beside the rule and does not send activation", async () => {
+    const draft = rule({ sensorProtocol: "bio-usb-pulse", status: "disabled" });
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [draft], total: 1, nextCursor: null });
+    mocks.requestBioSensorPreparation.mockResolvedValue({ commandId: "failed", siteId, fixtureId: sensorFixtureId });
+    mocks.getBioSensorPreparation.mockResolvedValue({ commandId: "failed", siteId, fixtureId: sensorFixtureId, status: "unverified", supersededAt: null });
+    const d = readyBioDashboard(); d.capabilities = { read: true, control: true, manage: true, commission: true };
+    d.floors[0].fixtures[0].vehicleEventSource!.sourceEligible = false;
+    renderPanel("admin", { dashboard: d });
+    fireEvent.click(await screen.findByRole("button", { name: /활성화$/ }));
+    const row = screen.getByRole("row", { name: /입구 차량 감지.*비활성/ });
+    expect(await within(row).findByRole("alert")).toHaveTextContent("조명 연결을 확인한 뒤 다시 시도");
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+    expect(within(row).getByRole("button", { name: /활성화$/ })).toBeEnabled();
+  });
 
   it("keeps a degraded source warning visible and permits an explicit operator disable request", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule({ sensorProtocol: "bio-usb-pulse", status: "enabled" })], total: 1, nextCursor: null });
@@ -167,7 +240,7 @@ describe("VehicleEventControlPanel", () => {
     expect(detail).not.toHaveTextContent("센서 점검 필요");
     expect(detail).toHaveTextContent("센서 보고: 복귀 확인 필요");
     rerender(panelElement("admin", queryClient, siteId, siteId, telemetryDashboard(null)));
-    expect(detail).toHaveTextContent("준비 확인 필요");
+    expect(detail).toHaveTextContent("설정 시 자동 연결");
     expect(detail).not.toHaveTextContent("센서 보고: 복귀 확인 필요");
     expect(detail).not.toHaveTextContent("35%");
     expect(detail.querySelector("time")).toBeNull();
@@ -178,8 +251,8 @@ describe("VehicleEventControlPanel", () => {
     renderPanel("admin", { dashboard: telemetryDashboard({ health: "unverified", healthReason: null, degradedSince: null,
       restorationPending: false, restorationReason: null, configurationReadback: null }) });
     const detail = await screen.findByRole("group", { name: /센서 상태/ });
-    expect(detail).toHaveTextContent("준비 확인 필요");
-    expect(detail).not.toHaveTextContent("센서 준비 완료");
+    expect(detail).toHaveTextContent("설정 시 자동 연결");
+    expect(detail).not.toHaveTextContent("센서 연결됨");
     expect(detail).not.toHaveTextContent("센서 보고: 복귀 확인 필요");
     expect(within(detail).queryByText("복원 성공", { exact: true })).not.toBeInTheDocument();
   });
@@ -361,8 +434,8 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
     expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeVisible();
-    fireEvent.click(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ }));
-    expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
+    expect(within(dialog).queryByRole("button", { name: "감지 센서로 선택" })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
@@ -836,8 +909,8 @@ describe("VehicleEventControlPanel", () => {
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
     expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeEnabled();
     for (const name of [/B1-L001.*선택 불가/, /B1-L002.*선택 불가/]) {
-      fireEvent.click(within(dialog).getByRole("button", { name }));
-      expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+      expect(within(dialog).getByRole("button", { name })).toBeDisabled();
+      expect(within(dialog).queryByRole("button", { name: "감지 센서로 선택" })).not.toBeInTheDocument();
       expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
     }
   });
@@ -860,8 +933,8 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
     for (const name of [/B1-SENSOR-001.*선택 불가/, /B1-SENSOR-INVALID.*선택 불가/]) {
-      fireEvent.click(within(dialog).getByRole("button", { name }));
-      expect(within(dialog).getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+      expect(within(dialog).getByRole("button", { name })).toBeDisabled();
+      expect(within(dialog).queryByRole("button", { name: "감지 센서로 선택" })).not.toBeInTheDocument();
       expect(within(dialog).getByRole("button", { name: "선택 완료" })).toBeDisabled();
     }
   });

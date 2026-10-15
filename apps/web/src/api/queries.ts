@@ -170,6 +170,11 @@ export function useControlDashboard(siteId?: string) {
   });
 }
 
+/** Fresh full-fixture projection for multi-step control admission, not cache readiness. */
+export function getControlDashboard(siteId: string) {
+  return apiGet<Dashboard>(dashboardPath(siteId, true), { timeoutMs: 8_000 });
+}
+
 export type FixtureSnapshot = Dashboard["floors"][number]["fixtures"][number];
 
 export interface FloorFixturePage {

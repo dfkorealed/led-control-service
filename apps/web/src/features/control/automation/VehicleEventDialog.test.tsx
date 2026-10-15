@@ -60,7 +60,7 @@ describe("VehicleEventDialog spatial source and targets", () => {
 
   afterEach(cleanup);
 
-  it("allows inspecting every arbitrary registered light without selecting an unready source", () => {
+  it("selects registered sensor lights directly without a preparation panel", () => {
     const arbitrary = structuredClone(dashboard);
     arbitrary.floors[0].fixtures = arbitrary.floors[0].fixtures.slice(0, 3).map((item, index) => ({ ...item,
       id: `registered-${index + 40}`, name: ["서쪽 출입등", "동쪽 통로등", "주차 안내등"][index],
@@ -70,22 +70,22 @@ describe("VehicleEventDialog spatial source and targets", () => {
         targetEligible: true, blockReasons: [], modeVerification: { commandId: null, status: "unverified", modeVerified: false, verifiedAt: null } }
     }));
     renderVehicleEventDialog({ dashboard: arbitrary }); openSourceView();
-    fireEvent.click(screen.getByRole("button", { name: /동쪽 통로등.*선택 불가/ }));
-    expect(screen.getByRole("region", { name: "동쪽 통로등 센서 준비" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
-    expect(screen.getAllByRole("region", { name: /센서 준비$/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /동쪽 통로등/ }));
+    expect(screen.getByRole("button", { name: "1개 조명 선택 완료" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    expect(screen.getByRole("group", { name: "감지 센서" })).toHaveTextContent("동쪽 통로등");
+    expect(screen.queryByRole("region", { name: /센서 준비$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "센서 사용 설정" })).not.toBeInTheDocument();
   });
 
-  it.each(["off", "shadow", "degraded"] as const)("blocks saving %s BIO sources and explains server readiness", (readiness) => {
+  it.each(["off", "shadow", "degraded"] as const)("submits %s BIO sources for automatic setup without a separate user step", (readiness) => {
     const onSubmit = vi.fn();
     renderVehicleEventDialog({ dashboard: bioDashboard(readiness), rule: existingRule({ sensorProtocol: "bio-usb-pulse" }), onSubmit });
-    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
-    expect(screen.getByText(/자체 밝기 동작은 현장 검증 전/)).toBeVisible();
-    expect(screen.getByText(/제품 지원 OFF/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "센서 사용 설정" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "실행할 조명 변경" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "센서 사용 설정" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ sourceFixtureIds: [sourceFixtureId] }));
   });
 
   it("keeps a server-ready A source-only and saves edited BIO hold as a disabled draft", () => {
@@ -237,9 +237,8 @@ describe("VehicleEventDialog spatial source and targets", () => {
     renderVehicleEventDialog();
 
     openSourceView();
-    fireEvent.click(screen.getByRole("button", { name: /차량 감지 모델 미설정.*선택 불가/ }));
-    expect(screen.getByRole("region", { name: "차량 감지 모델 미설정 센서 준비" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "감지 센서로 선택" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /차량 감지 모델 미설정.*선택 불가/ })).toBeDisabled();
+    expect(screen.queryByRole("region", { name: /센서 준비$/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
   });
 
