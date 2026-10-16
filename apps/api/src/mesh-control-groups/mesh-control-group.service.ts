@@ -83,7 +83,14 @@ export class MeshControlGroupService {
 
     const desiredMembers = await tx.meshControlGroupMember.findMany({
       where: { groupId: group.id, gatewayId: group.gatewayId, desired: true,
-        meshNode: { retiredAt: null, fixture: { is: activeFixtureRegistrationWhere } } },
+        meshNode: { retiredAt: null, fixture: { is: { OR: [activeFixtureRegistrationWhere,
+          // Subscription restoration only. General control admission remains
+          // fenced until the same rejected operation's rollback ACKs converge.
+          { retiredAt: null, registrationRemovals: { some: { status: "reconcile_required",
+            result: { path: ["status"], equals: "rejected" }, cleanupRecovery: { is: {
+              rollbackSnapshot: { path: ["groups"], array_contains: [{ id: group.id, configurationVersion: group.configurationVersion }] }
+            } } } } }
+        ] } } } },
       orderBy: [{ meshNodeId: "asc" }],
       select: {
         meshNodeId: true,

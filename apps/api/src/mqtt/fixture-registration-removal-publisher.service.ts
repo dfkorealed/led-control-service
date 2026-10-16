@@ -32,7 +32,9 @@ export class FixtureRegistrationRemovalPublisherService implements OnModuleInit 
     await this.prisma.fixtureRegistrationRemovalOperation.updateMany({ where: { status: "pending",
       expiresAt: { lte: new Date() } }, data: { status: "reconcile_required", errorCode: "REMOVAL_DELIVERY_UNCERTAIN",
       lockedBy: null, leaseExpiresAt: null } });
-    const finals = await this.prisma.fixtureRegistrationRemovalOperation.findMany({ where: { status: "gateway_confirmed" }, take: 10 });
+    const finals = await this.prisma.fixtureRegistrationRemovalOperation.findMany({ where: { OR: [
+      { status: "gateway_confirmed" }, { status: "reconcile_required", result: { path: ["status"], equals: "rejected" } }
+    ] }, take: 10 });
     for (const row of finals) {
       if (this.stopped) return;
       // A failed DB finalization retains Gateway evidence. Do not downgrade it or

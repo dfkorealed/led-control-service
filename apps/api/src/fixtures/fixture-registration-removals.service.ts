@@ -189,6 +189,13 @@ export class FixtureRegistrationRemovalsService {
       await tx.$queryRaw`SELECT "operationId" FROM "FixtureRegistrationRemovalOperation" WHERE "operationId"=${operationId} FOR UPDATE`;
       const row = await tx.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } });
       if (row.status === "completed") return;
+      if (row.status === "reconcile_required" && (row.result as any)?.status === "rejected") {
+        await this.cleanup.prepareRollback(tx, row, now);
+        if (await this.cleanup.isRollbackApplied(tx, row)) {
+          await tx.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "rejected" } });
+        }
+        return;
+      }
       if (row.status !== "gateway_confirmed" || !await this.cleanup.isApplied(tx, row)) return;
       await this.retirement.retire(tx, row, now);
       await tx.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "completed", completedAt: now } });

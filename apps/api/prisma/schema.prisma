@@ -1665,6 +1665,7 @@ model FixtureRegistrationRemovalOperation {
   fixture                    Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: NoAction, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_fixture_fkey")
   meshNode                   MeshNode @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: NoAction, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_node_fkey")
   resultEvidence             FixtureRegistrationRemovalResultEvidence[]
+  cleanupRecovery            FixtureRegistrationRemovalCleanupRecovery?
   site                       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_site_fkey")
 
   @@unique([siteId, requestedById, clientRequestId], map: "FixtureRegistrationRemovalOperation_request_key")
@@ -1674,6 +1675,15 @@ model FixtureRegistrationRemovalOperation {
 }
 
 /// Append-only exact terminal/ACK pairs. Operation result fields are latest pointers.
+model FixtureRegistrationRemovalCleanupRecovery {
+  operationId      String @id
+  siteId           String
+  beforeSnapshot   Json
+  rollbackSnapshot Json?
+  createdAt        DateTime @default(now())
+  operation        FixtureRegistrationRemovalOperation @relation(fields: [operationId], references: [operationId], onDelete: Cascade)
+}
+
 model FixtureRegistrationRemovalResultEvidence {
   eventId            String @id
   operationId        String

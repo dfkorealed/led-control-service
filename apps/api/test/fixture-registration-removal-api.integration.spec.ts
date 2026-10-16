@@ -147,6 +147,9 @@ const enabled = process.env.FIXTURE_REMOVAL_API_DISPOSABLE_POSTGRES === "1";
     await db.$transaction(tx => app.get(FixtureRegistrationRemovalCleanupService).prepare(tx, row, new Date()));
     const catalog = await db.bioSensorCatalogDelivery.findFirstOrThrow({ where: { gatewayId: ids.gateway, supersededAt: null } });
     const payload: any = catalog.payload;
+    await expect(app.get(BioSensorProfilesService).ingestCatalogAck({ schemaVersion: 1, siteId: ids.site, gatewayId: ids.gateway,
+      assignmentVersion: 1, eventId: randomUUID(), catalogRevision: payload.catalogRevision, deliveryPayloadHash: catalog.payloadHash,
+      status: "applied", occurredAt: new Date().toISOString() }, { siteId: ids.site, gatewayId: ids.gateway })).rejects.toThrow();
     await app.get(BioSensorProfilesService).ingestCatalogAck({ schemaVersion: 1, siteId: ids.site, gatewayId: ids.gateway,
       assignmentVersion: 1, eventId: payload.eventId, catalogRevision: payload.catalogRevision, deliveryPayloadHash: catalog.payloadHash,
       status: "applied", occurredAt: new Date().toISOString() }, { siteId: ids.site, gatewayId: ids.gateway });
@@ -346,5 +349,89 @@ const enabled = process.env.FIXTURE_REMOVAL_API_DISPOSABLE_POSTGRES === "1";
       result: unknown, resultEventId: unknown.eventId, resultHash: canonicalPayloadHash(unknown), applicationAck: oldAck,
       applicationAckHash: canonicalPayloadHash(oldAck) } })).rejects.toThrow();
     await expect((db as any).fixtureRegistrationRemovalResultEvidence.deleteMany({ where: { operationId } })).rejects.toThrow();
+  });
+  it("restores rejected cleanup after expiry and restart, closing only after exact rollback ACKs", async () => {
+    const mesh = new MeshControlGroupService();
+    const group = await db.meshControlGroup.create({ data: { gatewayId: ids.gateway, targetType: "floor", targetId: ids.floor,
+      groupAddress: "0xc000", status: "ready", configurationVersion: 1, operationPlanVersion: 1 } });
+    await db.meshControlGroupMember.create({ data: { groupId: group.id, gatewayId: ids.gateway, meshNodeId: ids.node,
+      subscriptionStatus: "applied", appliedVersion: 1, statusVersion: 1 } });
+    await db.meshControlGroupAppliedMember.create({ data: { groupId: group.id, gatewayId: ids.gateway, meshNodeId: ids.node, meshAddress: "0x0100" } });
+    const { operationId } = await admit(); await applyCatalog(operationId);
+    const consumer = new MqttService(db as never, mesh);
+    const converge = async (version: number) => {
+      const command = await db.$transaction(tx => mesh.prepareSubscriptionSync(tx, { groupId: group.id, gatewayId: ids.gateway,
+        configurationVersion: version, requestedAt: new Date().toISOString() }));
+      await consumer.handleMessage(`sites/${ids.site}/gateways/${ids.gateway}/events/mesh-group/subscription-result`, Buffer.from(JSON.stringify({
+        siteId: ids.site, gatewayId: ids.gateway, groupId: group.id, version, groupAddress: "0xc000",
+        operations: command!.expectedOperations.map(operation => ({ ...operation, status: "ready" })), occurredAt: new Date().toISOString() })));
+      return command;
+    };
+    await converge(2);
+    const original = await db.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } });
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, original.expiresAt.getTime() - Date.now() + 20)));
+    await publisher.processBatch();
+    expect((await db.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } })).result)
+      .toMatchObject({ status: "rejected" });
+    const restartedCleanup = new FixtureRegistrationRemovalCleanupService(app.get(BioSensorProfilesService));
+    const restarted = new FixtureRegistrationRemovalsService(db as any, app.get(SiteAccessService), app.get(CommandDbClockHealth),
+      restartedCleanup, app.get(FixtureRegistrationRetirementService));
+    const restartedPublisher = new FixtureRegistrationRemovalPublisherService(db as any, transport as any, restarted,
+      restartedCleanup, app.get(CommandDbClockHealth));
+    await restartedPublisher.processBatch();
+    const recovery = await (db as any).fixtureRegistrationRemovalCleanupRecovery.findUniqueOrThrow({ where: { operationId } });
+    expect(recovery.rollbackSnapshot.groups).toEqual([{ id: group.id, configurationVersion: 3,
+      desiredHash: canonicalPayloadHash([{ meshNodeId: ids.node, meshAddress: "0x0100" }]) }]);
+    expect((await db.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } })).status).toBe("reconcile_required");
+    await expect(db.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "rejected" } })).rejects.toThrow();
+    await expect((db as any).fixtureRegistrationRemovalCleanupRecovery.update({ where: { operationId }, data: { rollbackSnapshot: {} } })).rejects.toThrow();
+    await expect((db as any).fixtureRegistrationRemovalCleanupRecovery.delete({ where: { operationId } })).rejects.toThrow();
+    const restoredGroup = await converge(3);
+    expect(restoredGroup!.desiredMembers).toEqual([{ meshNodeId: ids.node, meshAddress: "0x0100" }]);
+    await restarted.finalize(operationId);
+    expect((await db.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } })).status).toBe("reconcile_required");
+    const catalog = await db.bioSensorCatalogDelivery.findFirstOrThrow({ where: { gatewayId: ids.gateway, supersededAt: null } });
+    const payload: any = catalog.payload;
+    await app.get(BioSensorProfilesService).ingestCatalogAck({ schemaVersion: 1, siteId: ids.site, gatewayId: ids.gateway,
+      assignmentVersion: 1, eventId: payload.eventId, catalogRevision: payload.catalogRevision, deliveryPayloadHash: catalog.payloadHash,
+      status: "applied", occurredAt: new Date().toISOString() }, { siteId: ids.site, gatewayId: ids.gateway });
+    await restartedPublisher.processBatch();
+    const final = await db.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } });
+    expect(final).toMatchObject({ status: "rejected", payload: original.payload, commandHash: original.commandHash, expiresAt: original.expiresAt });
+    expect(await db.fixtureRegistrationRemovalOperation.count({ where: { fixtureId: ids.fixture } })).toBe(1);
+    expect(await db.fixture.findUniqueOrThrow({ where: { id: ids.fixture } })).toMatchObject({ retiredAt: null });
+    expect((await http("/registration-removal-preview")).body.allowed).toBe(true);
+  });
+  it("never rolls back unknown evidence and restores only original desired memberships after definitive rejection", async () => {
+    const anchor = await db.meshNode.create({ data: { gatewayId: ids.gateway, meshAddress: "0x0101", firmwareVersion: "test" } });
+    await db.fixture.create({ data: { floorId: ids.floor, meshNodeId: anchor.id, name: "anchor", ratedWatt: 20, x: 0, y: 0 } });
+    const group = await db.meshControlGroup.create({ data: { gatewayId: ids.gateway, targetType: "floor", targetId: ids.floor,
+      groupAddress: "0xc000", status: "ready", configurationVersion: 1, operationPlanVersion: 1 } });
+    await db.meshControlGroupMember.createMany({ data: [ids.node, anchor.id].map(meshNodeId => ({ groupId: group.id,
+      gatewayId: ids.gateway, meshNodeId, subscriptionStatus: "applied", appliedVersion: 1, statusVersion: 1 })) });
+    const { operationId } = await admit(); await applyCatalog(operationId);
+    const row = await db.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } });
+    const command = fixtureRegistrationRemovalCommandSchema.parse(row.payload);
+    const unknown = { ...command, commandHash: row.commandHash, eventId: randomUUID(), occurredAt: new Date().toISOString(),
+      status: "reconcile_required", errorCode: "PERSISTENCE_UNCERTAIN" };
+    await operations.ingest(fixtureRegistrationRemovalTopics.terminal(ids.site, ids.gateway), unknown, new Date());
+    await operations.finalize(operationId);
+    const recovery = await db.fixtureRegistrationRemovalCleanupRecovery.findUniqueOrThrow({ where: { operationId } });
+    expect(recovery.rollbackSnapshot).toBeNull();
+    await expect(db.fixtureRegistrationRemovalCleanupRecovery.update({ where: { operationId }, data: { rollbackSnapshot: {} } })).rejects.toThrow();
+    await expect(db.fixtureRegistrationRemovalCleanupRecovery.update({ where: { operationId }, data: { beforeSnapshot: {} } })).rejects.toThrow();
+    await expect(db.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "rejected" } })).rejects.toThrow();
+    await expect(db.meshControlGroupMember.update({ where: { groupId_meshNodeId: { groupId: group.id, meshNodeId: ids.node } }, data: { desired: true } })).rejects.toThrow();
+    await operations.ingest(fixtureRegistrationRemovalTopics.terminal(ids.site, ids.gateway), { ...unknown,
+      eventId: randomUUID(), occurredAt: new Date().toISOString(), status: "rejected", errorCode: "CONTROL_UNSETTLED" }, new Date());
+    await operations.finalize(operationId);
+    const restored = await db.$transaction(tx => new MeshControlGroupService().prepareSubscriptionSync(tx, {
+      groupId: group.id, gatewayId: ids.gateway, configurationVersion: 3, requestedAt: new Date().toISOString() }));
+    expect(restored!.desiredMembers).toEqual([{ meshNodeId: ids.node, meshAddress: "0x0100" },
+      { meshNodeId: anchor.id, meshAddress: "0x0101" }].sort((a, b) => a.meshNodeId.localeCompare(b.meshNodeId)));
+    const outside = await db.meshControlGroup.create({ data: { gatewayId: ids.gateway, targetType: "fixture_group", targetId: randomUUID(), groupAddress: "0xc001" } });
+    await expect(db.meshControlGroupMember.create({ data: { groupId: outside.id, gatewayId: ids.gateway, meshNodeId: ids.node } })).rejects.toThrow();
+    await expect(db.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "rejected" } })).rejects.toThrow();
+    expect((await db.fixtureRegistrationRemovalOperation.findUniqueOrThrow({ where: { operationId } })).status).toBe("reconcile_required");
   });
 });
