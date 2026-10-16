@@ -1,22 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
-## 2026-10-15 조명 등록 삭제 설계 검토
+## 2026-10-16 조명 등록 삭제
 
 ### 구현 완료
 
-- 현행 조명 GET/PATCH·배치 해제와 실제 등록 삭제를 구분하고 서버 CASCADE·Gateway mapping/지연 명령 경계를 읽기로 확인했다. 제품 삭제 기능을 구현 완료한 것은 아니다.
+- 현장 관리의 조명 관리 카드에서 admin 전용 등록 삭제 확인창을 제공한다. 이름·시리얼과 차단 사유를 확인하고 명시적으로 승인해야 접수한다. 상태 수신으로 timestamp가 바뀌어도 최신 preview를 다시 검사하며 대상 정보 변경 시 재확인한다.
+- 전송 전에 동일 사용자/현장/층/조명/요청 ID를 저장하고 응답 유실·새로고침 후 같은 작업을 조회한다. HTTP 접수나 MQTT 전송만으로 완료를 표시하지 않는다. 실제 완료 시 해당 현장 조회와 기본 dashboard 캐시를 갱신하며 다른 현장 캐시는 유지한다.
+- 공유 계약·서버 접수/결과 원장·Gateway 영속 매핑 퇴역과 실행 직전 구세대 명령 차단을 구현했다. Gateway version1 선언, 현재 등록/배정/인증과 온라인 상태를 확인한다. 기존 native 장치는 유지하고 이번 삭제 지원은 BIO에 한정한다.
+- 물리 공장 초기화·소등·디밍·센서 모드 변경이 아니다. 장비 자체 동작은 계속될 수 있다. 과거 제어/등록/전력 이력은 보존하며 재검색/재등록은 새 등록 ID로 분리한다.
 
 ### 미구현
 
-- admin의 조명 등록 삭제, Gateway 정리 확인·운영 퇴역·이력 보존·동일 제품 재등록은 서면 설계 검토 대기다. 구현은 승인 뒤 공유 계약/DB→Gateway→API→Web 순서로 진행한다.
+- 실제 장비 삭제·재등록 HIL과 Raspberry Pi 배포는 수행하지 않았다. 기존 Gateway는 새 지원 버전과 MQTT topic 인가가 반영되기 전 삭제가 차단된다.
+- 최종 통합 검증 중이다. 확정 거절 후 변경된 catalog/내부 그룹의 복구 ACK 수렴과 기존 현장 유지 재설치 작업의 원장 정리 호환성을 보완한다. 로컬 DB 백업/migration/서버 재시작은 승인됐으나 아직 실행 전이다.
 
 ### 부족하거나 개선이 필요한 기능
 
-- 현재 DB 행만 삭제하면 일부 제어/전력 원장이 소실될 수 있다. 진행 작업·스케줄·이벤트·구역 연결, Gateway 오프라인과 불확정 결과를 차단하고 물리 초기화/소등과 구별해야 한다. 실제 삭제·장비 설정 변경은 실행하지 않았다.
+- 구역·스케줄·이벤트 연결, 진행/불확정 제어와 복귀, 편집권 등과 충돌하면 먼저 연결 작업을 정리해야 한다. 실행 여부 불명은 성공이나 단순 실패가 아니라 같은 작업의 재조정으로 남긴다. 물리 장비 오프라인만으로 서버 행을 강제 삭제하지 않는다.
+- 웹 focused64/64·Chromium10/10(1440/390), Gateway focused379 및 보강273, 독립 검토를 확인했다. 브라우저는 격리 API fixture이고 서버/장비 전체 E2E 성공을 의미하지 않는다. 최종 통합 수치는 실행 계획과 상태판을 따른다.
 
 ### 관련 파일
 
-- `docs/superpowers/specs/2026-09-12-settings-assets-operations-design.md`의 `2026-10-15 추가 설계: 실제 조명 등록 삭제` 및 `docs/project-status.md`.
+- `features/settings/site/{SiteOperationsView,DeleteFixtureRegistrationDialog,FixtureRegistrationRemovalFlow}.tsx`, `api/fixture-registration-removals.ts`(모두 `apps/web/src` 하위).
+- `apps/api/src/fixtures/fixture-registration-removals.service.ts`, `apps/api/src/mqtt/fixture-registration-removal-publisher.service.ts`, `apps/gateway/src/runtime/fixture-registration-removal-runtime.ts`.
+- `docs/superpowers/plans/2026-10-16-fixture-registration-removal.md`, 기존 자산 운영 설계와 `docs/database-schema.md`.
 
 ### 갱신 규칙
 

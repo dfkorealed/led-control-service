@@ -1,5 +1,28 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-16 등록 삭제 뒤 전력 이력 보존
+
+### 구현 완료
+
+- 등록 삭제 완료 시 기존 조명의 전력 추적을 종료한다. 과거 집계/차원 이력을 삭제하지 않으며 이후 늦은 상태나 요금 변경으로 퇴역 조명의 적산을 계속하지 않는다.
+- 동일 제품의 재등록은 새 등록/전력 identity로 구분해 이전 조명의 과거 통계와 새 추적을 섞지 않는다.
+
+### 미구현
+
+- 실제 장비 삭제/재등록 뒤 계측기 비교 HIL은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 임시 PostgreSQL의 삭제·요금 변경·late telemetry 회귀는 소프트웨어 검증이며 실제 소비 전력 계측의 정확도를 뜻하지 않는다. 퇴역 조명의 과거 통계 표시와 현재 운영 조명 수가 다른 것은 의도된 동작이다.
+
+### 관련 파일
+
+- `apps/api/src/fixtures/fixture-registration-retirement.service.ts`, `apps/api/src/energy/fixture-state-ingestion.service.ts`, `apps/api/test/fixture-registration-removal-api.integration.spec.ts`.
+
+### 갱신 규칙
+
+- 운영 목록에서 제외할 때도 과거 에너지 identity/FK/집계를 보존하고 새 등록과의 분리 및 추적 종료를 함께 검증한다.
+
 ## 2026-10-15 큰 수치의 카드 내부 읽기 폭
 
 ### 구현 완료

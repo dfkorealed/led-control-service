@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-16 등록 삭제와 제어 안전 경계
+
+### 구현 완료
+
+- 등록 삭제 중/불확정/퇴역 조명의 신규 개별·그룹·규칙 대상 예약을 서버와 DB에서 차단한다. 기존 구역/스케줄/이벤트 연결·진행 제어·복귀가 있으면 삭제를 먼저 거절한다. 과거 제어 결과/감사 원장은 보존한다.
+- Gateway는 영속 퇴역 fence를 두고 이미 매핑을 캡처한 구세대 명령도 실제 USB 전송 직전에 재검사한다. 같은 삭제 요청과 결과/ACK는 재시작 후에도 원 identity로 복구한다. 삭제 자체는 장비 밝기나 센서 설정을 쓰지 않는다.
+
+### 미구현
+
+- 실제 장비 삭제 뒤 구세대 RF 차단/재등록 HIL 및 새 Gateway 배포는 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- Gateway의 불확정 결과는 같은 작업으로만 확인한다. 과거 terminal/ACK가 더 최신 확정 결과를 지우면 안 된다. 거절 시 catalog/내부 멤버십 복구와 최종 통합 검증은 실행 계획의 별도 관문이다.
+
+### 관련 파일
+
+- `apps/api/src/fixtures/fixture-registration-removal-policy.ts`, `apps/api/src/commands`, `apps/gateway/src/{runtime/fixture-registration-removal-runtime.ts,commands/fixture-registration-removal-handler.ts,state/fixture-registration-removal-journal.ts,bio/bio-device-mapping-store.ts}`.
+
+### 갱신 규칙
+
+- 삭제 접수·Gateway 내구 정리·서버 퇴역·실장비 성공을 구분하고 전송 ACK만으로 삭제/제어 성공을 기록하지 않는다.
+
 ## 2026-10-16 BIO 자기 감지 제어 — 운영 반영·UI 시험 준비
 
 ### 구현 완료
