@@ -8,29 +8,46 @@ import { defineConfig } from "vite";
 import { parseDeployMode, assertPublicModules, assertPublicOutput, brandAssets, createArtifact, artifactName } from "./scripts/public-deploy-contract.mjs";
 // @ts-expect-error Release evidence runs in Node, outside the browser tsconfig.
 import { createBuildEvidence, digest } from "../../scripts/landing/release-evidence.mjs";
+// @ts-expect-error Node build helpers are verified by the public release gate.
+import { prerenderLanding } from "./scripts/prerender-landing.mjs";
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const mode = parseDeployMode(process.env.WEB_DEPLOY_MODE);
 let rawModules: string[] = [];
 let emittedModules: Record<string, string[]> = {};
+let prerender: { modules: string[]; sha256: string } | undefined;
+const publicDefines = {
+  "import.meta.env.VITE_PUBLIC_DEPLOY_MODE": JSON.stringify(mode),
+  "import.meta.env.VITE_LANDING_SERVICE_URL": JSON.stringify(mode === "landing" ? process.env.VITE_LANDING_SERVICE_URL ?? "" : "")
+};
 export default defineConfig({
   root, publicDir: false, envDir: false, envPrefix: "PUBLIC_UNUSED_",
-  define: {
-    "import.meta.env.VITE_PUBLIC_DEPLOY_MODE": JSON.stringify(mode),
-    "import.meta.env.VITE_LANDING_SERVICE_URL": JSON.stringify(mode === "landing" ? process.env.VITE_LANDING_SERVICE_URL ?? "" : "")
-  },
+  define: publicDefines,
   plugins: [tailwindcss(), react(), {
     name: "public-deployment-boundary", enforce: "post",
     async generateBundle(_options, bundle) {
       const entry = mode === "landing" ? "landing.html" : "service.html";
       const html = bundle[entry];
       if (html) { delete bundle[entry]; html.fileName = "index.html"; bundle["index.html"] = html; }
+      let renderedModules: string[] = [];
+      const seoAssets: Record<string, {type:"asset";fileName:string;source:string}> = {};
+      if (mode === "landing") {
+        if (html?.type !== "asset") throw Error("Missing landing HTML");
+        const rendered = await prerenderLanding(root, String(html.source), publicDefines);
+        renderedModules = rendered.modules;
+        prerender = rendered.prerender;
+        for (const [fileName, source] of Object.entries(rendered.assets) as [string, string][]) {
+          if (fileName === "index.html") html.source = source;
+          else this.emitFile({type:"asset", fileName, source});
+          seoAssets[fileName] = {type:"asset", fileName, source};
+        }
+      }
       for (const asset of brandAssets as string[]) this.emitFile({ type: "asset", fileName: asset, source: await readFile(resolve(root, "public", asset)) });
-      const modules = assertPublicModules([...this.getModuleIds()], root, mode);
-      rawModules = [...this.getModuleIds()];
+      rawModules = [...new Set([...this.getModuleIds(), ...renderedModules])];
+      const modules = assertPublicModules(rawModules, root, mode);
       emittedModules = Object.fromEntries(Object.entries(bundle).filter(([, item]) => item.type === "chunk").map(([name, item]) => [name, item.type === "chunk" ? Object.keys(item.modules) : []]));
-      assertPublicOutput(bundle, mode);
+      assertPublicOutput({...bundle, ...seoAssets}, mode);
       await mkdir(resolve(root, ".local"), { recursive: true });
-      await writeFile(resolve(root, `.local/public-${mode}-build-audit.json`), JSON.stringify({ mode, modules, output: [...new Set([...Object.keys(bundle), ...brandAssets])] }, null, 2));
+      await writeFile(resolve(root, `.local/public-${mode}-build-audit.json`), JSON.stringify({ mode, modules, output: [...new Set([...Object.keys(bundle), ...Object.keys(seoAssets), ...brandAssets])] }, null, 2));
     },
     async closeBundle() {
       const directory = resolve(root, "dist-public");
@@ -46,7 +63,7 @@ export default defineConfig({
       const artifactBytes = JSON.stringify(createArtifact(mode, files), null, 2);
       await writeFile(resolve(directory, artifactName), artifactBytes);
       if (mode === "landing") {
-        const evidence = await createBuildEvidence(resolve(root, "../.."), rawModules, emittedModules, digest(artifactBytes));
+        const evidence = await createBuildEvidence(resolve(root, "../.."), rawModules, emittedModules, digest(artifactBytes), prerender);
         await writeFile(resolve(root, ".local/public-landing-packages.json"), JSON.stringify(evidence, null, 2));
       }
     }

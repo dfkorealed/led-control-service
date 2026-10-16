@@ -1,4 +1,6 @@
 export const publicRoutes = Object.freeze(["/", "/features", "/pricing"]);
+export const landingPageFiles = Object.freeze({ "/": "index.html", "/features": "features.html", "/pricing": "pricing.html" });
+export const landingSeoFiles = Object.freeze(["robots.txt", "sitemap.xml"]);
 export const brandAssets = Object.freeze([
   "brand/favicon-32.png", "brand/kinda-mark-512.png", "brand/kinda-mark.svg",
   "brand/kinda-mark-monochrome.svg", "brand/kinda-mark-reversed.svg"
@@ -7,7 +9,7 @@ export const brandAssets = Object.freeze([
 const forbiddenModule = /(?:\/src\/(?:api|features\/(?:auth|control|monitoring|operator|mobile|settings|floor-editor|statistics|setup|registration|sites|shells))\/|\/src\/App(?:Root)?\.|\/src\/main\.tsx|\/concepts\/|(?:FieldDayConceptPage|ConceptSiteLayout|InquiryForm|NativeInquiryField|NativeDialog)\.|\/packages\/)/;
 
 /** Every resolved module is checked, including tree-shaken and dynamic imports. */
-export function assertLandingModules(ids, webRoot) {
+export function assertLandingModules(ids, webRoot, entry = "src/landing-main.tsx") {
   const root = webRoot.replaceAll("\\", "/");
   const localModules = [];
   for (const raw of ids) {
@@ -21,13 +23,13 @@ export function assertLandingModules(ids, webRoot) {
     if (/(?:\/test\/|\.(?:test|spec)\.)/.test(relative)) throw new Error(`Test in landing graph: ${relative}`);
     localModules.push(relative);
   }
-  if (!localModules.includes("src/landing-main.tsx")) throw new Error("Missing standalone landing entry");
+  if (!localModules.includes(entry)) throw new Error("Missing standalone landing entry");
   return [...new Set(localModules)].sort();
 }
 
 export function assertLandingOutput(bundle) {
   for (const [name, output] of Object.entries(bundle)) {
-    if (!["index.html", "404.html", ...brandAssets].includes(name) && !/^assets\/[\w.-]+-[\w-]+\.(?:js|css)$/.test(name)) {
+    if (![...Object.values(landingPageFiles), "404.html", ...landingSeoFiles, ...brandAssets].includes(name) && !/^assets\/[\w.-]+-[\w-]+\.(?:js|css)$/.test(name)) {
       throw new Error(`Unapproved landing artifact: ${name}`);
     }
     if (output.type === "chunk") {

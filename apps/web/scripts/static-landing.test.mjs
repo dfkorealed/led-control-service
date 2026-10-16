@@ -31,6 +31,10 @@ test("emitted output audit rejects unapproved files and bundled API code", () =>
 test("backend-free HTTP server returns exact public routes, allowlisted assets and real 404", async () => {
   const directory = await mkdtemp(join(tmpdir(), "kinda-static-"));
   await writeFile(join(directory, "index.html"), "public landing");
+  await writeFile(join(directory, "features.html"), "public features");
+  await writeFile(join(directory, "pricing.html"), "public pricing");
+  await writeFile(join(directory, "robots.txt"), "User-agent: *\nAllow: /\nSitemap: https://kinda.dfkorealed.com/sitemap.xml\n");
+  await writeFile(join(directory, "sitemap.xml"), '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
   await writeFile(join(directory, "404.html"), "public not found");
   await mkdir(join(directory, "assets"));
   await writeFile(join(directory, "assets/main-abcdef.js"), "public JS");
@@ -38,10 +42,13 @@ test("backend-free HTTP server returns exact public routes, allowlisted assets a
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    for (const route of ["/", "/features", "/pricing", "/features?source=test"]) {
-      const response = await fetch(`${base}${route}`); assert.equal(response.status, 200, route); assert.equal(await response.text(), "public landing");
+    for (const [route, copy] of [["/", "public landing"], ["/features", "public features"], ["/pricing", "public pricing"], ["/features?source=test", "public features"]]) {
+      const response = await fetch(`${base}${route}`); assert.equal(response.status, 200, route); assert.equal(await response.text(), copy);
     }
-    for (const route of ["/features/", "/pricing/", "/login", "/operator", "/api/auth/me", "/concepts/field-day.html", "/unknown", "/index.html", "/404.html", "/assets/missing-abcdef.js", "/assets/plain.js", "/%66eatures"]) {
+    for (const [route, type] of [["/robots.txt", "text/plain"], ["/sitemap.xml", "application/xml"]]) {
+      const response = await fetch(`${base}${route}`); assert.equal(response.status, 200); assert.ok(response.headers.get("content-type").startsWith(type));
+    }
+    for (const route of ["/features/", "/pricing/", "/features.html", "/pricing.html", "/robots.txt/", "/other.xml", "/other.txt", "/login", "/operator", "/api/auth/me", "/concepts/field-day.html", "/unknown", "/index.html", "/404.html", "/assets/missing-abcdef.js", "/assets/plain.js", "/%66eatures"]) {
       const response = await fetch(`${base}${route}`); assert.equal(response.status, 404, route); assert.equal(await response.text(), "public not found");
     }
     const asset = await fetch(`${base}/assets/main-abcdef.js`); assert.equal(asset.status, 200); assert.match(asset.headers.get("cache-control"), /immutable/);

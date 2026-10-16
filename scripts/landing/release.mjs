@@ -83,7 +83,7 @@ export async function verifyLandingRelease(project=root) {
   if(!Number.isFinite(age) || age<0 || age>24*60*60*1000) fail('Landing security audit is stale; rerun the release gate');
   if(!Array.isArray(files.collection.command) || JSON.stringify(files.collection.command) !== JSON.stringify(['pnpm','audit','--json','--audit-level=low'])) fail('Wrong audit source');
   const freshBuild=JSON.parse(await readFile(resolve(project,'apps/web/.local/public-landing-packages.json'),'utf8'));
-  verifyBuildEvidence(freshBuild,{sourceSha256:source.sha256,artifactSha256:artifact.sha256,scope});
+  verifyBuildEvidence(freshBuild,{sourceSha256:source.sha256,artifactSha256:artifact.sha256,scope,prerender:files.build.prerender});
   const identity=p=>`${p.name}@${p.version}:${p.metadataSha256}`;
   if(JSON.stringify([...new Set(freshBuild.packages.map(identity))].sort()) !== JSON.stringify([...new Set(files.build.packages.map(identity))].sort())) fail('Fresh published package metadata differs from tested build');
   return {verified:true,gitHead:proof.gitHead,artifactSha256:proof.artifactSha256,proofSha256:digest(JSON.stringify(proof))};

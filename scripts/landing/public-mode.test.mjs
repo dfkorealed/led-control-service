@@ -32,11 +32,16 @@ test('edge binds exact HTML release, gates mode assets and returns real 404 with
     const t = templates.createTemplate(mode,'release-1');
     const handler = vm.runInNewContext(`${t.Resources.ViewerRequest.Properties.FunctionCode};handler`);
     const request = uri => handler({request:{uri}});
-    assert.equal(request('/features').uri,'/published/release-1/index.html');
+    assert.equal(request('/features').uri,`/published/release-1/${mode === 'landing' ? 'features.html' : 'index.html'}`);
+    assert.equal(request('/pricing').uri,`/published/release-1/${mode === 'landing' ? 'pricing.html' : 'index.html'}`);
+    for (const file of ['robots.txt','sitemap.xml']) {
+      if (mode === 'landing') assert.equal(request('/'+file).uri,`/published/release-1/${file}`);
+      else assert.equal(request('/'+file).statusCode,404);
+    }
     assert.equal(request('/brand/kinda-mark.svg').uri,'/published/release-1/brand/kinda-mark.svg');
     assert.equal(request(`/assets/${mode}/app-abcd1234.js`).uri,`/assets/${mode}/app-abcd1234.js`);
     assert.equal(request(`/assets/${mode === 'service' ? 'landing' : 'service'}/app-abcd1234.js`).statusCode,404);
-    for (const path of ['/published/release-1/index.html','/releases/release-1/manifest.json','/unknown','/concepts/field-day.html','/settings/nope']) assert.equal(request(path).statusCode,404,path);
+    for (const path of ['/features.html','/pricing.html','/index.html','/robots.txt/','/sitemap.xml/','/other.xml','/other.txt','/published/release-1/index.html','/releases/release-1/manifest.json','/unknown','/concepts/field-day.html','/settings/nope']) assert.equal(request(path).statusCode,404,path);
     if (mode === 'service') assert.equal(request('/settings/floor-plans/floor-1/edit').uri,'/published/release-1/index.html');
     else { assert.equal(request('/login').statusCode,404); assert.equal(request('/api/auth/me').statusCode,404); }
   }

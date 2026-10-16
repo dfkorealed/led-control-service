@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import vm from 'node:vm';
 import { parseArgs, validateConfig, validateManifest, cacheControl, verifyTarget, runRelease } from './deploy.mjs';
 import { createArtifact } from '../../apps/web/scripts/public-deploy-contract.mjs';
 import { createTemplate } from './template.mjs';
@@ -11,7 +12,7 @@ const config = {accountId:'123456789012',region:'ap-northeast-2',stackName:'kind
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 function fakeAws({target=config,existingStack=true,certificateStatus='ISSUED',certificateNames=[target.domainName]}={}) {
   const calls = [], objects = new Map();
-  let active = {mode:'landing',release:'unpublished'}, pending, failActivation = false, account = config.accountId;
+  let active = {mode:'landing',release:'unpublished'}, pending, failActivation = false, account = config.accountId, lastTemplate;
   const run = async args => {
     calls.push(args);
     const value = flag => args[args.indexOf(flag)+1];
@@ -48,6 +49,7 @@ function fakeAws({target=config,existingStack=true,certificateStatus='ISSUED',ce
     if(command==='cloudformation create-stack')return {StackId:`arn:aws:cloudformation:${target.region}:${target.accountId}:stack/${target.stackName}/new`};
     if(command==='cloudformation update-stack') {
       const t=JSON.parse(await readFile(value('--template-body').slice(7),'utf8'));
+      lastTemplate=t;
       pending={mode:t.Outputs.DeployMode.Value,release:t.Outputs.ReleaseId.Value};
       // The selected HTML and every asset already exist before activation.
       assert.ok(objects.has(`published/${pending.release}/index.html`));
@@ -60,11 +62,12 @@ function fakeAws({target=config,existingStack=true,certificateStatus='ISSUED',ce
     if(command==='cloudfront create-invalidation')return {Invalidation:{Id:'INVALIDATION'}};
     throw Error(`Unmodelled AWS command: ${command}`);
   };
-  return {run,calls,objects,get active(){return active;},failActivation(value){failActivation=value;},setAccount(value){account=value;}};
+  return {run,calls,objects,get active(){return active;},get lastTemplate(){return lastTemplate;},failActivation(value){failActivation=value;},setAccount(value){account=value;}};
 }
-async function fixture(directory,mode,label) {
+async function fixture(directory,mode,label,legacy=false) {
   await rm(directory,{recursive:true,force:true}); await mkdir(join(directory,`assets/${mode}`),{recursive:true});
   const files = {'index.html':Buffer.from(`<html>${label}</html>`),'404.html':Buffer.from('<html>킨다 404</html>'),[`assets/${mode}/app-${label}12345678.js`]:Buffer.from(`console.log('${label}')`)};
+  if(mode==='landing' && !legacy) for(const key of ['features.html','pricing.html','robots.txt','sitemap.xml']) files[key]=Buffer.from(`${label}:${key}`);
   for(const [key,bytes] of Object.entries(files))await writeFile(join(directory,key),bytes);
   await writeFile(join(directory,'deployment.json'),JSON.stringify(createArtifact(mode,files)));
 }
@@ -80,6 +83,23 @@ test('CLI/config fail closed and offline plans never call AWS',async()=>{
   }
   const aws=fakeAws();aws.setAccount('999999999999');
   await assert.rejects(verifyTarget(config,aws.run),/account/);assert.equal(aws.calls.length,1);
+});
+test('legacy landing rollback retains shared HTML routing while partial SEO archives fail closed',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'public-legacy-'));const aws=fakeAws();
+  try {
+    await fixture(dir,'landing','legacy',true);
+    const artifact=JSON.parse(await readFile(join(dir,'deployment.json'),'utf8'));
+    const files=[...artifact.files,{key:'deployment.json',sha256:digest(await readFile(join(dir,'deployment.json'))),size:(await readFile(join(dir,'deployment.json'))).length}];
+    const manifest={version:2,release:'legacy',mode:'landing',files};
+    for(const file of files) aws.objects.set(`releases/legacy/${file.key}`,{bytes:await readFile(join(dir,file.key)),metadata:{sha256:file.sha256}});
+    aws.objects.set('releases/legacy/manifest.json',{bytes:Buffer.from(JSON.stringify(manifest)),metadata:{}});
+    await runRelease({mode:'rollback',deployMode:'landing',execute:true,release:'legacy'},config,aws.run);
+    const handler=vm.runInNewContext(aws.lastTemplate.Resources.ViewerRequest.Properties.FunctionCode+';handler');
+    assert.equal(handler({request:{uri:'/features'}}).uri,'/published/legacy/index.html');
+    assert.equal(handler({request:{uri:'/robots.txt'}}).statusCode,404);
+    assert.throws(()=>validateManifest({...manifest,files:[...files,{key:'features.html',size:1,sha256:'a'.repeat(64)}]},'legacy','landing'),/incomplete/i);
+    assert.throws(()=>validateManifest({...manifest,mode:'service',files:[...files,{key:'robots.txt',size:1,sha256:'a'.repeat(64)}]},'legacy','service'),/Unsafe/);
+  } finally {await rm(dir,{recursive:true,force:true});}
 });
 test('private retained S3 and scoped OAC read policy survive mode templates',()=>{
   for(const mode of ['landing','service']) {
@@ -103,6 +123,12 @@ test('landing to service to landing and cross-mode rollback publish matching arc
       assert.deepEqual(aws.active,{mode,release});
       assert.equal(JSON.parse(aws.objects.get(`releases/${release}/manifest.json`).bytes).mode,mode);
       assert.equal(aws.objects.has('releases/deployment.lock'),false);
+      if(mode==='landing') {
+        for(const [key,type] of [['features.html','text/html; charset=utf-8'],['pricing.html','text/html; charset=utf-8'],['robots.txt','text/plain; charset=utf-8'],['sitemap.xml','application/xml; charset=utf-8']]) {
+          const upload=aws.calls.find(args=>args[1]==='put-object' && args[args.indexOf('--key')+1]===`published/${release}/${key}`);
+          assert.equal(upload[upload.indexOf('--content-type')+1],type);
+        }
+      }
     }
     await runRelease({mode:'rollback',deployMode:'service',execute:true,release:'r2'},config,aws.run);
     assert.deepEqual(aws.active,{mode:'service',release:'r2'});

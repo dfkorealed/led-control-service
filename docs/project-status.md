@@ -2,6 +2,13 @@
 
 기준일: 2026-10-16
 
+## 2026-10-16 공개 사이트 SEO·검색 도구 등록 — 진행 중
+
+- 사용자가 SEO 확인과 네이버·구글 등록을 요청했고, 초기 HTML/페이지별 메타/사이트맵 보완·배포 후 등록을 선택했다. 실제 운영3경로는 같은1272-byte 빈본문 HTML·같은 title/description, robots/sitemap404이며 HTTPS·정상404는 확인했다. 구글은 기존 회사 도메인 인증으로 킨다 URL-prefix 속성 소유권 확인·속성 추가를 완료했다(색인 완료는 아님). 네이버는 새 사이트의 HTML meta 인증값을 발급받았으며 배포 후 소유확인/사이트맵 제출을 진행한다.
+- 구현은 기존 React 화면을 빌드 시 정적 HTML로 렌더하고 hydration하는 bounded 보완이다. 개발 담당은 공개3페이지의 고유 metadata/canonical·사실 기반 JSON-LD·초기 본문·robots/sitemap과 명시적 경로/배포 계약·회귀 및 영향 메뉴3문서를 담당한다. 총괄은 기존 계획/상태·MCP adapter·독립 검토·exact CI/proof·배포·등록 UI를 담당한다. 기본 디자인/Plus준비중/기존 상담·motion, landing/service 플래그와 내부/API/archive404는 유지한다. MAIN/BIO와 회사 홈페이지/DNS는 변경하지 않는다. [실행 체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md).
+
+- 개발 freeze27파일 SHA와 Node40·publicunit37·strictChromium12(실패/skip/flaky0)·typecheck/UI정책을 확인했다. 자바스크립트가 꺼져도3페이지 실제 본문/H1이 보이고, 고유 head·canonical·사실 기반 JSON-LD·네이버 태그와 robots/sitemap이 생성된다. 두 fresh build의 source/artifact/renderer 증거 일치 및 build-time audited closure 결속도 통과했다. 공식 MCP account456721863474 재확인, root adapter9/9 및 독립 검토 C/I0를 통과했다. exact Linux CI와 새 운영 배포·네이버 소유확인은 다음 단계다.
+
 ## 2026-10-16 Plus 준비중 표시 — 운영 공개 완료
 
 - 사용자가 기존 Plus 가격 수정의 운영 반영을 승인했다. 기존 공개 후보4130f74a와 source guard/정확 CI/private S3/OAC/CloudFront/Sydney/landing-only 절차를 재사용한다. 제품 diff는 Plus `준비중` 및 단위 숨김과 기존 검증의 최소 변경이며 Basic/기능/상담은 유지한다. 공식 MCP preflight의 refresh 만료 뒤 기존 로그인 갱신과 회사456721863474 재확인을 완료했다. 정확 source b536b5ef의 CI38837111557 SUCCESS(unit37/browser12·실패/skip/flaky0·scoped blocked0) 및 CI artifact/새 local build/source/proof guard를 통과했고 불변 r7 10파일 게시·UPDATE_COMPLETE/Deployed·invalidation IBZXEETJW54LB3YQ2F38R10ADS Completed·소유 lock 삭제·engine exit0을 확인했다. 두 HTTPS smoke 및 공식 MCP3read가 성공했다. 실제 운영320/637/1440px에서 Plus 준비중/월 단위0·Basic 월99,000원·가로 넘침0·Plus 상담/이메일/Escape와 API 요청0을 확인했다. [운영 화면과 증거](assets/landing-mobile-2026-10-13/README.md)를 보존했다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.

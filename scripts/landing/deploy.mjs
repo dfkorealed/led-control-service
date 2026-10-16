@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createTemplate } from './template.mjs';
 import { verifyLandingRelease } from './release.mjs';
 import { parseDeployMode, assertPublicOutput, brandAssets, artifactName, verifyArtifact } from '../../apps/web/scripts/public-deploy-contract.mjs';
+import { landingPageFiles, landingSeoFiles } from '../../apps/web/scripts/static-landing-contract.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const releasePattern=/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
 const hash=(bytes)=>createHash('sha256').update(bytes).digest('hex');
@@ -45,8 +46,9 @@ export function validateConfig(c,provision=false,deployMode='landing') {
   return c;
 }
 export function cacheControl(key) {return key.startsWith('assets/')?'public,max-age=31536000,immutable':'public,max-age=60,must-revalidate';}
-function validKey(key) {
+function validKey(key, mode) {
   if(['index.html','404.html',artifactName].includes(key))return true;
+  if(mode === 'landing' && [...Object.values(landingPageFiles), ...landingSeoFiles].includes(key))return true;
   if(typeof key!=='string'||key.includes('..')||key.includes('//'))return false;
   if(brandAssets.includes(key))return true;
   return /^assets\/[A-Za-z0-9_./-]+-[A-Za-z0-9_-]{8,}\.(js|css|svg|png|webp|jpg|jpeg|avif|woff2?|gif|ico)$/.test(key);
@@ -56,14 +58,17 @@ export function validateManifest(m,release,deployMode=m.mode) {
   if(m.version!==2||!releasePattern.test(m.release??'')||m.release!==release||!Array.isArray(m.files)||m.files.length<2||m.files.length>10000)fail('Invalid release manifest');
   const keys=new Set();
   for(const f of m.files) {
-    if(!validKey(f.key)||keys.has(f.key)||!/^([a-f0-9]{64})$/.test(f.sha256??'')||!Number.isSafeInteger(f.size)||f.size<0)fail(`Unsafe manifest entry: ${f.key}`);
+    if(!validKey(f.key,m.mode)||keys.has(f.key)||!/^([a-f0-9]{64})$/.test(f.sha256??'')||!Number.isSafeInteger(f.size)||f.size<0)fail(`Unsafe manifest entry: ${f.key}`);
     keys.add(f.key);
   }
   if(!keys.has('index.html')||!keys.has('404.html')||!keys.has(artifactName))fail('index.html, 404.html and deployment.json required');
+  const seo=['features.html','pricing.html',...landingSeoFiles];
+  const seoCount=seo.filter(key=>keys.has(key)).length;
+  if(seoCount && seoCount!==seo.length)fail('Incomplete landing SEO archive');
   return m;
 }
 export function makeManifest(release,files,mode='landing'){return validateManifest({version:2,release,mode,files},release,mode);}
-export async function collect(dist,release,mode) {
+export async function collect(dist,release,mode, {legacyLanding = false} = {}) {
   parseDeployMode(mode);
   const bytesByKey={};
   const files=[];
@@ -82,7 +87,7 @@ export async function collect(dist,release,mode) {
   const metadata=JSON.parse(await readFile(join(dist,artifactName),'utf8'));
   verifyArtifact(metadata,mode,bytesByKey);
   delete bundle[artifactName];
-  assertPublicOutput(bundle,mode);
+  assertPublicOutput(bundle,mode,{legacyLanding});
   return makeManifest(release,files.sort((a,b)=>a.key.localeCompare(b.key)),mode);
 }
 export function awsRunner(config) {
@@ -133,7 +138,7 @@ export async function verifyTarget(c,aws) {
   if(oac?.OriginAccessControlOriginType!=='s3'||oac.SigningBehavior!=='always'||oac.SigningProtocol!=='sigv4')fail('OAC signing configuration mismatch');
   return outputs;
 }
-const mime=(key)=>({html:'text/html; charset=utf-8',js:'application/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',webp:'image/webp',jpg:'image/jpeg',jpeg:'image/jpeg',avif:'image/avif',woff:'font/woff',woff2:'font/woff2',gif:'image/gif',ico:'image/x-icon'})[key.split('.').at(-1)]??'application/octet-stream';
+const mime=(key)=>({html:'text/html; charset=utf-8',txt:'text/plain; charset=utf-8',xml:'application/xml; charset=utf-8',js:'application/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',webp:'image/webp',jpg:'image/jpeg',jpeg:'image/jpeg',avif:'image/avif',woff:'font/woff',woff2:'font/woff2',gif:'image/gif',ico:'image/x-icon'})[key.split('.').at(-1)]??'application/octet-stream';
 async function head(c,key,aws) {
   try{return await aws(['s3api','head-object','--bucket',c.bucket,'--expected-bucket-owner',c.accountId,'--key',key]);}
   catch(error){if(/\((404|NoSuchKey|NotFound)\)/.test(error.message))return null;throw error;}
@@ -168,7 +173,8 @@ async function provision(c,aws,dir,deployMode) {
 const parameters = c => Object.entries({BucketName:c.bucket,DomainName:c.domainName??'',CertificateArn:c.certificateArn??'',HostedZoneId:c.hostedZoneId??'',ApiOriginDomain:c.apiOriginDomain??''}).map(([ParameterKey,ParameterValue])=>({ParameterKey,ParameterValue}));
 async function activate(c,manifest,aws,dir) {
   const path=join(dir,'template.json');
-  await writeFile(path,JSON.stringify(createTemplate(manifest.mode,manifest.release)));
+  const staticSeo=manifest.files.some(file=>file.key==='features.html');
+  await writeFile(path,JSON.stringify(createTemplate(manifest.mode,manifest.release,staticSeo)));
   await aws(['cloudformation','validate-template','--template-body',`file://${path}`]);
   try {
     await aws(['cloudformation','update-stack','--stack-name',c.stackName,'--template-body',`file://${path}`,'--parameters',JSON.stringify(parameters(c))]);
@@ -229,7 +235,10 @@ export async function runRelease(options,c,aws=awsRunner(c)) {
       }
     }
     for(const file of manifest.files) {const bytes=await readFile(join(dist,file.key));if(bytes.length!==file.size||hash(bytes)!==file.sha256)fail(`Release integrity mismatch: ${file.key}`);}
-    await collect(dist,options.release,deployMode);
+    // Verified historical landing archives predate per-route HTML. Only rollback
+    // can restore that exact old shape; every new deployment requires all SEO files.
+    const legacyLanding=options.mode==='rollback' && deployMode==='landing' && !manifest.files.some(file=>file.key==='features.html');
+    await collect(dist,options.release,deployMode,{legacyLanding});
     // Upload all immutable content before opening a route. HTML lives at a release
     // key, so an edge running the old function cannot serve new-mode HTML.
     for(const file of manifest.files) {

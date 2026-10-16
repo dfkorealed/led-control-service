@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { parseDeployMode, serviceRoutes, floorEditorPattern, brandAssets } from '../../apps/web/scripts/public-deploy-contract.mjs';
-import { publicRoutes } from '../../apps/web/scripts/static-landing-contract.mjs';
+import { publicRoutes, landingPageFiles, landingSeoFiles } from '../../apps/web/scripts/static-landing-contract.mjs';
 // AWS managed CachingDisabled: verified against the Developer Guide.
 // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html#managed-cache-policy-caching-disabled
 const cachingDisabledPolicyId = '4135ea2d-6df8-44a3-9df3-4b5a84be39ad';
@@ -61,7 +61,7 @@ const baseTemplate = {
   Outputs:{BucketName:{Value:ref('LandingBucket')},DistributionId:{Value:ref('LandingDistribution')},DistributionDomain:{Value:attr('LandingDistribution','DomainName')},OacId:{Value:ref('LandingOac')}}
 };
 /** Each function revision selects one immutable HTML release and one asset namespace. */
-export function viewerCode(mode, release) {
+export function viewerCode(mode, release, staticSeo = true) {
   parseDeployMode(mode);
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(release)) throw new Error('Invalid published release');
   const routes = mode === 'service' ? serviceRoutes : publicRoutes;
@@ -73,19 +73,20 @@ export function viewerCode(mode, release) {
     var routes = ${JSON.stringify(routes)};
     var brands = ${JSON.stringify(brandAssets.map(key => '/' + key))};
     if (routes.indexOf(uri) !== -1 ${mode === 'service' ? `|| new RegExp(${JSON.stringify(floorEditorPattern)}).test(uri)` : ''}) {
-      request.uri = '/published/${release}/index.html'; return request;
+      request.uri = '/published/${release}/' + ${mode === 'landing' && staticSeo ? `${JSON.stringify(landingPageFiles)}[uri]` : "'index.html'"}; return request;
     }
+    ${mode === 'landing' && staticSeo ? `if (${JSON.stringify(landingSeoFiles.map(key => '/' + key))}.indexOf(uri) !== -1) { request.uri = '/published/${release}' + uri; return request; }` : ''}
     if (brands.indexOf(uri) !== -1) { request.uri = '/published/${release}' + uri; return request; }
     if (new RegExp(${JSON.stringify(`^/assets/${mode}/[A-Za-z0-9_.-]+-[A-Za-z0-9_-]+\\.(?:js|css|svg|png|webp|jpg|jpeg|avif|woff2?|gif|ico)$`)}).test(uri) && uri.indexOf('..') === -1) return request;
     return { statusCode: 404, statusDescription: 'Not Found', headers: { 'content-type': { value: 'text/html; charset=utf-8' }, 'cache-control': { value: 'no-store' }, 'x-content-type-options': {value:'nosniff'} }, body: ${JSON.stringify(notFound)} };
   }`;
 }
-export function createTemplate(mode = 'landing', release = 'unpublished') {
+export function createTemplate(mode = 'landing', release = 'unpublished', staticSeo = true) {
   parseDeployMode(mode);
   const result = structuredClone(baseTemplate);
   result.Description = 'Kinda public Web deployment with immutable release routes and optional authenticated service API';
   result.Parameters.ApiOriginDomain = { Type:'String', Default:'', Description:'Preconfigured HTTPS origin hostname; must serve /api unchanged with a publicly trusted certificate.' };
-  result.Resources.ViewerRequest.Properties.FunctionCode = viewerCode(mode, release);
+  result.Resources.ViewerRequest.Properties.FunctionCode = viewerCode(mode, release, staticSeo);
   const d = result.Resources.LandingDistribution.Properties.DistributionConfig;
   // Zero error TTL preserves origin JSON/status and avoids caching API 403/404/5xx.
   d.CustomErrorResponses = [400,403,404,405,414,416,500,501,502,503,504].map(ErrorCode => ({ErrorCode,ErrorCachingMinTTL:0}));

@@ -221,3 +221,22 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 - 인증 갱신 후 회사456721863474를 공식 MCP 실제 STS로 확인했다. 정확 source `b536b5ef7f0fe640a1feafcdd8dc0830ac4e1712`의 Public Landing Release38837111557 SUCCESS(unit37/browser12·실패/skip/flaky0·scoped blocked0), artifact12019083189/zipSHA944dc4cf/sourceSHA769f6035/artifactSHA2ca8a3b7를 확인했다. 새 adapter fresh build/proof guard 및 ownedtarget8을 통과해 r7 게시가 진행 중이며 전환 완료는 아직 아니다.
 
 - r7 공개 완료: engine10파일/UPDATE_COMPLETE/Deployed·invalidation IBZXEETJW54LB3YQ2F38R10ADS Completed·소유 lock 삭제·exit0. 공식 MCP 추가3read actual api_calls도 성공했다. 실제 회사/CloudFront smoke exit0와 운영320/637/1440px Plus준비중/단위0·Basic월99,000원·넘침0·Plus상담/이메일/Escape/API0을 확인했다. 운영637px JPEG 및 메뉴/상태/실행서를 갱신했다. 인증 갱신 외 계정/무료 플랜/리전/MAIN/API/DB/장비 변경0이다.
+
+
+## 2026-10-16 공개 사이트 SEO·검색 도구 등록
+
+사용자 승인: 실제 SEO 점검 후 기존 화면을 유지하며 검색용 HTML·페이지별 metadata·robots/sitemap 보완·운영 배포와 네이버·구글 인증/사이트맵 제출. 등록 성공은 검색 색인·노출 순위·실측 Core Web Vitals 완료가 아니다. `brainstorming`의 bounded 설계를 사용자가 선택했고 `writing-plans` 체크리스트로 실행한다.
+
+설계: 순수 PublicLandingEntry(pathname)를 기존 화면에서 추출해 빌드 시 기존 React renderToString으로3페이지를 생성하고 클라이언트는 hydrateRoot로 연결한다. landing route→index/features/pricing.html, metadata/config는 빌드·클라이언트 title이 공유한다. robots.txt(text/plain)/sitemap.xml(application/xml)은 exact 공개파일이며 canonical3URL만 포함한다. sitemap lastmod/평점/미확정 요금 등은 만들지 않는다. 정적 네이버 태그를 유지하고 Google은 기존 domain 인증으로 URL-prefix 속성을 추가한다. Service mode의 기존index/내부 경로·API404와 landing 공개 경계·artifact/source/lock/immutable/ownership guard는 유지한다.
+
+- [x] 총괄: 실제3페이지/rawHTML·robots/sitemap/404와 공식 Google/Naver 가이드를 확인한다. 기존 회사 검색관리 계정에서 Google소유권 자동확인·킨다 속성 추가 및 Naver태그 발급을 확인한다.
+- [x] 개발 담당: 공개 entry/공유SEO metadata/정적SSR·hydration,3HTML·robots/sitemap·네이버태그를 구현한다. 정적renderer 의존성도 기존 audited closure와 실제 module provenance에 결속하고 날짜/환경 출력은 결정적으로 유지한다.
+- [x] 개발 담당: 미리보기·CloudFront의 정확한 route mapping, output/key/MIME·레거시 builder 호환 계약과 실패 회귀를 갱신하고3메뉴 문서를 최신화한다. 기본 UI/motion/상담·Plus준비중과 service flag는 보존한다.
+- [x] 총괄: root-owned officialMCP adapter의 정확한4추가파일/key/MIME를 확장하고 기존 guard 검증/독립 리뷰를 통과한다. 소유 writer와 root는 같은 파일을 수정하지 않는다.
+- [x] 개발 담당/QA: raw HTTP·JS-off 본문/고유 head·canonical·robots/sitemap·hydration 오류/중복0·기존 접근차단/상담/motion을 기존12케이스 안에서 검증하고 source freeze/독립 최종 검토를 회수한다. 추가 optional 전체suite나 baseline 재생성은 구체적 위험이 있을 때만 수행한다.
+- [ ] 총괄: exact Git SHA의 Public Landing Release와 CI artifact digest·fresh local build/proof를 검증하고 새 immutable release를 배포한다. 실제 stack/CloudFront/invalidation·ownlock 삭제와 두 HTTPS/SEO 응답을 확인한다.
+- [ ] 총괄: 실제 Naver 소유확인·robots/사이트맵 제출, Google 사이트맵 제출/대표URL 색인 요청을 수행하고 표시된 성공 상태·남은 수집/색인 지연을 기록한다. CAPTCHA/로그인/약관 등 실제 사용자 입력이 필요한 경우만 인계한다. 영구 증거/메뉴/상태/실행서를 완료한다.
+
+- 개발 freeze:27파일 SHA 일치, Node40/40·공개unit37/37·strictChromium12/12(실패/skip/flaky0)·public typecheck/UI정책0/0과 raw/noJS·hydration 검증을 확인했다. 두 fresh build의 source95802f76/artifact14a02be5/rendererba4d1b51 동일성과 실제renderer172/raw2941·published15/audited419 결속을 확인했다. 총괄 adapter9/9·정확4파일/MIME 거부 테스트도 통과했다. 새 독립 검토가 진행 중이며 운영 게시/네이버 소유확인은 아직이다.
+
+- 독립 검토: Critical/Important0·exact CI/배포 진행 가능. Reviewer가 source95802f76/artifact14a02be5/rendererba4d1b51을 독립 재계산했고 SSR·exact route/404·legacy quartet·audit/sourceproof·기존 guard를 확인했다. ignored adapter 실패로그 안내의 파일명 오타1건만 실제r8 이름으로 정리했다. 실제 Linux CI/AWS/등록/색인/CWV는 이 코드 검토가 검증한 범위가 아니다.

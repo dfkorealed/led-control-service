@@ -4,6 +4,12 @@
 
 ## 구현 완료
 
+- 2026-10-16 소스 한정 검증: Node 계약 40/40(기존 archive rollback·부분 SEO 파일 거부·새 MIME·실제 Rollup 내부 import 차단 포함), 공개 단위 37/37, 공개 typecheck, UI 정책 위반 0/0, 일반 정적/공개 빌드가 통과했다. 최종 Chromium 12/12(실패·skip·flaky 0)은 3개 페이지의 초기 HTML/메타·JavaScript 비활성 본문/H1/불투명도·hydration 오류 0·메뉴/상담/모션·실제 404를 확인했다. 변경 없는 공개 빌드 두 번의 산출물과 renderer SHA가 같고 renderer 172개 모듈을 포함한 실제 출처를 기존 감사 closure 419개/설치 324개와 대조했다. 실제 배포·검색 등록·색인·성능 점수는 이 결과로 확대하지 않는다.
+
+- 2026-10-16 SEO 소스 보완: `WEB_DEPLOY_MODE=landing` 빌드는 기존 React 화면을 빌드 시 정적 HTML로 렌더링하고 브라우저에서 hydration한다. `/`, `/features`, `/pricing`에 각각 실제 본문·H1과 고유 제목/설명/canonical/공유 메타, 회사·사이트·페이지의 사실만 담은 JSON-LD를 제공한다. 대표 주소는 `https://kinda.dfkorealed.com`이며 기존 512px 로고를 공유 이미지로 사용한다. 화면의 가격·기능 예시·모션·상담 동작은 동일한 컴포넌트로 유지한다. 공개 배포와 검색 도구 등록 완료 여부는 이후 운영 증거와 구분한다.
+
+- 검색 지원 파일: 정확한 `/robots.txt`와 공개 3개 URL의 `/sitemap.xml`만 허용하고 올바른 text/XML 형식으로 응답한다. 네이버 소유 확인 메타를 초기 HTML에 포함한다. 내부/API/보관 경로와 직접 HTML 파일 주소는 HTTP 404·noindex를 유지한다. 새 배포는 SEO 파일 전체가 필수이고 과거 랜딩 archive의 rollback은 검증된 기존 단일 HTML 경로를 복원한다. service 모드는 기존 index/인증 경로 계약을 유지한다.
+
 - 2026-10-16 운영 반영: 공개 소스 `b536b5ef`, release `20261016-landing-ui-r7`, 정확 CI unit37/Chromium12와 실제 회사/CloudFront HTTPS를 통과했다. Plus 준비중·월 단위0/기존 가격0, Basic 월99,000원·Plus 이메일 상담을 실제 운영320/637/1440px에서 확인했다. [배포 증거](../assets/landing-mobile-2026-10-13/README.md).
 
 - 2026-10-15 소스 수정: Plus 가격은 금액 대신 `준비중`으로 표시하고 월 단위 표시는 숨긴다. Basic은 월 99,000원, Plus의 기능 안내와 도입 상담은 유지한다. 2026-10-16 r7로 운영 반영했으며 실제320/637/1440px에서 새 가격과 단위 제거를 확인했다.
@@ -43,6 +49,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 검색 엔진의 색인·공유 캐시 반영에는 별도 처리가 필요하다. JavaScript를 꺼도 제목·본문·메뉴 링크는 보이지만 상담 팝업과 설명용 데모 조작은 JavaScript가 필요하다. 실제 메일 수신·운영 관제·장비 HIL 검증은 SEO 자동 검증에 포함되지 않는다.
+
 - 2026-10-13 후속 화면의 로컬 검증: 공개 단위 37/37, 기본·외곽 없는 공통 대화상자 42/42, Web typecheck와 fresh landing 빌드, UI 정책 기존/신규 0건, 실제 Chromium 모바일·조작 6/6(실패·제외·재시도 0)을 통과했다. 첫 문구 간격은 320·390·504·637·720·721·768·1440px에서 32px 이상이며 637×1226px의 기존 -3px 겹침은 37px로 수정했다. Basic/Plus 카드 내부 맥락, 남색 표면·외곽 여백/테두리 제거·닫기 아이콘 색상·Tab/Escape/포커스 복귀와 상세 해시 이동을 확인했다. 실제 재배포/HTTPS·메일 발송·장비 검증은 별도 기록을 따른다.
 
 - 2026-10-12 모바일·상담 보완 검증: 실제 정적 public 빌드에서 320/390/504px 간격 RED 3개를 재현한 뒤 시각 경계 32px 이상·푸터 비겹침을 통과했다. 공개 unit 37개, Web 전체 typecheck, UI 정책 기존/신규 0건, release 보고서 계약 9개를 확인했다. 공개 release Chromium은 기존 경로/차단 검사 6개를 유지하고 모바일·터치·키보드·축소 모션·pointer depth·섹션 재진입 6개를 추가해 최종 12/12(실패/제외/재시도 0)로 통과했다. 중간 5/6·11/12 실패와 ripple 이탈 RED는 원시 로그에 보존하며 최종 통과와 구분한다. 실제 재배포/HTTPS·메일 도착/장비 검증을 대신하지 않는다.
@@ -62,9 +70,11 @@
 - **Task 4 완료 시점 이력 (2026-09-28)**: 당시 기능·요금제 소프트웨어 검증은 집중92개, Chromium24개, typecheck/build다. 각 경로의320·390·1024·1440px 원본 기준 PNG52개와 계산 스타일, 3개 경계의 직전/해당/직후9너비를 비교했다. 당시 52개는 이전 승인된 공통 껍질 화면과 pixel-identical이며, 원본 기준38개 동일·14개 차이는 같은 공통 껍질의 색/합성 직렬화 차이로 유지된다. 기능·요금제 대상 선택자와 새 소비자 정책 위반은0개다. 당시 전체 정책은 441건(남은 field-day.css436·공개 CSS import1·데모 raw button3·정적 시안1)으로 실패했으며 Scene·데모·정적 시안 전환은 당시 후속 작업이었다. 실제 장비·메일 수신·배포·모든 브라우저 동일성을 검증한 결과는 아니다. 당시 전체 Web 검증은 Task 3의 2,577개였으며 Task 4에서는 반복 실행하지 않았다.
 
 - 표시 가격의 실제 견적, 계약 단위, 부가세, 제공 조건은 도입 상담에서 확정해야 한다.
-- 현재 공통 정적 `index.html`의 설명/공유 메타를 사용하므로 `/pricing` 링크의 검색·공유 미리보기가 홈과 동일할 수 있다. 경로별 서버 HTML 메타 제공은 후속 작업이다.
+- 2026-10-16 경로별 초기 HTML/메타 소스 보완은 완료했다. 실제 배포·검색 엔진의 소유 확인/사이트맵 처리/색인 상태는 각 운영 증거로 확인해야 한다. 검색 노출 순위·Core Web Vitals를 측정하거나 보장한 결과는 아니다.
 
 ## 관련 파일
+
+- 2026-10-16 SEO: [메타 정본](../../apps/web/src/features/landing/public-seo.ts), [순수 공개 entry](../../apps/web/src/features/landing/PublicLandingEntry.tsx), [빌드용 React 렌더러](../../apps/web/src/features/landing/render-public.tsx), [정적 HTML 생성](../../apps/web/scripts/prerender-landing.mjs), [브라우저 회귀](../../apps/web/e2e/landing-release.spec.ts), [빌드 의존성 출처 검증](../../scripts/landing/release-evidence.mjs).
 
 - 2026-10-13 후속 화면 보완: [공개 안쪽 페이지 틀](../../apps/web/src/components/ui/public-site/PublicInnerPage.tsx), [공통 대화상자](../../apps/web/src/components/ui/overlays/DialogBase.tsx), [이메일 상담 카드](../../apps/web/src/components/ui/public-site/ContactEmailCard.tsx), [모바일·팝업 회귀](../../apps/web/e2e/public-mobile-polish.spec.ts)
 
@@ -79,6 +89,8 @@
 - 검증: [상담 단위 테스트](../../apps/web/src/features/landing/PublicContact.test.tsx), [브라우저 테스트](../../apps/web/e2e/landing-field-day.spec.ts)
 
 ## 갱신 규칙
+
+- 공개 경로·제목/설명·대표 주소·공유 이미지·검색 확인 메타·사이트맵 또는 초기 HTML 제공 방식을 바꾸면 공개 메뉴 세 문서와 정적 경로/배포 검증을 함께 갱신한다. 소유 확인·사이트맵 제출·수집/색인을 별도 상태로 기록한다.
 
 - 공개 모드, 로그인 활성화, 서비스 route 또는 배포 산출물 계약 변경 시 공개 메뉴 세 문서와 배포 실행서를 함께 갱신한다.
 

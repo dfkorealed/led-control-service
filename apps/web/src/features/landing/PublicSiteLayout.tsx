@@ -6,13 +6,13 @@ import { SiteFrame } from "../../components/ui/public-site/SiteFrame";
 import { useSiteConsultation } from "../../components/ui/public-site/useSiteConsultation";
 import { CompanyFooter } from "./field-day/CompanyFooter";
 import type { LandingPlan } from "./field-day/PricingSection";
+import { publicPageSeo } from "./public-seo";
 
 export type OpenInquiry = (event: MouseEvent<HTMLButtonElement>, plan?: LandingPlan | null) => void;
 type PublicPage = "home" | "features" | "pricing";
-const pageTitles: Record<PublicPage, string> = { home: "킨다 | 스마트 조명 운영", features: "주요 기능 | 킨다", pricing: "요금제 | 킨다" };
 
 export function PublicSiteLayout({ page, children }: { page: PublicPage; children: (openInquiry: OpenInquiry) => ReactNode }) {
-  const contact = useSiteConsultation(pageTitles[page]);
+  const contact = useSiteConsultation(publicPageSeo[page].title);
   return <SiteFrame raisedHeader={contact.scrolled || page !== "home"} brandHref="/" brandLabel="킨다 홈" logoPresentation="landing"
     headerFrameClassName="phone-wide:max-w-[360px] compact:max-w-[760px] tablet:max-w-[1024px] landing-wide:landing-stack:min-h-[96px] landing-wide:landing-stack:flex-wrap landing-wide:landing-stack:gap-landing-header-frame-stacked-gap landing-wide:landing-stack:py-2.5"
     navigationClassName="landing-wide:landing-stack:w-full landing-wide:landing-stack:justify-between landing-wide:landing-stack:gap-2.5 landing-wide:landing-stack:text-landing-navigation-stacked landing-wide:landing-stack:landing-narrow:gap-1.5 landing-wide:landing-stack:landing-narrow:text-landing-navigation-narrow"

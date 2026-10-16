@@ -33,7 +33,7 @@ test("features and pricing are public on direct load, reload, and browser histor
   const auth: string[] = [];
   page.on("request", request => { if (request.url().includes("/api/auth/me")) auth.push(request.url()); });
   await page.goto("/features");
-  await expect(page).toHaveTitle("주요 기능 | 킨다");
+  await expect(page).toHaveTitle("주요 기능 | 킨다 조명 관제");
   await expect(page.getByRole("heading", { level: 1, name: "현장 운영에 필요한 네 가지 흐름" })).toBeVisible();
   for (const id of ["monitoring", "control", "statistics", "map-editor"]) {
     await expect(page.locator(`#feature-${id}`).getByRole("heading")).toBeVisible();
@@ -43,7 +43,7 @@ test("features and pricing are public on direct load, reload, and browser histor
   await expect(page.getByRole("heading", { level: 1, name: "현장 운영에 필요한 네 가지 흐름" })).toBeVisible();
   await page.getByRole("link", { name: "요금제", exact: true }).click();
   await expect(page).toHaveURL(new RegExp("/pricing$"));
-  await expect(page).toHaveTitle("요금제 | 킨다");
+  await expect(page).toHaveTitle("요금제 | 킨다 조명 관제");
   await expect(page.getByRole("heading", { level: 1, name: "현장에 맞는 운영 방식을 선택하세요." })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Plus 도입 상담" })).toBeVisible();

@@ -25,3 +25,12 @@ test('artifact metadata binds mode to all emitted bytes and rejects stale metada
   assert.throws(() => contract.verifyArtifact(artifact, 'service', {...files,'index.html':Buffer.from('changed')}), /integrity/i);
   assert.throws(() => contract.verifyArtifact(artifact, 'service', {...files,'secret.txt':Buffer.from('extra')}), /files/i);
 });
+test('public output permits only exact landing SEO files and requires all of them', () => {
+  const files = Object.fromEntries(['index.html','404.html','features.html','pricing.html','robots.txt','sitemap.xml'].map(name=>[name,{type:'asset'}]));
+  assert.doesNotThrow(()=>contract.assertPublicOutput(files,'landing'));
+  for(const name of ['features.html','pricing.html','robots.txt','sitemap.xml']) {
+    const missing = {...files};delete missing[name];assert.throws(()=>contract.assertPublicOutput(missing,'landing'),/Missing/);
+  }
+  for(const name of ['other.html','other.txt','other.xml','features/index.html','render-public.cjs']) assert.throws(()=>contract.assertPublicOutput({...files,[name]:{type:'asset'}},'landing'),/Unapproved/);
+  for(const name of ['features.html','pricing.html','robots.txt','sitemap.xml']) assert.throws(()=>contract.assertPublicOutput({'index.html':{type:'asset'},'404.html':{type:'asset'},[name]:{type:'asset'}},'service'),/Unapproved/);
+});

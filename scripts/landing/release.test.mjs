@@ -78,11 +78,14 @@ test('real module package metadata resolves through pnpm symlinks and binds lock
 });
 test('build evidence fails closed for service mode, stale source, metadata and artifact bytes', async () => {
   assert.equal(typeof evidence.verifyBuildEvidence, 'function');
-  const base = { version:1, mode:'landing', sourceSha256:'a'.repeat(64), artifactSha256:'b'.repeat(64), packages:[{...record('react','18.3.1'),path:'node_modules/react',metadataSha256:'c'.repeat(64)}], modules:[{module:'node_modules/react/index.js',kind:'published',package:'react@18.3.1',emitted:true}],chunks:{'assets/landing/app-abcd1234.js':['node_modules/react/index.js']} };
+  const rendererEntry='apps/web/src/features/landing/render-public.tsx';
+  const base = { version:1, mode:'landing', sourceSha256:'a'.repeat(64), artifactSha256:'b'.repeat(64), packages:[{...record('react','18.3.1'),path:'node_modules/react',metadataSha256:'c'.repeat(64)}], modules:[{module:'node_modules/react/index.js',kind:'published',package:'react@18.3.1',emitted:true},{module:rendererEntry,kind:'source',package:null,emitted:false}],chunks:{'assets/landing/app-abcd1234.js':['node_modules/react/index.js']},prerender:{sha256:'d'.repeat(64),modules:[rendererEntry,'node_modules/react/index.js']} };
   const expected = { sourceSha256:base.sourceSha256, artifactSha256:base.artifactSha256, scope:{packages:[record('react','18.3.1')]} };
   evidence.verifyBuildEvidence(base,expected);
   for(const altered of [{...base,mode:'service'},{...base,version:2},{...base,sourceSha256:'c'.repeat(64)},{...base,artifactSha256:'c'.repeat(64)},{...base,packages:[record('react','19.0.0')]},{...base,packages:[]}]) assert.throws(()=>evidence.verifyBuildEvidence(altered,expected));
   for(const altered of [{...base,modules:[]},{...base,chunks:{}},{...base,packages:[{...base.packages[0],metadataSha256:'wrong'}]},{...base,chunks:{'assets/landing/app-abcd1234.js':['/tmp/external.js']}}]) assert.throws(()=>evidence.verifyBuildEvidence(altered,expected));
+  for(const prerender of [undefined,{}, {...base.prerender,sha256:'wrong'}, {...base.prerender,modules:[]}, {...base.prerender,modules:['node_modules/react/index.js']}, {...base.prerender,modules:[rendererEntry,'/tmp/external.js']}, {...base.prerender,modules:[rendererEntry,rendererEntry]}]) assert.throws(()=>evidence.verifyBuildEvidence({...base,prerender},expected),/renderer/i);
+  assert.throws(()=>evidence.verifyBuildEvidence(base,{...expected,prerender:{...base.prerender,sha256:'e'.repeat(64)}}),/renderer/i);
 });
 test('release commands require explicit landing and frozen fresh public build before browser', () => {
   assert.equal(typeof release.releaseSteps,'function');

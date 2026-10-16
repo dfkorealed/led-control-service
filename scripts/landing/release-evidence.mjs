@@ -76,7 +76,7 @@ export async function artifactIdentity(directory) {
   await walk(); verifyArtifact(artifact,'landing',files);
   return {sha256:digest(bytes),artifact};
 }
-export async function createBuildEvidence(root, rawModules, chunks, artifactSha256) {
+export async function createBuildEvidence(root, rawModules, chunks, artifactSha256, prerender) {
   const raw=[...new Set(rawModules)].sort(), emitted=[...new Set(Object.values(chunks).flat())].sort();
   if(!raw.length || !emitted.length || emitted.some(id=>!raw.includes(id))) fail('Invalid Rollup module evidence');
   const mapping = [], packages = new Map();
@@ -87,7 +87,8 @@ export async function createBuildEvidence(root, rawModules, chunks, artifactSha2
     if(pkg) packages.set(pkg.path,pkg);
   }
   const source=await sourceIdentity(root);
-  return {version:1,mode:'landing',sourceSha256:source.sha256,artifactSha256,sourceFiles:source.files,packages:[...packages.values()].sort((a,b)=>a.path.localeCompare(b.path)),modules:mapping,chunks:Object.fromEntries(Object.entries(chunks).map(([key,ids])=>[key,ids.map(id=>logicalModule(id,root))]))};
+  if (!prerender || !Array.isArray(prerender.modules)) fail('Missing renderer build evidence');
+  return {version:1,mode:'landing',sourceSha256:source.sha256,artifactSha256,sourceFiles:source.files,packages:[...packages.values()].sort((a,b)=>a.path.localeCompare(b.path)),modules:mapping,chunks:Object.fromEntries(Object.entries(chunks).map(([key,ids])=>[key,ids.map(id=>logicalModule(id,root))])),prerender:{sha256:prerender.sha256,modules:prerender.modules.map(id=>logicalModule(id,root)).sort()}};
 }
 export function verifyBuildEvidence(evidence, expected) {
   if(evidence?.version !== 1 || evidence.mode !== 'landing' || !/^[a-f0-9]{64}$/.test(evidence.sourceSha256 ?? '') || evidence.sourceSha256 !== expected.sourceSha256 || evidence.artifactSha256 !== expected.artifactSha256) fail('Wrong mode or stale landing evidence');
@@ -111,4 +112,9 @@ export function verifyBuildEvidence(evidence, expected) {
     for(const id of ids) { if(!modules.has(id)) fail('Emitted module absent from raw graph'); emitted.add(id); }
   }
   for(const item of modules.values()) if(item.emitted !== emitted.has(item.module)) fail('Raw/emitted module graph mismatch');
+  // The build-only renderer is audited through the same raw package identities,
+  // but its modules must not be mislabeled as emitted browser code.
+  const renderer=evidence.prerender;
+  if(!renderer || !/^[a-f0-9]{64}$/.test(renderer.sha256 ?? '') || !Array.isArray(renderer.modules) || !renderer.modules.includes('apps/web/src/features/landing/render-public.tsx') || new Set(renderer.modules).size !== renderer.modules.length || renderer.modules.some(id=>!modules.has(id))) fail('Missing or malformed renderer module evidence');
+  if(expected.prerender && JSON.stringify(renderer) !== JSON.stringify(expected.prerender)) fail('Fresh renderer differs from tested build');
 }

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { publicRoutes, brandAssets, assertLandingModules, assertLandingOutput } from './static-landing-contract.mjs';
+import { publicRoutes, brandAssets, landingPageFiles, landingSeoFiles, assertLandingModules, assertLandingOutput } from './static-landing-contract.mjs';
 export { brandAssets };
 export const artifactName = 'deployment.json';
 export function parseDeployMode(value) {
@@ -25,6 +25,12 @@ export function isPublicPage(path, mode) {
 export function isPublicAsset(path, mode) {
   return brandAssets.includes(path) || new RegExp(`^assets/${parseDeployMode(mode)}/[\\w.-]+-[\\w-]+\\.(?:js|css|svg|png|webp|jpg|jpeg|avif|woff2?|gif|ico)$`).test(path);
 }
+export function publicFileForPath(path, mode) {
+  parseDeployMode(mode);
+  if (isPublicPage(path, mode)) return mode === 'landing' ? landingPageFiles[path] : 'index.html';
+  if (mode === 'landing' && landingSeoFiles.includes(path.slice(1)) && path.startsWith('/')) return path.slice(1);
+  return null;
+}
 export function assertPublicModules(ids, root, mode) {
   if (mode === 'landing') return assertLandingModules(ids, root);
   const modules = [...ids].map(id => id.replaceAll('\\', '/').split('?')[0]);
@@ -34,15 +40,16 @@ export function assertPublicModules(ids, root, mode) {
   if (!modules.includes(`${root}/src/service-main.tsx`)) throw new Error('Missing service entry');
   return modules.filter(id => id.startsWith(`${root}/src/`)).map(id => id.slice(root.length + 1));
 }
-export function assertPublicOutput(bundle, mode) {
+export function assertPublicOutput(bundle, mode, {legacyLanding = false} = {}) {
+  const html = mode === 'landing' && !legacyLanding ? [...Object.values(landingPageFiles), ...landingSeoFiles] : ['index.html'];
   for (const name of Object.keys(bundle)) {
-    if (!['index.html', '404.html'].includes(name) && !isPublicAsset(name, mode)) throw new Error(`Unapproved ${mode} artifact: ${name}`);
+    if (![...html, '404.html'].includes(name) && !isPublicAsset(name, mode)) throw new Error(`Unapproved ${mode} artifact: ${name}`);
   }
   if (mode === 'landing') {
     // Keep the original content boundary; normalize the mode namespace for that validator.
     assertLandingOutput(Object.fromEntries(Object.entries(bundle).map(([name, value]) => [name.replace('assets/landing/', 'assets/'), value])));
   }
-  for (const name of ['index.html', '404.html']) if (!bundle[name]) throw new Error(`Missing public artifact: ${name}`);
+  for (const name of [...html, '404.html']) if (!bundle[name]) throw new Error(`Missing public artifact: ${name}`);
 }
 export function createArtifact(mode, files) {
   parseDeployMode(mode);
