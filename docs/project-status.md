@@ -2,6 +2,11 @@
 
 기준일: 2026-10-15
 
+## 2026-10-16 BIO 자기 제어 적용 실패 수리 — 코드 검증 완료·승인 배포 준비
+
+- 실제 L006 규칙 desired43/applied42는 `bio_self_firmware_unsupported`로 거절됐다. 기존 등록 mapping의 fingerprint 누락을 미지원으로 잘못 해석한 resolver가 원인이며 native 원장/SET은 없다. 최신 독립 commissioning 권위를 사용하되 매핑/펌웨어/건강/소유권 검증은 유지한다.
+- 별도 `codex/fix-native-legacy-fingerprint-20261016`, [체크리스트](superpowers/plans/2026-10-16-bio-native-legacy-fingerprint-fix.md): [x] 읽기 원인 확인, [x] 회귀 RED→GREEN·관련89PASS·타입/build0·단독 직접 검토, [ ] 메인 병합, [ ] 새 암호화 백업/배포, [ ] 현재100%/5초 규칙의 실제APPLIED 확인. 사용자는 최대6~8분 중단/배포/현재규칙 적용을 승인했다. 방습등시험·DB/인증/기본밝기변경은 제외한다.
+
 ## 2026-10-16 BIO 자기 감지 제어 — 운영 반영 완료·사용자 UI 시험 준비
 
 - 후속운영결과: 새전체DB백업검증→DB2migration139→141/원127개데이터테이블행·기존원장불변→MAIN9169fe1c ff-only병합/사용자AGENTS·기존메모9행보존→동일env/인증의API/Web/broker재개5up→ARM64검증image5df95b0c/원3root CMS백업·독립검증→새Gateway전환을완료했다. Config의image/이미지소유label외설정·USB/ID/기본밝기/인증을보존했다. canonical release CI/artifact/state98/98·실제CMSflow/cleanup exit0이다. broker도기존coupled구조때문에1회정상재기동했으며ACL/인증서/권한변경0이다.

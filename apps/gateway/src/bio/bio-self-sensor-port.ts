@@ -1,4 +1,4 @@
-import { bioFirmwareFingerprint, canonicalBioSensorFingerprint, type BioSensorFingerprintV1 } from "@led-control/shared";
+import { bioFirmwareFingerprint, bioSensorFingerprintV1Schema, canonicalBioSensorFingerprint, type BioSensorFingerprintV1 } from "@led-control/shared";
 import { isDeepStrictEqual } from "node:util";
 import type { BioDongleClient, BioSelfSensorOperationControl } from "./bio-dongle-client";
 import type { BioDeviceMappingStore } from "./bio-device-mapping-store";
@@ -27,7 +27,6 @@ export function createBioSelfSensorResolver(options: Options): BioSelfSensorRunt
   return async (fixtureId, revision, release): Promise<BioSelfSensorPort> => {
     const mapping = structuredClone(await options.mappings.findByFixtureId(fixtureId));
     if (!mapping || mapping.status !== "confirmed" || mapping.fixtureId !== fixtureId) throw new Error("bio_self_identity_changed");
-    if (!supportsBioNativeSelfControl(mapping.fingerprint)) throw new Error("bio_self_firmware_unsupported");
     let identity: BioSelfSensorIdentity;
     if (release) {
       if (release.assignmentVersion !== options.assignmentVersion || release.fixtureId !== fixtureId
@@ -39,8 +38,18 @@ export function createBioSelfSensorResolver(options: Options): BioSelfSensorRunt
       identity = { fixtureId, assignmentVersion: options.assignmentVersion, binding: structuredClone(authority.binding) };
     }
     const binding = identity.binding;
+    // Legacy confirmed registrations predate persisted fingerprints. The current
+    // independent commissioning authority (or independently verified release
+    // binding) already carries the observed hardware identity. Never infer it
+    // from the old firmware string or write guessed metadata into the mapping.
+    let fingerprint: BioSensorFingerprintV1;
+    try { fingerprint = bioSensorFingerprintV1Schema.parse(JSON.parse(binding.sensorFingerprint)); }
+    catch { throw new Error("bio_self_firmware_unsupported"); }
+    if (!supportsBioNativeSelfControl(fingerprint)) throw new Error("bio_self_firmware_unsupported");
     if (binding.sourceFixtureId !== fixtureId || binding.nativeUuid !== mapping.nativeUuid || binding.logicalAddress !== mapping.logicalAddress
-      || binding.sensorFingerprint !== canonicalBioSensorFingerprint(mapping.fingerprint!) || binding.firmwareFingerprint !== bioFirmwareFingerprint(mapping.fingerprint!)) throw new Error("bio_self_identity_changed");
+      || binding.sensorFingerprint !== canonicalBioSensorFingerprint(fingerprint) || binding.firmwareFingerprint !== bioFirmwareFingerprint(fingerprint)
+      || mapping.firmware !== binding.firmwareFingerprint
+      || (mapping.fingerprint && binding.sensorFingerprint !== canonicalBioSensorFingerprint(mapping.fingerprint))) throw new Error("bio_self_identity_changed");
     const target = { kind: "unicast" as const, nativeUuid: binding.nativeUuid, logicalAddress: binding.logicalAddress, networkId: binding.networkId };
     const generation = options.client.sensorSourceSnapshot().generation;
     const current = () => {
