@@ -19,6 +19,12 @@ const statusLabels = {
   completed: "등록 삭제 완료", rejected: "등록 삭제 거절", reconcile_required: "결과 재조정 필요"
 } as const;
 
+function previewFailureMessage(error: unknown, fallback: string) {
+  return error instanceof ApiError && error.status === 503 && typeof error.body === "object" && error.body !== null
+    && "code" in error.body && error.body.code === "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE"
+    ? "서버 시간 검증이 준비되지 않아 조명을 삭제할 수 없습니다. 서비스 운영자에게 문의해 주세요." : fallback;
+}
+
 // This component is keyed by principal/site by its owner. Every asynchronous
 // continuation also checks its lifetime, including after query invalidation.
 export function FixtureRegistrationRemovalFlow({ siteId, principal, target, onClose }: {
@@ -146,7 +152,7 @@ export function FixtureRegistrationRemovalFlow({ siteId, principal, target, onCl
     const controller = new AbortController();
     void getFixtureRegistrationRemovalPreview({ siteId, floorId: target.floorId, fixtureId: target.fixture.id }, { signal: controller.signal, timeoutMs: 10_000 })
       .then(value => { if (lifetime.current && generation === previewGeneration.current) setPreview(value); })
-      .catch(() => { if (lifetime.current && generation === previewGeneration.current) setDialogError("삭제 가능 여부를 확인하지 못했습니다."); })
+      .catch(error => { if (lifetime.current && generation === previewGeneration.current) setDialogError(previewFailureMessage(error, "삭제 가능 여부를 확인하지 못했습니다.")); })
       .finally(() => { if (lifetime.current && generation === previewGeneration.current) setPreviewLoading(false); });
     return () => { controller.abort(); confirmationAbort.current?.abort(); };
   }, [target, siteId, previewRevision]);
@@ -193,8 +199,8 @@ export function FixtureRegistrationRemovalFlow({ siteId, principal, target, onCl
       updateEntry(record, {});
       onClose();
       void post(record);
-    } catch {
-      if (isCurrent()) setDialogError("최종 삭제 가능 여부를 확인하지 못했습니다. 다시 확인해 주세요.");
+    } catch (error) {
+      if (isCurrent()) setDialogError(previewFailureMessage(error, "최종 삭제 가능 여부를 확인하지 못했습니다. 다시 확인해 주세요."));
     } finally {
       const current = isCurrent();
       if (confirmation.current === token) { confirmation.current = null; confirmationAbort.current = null; }

@@ -151,6 +151,49 @@ describe("registration removal safety and recovery", () => {
     expect(posts).toEqual([]); expect(sessionStorage.length).toBe(0);
   });
 
+  it.each(["initial", "confirmation"])("explains an exact clock-unavailable %s preview and permits recovery then cancellation without a mutation", async phase => {
+    mount();
+    let dialog: HTMLElement;
+    if (phase === "confirmation") dialog = await open();
+    previewBarrier = Promise.resolve(Response.json({ code: "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE", message: "Technical clock configuration missing" }, { status: 503 }));
+    if (phase === "initial") {
+      fireEvent.click(screen.getByRole("button", { name: "삭제 열기" }));
+      dialog = await screen.findByRole("alertdialog");
+    } else fireEvent.click(within(dialog!).getByRole("button", { name: "등록 삭제" }));
+    expect(await within(dialog!).findByText("서버 시간 검증이 준비되지 않아 조명을 삭제할 수 없습니다. 서비스 운영자에게 문의해 주세요.")).toBeVisible();
+    expect(dialog!).not.toHaveTextContent("Technical clock configuration missing");
+    expect(within(dialog!).getByRole("button", { name: "등록 삭제" })).toBeDisabled();
+    expect(posts).toEqual([]); expect(sessionStorage.length).toBe(0);
+    previewBarrier = undefined;
+    fireEvent.click(within(dialog!).getByRole("button", { name: "삭제 가능 여부 다시 확인" }));
+    await waitFor(() => expect(within(dialog!).getByRole("button", { name: "등록 삭제" })).toBeEnabled());
+    expect(dialog!).not.toHaveTextContent("서비스 운영자에게 문의해 주세요.");
+    fireEvent.click(within(dialog!).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(posts).toEqual([]); expect(sessionStorage.length).toBe(0);
+  });
+
+  it.each([
+    [500, "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE"], [503, "OTHER_CODE"], [503, undefined]
+  ])("does not classify status %s and code %s as a known clock error in either preview", async (status, code) => {
+    mount();
+    previewBarrier = Promise.resolve(Response.json({ code, message: "Technical server failure" }, { status }));
+    fireEvent.click(screen.getByRole("button", { name: "삭제 열기" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(await within(dialog).findByText("삭제 가능 여부를 확인하지 못했습니다.")).toBeVisible();
+    expect(dialog).not.toHaveTextContent("서버 시간 검증");
+    previewBarrier = undefined;
+    fireEvent.click(within(dialog).getByRole("button", { name: "삭제 가능 여부 다시 확인" }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "등록 삭제" })).toBeEnabled());
+    previewBarrier = Promise.resolve(Response.json({ code, message: "Technical server failure" }, { status }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "등록 삭제" }));
+    expect(await within(dialog).findByText("최종 삭제 가능 여부를 확인하지 못했습니다. 다시 확인해 주세요.")).toBeVisible();
+    expect(dialog).not.toHaveTextContent("서버 시간 검증");
+    expect(dialog).not.toHaveTextContent("Technical server failure");
+    expect(within(dialog).getByRole("button", { name: "등록 삭제" })).toBeDisabled();
+    expect(posts).toEqual([]); expect(sessionStorage.length).toBe(0);
+  });
+
   it("deduplicates confirmation reads and cancellation during that read sends zero mutations", async () => {
     mount(); const dialog = await open();
     let finish!: (response: Response) => void;

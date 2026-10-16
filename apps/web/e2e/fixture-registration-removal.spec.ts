@@ -14,7 +14,7 @@ interface RemovalBody { clientRequestId: string; expectedUpdatedAt: string }
 async function install(page: Page, role: "admin" | "viewer" = "admin") {
   const state = { status: "pending" as Status, blocked: false, losePost: false, lookupNull: false, lookupFailure: false,
     previewTimestamp: instant, previewName: fixtureName, previewSerial: serialNumber as string | null,
-    defaultDashboardReads: 0,
+    defaultDashboardReads: 0, previewClockUnavailable: false,
     acceptedBody: null as RemovalBody | null,
     posts: [] as RemovalBody[], gets: [] as string[], unknown: [] as string[] };
   const site = { id: siteId, name: "등록 삭제 검증 현장", address: "서울시", timeZone: "Asia/Seoul", currency: "KRW", tariffKwhRate: 160, updatedAt: instant };
@@ -46,6 +46,8 @@ async function install(page: Page, role: "admin" | "viewer" = "admin") {
     if (path.includes("bio-sensor-policy")) return reply(route, { enabled: false, revision: 0, ownerUserId: null, maximumResponseSeconds: null, escalationAction: null });
     if (path === "/bio-sensor-profiles") return reply(route, []);
     if (path.includes("monitoring-incidents")) return reply(route, { incidents: [], unreadCount: 0, nextCursor: null, activeCount: 0 });
+    if (path.endsWith("/registration-removal-preview") && state.previewClockUnavailable) return reply(route,
+      { code: "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE", message: "Technical clock configuration missing" }, 503);
     if (path.endsWith("/registration-removal-preview")) return reply(route, { fixtureId, fixtureName: state.previewName, serialNumber: state.previewSerial,
       expectedUpdatedAt: state.previewTimestamp, allowed: !state.blocked,
       blockedReasons: state.blocked ? [{ code: "GATEWAY_OFFLINE", message: "Gateway가 오프라인입니다. 연결 후 다시 확인하세요." },
@@ -183,6 +185,32 @@ for (const width of [1440, 390]) {
     expect(new URL(page.url()).search).toBe("");
     expect(state.posts).toHaveLength(1); expect(state.unknown).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath(`default-site-completed-${width}.png`) });
+  });
+
+  test(`${width}px: clock 거절을 안내하고 preview 복구 후 취소는 요청을 보내지 않는다`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 }); const state = await install(page);
+    state.previewClockUnavailable = true; await visit(page);
+    const dialog = await open(page);
+    const message = "서버 시간 검증이 준비되지 않아 조명을 삭제할 수 없습니다. 서비스 운영자에게 문의해 주세요.";
+    const confirm = dialog.getByRole("button", { name: "등록 삭제", exact: true });
+    await expect(dialog).toContainText(message); await expect(confirm).toBeDisabled();
+    await expect(dialog).not.toContainText("Technical clock configuration missing");
+    await page.screenshot({ path: testInfo.outputPath(`clock-unavailable-${width}.png`) });
+    state.previewClockUnavailable = false;
+    await dialog.getByRole("button", { name: "삭제 가능 여부 다시 확인", exact: true }).click();
+    await expect(confirm).toBeEnabled(); await expect(dialog).not.toContainText(message);
+    state.previewClockUnavailable = true;
+    await confirm.click();
+    await expect(dialog).toContainText(message); await expect(confirm).toBeDisabled();
+    await expect(dialog).not.toContainText("Technical clock configuration missing");
+    state.previewClockUnavailable = false;
+    await dialog.getByRole("button", { name: "삭제 가능 여부 다시 확인", exact: true }).click();
+    await expect(confirm).toBeEnabled();
+    await dialog.getByRole("button", { name: "취소", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(state.posts).toHaveLength(0); expect(state.unknown).toEqual([]);
+    expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+    await expectNoHorizontalOverflow(page);
   });
 }
 
