@@ -2,7 +2,7 @@ import { TriangleAlert } from "lucide-react";
 import type { RefObject } from "react";
 import type { LightingScheduleSnapshot } from "@led-control/shared";
 import { scheduleCalendarResponseSchema, type ScheduleCalendarResponse } from "@led-control/shared/holiday-calendar-contracts";
-import { Button, FeedbackState, Heading, Text } from "../../../../components/ui";
+import { Button, FeedbackState, Heading, Text, panelPaddingClass } from "../../../../components/ui";
 import { scheduleCalendarErrorMessage } from "../../../../api/automation";
 import { calendarAddDays, calendarMonthRange, calendarMoveMonth, calendarWeekSegments } from "./calendar-segments";
 
@@ -26,10 +26,10 @@ export function ScheduleCalendar({ month, timeZone, calendar, isPending = false,
   const entries = data?.schedules.map(schedule => ({ schedule,
     segments: calendarWeekSegments(data.occurrences.filter(occurrence => occurrence.scheduleId === schedule.id).map(occurrence => occurrence.localDate), range.from) })) ?? [];
   const holidays = new Map(data?.holidayCoverage.flatMap(dataset => dataset.dates.map(day => [day.date, day.names.join(" · ")] as const)) ?? []);
-  return <section aria-label="달력" className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-panel border border-border-default bg-surface-panel p-2 compact:p-3" data-schedule-calendar="">
+  return <section aria-label="달력" className={`min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-panel border border-border-default bg-surface-panel ${panelPaddingClass("regular")}`} data-schedule-calendar="">
     <div className="sticky top-0 z-1 flex items-center justify-between gap-2 bg-surface-panel pb-2">
       <Button type="button" variant="ghost" aria-label="이전 달" disabled={month === "0001-01"} onClick={() => onMonthChange(calendarMoveMonth(month, -1))}>‹</Button>
-      <Heading as="h3" variant="card-title">{month}</Heading>
+      <Heading as="h3" variant="customer-card-title">{month}</Heading>
       <Button type="button" variant="ghost" aria-label="다음 달" disabled={month === "9999-12"} onClick={() => onMonthChange(calendarMoveMonth(month, 1))}>›</Button>
     </div>
     {message ? <FeedbackState icon={TriangleAlert} tone="danger" liveRole="alert" title={message}

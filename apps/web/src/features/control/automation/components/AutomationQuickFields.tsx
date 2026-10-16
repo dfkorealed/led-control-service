@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp, Lightbulb, RadioTower } from "lucide-react";
 import type { ReactNode, Ref } from "react";
-import { Button, Heading, Text } from "../../../../components/ui";
+import { Button, Heading, Text, panelPaddingClass } from "../../../../components/ui";
 
 export function AutomationPresetGroup<T extends string>({
   label,
@@ -101,7 +101,7 @@ export function AutomationAdvancedSection({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <section className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-3">
+    <section className={`grid gap-3 rounded-panel border border-border-default bg-surface-panel ${panelPaddingClass("regular")}`}>
       <Button
         variant="ghost"
         className="w-full justify-start"

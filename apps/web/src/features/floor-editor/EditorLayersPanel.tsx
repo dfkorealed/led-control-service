@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Eye, EyeOff, Group, Lock, Plus, Ungroup, Unlock, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { Button, ConfirmDialog, Heading, IconButton, IconTooltipButton, SelectBox, Text, TextField } from "../../components/ui";
+import { Button, ConfirmDialog, Heading, IconButton, IconTooltipButton, SelectBox, Text, TextField, panelPaddingClass } from "../../components/ui";
 import { LayerTreeRow } from "../../components/ui/LayerTreeRow";
 import type { MapSelectionInput } from "../../api/map-document";
 import { mapGroupContains } from "./map-editor-selection";
@@ -11,7 +11,7 @@ export function EditorLayersPanel({ readOnly, mapEditor }: { readOnly: boolean; 
   const layers = useFloorEditorStore((s) => s.layers);
   const objects = useFloorEditorStore((s) => s.state?.objects);
   if (mapEditor?.document) return <CommonLayersPanel readOnly={readOnly} editor={mapEditor} />;
-  return <section className="grid content-start gap-3 p-3" aria-label="레이어 패널"><Heading as="h3" variant="card-title">레이어</Heading>
+  return <section className={`grid content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="레이어 패널"><Heading as="h3" variant="customer-card-title">레이어</Heading>
     {([["fixtures", "조명"], ["objects", "도형"], ["background", "배경"]] as const).map(([key, label]) => <div className="flex min-w-0 items-center gap-1 border-b border-border-subtle" key={key}><Text as="strong" variant="body-sm" weight="semibold" className="min-w-0 flex-1 truncate">{label}</Text>
       <IconButton variant="ghost" size="sm" aria-label={`${label} ${layers[key].visible ? "숨기기" : "표시"}`} title={`${label} 표시`} onClick={() => useFloorEditorStore.getState().setLayer(key, { visible: !layers[key].visible })}>{layers[key].visible ? <Eye size={17} /> : <EyeOff size={17} />}</IconButton>
       <IconButton variant="ghost" size="sm" aria-label={`${label} ${layers[key].locked ? "잠금 해제" : "잠금"}`} title={`${label} 잠금`} disabled={readOnly || key === "background"} onClick={() => useFloorEditorStore.getState().setLayer(key, { locked: !layers[key].locked })}>{layers[key].locked ? <Lock size={17} /> : <Unlock size={17} />}</IconButton>
@@ -57,8 +57,8 @@ function CommonLayersPanel({ readOnly, editor }: { readOnly: boolean; editor: Ma
       { kind: "group.delete", id }
     ]); } catch (error) { editor.reportError(error); } finally { setBusy(false); }
   }
-  return <section className="grid min-w-0 content-start gap-2 p-2" aria-label="레이어 패널">
-    <div className="flex items-center justify-between gap-1"><Heading as="h3" variant="card-title">레이어</Heading>
+  return <section className={`grid min-w-0 content-start gap-2 ${panelPaddingClass("regular")}`} aria-label="레이어 패널">
+    <div className="flex items-center justify-between gap-1"><Heading as="h3" variant="customer-card-title">레이어</Heading>
       <IconTooltipButton size="sm" icon={Plus} label="레이어 추가" disabled={disabled} onClick={() => editor.commit([{ kind: "layer.put", layer: {
         id: crypto.randomUUID(), name: `레이어 ${layers.size + 1}`, order: Math.max(-1, ...orderedLayers.map(layer => layer.order)) + 1, visible: true, locked: false
       } }])} /></div>
@@ -87,7 +87,7 @@ function CommonLayersPanel({ readOnly, editor }: { readOnly: boolean; editor: Ma
     <Button variant="secondary" disabled={disabled || editor.locked || !editor.shapeCount || !moveTarget || !layers.has(moveTarget) || layers.get(moveTarget)?.locked}
       onClick={() => { if (moveTarget) { const target = moveTarget; void editor.editSelection(element => [{ kind: "update", element: { ...element, layerId: target } }]); } }}>선택 도형 이동</Button>
     <IconTooltipButton size="sm" icon={Trash2} label="선택 전체 삭제" disabled={disabled || editor.locked || !editor.selectionCount} onClick={editor.requestRemove} />
-    <div className="flex items-center justify-between gap-1"><Heading as="h3" variant="card-title">그룹</Heading>
+    <div className="flex items-center justify-between gap-1"><Heading as="h3" variant="customer-card-title">그룹</Heading>
       <IconTooltipButton size="sm" icon={Group} label="그룹 만들기" disabled={disabled || editor.locked || !editor.shapeCount} onClick={async () => {
         const id = crypto.randomUUID();
         if (await editor.editSelection(element => [{ kind: "update", element: { ...element, groupId: id } }],

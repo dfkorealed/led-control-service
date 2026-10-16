@@ -491,7 +491,7 @@ export function ScheduleControlPanel({
   return (
     <div
       id="control-mode-panel-schedule"
-      className="grid min-w-0 content-start gap-4 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden"
+      className="grid min-w-0 content-start gap-5 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden"
       role="tabpanel"
       aria-labelledby="control-mode-schedule"
       data-control-automation-panel="schedule"

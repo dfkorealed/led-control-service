@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
-import { Button, FormField, Heading, IconTooltipButton, NumberField, themeColor } from "../../components/ui";
+import { Button, FormField, Heading, IconTooltipButton, NumberField, themeColor, panelPaddingClass } from "../../components/ui";
 import type { MapEditorController } from "./use-map-editor";
 import { createMapElementUpdateOps } from "./map-element-editing";
 import { boundsGestureTransform, finishSelectionResize } from "./map-selection-transform";
@@ -14,8 +14,8 @@ export function MapSelectionProperties({ editor, readOnly }: { editor: MapEditor
   const [stroke, setStroke] = useState<string | null>(null), [fill, setFill] = useState<string | null>(null);
   const [opacity, setOpacity] = useState<number | null>(null);
   const disabled = readOnly || editor.locked || editor.loadingSelection;
-  return <section className="grid min-w-0 content-start gap-3 p-3" aria-label="선택 속성">
-    <div className="flex items-center justify-between gap-2"><Heading as="h3" variant="card-title">{editor.selectionCount}개 선택</Heading>
+  return <section className={`grid min-w-0 content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="선택 속성">
+    <div className="flex items-center justify-between gap-2"><Heading as="h3" variant="customer-card-title">{editor.selectionCount}개 선택</Heading>
       <IconTooltipButton icon={Trash2} label="선택 전체 삭제" disabled={disabled} onClick={editor.requestRemove} /></div>
     <div className="grid min-w-0 grid-cols-2 gap-2">
       <NumberField label="선택 X" value={x} isDisabled={disabled} onChange={value => { if (value !== null) setX(value); }} />
@@ -36,7 +36,7 @@ export function MapSelectionProperties({ editor, readOnly }: { editor: MapEditor
       }
       catch (error) { editor.reportError(error); }
     }}>선택 변환 적용</Button>
-    {editor.shapeCount > 0 && <><Heading as="h4" variant="card-title">도형 스타일</Heading>
+    {editor.shapeCount > 0 && <><Heading as="h4" variant="customer-card-title">도형 스타일</Heading>
     <FormField label="선 색상" isDisabled={disabled}>{attributes => <input {...attributes} type="color" value={stroke ?? themeColor("content-primary")} onChange={event => setStroke(event.target.value)} />}</FormField>
     <FormField label="채우기 색상" isDisabled={disabled}>{attributes => <input {...attributes} type="color" value={fill ?? themeColor("surface-panel")} onChange={event => setFill(event.target.value)} />}</FormField>
     <NumberField label="불투명도" value={opacity} minValue={0} maxValue={1} isDisabled={disabled} onChange={setOpacity} />

@@ -6,7 +6,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { mapDocumentRefSchema } from "@led-control/shared/map-document-contracts";
 import { ApiError } from "../../api/client";
-import { LoadingIndicator, Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, UnderlineTabs, UnderlineTabPanel, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem  } from "../../components/ui";
+import { LoadingIndicator, Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, ModalDialog, SelectBox, SidePanel, Text, UnderlineTabs, UnderlineTabPanel, panelPaddingClass, formatTimestamp, useSessionStatus, useSessionToast, type SessionStatusItem  } from "../../components/ui";
 import { MapCameraControls } from "../../components/ui/maps/MapCameraControls";
 import {
   listFloorEditorRevisions,
@@ -763,10 +763,10 @@ function RevisionPanel({
   onRestore: (revision: number) => void;
 }) {
   return (
-    <section ref={historyEntryRef} tabIndex={-1} className="flex flex-none flex-col gap-3 border-t border-border-subtle p-3" aria-label="맵 버전">
+    <section ref={historyEntryRef} tabIndex={-1} className={`flex flex-none flex-col gap-3 border-t border-border-subtle ${panelPaddingClass("regular")}`} aria-label="맵 버전">
       <div className="grid shrink-0 gap-1">
         <Text variant="overline" tone="secondary">버전</Text>
-        <Heading as="h3" variant="card-title">변경 기록</Heading>
+        <Heading as="h3" variant="customer-card-title">변경 기록</Heading>
       </div>
       {isLoading ? <LoadingIndicator>버전 기록을 불러오는 중</LoadingIndicator> : null}
       {isError ? (

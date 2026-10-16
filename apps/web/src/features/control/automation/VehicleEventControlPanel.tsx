@@ -545,7 +545,7 @@ export function VehicleEventControlPanel({
   if (canManage) columns.push({ id: "actions", header: "관리", minWidth: 116, align: "center", renderCell: renderActions });
 
   return (
-    <div id="control-mode-panel-event" className="grid min-w-0 content-start gap-4 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden" role="tabpanel" aria-labelledby="control-mode-event" data-control-automation-panel="event">
+    <div id="control-mode-panel-event" className="grid min-w-0 content-start gap-5 tablet:flex tablet:min-h-0 tablet:flex-1 tablet:flex-col tablet:overflow-hidden" role="tabpanel" aria-labelledby="control-mode-event" data-control-automation-panel="event">
       <AutomationRuleHeader addAction={<>
         {!canManage ? <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge> : null}
         {canManage && !isAuthBlocked ? <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : null}

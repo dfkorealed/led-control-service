@@ -76,7 +76,7 @@ export function FixtureGroupsContent({ siteId, dashboard, workspace }: {
               <section className="grid gap-3" aria-labelledby="fixture-group-list-heading">
                 <div className="flex items-end justify-between gap-3">
                   <div className="grid gap-1">
-                    <Heading as="h4" id="fixture-group-list-heading" variant="card-title">현재 저장 구역</Heading>
+                    <Heading as="h4" id="fixture-group-list-heading" variant="customer-card-title">현재 저장 구역</Heading>
                   </div>
                   <span>{groups.length}개</span>
                 </div>

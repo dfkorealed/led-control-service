@@ -1,5 +1,15 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-16 제어 일반 역할과 작업 공간 경계 (Task 4)
+
+- 구현 완료: 제어의 수동/스케줄/이벤트/그룹 부모와 실제 로딩·오류 분기는 공통 `PageStack`20px를 소비한다. 일반 실행·선택·자동화 목록·달력·구역·규칙 설정/고급 설정 패널은 regular inset20/16px, 작은 제목은16/24px다. field·목록 행·toolbar 관계는 section 간격으로 일괄 치환하지 않는다.
+- 구현 완료: 모바일 수동 작업 공간의 gap4·flush 실행/선택 패널, 지도 subgrid·44/48/52px 이상 조작 영역·실제 content588px split은 목적 geometry로 유지한다. mode·selection·command callback·잠금·복구·timer·principal/cache·권한과 API를 변경하지 않는다.
+- 구현 완료: 구역 DataGrid의 좁은 고객 card 표현은 공통 grid18px·regular inset20/16px를 사용한다. 표 셀·기본 divided row·필드/정렬·컨테이너 전환 조건은 그대로다. 같은 공통 분기를 사용하는 설정 사용자 목록도 실제 두 행과 검색으로 검증한다.
+- 미구현: 실제 LED/게이트웨이·운영 API·native WebView·Safari/WebKit·HIL 검증은 이번 mock Chromium 근거에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 전체 unit의 기존 실패와 중간 실행에서 관측한 미재현 실패는 Task 4 보고서에 원 조건과 함께 기록한다. loaded/empty·실제 pending/error와 mock 명령 경로의 검증을 실제 하드웨어 완료로 확대하지 않는다. 사용하지 않는 `AutomationWorkspaceSummary`의 병합 metric-cell geometry와 선택 필드/요약 메시지 inset은 일반 독립 panel과 구분한다.
+- 관련 파일: `apps/web/src/features/control/ControlView.tsx`, `target-selection/ManualSelectionPanel.tsx`, `groups/{FixtureGroupsPanel,FixtureGroupsContent}.tsx`, `automation/{ScheduleControlPanel,VehicleEventControlPanel,ScheduleDialog,VehicleEventDialog}.tsx`, `automation/components/{AutomationWorkspaceSurface,AutomationQuickFields,ScheduleCalendar}.tsx`, 공유 `apps/web/src/components/ui/DataGrid.tsx`. `apps/web/e2e/{design-system-roles,ui-eight-layout-regressions}.spec.ts`; 상세 검증은 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-4-report.md`.
+- 갱신 규칙: 일반 inset/제목과 지도·mobile 압축 geometry를 분리하며 실제 상태 전이·조작·문서 h1·content587/588/589의 같은 지도 DOM/선택/배율/열린 이력을 함께 검증한다.
+
 ## 2026-10-16 공통 상태·오버레이 기반 (Task 2)
 
 - 구현 완료: 공통 feedback/loading/recovery와 일반 modal/drawer 기본 내용이 regular inset20/16px를 사용한다. 기존 role/live·복구 focus·pending·52px 닫기·safe-area/reader 계약을 유지하며 command와 위험 조작 로직은 변경하지 않았다.

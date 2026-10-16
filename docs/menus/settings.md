@@ -1,5 +1,15 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-16 맵 편집 정보의 일반 내용 역할 (Task 4)
+
+- 구현 완료: 편집기 속성·도형/다중 선택 속성·배치·레이어·위치 확인·버전 기록의 내용 owner가 공통 regular inset20/16px와 작은 제목16/24px를 소비한다. 외부 정보 SidePanel의 p0·desktop280px·overlay최대320px와 기록 탭의 단일 reader를 유지하며 field/layer 행 간격은 별도 관계로 보존한다.
+- 구현 완료: 편집기 최소256px·size containment·셸 세로 scroll·저장/dirty draft·lease·선택/preview·timer·식별/복구 callback은 유지한다. 바깥 canvas·toolbar에 일반 panel inset을 중첩하지 않는다.
+- 구현 완료: `DataGrid` 고객 compact card의 공통 grid18·regular inset20/16을 현장 층 목록·사용자 목록이 상속한다. 사용자 두 행의 실제 검색/복귀와320/760px computed를 확인하며 표 셀/정렬/행 동작은 변경하지 않는다.
+- 미구현: 실제 운영 저장/장비 식별·native WebView·Safari/WebKit·OS 키보드·HIL은 이번 mock 소프트웨어 검증에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: CAD preview 중간 실패/미재현과 전체 unit 잔여 결과는 Task 4 보고서에 별도로 기록한다. 단위 테스트의 성공을 실제 장비 위치 확인으로 기록하지 않는다.
+- 관련 파일: `apps/web/src/features/floor-editor/{FloorEditorView,EditorPropertiesPanel,MapElementPropertiesPanel,MapSelectionProperties,EditorBatchPlacementPanel,EditorLayersPanel,FixtureIdentifyPanel}.tsx`, `settings/floor-plans/FloorEditorRoute.tsx`의 기존 문구/role을 유지한 일반 오류 Card, 공유 `apps/web/src/components/ui/DataGrid.tsx`, `apps/web/e2e/{design-system-roles,ui-eight-layout-regressions}.spec.ts`. `SettingsShell`·`CustomerShell`은 기존 geometry/보안 presentation을 확인하고 수정하지 않았다. 상세 결과는 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-4-report.md`.
+- 갱신 규칙: 일반 정보 role 변경 시 바깥 p0/280/320와 최소256·containment·단일 reader, 긴 조명명·기록 복구 focus·상/하 배치 필드와 preview 접근을 같은 작업에서 회귀 검증한다.
+
 ## 2026-10-16 설정 일반 section·card·제목 소비 (Task 3)
 
 ### 구현 완료

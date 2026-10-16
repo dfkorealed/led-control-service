@@ -1,5 +1,14 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-16 제어·편집 역할 적용의 공유 작업 공간 보호 (Task 4)
+
+- 구현 완료: 제어/편집 정보 panel 역할 적용에서 기존 모니터링 fullview의 gap8·shell inset·동일 지도 수명과 보안 presentation 경계를 보존한다. 모니터링 제품 코드와 일반 map 내부 geometry는 이번 Task에서 수정하지 않는다.
+- 구현 완료: 운영 로그의 고객 compact DataGrid card는 공유 분기의 grid18·regular inset20/16을 상속한다. 전용 log query·cursor·filter·field/row 관계는 수정하지 않았으며 이 소비자의 개별 populated computed crosscoverage는 총괄의 최종 coverage에서 별도 추적한다.
+- 미구현: 실제 LED·Gateway 상태·native WebView·HIL은 mock 브라우저 회귀의 범위가 아니다.
+- 부족하거나 개선이 필요한 기능: 제어의 전체 unit 잔여와 중간 미재현 실패는 모니터링 완료 근거로 사용하지 않는다. 전체 검증 조건과 한계는 Task 4 보고서를 따른다.
+- 관련 파일: 공유 `apps/web/src/components/ui/DataGrid.tsx`, 소비 `apps/web/src/features/monitoring/MonitoringLogDrawer.tsx`(무변경), `apps/web/e2e/{design-system-roles,ui-eight-layout-regressions}.spec.ts`, `.superpowers/sdd/2026-10-16-web-design-system-unification/task-4-report.md`.
+- 갱신 규칙: 공유 셸/편집/제어 geometry가 영향을 줄 때 fullview 진입/Escape 복귀·동일 root/map와 기존 등록/설정 흐름을 함께 검증한다.
+
 ## 2026-10-16 일반 section 역할 정합화 (Task 3)
 
 - 구현 완료: 일반 모니터링과 설치 대기·로딩·오류 section은 공통 `PageStack`의 20px 리듬을 소비한다. 전체 보기의 8px·shell inset·지도 높이/scroll·동일 root와 지도 수명은 유지한다. 지도·목록 내부 toolbar/field gap은 section 값으로 치환하지 않는다.

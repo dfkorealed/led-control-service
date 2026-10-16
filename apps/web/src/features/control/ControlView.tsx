@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { LoadingIndicator, Button, Card, Heading, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, ModalDialog, cn, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
+import { LoadingIndicator, Button, Card, Heading, PageStack, ProgressSteps, InlineStatusSummary, SidePanel, StatusBadge, Text, ModalDialog, cn, panelPaddingClass, useSessionStatus, type ProgressStep, type ProgressStepState, type SessionStatusItem } from "../../components/ui";
 import {
   commandReadRevalidation,
   canonicalizeDimmingCommandInput,
@@ -76,7 +76,7 @@ const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 // The tablet shell already supplies a usable content height. Fill it through
 // the existing flex chain, while min-content children keep short screens in
 // document flow instead of clipping the map to a fixed bottom edge.
-const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:h-full tablet:flex tablet:flex-col";
+const controlScreenClassName = "min-h-0 tablet:h-full tablet:flex tablet:flex-col";
 // History now lives in the manual side pane even on desktop. Reserve its
 export function ControlView({
   siteId,
@@ -613,21 +613,21 @@ export function ControlView({
   if (capabilities && mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
     return (
-      <section className={controlScreenClassName} data-control-screen="">
+      <PageStack as="section" className={controlScreenClassName} data-control-screen="">
         {modeTabs}
         {eventSiteId ? (
           <Suspense fallback={<LoadingIndicator>이벤트 화면을 불러오는 중입니다.</LoadingIndicator>}>
             <VehicleEventControlPanel key={`${userId}:${eventSiteId}`} siteId={eventSiteId} role={userRole} dashboard={data} scopeKey={`${userId}:${eventSiteId}`} />
           </Suspense>
         ) : isLoading ? <LoadingIndicator>현장 정보를 불러오는 중입니다.</LoadingIndicator> : <Text tone="danger" role="alert">이벤트 현장을 확인하지 못했습니다.</Text>}
-      </section>
+      </PageStack>
     );
   }
 
   if (capabilities && mode === "schedule") {
     const scheduleSiteId = data?.site.id ?? siteId;
     return (
-      <section className={controlScreenClassName} data-control-screen="">
+      <PageStack as="section" className={controlScreenClassName} data-control-screen="">
         {modeTabs}
         {scheduleSiteId ? (
           <Suspense
@@ -654,29 +654,29 @@ export function ControlView({
         ) : (
           <Text tone="danger" role="alert">스케줄 현장을 확인하지 못했습니다.</Text>
         )}
-      </section>
+      </PageStack>
     );
   }
 
   if (isLoading && !data) {
-    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<LoadingIndicator>제어 대상을 불러오는 중입니다.</LoadingIndicator></section>;
+    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<LoadingIndicator>제어 대상을 불러오는 중입니다.</LoadingIndicator></PageStack>;
   }
 
   if (error && !data) {
-    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="danger" role="alert">제어 대상을 불러오지 못했습니다.</Text></section>;
+    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="danger" role="alert">제어 대상을 불러오지 못했습니다.</Text></PageStack>;
   }
 
   if (!data) {
-    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></section>;
+    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></PageStack>;
   }
 
   if (mode === "group") {
-    return <section className={controlScreenClassName} data-control-screen="">
+    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">
       {modeTabs}
       <div id="control-mode-panel-group" role="tabpanel" aria-labelledby="control-mode-group" className="grid min-h-0 min-w-0 flex-1">
         <FixtureGroupsPanel key={`${userId}:${data.site.id}`} siteId={data.site.id} dashboard={data} canManage={canManage} mutationsBlocked={groupMutationsBlocked} />
       </div>
-    </section>;
+    </PageStack>;
   }
 
   const importantStatus = <div role="status" aria-label="제어 중요 상태" aria-live="polite" aria-atomic="true" className="max-h-20 overflow-y-auto overscroll-contain text-caption">
@@ -726,7 +726,7 @@ export function ControlView({
       <Text>{temporaryPreview?.names.join(", ")} → {temporaryPreview?.brightness}%</Text>
     </ModalDialog>
     <ManualAuxiliaryProvider enabled={singleColumnLayout} scope={`${userId}:${data.site.id}:${selection.mode}`}>
-    <section className={cn(controlScreenClassName, singleColumnLayout && "h-full grid-rows-[auto_minmax(0,1fr)] gap-1")} data-control-screen="">
+    <PageStack as="section" className={cn(controlScreenClassName, singleColumnLayout && "h-full grid-rows-[auto_minmax(0,1fr)] gap-1")} data-control-screen="">
       {singleColumnLayout ? <><Heading as="h1" className="sr-only">조명 제어</Heading><Text variant="caption">수동 제어</Text></> : modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
       <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
@@ -762,7 +762,7 @@ export function ControlView({
         {/* With compact padding removed, the card radius clips the edge
             inputs/buttons below a continuous 44px hit area. Square only this
             mobile surface; retain the shared scroll owner and desktop card. */}
-        <SidePanel className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 rounded-none! border-0 p-0" : "gap-3 p-3"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
+        <SidePanel padding={singleColumnLayout ? "none" : "regular"} className={`flex min-h-0 min-w-0 w-full flex-col ${singleColumnLayout ? "gap-1 rounded-none! border-0 p-0" : "gap-5"} compact:col-start-2 compact:row-start-2 compact:overflow-y-auto compact:overscroll-contain`} aria-label="밝기 실행" data-control-panel="">
           <section aria-label="제어 대상" className={singleColumnLayout ? "sr-only" : "grid flex-none gap-3"}>
             <div className="flex items-center justify-between gap-2">
               <Heading as="h3" variant="customer-card-title">제어 대상</Heading>
@@ -797,7 +797,7 @@ export function ControlView({
         timeZone={data.site.timeZone}
         returnFocusRef={verificationCasesOpenerRef} onClose={() => setVerificationCasesOpen(false)} />
       </div>
-    </section>
+    </PageStack>
     </ManualAuxiliaryProvider>
     </>
   );
@@ -949,7 +949,7 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
-    <div className="grid min-w-0 gap-2 rounded-panel border border-border-default bg-surface-panel p-4" data-command-progress-card="">
+    <div className={`grid min-w-0 gap-2 rounded-panel border border-border-default bg-surface-panel ${panelPaddingClass("regular")}`} data-command-progress-card="">
       <Text variant="caption" className="wrap-anywhere">명령 ID: {status.id}</Text>
       <Text variant="caption" className="wrap-anywhere">원래 밝기: {status.brightness == null ? "미확인" : `${status.brightness}%`} · 원래 대상: {status.targetFixtureIds?.join(", ") || "미확인"}</Text>
       <Text as="span" variant="overline" tone="muted">최근 명령 상태</Text>

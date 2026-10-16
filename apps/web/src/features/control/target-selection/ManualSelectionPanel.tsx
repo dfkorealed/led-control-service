@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { ManualAuxiliaryContent, manualCompactButtonHitClassName, useManualAuxiliary } from "../manual-workspace/ManualAuxiliaryPanel";
 import type { DashboardFixture } from "../../../api/queries";
-import { Button, Heading, Text } from "../../../components/ui";
+import { Button, Heading, Text, panelPaddingClass } from "../../../components/ui";
 
 /** Presentation of the existing resolved selection; never owns targets or queries. */
 export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
@@ -22,7 +22,7 @@ export function ManualSelectionPanel({ fixtures, compact, locked, onClear }: {
       </ul> : <Text variant="caption" tone="secondary">도면에서 조명을 선택하세요.</Text>}
     </>;
   return <section aria-label="선택 대상 목록" data-manual-selection-panel=""
-    className={compact ? "grid min-h-0 min-w-0 gap-1" : "grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 rounded-panel border border-border-default bg-surface-panel p-3"}>
+    className={compact ? "grid min-h-0 min-w-0 gap-1" : `grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3 rounded-panel border border-border-default bg-surface-panel ${panelPaddingClass("regular")}`}>
     <div className="grid min-w-0 gap-1">
       <Heading as="h3" variant="customer-card-title" className={compact ? "text-caption" : undefined}
         aria-live={compact ? "polite" : undefined} aria-atomic="true">선택 조명 {fixtures.length}개</Heading>

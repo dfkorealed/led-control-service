@@ -3,7 +3,7 @@ import { Lightbulb, Square, SkipForward, Check } from "lucide-react";
 import type { FixtureIdentifyResponse } from "@led-control/shared";
 import { identifyFixture, acquireFloorEditorLease } from "../../api/floor-editor";
 import { ApiError } from "../../api/client";
-import { Button, LoadingIndicator } from "../../components/ui";
+import { Button, Heading, LoadingIndicator, panelPaddingClass } from "../../components/ui";
 import { useFloorEditorStore } from "./editor-store";
 
 interface ActiveSession { floorId: string; fixtureId: string; sessionId: string; expiresAt: number; leaseToken: string; leaseFence: number }
@@ -102,7 +102,7 @@ export function FixtureIdentifyPanel({ floorId, readOnly, leaseToken, leaseFence
     if (!skip) await start(target.id);
   }
   if (!fixture && !session) return null;
-  return <section className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-3" aria-label="조명 위치 확인" data-fixture-identify-panel=""><h3 className="m-0 text-card-title text-content-primary">조명 위치 확인</h3>
+  return <section className={`grid gap-3 rounded-panel border border-border-default bg-surface-panel ${panelPaddingClass("regular")}`} aria-label="조명 위치 확인" data-fixture-identify-panel=""><Heading as="h3" variant="customer-card-title">조명 위치 확인</Heading>
     <strong className="text-label text-content-primary">{fixture?.name ?? state?.fixtures.find((f) => f.id === session?.fixtureId)?.name}</strong>
     {session && session.fixtureId !== fixture?.id && <p className="m-0 text-body-sm text-content-secondary">진행 중인 식별 대상: {state?.fixtures.find((f) => f.id === session.fixtureId)?.name}</p>}
     {pending && <LoadingIndicator>위치 확인 요청을 처리하는 중입니다.</LoadingIndicator>}

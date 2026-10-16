@@ -1226,3 +1226,9 @@
 - **원인**: 현재 SetupWizard 액션은 `맵 생성`이다. OFF ACL은 API가 구체적인 command/ACK topic에만 write할 수 있는데, 임의 probe 발행 실패를 Gateway read 거부와 혼동했다. lab child 환경에는 provisioning-device·monitoring-refresh journal의 일회용 경로가 빠져 있었다.
 - **예방**: E2E selector는 실제 사용자 동작과 함께 갱신하고, broker 권한 검사는 발행자에게 허용된 exact topic에서 자기 Gateway 수신·타 Gateway 미수신·금지 write를 분리 확인한다. lab Gateway의 모든 durable state는 일회용 디렉터리를 지정한다. 테스트 성공을 생산 ACL 완화나 실제 Gateway/RF HIL 증거로 해석하지 않는다.
 - **후속 확인**: first-connect 당시 DB·Gateway 로컬 snapshot은 `desiredRevision=appliedRevision=1`, pending ACK 0으로 이미 수렴했다. API 인증서 관측기는 생산 ACL상 command/ACK write-only라 snapshot 재전달·application receipt·execution ACK를 읽지 못한 것이 테스트 oracle의 원인이었다. 일회용 lab에서만 Gateway 인증서로 별도 비영속·수동 관측기를 두고 자기 Gateway의 정확한 세 토픽만 read하며, 타 Gateway read 거부를 함께 검증한다. 이후 자동화 실연동 E2E는 broker/API 재시작까지 통과했지만 소프트웨어 Gateway 경로 검증이며 실제 RF/HIL 증거는 아니다.
+
+## 2026-10-16 / 오류 상태 fixture는 실제 query 재시도 완료를 관측한다
+
+- **관측**: Task 4의 제어 schedule/event/group 최초403 fixture는 React Query 기본 세 번 재시도 동안 정상 loading을 유지했다. 5초 오류 가시성 단언에서 찍힌 loading snapshot은 제품 오류 역할의 RED 근거가 아니었다. 앞선 Task 2 운영자 fixture에도 같은 조건이 있었다.
+- **예방**: 정확한 endpoint/query key의 네 번째403 response를 관측한 뒤 기존5초 matcher로 오류 panel과 computed role을 확인한다. broad sleep, 임의 clock 진행, 제품 retry/timeout 또는 전체 테스트 deadline 변경으로 통과시키지 않는다. 달력의 명시적 `retry:false`와 access-denied가 본문을 숨기는403 분기는 별도로 다룬다.
+- **근거**: `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-roles.spec.ts --grep control`의 초기 역할 RED와 query 완료 전 오류-state 관측을 구분하며, 수정 후 결과는 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-4-report.md`와 원로그를 따른다. fixture 타이밍 보정은 제품 권한·복구 로직 변경이 아니다.

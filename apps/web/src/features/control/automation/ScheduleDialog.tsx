@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { CreateScheduleInput } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
-import { Button, Checkbox, DatePicker, Heading, ModalDialog, SelectBox, Slider, Switch, Text, TextField, TimePicker, type FocusableFieldHandle } from "../../../components/ui";
+import { Button, Checkbox, DatePicker, Heading, ModalDialog, SelectBox, Slider, Switch, Text, TextField, TimePicker, panelPaddingClass, type FocusableFieldHandle } from "../../../components/ui";
 import { resolveControlSelection, type ControlSelection } from "../control-selection";
 import { SpatialTargetSelector, spatialTargetDialogClassName } from "../target-selection/SpatialTargetSelector";
 import {
@@ -246,8 +246,8 @@ export function ScheduleDialog({
             </fieldset>
           </AutomationTargetPickerView>
         ) : (
-          <form className="grid gap-4" onSubmit={submit} noValidate>
-            <fieldset className="m-0 grid gap-3 rounded-panel border border-border-default p-4" disabled={isPending}>
+          <form className="grid gap-5" onSubmit={submit} noValidate>
+            <fieldset className={`m-0 grid gap-3 rounded-panel border border-border-default ${panelPaddingClass("regular")}`} disabled={isPending}>
               <legend>언제 켤까요?</legend>
               <AutomationPresetGroup
                 label="반복 프리셋"
@@ -304,8 +304,8 @@ export function ScheduleDialog({
               </div>
             </fieldset>
 
-            <section className="grid gap-3 rounded-panel border border-border-default p-4" aria-labelledby="schedule-target-heading">
-              <Heading as="h3" id="schedule-target-heading" variant="card-title">어느 조명을 켤까요?</Heading>
+            <section className={`grid gap-3 rounded-panel border border-border-default ${panelPaddingClass("regular")}`} aria-labelledby="schedule-target-heading">
+              <Heading as="h3" id="schedule-target-heading" variant="customer-card-title">어느 조명을 켤까요?</Heading>
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
                 triggerRef={targetTriggerRef}
@@ -320,7 +320,7 @@ export function ScheduleDialog({
               />
             </section>
 
-            <fieldset className="m-0 grid gap-3 rounded-panel border border-border-default p-4" disabled={isPending}>
+            <fieldset className={`m-0 grid gap-3 rounded-panel border border-border-default ${panelPaddingClass("regular")}`} disabled={isPending}>
               <legend>밝기</legend>
               <AutomationPresetGroup
                 label="밝기 프리셋"

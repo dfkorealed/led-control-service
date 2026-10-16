@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, AlignStartVertical, AlignEndVertical, AlignStartHorizontal, AlignEndHorizontal, AlignCenterVertical, AlignCenterHorizontal, Check, X } from "lucide-react";
-import { Button, Heading, NumberField, Text } from "../../components/ui";
+import { Button, Heading, NumberField, Text, panelPaddingClass } from "../../components/ui";
 import { useFloorEditorStore } from "./editor-store";
 import { alignFixtures, createPlacementPreview, type AlignMode, type PlacementOptions } from "./editor-placement";
 
@@ -23,8 +23,8 @@ export function EditorBatchPlacementPanel({ readOnly }: { readOnly: boolean }) {
   const result = useMemo(() => createPlacementPreview(fixtures, options, { width: state?.floor.floorPlan?.width ?? 1200, height: state?.floor.floorPlan?.height ?? 800 }, state?.fixtures ?? []), [fixtures, options, state?.floor.floorPlan, state?.fixtures]);
   useEffect(() => { useFloorEditorStore.getState().setPreview([]); setShowError(false); }, [options, ids, locked]);
   const disabled = readOnly || layerLocked || !layerVisible || !fixtures.length;
-  return <section className="grid content-start gap-3 p-3" aria-label="일괄 배치">
-    <Heading as="h3" variant="card-title">일괄 배치</Heading><Text variant="body-sm" tone="secondary">{fixtures.length}개 대상 · 잠금 제외 {ids.length - fixtures.length}개</Text>
+  return <section className={`grid content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="일괄 배치">
+    <Heading as="h3" variant="customer-card-title">일괄 배치</Heading><Text variant="body-sm" tone="secondary">{fixtures.length}개 대상 · 잠금 제외 {ids.length - fixtures.length}개</Text>
     <div className="grid grid-cols-4 gap-1">{alignTools.map(([mode, label, Icon]) => <Button key={mode} variant="ghost" className="min-w-11 p-2" aria-label={label} title={label} disabled={disabled || fixtures.filter((f) => f.placementStatus !== "unplaced").length < (mode.startsWith("distribute") ? 3 : 2)} onClick={() => useFloorEditorStore.getState().placeFixtures(alignFixtures(fixtures.filter((f) => f.placementStatus !== "unplaced"), mode))}><Icon size={18} /></Button>)}</div>
     <div className="grid grid-cols-2 gap-1 rounded-control bg-surface-inset p-1" role="tablist" aria-label="배치 방식">{[["grid", "격자"], ["line", "선형"]].map(([mode, label]) => <Button key={mode} size="sm" variant={options.mode === mode ? "primary" : "ghost"} role="tab" aria-selected={options.mode === mode} onClick={() => setOptions({ ...options, mode: mode as "grid" | "line" })}>{label}</Button>)}</div>
     <div className="grid grid-cols-2 gap-2">{([

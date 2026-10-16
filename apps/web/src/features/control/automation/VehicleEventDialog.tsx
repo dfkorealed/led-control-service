@@ -6,7 +6,7 @@ import type { Dashboard } from "../../../api/queries";
 import { LinkButton } from "../../../components/ui/LinkButton";
 import { bioSensorBlockSummary } from "./BioSensorPreparationPanel";
 import { isSelectableVehicleEventSource } from "./bio-event-setup";
-import { Button, Checkbox, Heading, ModalDialog, Slider, Text, TextField } from "../../../components/ui";
+import { Button, Checkbox, Heading, ModalDialog, Slider, Text, TextField, panelPaddingClass } from "../../../components/ui";
 import { resolveControlSelection, type ControlSelection } from "../control-selection";
 import { SpatialTargetSelector, spatialTargetDialogClassName } from "../target-selection/SpatialTargetSelector";
 import {
@@ -263,10 +263,10 @@ export function VehicleEventDialog({
     >
 
         {pickerView ?? (
-          <form className="grid gap-4" onSubmit={submit} noValidate>
-            <section className="grid gap-3 rounded-panel border border-border-default p-4" aria-labelledby="event-flow-heading">
+          <form className="grid gap-5" onSubmit={submit} noValidate>
+            <section className={`grid gap-3 rounded-panel border border-border-default ${panelPaddingClass("regular")}`} aria-labelledby="event-flow-heading">
               <Text id="event-flow-heading" tone="secondary">센서가 차량을 감지하면 선택한 조명에 동작을 적용합니다.</Text>
-              <Heading as="h3" variant="card-title">01 감지 센서</Heading>
+              <Heading as="h3" variant="customer-card-title">01 감지 센서</Heading>
               <AutomationSelectionCard
                 fieldRef={sourceCardRef}
                 triggerRef={sourceTriggerRef}
@@ -286,7 +286,7 @@ export function VehicleEventDialog({
                 <Text variant="caption" tone="secondary">감지한 조명 자신의 밝기와 유지시간을 설정합니다. 무감지 밝기는 조명에 저장된 값을 유지합니다.</Text>
               </div> : null}
               <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
-              <Heading as="h3" variant="card-title">02 실행 조명</Heading>
+              <Heading as="h3" variant="customer-card-title">02 실행 조명</Heading>
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
                 triggerRef={targetTriggerRef}
@@ -304,8 +304,8 @@ export function VehicleEventDialog({
             </section>
 
             <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
-            <section className="grid gap-3 rounded-panel border border-border-default p-4" aria-labelledby="event-action-heading">
-              <Heading as="h3" id="event-action-heading" variant="card-title">03 동작 설정</Heading>
+            <section className={`grid gap-3 rounded-panel border border-border-default ${panelPaddingClass("regular")}`} aria-labelledby="event-action-heading">
+              <Heading as="h3" id="event-action-heading" variant="customer-card-title">03 동작 설정</Heading>
               <Text tone="secondary">차량 감지 시 실행 조명에 적용할 밝기와 유지 시간을 정하세요.</Text>
               <fieldset className="m-0 grid gap-3 border-0 p-0" disabled={isPending}>
                 <legend>밝기</legend>

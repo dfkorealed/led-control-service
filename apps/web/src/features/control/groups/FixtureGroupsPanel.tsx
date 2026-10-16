@@ -7,7 +7,7 @@ export function FixtureGroupsPanel({ siteId, dashboard, canManage, isActive = tr
   siteId: string; dashboard: Dashboard; canManage: boolean; isActive?: boolean; mutationsBlocked?: boolean;
 }) {
   const workspace = useFixtureGroupsWorkspace({ siteId, dashboard, canManage, isActive, mutationsBlocked });
-  return <Card className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto overscroll-contain p-4">
+  return <Card padding="regular" className="flex min-h-0 min-w-0 flex-col gap-5 overflow-y-auto overscroll-contain">
     <FixtureGroupsContent siteId={siteId} dashboard={dashboard} workspace={workspace} />
   </Card>;
 }

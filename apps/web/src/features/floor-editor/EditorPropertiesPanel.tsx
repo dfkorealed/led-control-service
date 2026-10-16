@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, FormField, Heading, IconTooltipButton, NumberField, Text, TextField, themeColor } from "../../components/ui";
+import { Button, FormField, Heading, IconTooltipButton, NumberField, Text, TextField, themeColor, panelPaddingClass } from "../../components/ui";
 import { Trash2 } from "lucide-react";
 import type { MapEditorController } from "./use-map-editor";
 import { MapSelectionProperties } from "./MapSelectionProperties";
@@ -41,9 +41,9 @@ export function EditorPropertiesPanel({ readOnly = false, mapEditor }: { readOnl
       } catch (error) { mapEditor.reportError(error); }
     };
     return (
-      <aside className="grid content-start gap-3 p-3" aria-label="속성 패널">
+      <aside className={`grid content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="속성 패널">
         <Text variant="overline" tone="secondary">조명 속성</Text>
-        <div className="flex min-w-0 items-center justify-between gap-1"><Heading as="h3" variant="card-title">{fixture.name}</Heading>
+        <div className="flex min-w-0 items-center justify-between gap-1"><Heading as="h3" variant="customer-card-title">{fixture.name}</Heading>
           {mapEditor?.document && <IconTooltipButton size="sm" icon={Trash2} label="선택 전체 삭제" disabled={readOnly} onClick={mapEditor.requestRemove} />}</div>
         <Text variant="body-sm" tone="secondary">{placementLabel(fixture)}</Text>
         <TextField label="조명명" isDisabled={readOnly} value={fixture.name} onChange={(name) => updateFixture(fixture.id, { name })} />
@@ -80,9 +80,9 @@ function MapProperties({ readOnly, onError }: { readOnly: boolean; onError?: (er
   }, [floorPlan?.width, floorPlan?.height, floorPlan?.gridSize, document]);
 
   return (
-    <aside className="grid content-start gap-3 p-3" aria-label="속성 패널">
+    <aside className={`grid content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="속성 패널">
       <Text variant="overline" tone="secondary">맵 전체</Text>
-      <Heading as="h3" variant="card-title">맵 설정</Heading>
+      <Heading as="h3" variant="customer-card-title">맵 설정</Heading>
       <Text variant="body-sm" tone="secondary">아무 요소도 선택하지 않았습니다.</Text>
       <div className="grid grid-cols-2 gap-2">
         <NumberProperty label="맵 너비" value={width} disabled={readOnly} min={1} onChange={setWidth} />
@@ -113,9 +113,9 @@ function ObjectProperties({ object, readOnly, onChange }: {
   );
 
   return (
-    <aside className="grid content-start gap-3 p-3" aria-label="속성 패널">
+    <aside className={`grid content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="속성 패널">
       <Text variant="overline" tone="secondary">{names[object.type]} 속성</Text>
-      <Heading as="h3" variant="card-title">{names[object.type]}</Heading>
+      <Heading as="h3" variant="customer-card-title">{names[object.type]}</Heading>
       <div className="grid grid-cols-2 gap-2">
         {number("x", "X")}
         {number("y", "Y")}
@@ -179,7 +179,7 @@ function BatchProperties({ readOnly, hideHeading = false, mapEditor }: { readOnl
   const fixtures = state?.fixtures.filter((f) => ids.includes(f.id) && !locked.includes(f.id)) ?? [];
   const mixed = (key: "size" | "ratedWatt") => new Set(fixtures.map((f) => f[key] ?? 20)).size > 1 ? "혼합값" : String(fixtures[0]?.[key] ?? "");
   const valid = (!size || Number.isFinite(Number(size)) && Number(size) >= 4 && Number(size) <= 200) && (!watt || Number.isFinite(Number(watt)) && Number(watt) >= 0 && Number(watt) <= 10000) && Number.isInteger(start) && start >= 0;
-  return <aside className="grid content-start gap-3 p-3" aria-label="속성 패널"><Text variant="overline" tone="secondary">조명 일괄 속성</Text>{!hideHeading && <Heading as="h3" variant="card-title">{ids.length}개 선택</Heading>}<Text variant="body-sm" tone="secondary">수정 대상 {fixtures.length}개</Text>
+  return <aside className={`grid content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="속성 패널"><Text variant="overline" tone="secondary">조명 일괄 속성</Text>{!hideHeading && <Heading as="h3" variant="customer-card-title">{ids.length}개 선택</Heading>}<Text variant="body-sm" tone="secondary">수정 대상 {fixtures.length}개</Text>
     <TextField label="이름 접두어" value={prefix} maxLength={100} onChange={(value) => { setPrefix(value); setPreview(false); }} />
     <NumberField label="시작 번호" value={start} minValue={0} onChange={(value) => { if (value !== null) setStart(value); setPreview(false); }} />
     <TextField label="일괄 크기" inputMode="numeric" value={size} placeholder={mixed("size")} onChange={(value) => { setSize(value); setPreview(false); }} />

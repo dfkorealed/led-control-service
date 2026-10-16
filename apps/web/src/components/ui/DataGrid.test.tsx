@@ -51,10 +51,15 @@ describe("DataGrid", () => {
       { id: "value", header: "값", minWidth: 100, align, sortValue: row => row.id, renderCell: row => row.id }
     ]} getRowKey={row => row.id} /></UI.CustomerThemeProvider>);
     expect(screen.getByRole("definition")).toHaveClass(`text-${align}`);
+    // CSS values are verified by populated customer consumers in Chromium;
+    // this branch check prevents the ordinary card recipe leaking to tables.
+    expect(screen.getByRole("list", { name: "정렬 위치" })).toHaveClass("gap-4.5");
+    expect(screen.getByRole("listitem")).toHaveClass("p-5", "max-compact:p-4");
     if (align !== "right") expect(screen.getByRole("definition")).not.toHaveClass("text-right");
     measure(100);
     expect(screen.getByRole("columnheader")).toHaveClass(`text-${align}`);
     expect(screen.getByRole("cell")).toHaveClass(`text-${align}`);
+    expect(screen.getByRole("cell")).toHaveClass("px-3", "py-2");
     expect(screen.getByRole("button", { name: "값 오름차순 정렬" })).toHaveClass(`text-${align}`, align === "left" ? "justify-start" : align === "right" ? "justify-end" : "justify-center");
   });
   it("keeps table sort headers rectangular without changing ordinary or card buttons", () => {

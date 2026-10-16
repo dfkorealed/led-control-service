@@ -8,6 +8,7 @@ import { DataTableHeaderCell } from "./DataTableHeaderCell";
 import { cn } from "./utils/cn";
 import { CustomerThemeContext } from "./theme/CustomerThemeProvider";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { panelPaddingClass } from "./FunctionalLayout";
 
 export type DataGridAlign = "left" | "center" | "right";
 export type DataGridSurface = "table" | "card";
@@ -119,8 +120,8 @@ export function DataGrid<T>({ caption, rows, columns, getRowKey, isBusy = false,
       </DataTableHeaderCell>)}</tr></thead>
       <tbody>{displayedRows.length ? displayedRows.map(row => <Fragment key={rowKey(row)}><tr>{columns.map((column, index) => <td key={column.id} className={cn(cellClass, "border-t border-border-default", alignments[column.align ?? "left"])}>{column.renderCell(row, "table")}{index === columns.length - 1 ? detailsToggle(row) : null}</td>)}</tr>{renderRowDetails && expanded.has(rowKey(row)) ? <tr><td colSpan={columns.length} className={cellClass}>{details(row, "table")}</td></tr> : null}</Fragment>)
         : <tr><td colSpan={columns.length} className={cellClass}>{empty}</td></tr>}</tbody>
-    </DataTableShell> : <ul aria-label={caption} className={cn("m-0 grid min-w-0 list-none p-0", customerCards ? "gap-3" : "divide-y divide-border-default")}>
-      {displayedRows.length ? displayedRows.map(row => <li key={rowKey(row)} className={cn(variant === "compact" ? "min-w-0 p-3" : "min-w-0 p-4", customerCards && "rounded-panel border border-border-default bg-surface-panel")}>
+    </DataTableShell> : <ul aria-label={caption} className={cn("m-0 grid min-w-0 list-none p-0", customerCards ? "gap-4.5" : "divide-y divide-border-default")}>
+      {displayedRows.length ? displayedRows.map(row => <li key={rowKey(row)} className={cn("min-w-0", customerCards ? panelPaddingClass("regular") : variant === "compact" ? "p-3" : "p-4", customerCards && "rounded-panel border border-border-default bg-surface-panel")}>
         <dl className="m-0 grid min-w-0 gap-3">{cardColumns.map(column => <div key={column.id} className={cn("grid min-w-0 gap-1", customerCards && "grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-3")}>
           <dt className={cn("wrap-anywhere text-label font-semibold text-content-secondary", customerCards && "text-body-sm")}>{column.header}</dt>
           <dd className={cn("m-0 min-w-0 wrap-anywhere whitespace-normal text-body-sm", alignments[column.align ?? (customerCards ? "right" : "left")])}>{column.renderCell(row, "card")}</dd>

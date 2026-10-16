@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Ban, Trash2 } from "lucide-react";
 import type { MapElement, MapOp } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
-import { Checkbox, FormField, Heading, IconTooltipButton, NumberField, Text, TextField, themeColor } from "../../components/ui";
+import { Checkbox, FormField, Heading, IconTooltipButton, NumberField, Text, TextField, themeColor, panelPaddingClass } from "../../components/ui";
 import type { Bounds } from "./geometry";
 import { createMapElementUpdateOps, getMapElementSize, resizeMapElement, uniqueMapSelection } from "./map-element-editing";
 import { finishSelectionResize } from "./map-selection-transform";
@@ -95,13 +95,13 @@ function PropertiesForm({ selection, onChange, onDelete, readOnly = false, locke
     </div>;
   };
 
-  return <aside className="grid min-w-0 content-start gap-3 p-3" aria-label="도형 속성" onKeyDown={event => {
+  return <aside className={`grid min-w-0 content-start gap-3 ${panelPaddingClass("regular")}`} aria-label="도형 속성" onKeyDown={event => {
     // Leave native text deletion intact, but do not let the canvas treat it as a shape-delete shortcut.
     if ((event.key === "Backspace" || event.key === "Delete") && event.target instanceof HTMLElement &&
       event.target.closest("input, textarea, [contenteditable], [role='textbox']")) event.stopPropagation();
   }}>
     <div className="flex min-w-0 items-center justify-between gap-2">
-      <Heading as="h3" variant="card-title">{selection.length > 1 ? `${selection.length}개 도형` : names[selection[0].type]}</Heading>
+      <Heading as="h3" variant="customer-card-title">{selection.length > 1 ? `${selection.length}개 도형` : names[selection[0].type]}</Heading>
       <IconTooltipButton icon={Trash2} label="도형 삭제" disabled={disabled} onClick={() => {
         if (disabled) return;
         try { onDelete(selection.map(element => element.id)); setError(null); }

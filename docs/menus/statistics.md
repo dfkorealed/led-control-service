@@ -1,5 +1,14 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-16 작업 공간 역할 적용 뒤 통계 수치 보호 (Task 4)
+
+- 구현 완료: 제어/편집 역할 적용의 보호 회귀에서 기존 통계 숫자·단위의 Text Range·카드 읽기 폭·light/dark와 기존 통계 탭/보고서 dialog 접근을 유지한다. 통계 제품 코드·chart 내부 geometry·mobile gap8은 수정하지 않는다.
+- 구현 완료: 보고서 생성 이력은 공유 DataGrid 고객 compact card의 grid18·regular inset20/16을 상속한다. 보고서 polling/download/행 로직은 변경하지 않았으며 이 소비자의 개별 populated computed crosscoverage는 총괄의 최종 coverage에서 별도 추적한다.
+- 미구현: 실제 전력 계측·운영 보고서/PDF·native WebView·HIL은 이번 mock 검증에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 큰 수치의 범위 검사와 전체 unit의 실패/미재현 관측은 구분하며, 후자의 원인을 이번 UI 변경과 무관하다고 추정하지 않는다.
+- 관련 파일: 공유 `apps/web/src/components/ui/DataGrid.tsx`, 소비 `apps/web/src/features/statistics/reports/ReportJobList.tsx`(무변경), `apps/web/e2e/{design-system-roles,ui-eight-layout-regressions}.spec.ts`, `.superpowers/sdd/2026-10-16-web-design-system-unification/task-4-report.md`.
+- 갱신 규칙: 같은 회귀 원 testcase의 실제 locator·수치/단위·nonzero Range와 모든 기존 경계/조작 단언을 보존한다.
+
 ## 2026-10-16 통계 일반 역할과 compact 예외 (Task 3)
 
 - 구현 완료: 통계 shell은 desktop section20px와 승인된 mobile8px를 구분한다. overview·analysis·reports의 일반 section은 `PageStack`, 동급 metric·chart/detail·cost/insight card grid는 `CardGrid`18px를 소비하며 기존 명시 compact8 리듬은 보존한다. 로딩·오류도 같은 일반 section 역할을 사용한다.

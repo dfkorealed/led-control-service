@@ -90,6 +90,7 @@ test("SET-003 short editor retains a reachable placement body", async ({ page, b
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
   await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-ready", "true");
   await expect(page.getByRole("button", { name: "맵 초기화", exact: true })).toBeEnabled();
+  expect((await page.getByTestId("floor-editor-layout").boundingBox())!.height).toBeGreaterThanOrEqual(256);
   const toggle = page.getByRole("button", { name: "편집 정보 패널", exact: true });
   await toggle.click();
   const panel = page.locator("#editor-information-panel");
@@ -134,6 +135,8 @@ test("SET-004 selected fixture history keeps revisions and restore reachable", a
   await panel.hover(); await page.mouse.wheel(0, 600);
   await evidence(page, info, "selected-history-after-wheel", panel);
   expect((await page.getByTestId("editor-revision-list").boundingBox())!.height).toBeGreaterThan(50);
+  await page.getByRole("button", { name: "리비전 7 복구", exact: true }).focus();
+  await expect(page.getByRole("button", { name: "리비전 7 복구", exact: true })).toBeFocused();
   await expectHit(page.getByRole("button", { name: "리비전 7 복구", exact: true }));
 });
 });
@@ -306,6 +309,7 @@ for (const scenario of [
   const target = scenario.route === "analysis" ? page.getByRole("complementary", { name: "지하주차장 제삼구역 상세", exact: true }) : page.getByRole("group", { name: "에너지 요약", exact: true });
   await expect(target).toBeVisible();
   await target.scrollIntoViewIfNeeded();
+  expect(await target.evaluate(element => { const range = document.createRange(); range.selectNodeContents(element); return range.getBoundingClientRect().width; })).toBeGreaterThan(0);
   await evidence(page, info, "numeric-cards", target);
   const metrics = await metricBounds(target.locator("[data-metric-card]"));
   await writeFile(info.outputPath("numeric-ranges.json"), JSON.stringify(metrics, null, 2));
@@ -495,6 +499,11 @@ for (const width of [390, 1024]) test.describe(`current manual flow ${width}`, (
     await expect(apply).toBeEnabled(); await apply.click();
     await expect.poll(() => api.dimmingRequests.length).toBe(1);
     expect(api.dimmingRequests[0]).toMatchObject({ siteId: ids.siteId, target: { type: "fixture", fixtureId: id }, brightness: width === 1024 ? 30 : 70 });
+    if (width === 390) await page.getByRole("button", { name: "더보기", exact: true }).click();
+    await page.getByRole("button", { name: "상세 보기", exact: true }).click();
+    await expect(page.locator("[data-command-progress-card]")).toHaveCSS("padding", width < 760 ? "16px" : "20px");
+    await expect(page.locator("[data-control-submit]")).toBeDisabled();
+    if (width === 390) await page.getByRole("button", { name: "보조 패널 닫기", exact: true }).click();
     api.setCommandStatus({ stage: "completed", results: [{ fixtureId: id, fixtureName, status: "succeeded", errorMessage: null }] });
     await expect(page.getByRole("button", { name: "1개 조명에 밝기 적용", exact: true })).toBeEnabled();
     expect(api.dimmingRequests).toHaveLength(1);
