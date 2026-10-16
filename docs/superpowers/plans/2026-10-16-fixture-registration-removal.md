@@ -104,9 +104,9 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 **담당:** 총괄 통합 + 독립 qa_reviewer. 구현자와 reviewer의 같은 diff 중복 작업은 하지 않는다.
 
 - [x] Task1–4의 소유 커밋과 검토 결과를 통합하고 shared/Prisma/engine을 격리 작업 환경에서 준비한다. MAIN node_modules/Prisma 생성물을 덮지 않는다.
-- [ ] 실제 임시 PostgreSQL·소프트웨어 Gateway·브라우저 등록 삭제→조회/맵/제어 제외→재검색/새 등록과 과거 이력 보존의 연결을 검증한다. 실제 장비/운영 DB 검증은 미실행으로 기록한다.
-- [ ] 관련 앱 전체 테스트/빌드·타입과 source 변경 diff를 확인한다. 기존 알려진 실패와 신규 실패를 분리하며 전체 GREEN으로 축약하지 않는다.
-- [ ] 설정/모니터링/제어/통계 현황, DB 구조, 반복 교훈과 상태판을 같은 실제 결과로 갱신하고 최종 독립 whole-branch review를 통과한다.
+- [x] 실제 임시 PostgreSQL·Nest HTTP·소프트웨어 Gateway에서 삭제/복구→조회/맵/제어 제외→동일 제품 새 등록과 이력 보존을 검증한다. 웹 flow는 별도 격리 API fixture Chromium으로 검증한다. 이 경계별 결과를 실제 browser→broker→장비 전체 HIL 성공으로 표현하지 않는다.
+- [x] 관련 앱 전체 테스트/빌드·타입과 source 변경 diff를 확인한다. 기존 알려진 실패와 신규 실패를 분리하며 전체 GREEN으로 축약하지 않는다.
+- [x] 설정/모니터링/제어/통계 현황, DB 구조, 반복 교훈과 상태판을 같은 실제 결과로 갱신하고 최종 독립 whole-branch review를 통과한다.
 - [ ] 메인 최신 변경을 보존해 병합하고 메인에서 한정 검증한다. 사용자 변경은 stage하지 않는다. 추가 승인된 로컬 DB 백업·본 기능 migration·개발 서버 재시작을 수행하고 데이터/인증 설정 보존을 확인한다. 실제 장비 배포와 삭제는 제외하고 후속 적용 관문을 안내한다.
 
 ## 실행 상태
@@ -121,3 +121,5 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - Task5 중간 Gateway 전체: 통합 `7c4b49af` 기준113파일/2,112개 중2,098PASS·14FAIL, type/build0. 3개 suite14FAIL은 a6260156 baseline의 이름/오류와 일치하며 신규 실패는0이다. 별도 legacy ACL wildcard 기대1FAIL은 이전과 같고 새 removal ACL1PASS다. root 관련 runtime/ACL74PASS·5SKIP·0FAIL이며 실제 broker 정책 변경/HIL 결과는 아니다.
 - Task3 최종: `db4aa219` recommission(PG146/40PASS), `d35e6180` 맵/통계(PG146포함72PASS), `5c0e5ce4` 확정 거절 복구(PG43PASS·직접169PASS/1SKIP), `84ae1936` clear/CAD/staged 잠금 순서(60PASS·양방향8PASS)를 확정했다. I1–I5 독립 재검토49+12PASS·C/I/M0·ReadyYES다. `d7f87124`는 미래 의존 migration을 먼저 실행하던 staged 시험과 command harness를 정합화했다. 새 schema는146 migrations/삭제 작업·결과 증거·설정 복구 원장3개다.
 - 최종 API 전체 검증은 제품 소스 `84ae1936` 고정 후 별도 코호트에서 진행한다. source 수정 중 시작한 전체 실행은 최종 freeze 증거로 사용하지 않는다. 추가 코드 변경은 없으며 문서와 승인된 로컬 적용만 남았다.
+- 최종 API 고정 전체 런은 자연 완주479.508초/3,668PASS·14FAIL·1,259SKIP(375파일)이다. 실패14 중7은 기존 공휴일 fixture 관련으로 MAIN 독립 재현했고, 나머지7은 `d049b368`의 테스트 builder `retiredAt:null` 한 줄 보완 후 EnergyService/Analytics36/36으로 해소했다. 제품/단언/expected 변경은0이다. 이후 전체를 재실행하지 않았으므로 전체 GREEN이나 재계산한 전체 통과 수를 주장하지 않는다. API 타입/빌드와 diff 검증은 통과했다.
+- 최종 계약 통합 독립 검토: MAIN `e4794fdf`→제품 `84ae1936`, Spec/quality PASS·C/I/M0·ReadyYES다. 기존 Gateway14·Web5·API 공휴일7과 legacy ACL 기대1 실패는 새 기능과 분리해 남긴다. 무관한 기존 실패 수리로 범위를 확장하지 않고 신규 기능 직접 검증/실제 PG/계약 승인과 baseline 비교를 근거로 사용자 요청의 로컬 병합을 진행한다.

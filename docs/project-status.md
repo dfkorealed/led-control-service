@@ -8,6 +8,7 @@
 - 계획5개 작업은 공유 계약/DB→Gateway→API→Web→통합 검증이다. 현재 [x]계획/격리 준비, [x]Task1, [x]Task2, [x]Task3, [x]Task4, [ ]Task5다. Task1 `a960dbd8`/`549055d2`, Task2 `1cd8cac2`/`2cb424c7`, Task4 `9946de16`의 독립 승인을 확인했고 MAIN `e4794fdf`를 `7c4b49af`로 보존 통합했다.
 - API는 `db4aa219`/`d35e6180`/`5c0e5ce4`/`84ae1936`에서 거절 복구·기존 recommission·맵/CAD 퇴역 제외·통계 projection·맵 잠금 순서5건을 수리했다. 임시PG146·실제Nest HTTP/software Gateway, 43/40/72/60개 지정 회귀와 독립49+12PASS·C/I/M0·ReadyYES를 확인했다. 제품 소스를 고정하고 마지막 전체 API 검증 및 로컬 적용을 진행한다.
 - 통합 후 전체 Shared597/597, Web3,899PASS·기존ControlView5FAIL·3SKIP/Chromium10PASS/UI정책79PASS/타입·빌드0, Gateway2,098PASS·기존14FAIL/타입·빌드0을 확인했다. 새 실패와 기존 baseline을 구분하며 전체 GREEN으로 표현하지 않는다. API 최종 통합 회귀와 로컬 적용은 후속 관문이다.
+- 최종 API 고정 런은3,668PASS·14FAIL·1,259SKIP/479.508초 자연 완주다. 그중 통계 단위 fixture7건은 `d049b368`의 nullable 필드1줄 정합화 후 직접36/36으로 해소했고 제품 코드/단언은 바꾸지 않았다. 기존 공휴일7건은 별도 MAIN에서 동일 재현했으며 최종 전체 재실행은 하지 않았다. 전체 GREEN이 아니다. API타입/build0·최종 통합 독립 Spec/quality PASS·C/I/M0을 확인했고 로컬 백업/병합/migration/재기동만 남았다.
 - 추가 사용자 승인으로 검증 후 로컬 DB 백업·migration·개발 서버 재시작까지 허용했다. 실제 삭제·Pi 배포/장비 명령은 여전히 제외하며 실제 로컬 적용은 아직 실행하지 않았다. 아래 10/15 검토 대기는 후속 승인 전 기록이다.
 
 ## 2026-10-15 실제 조명 등록 삭제 — 당시 설계 검토 이력
