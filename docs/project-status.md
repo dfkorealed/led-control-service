@@ -2,6 +2,11 @@
 
 기준일: 2026-10-15
 
+## 2026-10-16 실제 조명 등록 삭제 구현 시작
+
+- 사용자 지시로 서면 설계를 승인하고 실행 계획 작성 후 즉시 구현·별도 브랜치 후 MAIN 병합을 진행한다. 브랜치 `codex/fixture-registration-removal-20261015`, 계획 `docs/superpowers/plans/2026-10-16-fixture-registration-removal.md`다. 기존 MAIN a6260156 변경을 양쪽 문서 보존 merge로 통합했다.
+- 계획5개 작업은 공유 계약/DB→Gateway→API→Web→통합 검증이다. 현재 [x]계획/격리 준비, [ ]Task1, [ ]Task2, [ ]Task3, [ ]Task4, [ ]Task5다. 실제 삭제·사용자 DB migration·Pi/서버 재시작·배포/장비 명령은 제외한다. 아래 10/15 검토 대기는 이 후속 승인 전 기록이다.
+
 ## 2026-10-15 실제 조명 등록 삭제 — 서면 설계 검토 대기
 
 - 사용자는 admin의 등록 삭제·공장 초기화 제외·서버/Gateway 연결 정리·이력 보존·진행 작업/규칙 연결 시 차단·재등록 방향을 승인했다. 별도 `codex/fixture-registration-removal-20261015`에서 기존 `docs/superpowers/specs/2026-09-12-settings-assets-operations-design.md`의 같은 날짜 추가 설계에 누적한다.
