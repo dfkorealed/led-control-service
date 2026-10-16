@@ -13,7 +13,7 @@
 ## 공통 제약
 
 - 작업 브랜치 `codex/fixture-registration-removal-20261015`, 정본 메인 `codex/mvp1-cloud-web`. MAIN의 사용자 AGENTS/상태판 및 병행 작업을 보존한다.
-- 실제 DB migration/삭제, Pi 배포·재시작/RF, PKI/ACL 변경은 하지 않는다. PostgreSQL 통합 검증은 소유한 임시 DB만 사용한다.
+- PostgreSQL 통합 검증은 소유한 임시 DB에서 수행한다. 사용자 추가 승인에 따라 코드 검증 후 현재 로컬 DB를 백업하고 본 기능의 migration을 적용한 뒤 개발 서버를 재시작한다. 실제 조명 삭제·Pi 배포/재시작·RF·PKI 변경은 하지 않는다.
 - 신규 BIO만 지원하며 기존 native 장치와 데이터는 보존한다. 삭제가 물리 초기화·소등·센서 모드 변경이 아님을 명시한다.
 - 과거 명령/등록/통계 FK는 유지하고 운영 등록만 퇴역한다. retired Fixture/MeshNode는 운영 조회·새 mutation·late telemetry에서 사용하지 않는다.
 - Gateway 미지원/오프라인, 구역·스케줄·이벤트 연결, 불확정/진행 제어·복귀·맵 편집은 거절한다. 실행 여부 불명은 성공이나 단순 실패로 바꾸지 않는다.
@@ -36,6 +36,7 @@
 **인터페이스:**
 - `fixtureRegistrationRemovalRequestSchema`: `{clientRequestId: UUID, expectedUpdatedAt: ISO}`.
 - `FixtureRegistrationRemovalPreview`: `fixtureId`, `fixtureName`, `serialNumber: string|null`, `allowed`, `blockedReasons: {code,message}[]`.
+- 온라인 상태 수신도 Fixture.updatedAt을 바꾸므로 preview는 현재 `expectedUpdatedAt: ISO`를 함께 반환한다. 확인 클릭 시 fresh preview의 이름·시리얼/가능 여부를 재검사하고 같은 대상이면 그 timestamp를 전송 전에 고정한다. 이름/시리얼이 바뀌면 다시 확인하며 오래된 카드 timestamp를 그대로 제출하지 않는다. 전송 뒤 같은 요청 ID의 body는 변경하지 않는다.
 - `FixtureRegistrationRemovalView`: `operationId`, `siteId`, `floorId`, `fixtureId`, `status: pending|gateway_confirmed|completed|rejected|reconcile_required`, `errorCode: string|null`, `createdAt`, `completedAt: string|null`.
 - `fixtureRegistrationRemovalCommandSchema`: version1, operationId/siteId/gatewayId/gatewaySerial/assignmentVersion/fixtureId/nodeId/deviceUuid/meshAddress/originalProvisionCommandId/bindingHash/requestedAt/expiresAt. UUID/주소/일관성은 strict 검증한다.
 - terminal은 동일 command identity와 `eventId`, `occurredAt`, `status: removed|rejected|reconcile_required`, `errorCode`를 갖는다. 명령 hash는 서버/Gateway가 기존 canonical hash 방식으로 대조한다. application ACK도 operation/event/hash를 결합한다.
@@ -56,9 +57,9 @@
 
 **인터페이스:** Task 1 command/terminal/ACK/topics. Handler는 exact assignment/기존 등록 identity를 검사하고 `removed`를 durable 저장한 뒤 재전송한다. 같은 operation 내용 충돌은 거절한다. mapping 삭제·퇴역 fence·onChange는 같은 영속 경계다.
 
-- [ ] RED: 정상 삭제/무관장치 보존·중복/재시작·ACK 유실·mapping 캡처 후 delete→write·오프라인 조명·진행/복귀/규칙 거절·과거 provision 재생·새 등록을 작성하고 실패 확인.
-- [ ] 삭제 중 장비별 admission 잠금과 실제 RF 직전 재검사, runtime/authority/poll/member 정리, terminal/application ACK와 heartbeat version1을 기존 production 실행 경로에 연결한다. 하드웨어 초기화/밝기 SET은 호출하지 않는다.
-- [ ] Gateway 관련 테스트/type/build 및 MQTT topic 인가 검증 후 커밋·독립 검토한다. 원장만 만들고 index에 미연결인 구현은 완료가 아니다.
+- [x] RED: 정상 삭제/무관장치 보존·중복/재시작·ACK 유실·mapping 캡처 후 delete→write·오프라인 조명·진행/복귀/규칙 거절·과거 provision 재생·새 등록을 작성하고 실패 확인.
+- [x] 삭제 중 장비별 admission 잠금과 실제 RF 직전 재검사, runtime/authority/poll/member 정리, terminal/application ACK와 heartbeat version1을 기존 production 실행 경로에 연결한다. 하드웨어 초기화/밝기 SET은 호출하지 않는다.
+- [x] Gateway 관련 테스트/type/build 및 MQTT topic 인가 검증 후 커밋·독립 검토한다. 원장만 만들고 index에 미연결인 구현은 완료가 아니다.
 
 ## Task 3: 서버 삭제 흐름과 운영/이력 경계
 
@@ -76,6 +77,7 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - [ ] 임시 실제 PostgreSQL로 pending↔제어/등록 경쟁·late telemetry/ACK·실패 재시도·퇴역 후 동일 UUID 새 등록·구/신 통계/제어 이력을 검증한다. API 관련 테스트/type/build 후 커밋·독립 검토한다.
 
 **Preflight 추가 인수 조건:**
+- Gateway의 `reconcile_required -> removed`는 같은 command에 새 event/hash의 확정 증거를 반환할 수 있다. 기존 result/ACK를 append-only 이력으로 보존한 뒤 이 진행만 허용하는 forward migration/API를 추가한다. 이미 확정된 결과 변경·이전 결과로의 상태 회귀는 막고 정확한 과거 재생은 보존 ACK로 처리한다. 임시 PostgreSQL에서 unknown 수신/ACK→TTL 뒤 새 removed→완료→옛 terminal/ACK 재생과 두 증거 보존을 검증한다.
 - `energy/fixture-state-ingestion.service.ts`의 요금 변경 cursor 재적산도 닫는다. 최종 transaction에서 기존 `retireFixture()`를 연결하고 삭제→요금 변경→늦은 상태→동일 제품 재등록 뒤 구/신 집계가 분리되는지 검증한다.
 - `floor-editor.service.ts`의 `existingFixtureIds`는 물리 존재가 아니라 운영 등록 자격으로 판정한다. legacy/document 복구·slot·save·snapshot에 같은 조건을 적용하고 두 복구 경로의 `skippedFixtureIds`·다른 도형 보존을 검증한다. `FixtureFreshnessService` raw UPDATE와 `MonitoringIncidentReconcilerService`의 운영 조회도 포함한다.
 - `TargetSnapshotService`, BIO eligibility/binding과 `MeshControlGroupService` desired 조회는 잠금 뒤 pending/불확정/retired를 거절한다. `BioSensorProfilesService.catalogInTransaction()`은 동일 revision의 과거 payload를 재사용하므로 새 catalog revision 발행·정확 applied ACK를 확인해야 하며 퇴역 필터만 추가해 완료로 처리하지 않는다.
@@ -90,9 +92,9 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 
 전송 전에 actor/site/floor/fixture와 requestId/expectedUpdatedAt을 저장한다. operationId 미확보 시 by-request 조회로 복구하고, 미확정/null을 성공·실패 확정으로 바꾸지 않는다. 명시적인 재시도는 같은 requestId/body만 재전송한다.
 
-- [ ] RED: admin만 노출·취소 요청0·차단 이유·정확한 장치/시리얼·중복 클릭·pending/unknown≠성공·재조회 실패·새로고침 복구·현장 전환 stale 결과 무시를 작성하고 실패 확인.
-- [ ] 카드의 등록 삭제 아이콘→preview→확인→같은 요청ID POST→terminal 조회를 연결한다. 진행 작업은 현장별 operation identity로 복구하고 완료만 삭제 성공/관련 query 갱신한다. 불확정은 동일 작업 상태 확인만 제공한다.
-- [ ] 웹 관련 테스트/type/build/UI정책과 Chromium1440/390 정상·취소·차단·재시작 복구를 검증하고 커밋·독립 검토한다. fake 브라우저 결과를 장비 성공으로 기록하지 않는다.
+- [x] RED: admin만 노출·취소 요청0·차단 이유·정확한 장치/시리얼·중복 클릭·pending/unknown≠성공·재조회 실패·새로고침 복구·현장 전환 stale 결과 무시를 작성하고 실패 확인.
+- [x] 카드의 등록 삭제 아이콘→preview→확인→같은 요청ID POST→terminal 조회를 연결한다. 진행 작업은 현장별 operation identity로 복구하고 완료만 삭제 성공/관련 query 갱신한다. 불확정은 동일 작업 상태 확인만 제공한다.
+- [x] 웹 관련 테스트/type/build/UI정책과 Chromium1440/390 정상·취소·차단·재시작 복구를 검증하고 커밋·독립 검토한다. fake 브라우저 결과를 장비 성공으로 기록하지 않는다.
 
 ## Task 5: 통합·검증·메인 병합
 
@@ -102,7 +104,7 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - [ ] 실제 임시 PostgreSQL·소프트웨어 Gateway·브라우저 등록 삭제→조회/맵/제어 제외→재검색/새 등록과 과거 이력 보존의 연결을 검증한다. 실제 장비/운영 DB 검증은 미실행으로 기록한다.
 - [ ] 관련 앱 전체 테스트/빌드·타입과 source 변경 diff를 확인한다. 기존 알려진 실패와 신규 실패를 분리하며 전체 GREEN으로 축약하지 않는다.
 - [ ] 설정/모니터링/제어/통계 현황, DB 구조, 반복 교훈과 상태판을 같은 실제 결과로 갱신하고 최종 독립 whole-branch review를 통과한다.
-- [ ] 메인 최신 변경을 보존해 병합하고 메인에서 한정 검증한다. 사용자 변경은 stage하지 않으며 로컬 DB migration/개발 서버 재시작/Pi 배포를 자동 실행하지 않는다. 제품 사용에 필요한 적용 관문을 최종 안내한다.
+- [ ] 메인 최신 변경을 보존해 병합하고 메인에서 한정 검증한다. 사용자 변경은 stage하지 않는다. 추가 승인된 로컬 DB 백업·본 기능 migration·개발 서버 재시작을 수행하고 데이터/인증 설정 보존을 확인한다. 실제 장비 배포와 삭제는 제외하고 후속 적용 관문을 안내한다.
 
 ## 실행 상태
 
@@ -110,3 +112,5 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - Task1 구현 `a960dbd8`: shared585/585·helper61/61, 임시PG/정책23/23·migration139→140, 타입/빌드 통과. 독립검토의 DB 잠금 역전1건은 fixround1 진행 중이며 Task1 전체 완료가 아니다. 고정된 shared 계약만 소비하는 Task2/4는 DB 수리와 독립이므로 구현을 시작하고 DB 기반을 사용하는 Task3는 수리 gate까지 대기한다. 커밋은 공유 index 보호를 위해 총괄이 직렬 승인한다.
 - 병행 범위 보완: Task3도 고정 schema/helper를 소비하는 별도 API 파일 구현은 진행하되 Carver의 migration/policy 파일을 수정하지 않는다. Task1 전체 gate와 Task3 실제 PostgreSQL 최종 검증은 잠금 수리 재검토 뒤에 통과시킨다. 고정된 계약의 소비 작업과 DB 기반 승인 시점을 구분한다.
 - Task1 완료: `a960dbd8`와 fix `549055d2`, reviewer James 독립 실제 PostgreSQL139→141/DB·정책30/30·Critical/Important0·ReadyYES다. 기존 raw-row 잠금과 새 전역 잠금의 순서 역전을 RED로 재현해 일반 UPDATE 범위를 좁혔고, 실제 Site cascade와 일반 직접 삭제 차단·과거 command/energy/settled lease의 DDL 보존을 확인했다. Site를 유지하는 resetInstallation의 새 원장 cleanup은 Task3 필수 인계다.
+- Task2 완료: `1cd8cac2`와 `2cb424c7`. 최초 focused379/379, 시계 불신 중 durable intent 보존/TTL 후 동일 작업 복구와 실제 production factory 연결을 보강한 focused273/273, type/build 통과다. 독립 재검토50/50·C/I/M0·ReadyYES다. 기존 Gateway3개 suite14FAIL은 a6260156 비교에서도 동일하며 본 기능 성공 근거와 분리한다. MAIN의 신규 native sensor 통합 후 추가 회귀 검증은 Task5다.
+- Task4 완료: `9946de16`. 공식 focused64/64·Chromium10/10(1440/390)·type/build/UI policy 통과, 독립64/64·C/I/M0·ReadyYES다. 동일 현장 default dashboard 캐시 갱신과 fresh preview 재확인을 포함한다. route fixture 브라우저 결과이지 실제 API/장비 삭제 결과는 아니다.
