@@ -2,6 +2,15 @@
 
 기준일: 2026-10-15
 
+## 2026-10-16 조명 등록 삭제 — 운영 준비 진행 중
+
+- 사용자가 서버 시간 검증 복구·연결과 실제 Gateway 업데이트를 승인했다. 실제 삭제는 사용자가 직접 수행하며 에이전트는 삭제 사전 조회/취소까지만 확인한다.
+- 기존 삭제 구현 계획 Task6에 운영 준비를 이어 기록한다. [x] 로컬 실행/보호 clock 확인, [x] 환경·장비 백업/배포 전 확인, [x] 정상 시각·DB primary 검증/API 연결/삭제 MQTT 인가, [x] 안전 Gateway 업데이트/실제 지원 heartbeat, [ ] 시간 검증 안정화·브라우저 사전 확인/인계다. 시각 검증의 과거 단발 성공을 현재 사용 가능 상태로 간주하지 않는다.
+- 초기 clock 미설정/미승인을 확인하고 private 백업 뒤 고정 socket·삭제 전용 ACL4행을 연결했다. 실제 PostgreSQL 주소의 `/128` 접두사 결함을 `64eeb6d0`에서 `host(inet_server_addr())`로 수리/메인 ff-only 반영했다. 임시PG RED→GREEN·관련112PASS·HTTP 삭제14PASS·타입/빌드0, IPC 단독78PASS와 독립 소스 C/I0을 확인했다. 실제 보호 reader+동일 DB transaction 검증은06:51UTC 성공했으며 안전 기준은 유지했다.
+- 실제54비활성/APPLIED·native0과 새3root CMS백업67,404,574bytes/off-device 전체 검증 후 Pi를 정상 종료·USB0 확인·새 컨테이너83cc7135/imagef9aa4ce5로 교체했다. 보호 identity/mapping/provision25개와 환경·인증·mount/security는 유지했고 실제 heartbeat의 삭제 지원 version1을 확인했다. 기존 중지 컨테이너와 백업은 보존한다.
+- compiled API/Web/broker는 정상 쓰기 모드 supervisor27573/readiness5up이다. 기존 차량 감지 규칙은 정상 UI에서 원래 감지100%·유지5초·대기10%/5초·self/sensor로 복구했다. 서버 desired=applied55/errornull과 장비 native applied/intentnull·원 설정 일치를 확인했다. 07:16UTC 재조회도 version1·55/APPLIED·삭제/퇴역/결과/복구 원장0이다.
+- 남은 관문은 Mac 시간 검증 서비스의 간헐적 unavailable/새 step latch다. 안전 기준·세대·설치 파일을 우회/초기화하지 않았다. 추가 Mac 인증 명령은10분 넘게 응답 대기였으므로 소유 osascript32814 신원을 확인해 SIGTERM/exit143으로 취소했다. launchd runs1·기존 clock63547 유지로 재시작 미실행을 확인했다. 대기 중인 특권 명령은 없으며 사람의 실제 OS 인증 완료 뒤 정상 재시작·독립 표본 승인이 필요하다. 현재 시간 검증과 브라우저 삭제 허용이 확인되기 전에는 수동 삭제 준비 완료가 아니다. 실제 삭제 POST는0이다.
+
 ## 2026-10-16 실제 조명 등록 삭제 구현 및 최종 적용
 
 - 사용자 지시로 서면 설계를 승인하고 실행 계획 작성 후 즉시 구현·별도 브랜치 후 MAIN 병합을 진행한다. 브랜치 `codex/fixture-registration-removal-20261015`, 계획 `docs/superpowers/plans/2026-10-16-fixture-registration-removal.md`다. 기존 MAIN a6260156 변경을 양쪽 문서 보존 merge로 통합했다.

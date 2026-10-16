@@ -13,7 +13,7 @@
 ## 공통 제약
 
 - 작업 브랜치 `codex/fixture-registration-removal-20261015`, 정본 메인 `codex/mvp1-cloud-web`. MAIN의 사용자 AGENTS/상태판 및 병행 작업을 보존한다.
-- PostgreSQL 통합 검증은 소유한 임시 DB에서 수행한다. 사용자 추가 승인에 따라 코드 검증 후 현재 로컬 DB를 백업하고 본 기능의 migration을 적용한 뒤 개발 서버를 재시작한다. 실제 조명 삭제·Pi 배포/재시작·RF·PKI 변경은 하지 않는다.
+- Task1–5의 PostgreSQL 통합 검증은 소유한 임시 DB에서 수행한다. 사용자 추가 승인에 따라 코드 검증 후 현재 로컬 DB를 백업하고 본 기능의 migration을 적용한 뒤 개발 서버를 재시작한다. 이 단계에서는 실제 조명 삭제·Pi 배포/재시작·RF·PKI 변경을 하지 않는다. 후속 Task6은 별도 승인된 Gateway 업데이트와 규칙 복구만 추가하며 실제 삭제·PKI 변경은 계속 제외한다.
 - 신규 BIO만 지원하며 기존 native 장치와 데이터는 보존한다. 삭제가 물리 초기화·소등·센서 모드 변경이 아님을 명시한다.
 - 과거 명령/등록/통계 FK는 유지하고 운영 등록만 퇴역한다. retired Fixture/MeshNode는 운영 조회·새 mutation·late telemetry에서 사용하지 않는다.
 - Gateway 미지원/오프라인, 구역·스케줄·이벤트 연결, 불확정/진행 제어·복귀·맵 편집은 거절한다. 실행 여부 불명은 성공이나 단순 실패로 바꾸지 않는다.
@@ -108,6 +108,28 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - [x] 관련 앱 전체 테스트/빌드·타입과 source 변경 diff를 확인한다. 기존 알려진 실패와 신규 실패를 분리하며 전체 GREEN으로 축약하지 않는다.
 - [x] 설정/모니터링/제어/통계 현황, DB 구조, 반복 교훈과 상태판을 같은 실제 결과로 갱신하고 최종 독립 whole-branch review를 통과한다.
 - [x] 메인 최신 변경을 보존해 병합하고 메인에서 한정 검증한다. 사용자 변경은 stage하지 않는다. 추가 승인된 로컬 DB 백업·본 기능 migration·개발 서버 재시작을 수행하고 데이터/인증 설정 보존을 확인한다. 실제 장비 배포와 삭제는 제외하고 후속 적용 관문을 안내한다.
+
+## Task 6: 사용자 수동 삭제를 위한 운영 준비
+
+2026-10-16 추가 승인: 서버 시간 검증 복구·활성화와 실제 Gateway 업데이트를 진행한다. 실제 조명 등록 삭제는 사용자가 직접 수행한다.
+
+- [x] 현재 MAIN·로컬 API/Web/broker·보호 ClockAttestor 설치와 기존 설정을 읽기 전용으로 확인했다. 시간 증거는 현재 `clock_unhealthy`이며 안전 관문을 유지한다.
+- [x] 기존 로컬 환경/ACL과 Gateway의 인증·등록 매핑·영속 상태를 백업하고 실제 배포 대상·진행 작업·센서 소유권을 재확인한다.
+- [x] 보호 clock의 정상 독립 표본/관리자 승인·같은 transaction의 DB primary 검증 후 API에 고정 소켓을 연결한다. 삭제용 MQTT 권한만 추가한다.
+- [x] 안전한 drain/복구 조건을 충족한 뒤 최신 Gateway를 배포하고 실제 heartbeat의 삭제 지원 version1과 기존 identity 보존을 확인한다.
+- [ ] 브라우저 삭제 사전 조회/취소·원장/조명 수 보존을 확인하고 수동 시험 절차와 남은 차단 사유를 기록한다. 실제 삭제 POST는 실행하지 않는다.
+
+운영 중간 기록: env/ACL 및 기존 TLS 파일을 private 백업한 뒤 고정 socket과 삭제 전용 ACL4행만 추가하고 broker reload를 확인했다. 실제 DB `::1/128` 대 보호 증거 `::1` 차이를 새 임시 PG RED1/6PASS로 재현하고 `host(inet_server_addr())`로 수리했다(`64eeb6d0`, MAIN ff-only). 초기 관련112PASS·IPv6 회귀·type/build0, 제어 outbox/등록 재검증/HTTP 삭제14PASS를 확인했다. 확장 런의 IPC 시간 제한1건은 단독78PASS 재검증으로 구분하며 전체 저장소 GREEN은 아니다.
+
+06:51UTC에 실제 보호 reader+같은 운영 DB transaction 검증을 통과했다. 현재 API/Web/broker는 read-only supervisor20588/readiness5up이며 새 HTTP 쓰기를 차단한다. 서버 접수/등록/제어/소유권10종 count0을 확인했다. 규칙은 에이전트 비활성화 요청 없이 안전 정책에 의해51활성→52비활성/APPLIED로 전환됐으며 기존 설정값을 보존했다. 사용자에게 별도 임시 비활성화·배포·동일 규칙 재활성화 승인을 받았다. 실제 Pi 교체는 새 native 복귀 증거/백업 관문 뒤에만 진행한다.
+
+후속 운영 기록: 실제54비활성/APPLIED·native0과 새 진행 작업0으로 갱신한 뒤3root/53member CMS 백업67,404,574bytes를 off-device 전체 검증했다(SHA256 `df9957718af785cf1e044f5e37a1c98748c07bdc3399f050853a27ed86e26f74`). 원 컨테이너를 TERM/natural exit0·USB0으로 정지한 후 새 `83cc7135…`/image`f9aa4ce5…`를06:59:35UTC 기동했다. 원24개 보호 항목+provision journal25개·인증/env/mount/security/USB를 보존하고 실제 heartbeat version1·healthy/USB1을 확인했다. 삭제 원장0이며 retirement manifest는 실제 삭제 전이므로 없다.
+
+07:00UTC 점검 모드를 해제한 compiled runtime27573/readiness5up에서 정상 UI를 통해 기존 규칙을 재활성화했다. 서버 desired=applied55/hash`05d6511e…`/errornull과 실제 native applied/intentnull·original=desired=applied를07:06:43UTC에 확인했다. 감지100%·유지5초·대기10%/5초·phase0·sensor/self와 다른 대상0·등록25개 보호값을 유지했다. API와 Gateway의 source SHA는 각각64eeb6d0/24d2d8e4이며 API만 달라 검증된 Gateway 이미지를 불필요하게 재빌드하지 않았다.
+
+남은 관문: 시간 증거가 정상 관측 뒤에도 간헐적으로 unavailable/새 step latch로 바뀌어 브라우저 확인창이503으로 차단됐다. 실제 기존 clock 프로세스의 background scheduling을 해제했으나 보안 기준·설치 프로그램/plist·세대 상태 초기화는 하지 않았다. 추가 Mac 인증 명령은10분 넘게 응답 대기여서 소유 osascript32814를 신원 확인 후 SIGTERM/exit143으로 취소했다. launchd runs1/기존63547로 정상 재시작 미실행을 확인했으며 대기 중 특권 명령은 없다. 사람의 실제 OS 인증 완료 뒤 기존 서비스 정상 재시작→보호된3개 독립 표본→현재 observation 승인→동일 DB transaction 검증→브라우저 사전 확인/취소를 이어야 한다. 안정화 전 수동 삭제 시험 준비 완료로 기록하지 않는다. Gateway/인증/매핑/조명 수·삭제 원장은 보존한다.
+
+최종 사전 조회: 실제 admin의 방습등1 확인창에서 한국어 시간 검증 미준비 안내와 삭제 disabled를 다시 확인하고 취소했다. 현장6개 등록은 유지하며 실제 삭제 POST는0이다. 증거 이미지는 root `.local/fixture-removal-20261016-ops/final-clock-blocked-preview.jpg`다. Mac 인증 창과 실제 명령 실행 완료는 별개이므로 재개 시 먼저 보호된 operator의 `status`와 launchd의 현재 PID/실행 횟수를 확인한다. 새 인증 창을 누적 생성하거나 지연 실행할 명령을 남기지 않는다.
 
 ## 실행 상태
 
