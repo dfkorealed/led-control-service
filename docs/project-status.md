@@ -2,11 +2,13 @@
 
 기준일: 2026-10-15
 
-## 2026-10-16 BIO 자기 제어 적용 실패 수리 — 코드 검증 완료·승인 배포 준비
+## 2026-10-16 BIO 자기 제어 적용 실패 수리 — 메인·장비 반영 및 활성47 APPLIED 완료
 
 - 실제 L006 규칙 desired43/applied42는 `bio_self_firmware_unsupported`로 거절됐다. 기존 등록 mapping의 fingerprint 누락을 미지원으로 잘못 해석한 resolver가 원인이며 native 원장/SET은 없다. 최신 독립 commissioning 권위를 사용하되 매핑/펌웨어/건강/소유권 검증은 유지한다.
-- 별도 `codex/fix-native-legacy-fingerprint-20261016`, [체크리스트](superpowers/plans/2026-10-16-bio-native-legacy-fingerprint-fix.md): [x] 원인/legacy회귀 수리·메인c0e39904 병합·암호화백업/동일launch 배포, [x] 후속ACK/config 경합의 실제시각·RED→5files105PASS·타입/build0·단독검토, [ ] 후속commit/병합/새백업·배포, [ ] 현재100%/5초 규칙의 실제APPLIED 확인. 사용자는 최대6~8분 중단/배포/현재규칙 적용을 승인했다. 방습등시험·DB/인증/기본밝기변경은 제외한다.
+- 별도 `codex/fix-native-legacy-fingerprint-20261016`, [체크리스트](superpowers/plans/2026-10-16-bio-native-legacy-fingerprint-fix.md): [x] 원인/legacy회귀 수리·메인c0e39904 병합·암호화백업/동일launch 배포, [x] 후속ACK/config 경합의 실제시각·RED→5files105PASS·타입/build0·단독검토, [x] c7a062a5병합/정식ARM64새백업·배포, [x] 실제100%/5초 규칙활성47APPLIED·서버/장비exacthash확인. main병합뒤관련28/28도통과했다. 방습등시험·DB/인증/기본밝기변경은0이다.
 - 첫배포 후 서버의연결증거만료가자동44disabled/APPLIED를만들었다(해당시각사용자PATCH0). 정상UI준비후45활성은서버ready2184의ACK를Gateway가내구저장하기전에config가도착하여 `bio_pulse_control_unavailable`로거절됐다. native원장/SET0이며, 정확한livecommission의ACK만최대2초기다리고전체identity/연결fence를재검증한다. 활성규칙성공은아직미확인이다.
+- 위문장은당시중간상태다.45는정상config재조회로APPLIED에수렴했고, 후속배포전정상UI비활성46도첫identity확인거절후원설정전체일치/원장삭제/APPLIED에수렴했다. 그확인전에는배포guard가중단해lifecycle변경0이었다. 원장/보호를강제삭제하거나unknown SET를재전송하지않았다.
+- 최종11:11KST: Gateway sourcec7a062a5/image98d107f0·USBowner1·freshhealth·24보호identity/mapping불변·launch/security/인증/주소보존이다. 새3root CMS백업67,384,074bytes/off-device검증·oldcontainer보존후반영했고API/Web/broker재시작0이다. 실제UI활성/self/100%/5초/적용됨, desired=applied47/errornull/nativeversion1·선언28/exacthash61b29a0e…를확인했다. native원장은applied/intentnull이고독립전체GET가high100/standby10/hold5/standby5/phase0/sensor와일치한다. 등록/기본밝기digest는전후불변이다. B1기존4등online,방습등2대는offline으로표시되며별도시험/설정0이다. 실제움직임/광출력시간시험은이번범위에서하지않았다.
 
 ## 2026-10-16 BIO 자기 감지 제어 — 운영 반영 완료·사용자 UI 시험 준비
 

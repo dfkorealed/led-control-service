@@ -36,12 +36,18 @@
 - [x] Reproduce with actual monitor/delivery/provider/source/AutomationRuntime and delayed ACK, correct snapshot hash: RED rejected before ACK.
 - [x] Wait at most2000ms for an exact staged live commission's accepted durable ACK, using existing change notifications. No probing/SET/retransmission, no presumed readiness. Revalidate original generation and complete source identity/double-read fences afterward. Already-qualified calls keep their original fences.
 - [x] Accepted ACK/timeout/reconnect tests plus source revision fences and native ownership regressions:5files105PASS; Gateway typecheck/build0. Solo review, no other chats or agents.
-- [ ] Commit/merge follow-up and deploy immutable candidate with a fresh backup; verify approved unchanged100%/5s rule actually active/APPLIED.
+- [x] Commit/merge follow-up `c7a062a5` and deploy immutable candidate with a fresh backup; verify approved unchanged100%/5s rule actually active/APPLIED47.
 
 ## Task 2 — approved deployment and exact rule verification
 
-- [ ] Build/verify new immutable ARM64 bundle for committed source; retain prior canonical release-infrastructure evidence (infrastructure unchanged).
-- [ ] Fresh exact runtime/USB/journal/rule preflight; encrypted three-root backup and off-device verification before replacing current container.
-- [ ] Deploy with unchanged environment/security/mounts/auth/IDs; keep old container stopped and retained.
-- [ ] Verify actual latest rule/native full GET readback and matching server/Gateway APPLIED hash; no movement or waterproof test.
-- [ ] Record actual result and limitations, merge final docs, leave UI ready.
+- [x] Build/verify immutable ARM64 bundles for exact committed sources c0e39904 and c7a062a5; retained prior canonical release-infrastructure evidence (infrastructure unchanged, not claimed as a fresh whole-suite run).
+- [x] Fresh exact runtime/USB/journal/rule preflight; each encrypted three-root backup and off-device verification before replacing current container.
+- [x] Deploy with unchanged environment/security/mounts/auth/IDs; keep both old containers stopped and retained. Latest sourcec7a062a5/image98d107f0/USBowner1/24protectedentriesunchanged; CMS67,384,074bytes verified. No API/Web/broker restart, DB migration, authentication or host-alias changes.
+- [x] Actual native full GET and server/Gateway APPLIED47/hash61b29a0e… match. Rule100%/5s remainsenabled/self-only. Original/desired/applied high100/standby10/hold5/standby5/phase0/sensor; intentnull. No movement or waterproof test. Registration/configured-brightness digests unchanged; regular B1 lamps4online, waterproof2offline are not claimed verified.
+- [x] Record actual result and limitations; final docs-only integration preserves user AGENTS/status notes and leaves real product UI ready.
+
+## Completion evidence / operational exceptions
+
+- Main focused resolver/production commissioning28/28 after c7a062a5; branch105/105·type/build0. Author solo self-review per user instruction, no independent review or other-chat messages. Existing bundle-size warning unchanged; no whole-suite/HIL success claim.
+- Existing automatic RF0 configuration re-query converged45 toAPPLIED once durable ACK was available. Before second deployment, UI disable46 initially failed fresh identity preflight (`bio_self_identity_changed`), then existing re-query completed original full readback and removed the native owner. Deployment guard refused changes until46APPLIED/native rowsempty. No unknown native intent was replayed, no journal deletion or backup restoration.
+- Latest container `5c959c4b0ac2a0ec3a37a1ceabce7bbb801e819dfc5ab683d3e87d6d31ec36ca`; previous `ba1432e2…` and `69018393…` retained. Private `fix2-*` receipts, encrypted backups and final UI screenshot stay in the existing evidence folder; never delete it as scratch.

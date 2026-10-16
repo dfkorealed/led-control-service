@@ -4,8 +4,9 @@
 
 ### 구현 완료
 
-- 구형 등록의 mapping에 상세 fingerprint가 없더라도 현재 독립 commissioning/서버확인/정상연결 권위의 fingerprint로 자기 제어를 판정한다. 기존 firmware 문자열 및 선택적 저장 fingerprint와 물리 UUID/주소는 계속 대조한다. 추정 정보로 mapping을 덮거나 미검증 펌웨어를 허용하지 않는다. 실제L006 실패43을 재현한 RED→관련89PASS·타입/build0이며 수정 버전의 실제 배포/43APPLIED 확인은 진행 중이다.
-- 첫센서준비의서버ready와Gateway확인응답저장사이메시지경합은정확한staged/livecommission의ACK를최대2초기다린다. timeout/연결변경이면거절하며기존double-read/USB/identity검증을유지한다. 준비나SET의자동재전송은없다. 실제45실패의시각근거와105PASS회귀를확보했으며후속배포/활성APPLIED는아직이다.
+- 구형 등록의 mapping에 상세 fingerprint가 없더라도 현재 독립 commissioning/서버확인/정상연결 권위의 fingerprint로 자기 제어를 판정한다. 기존 firmware 문자열 및 선택적 저장 fingerprint와 물리 UUID/주소는 계속 대조한다. 추정 정보로 mapping을 덮거나 미검증 펌웨어를 허용하지 않는다. 실제L006 실패43을 재현한 RED→관련회귀·타입/build를확인하고메인/장비에반영했다.
+- 첫센서준비의서버ready와Gateway확인응답저장사이메시지경합은정확한staged/livecommission의ACK를최대2초기다린다. timeout/연결변경이면거절하며기존double-read/USB/identity검증을유지한다. 준비나SET의자동재전송은없다. 실제45실패의시각근거와105PASS회귀·메인관련28PASS를확보했다.
+- 최종c7a062a5를새CMS백업후동일launch/ID/기본밝기/인증으로배포했다. 실제UI의B1-L006/self/100%/5초규칙이47APPLIED/errornull·서버/Gateway동일hash이며native원장applied/intentnull·전체독립GET high100/standby10/hold5/standby5/phase0/sensor와일치한다. UI시험이가능하며이번수리에서움직임/광출력시간·방습등시험은하지않았다.
 - 공통 Checkbox `감지한 조명도 제어`로 자기 조명만 제어하거나 다른 조명을 추가한다. 새 규칙은true, 기존 규칙은false이며 기존/신규 등록에 같은 처리 경로를 쓴다. 자기 조명을 일반 force 출력 대상으로 추가하지 않는다.
 - 자기 제어 감지 밝기1~100%, 유지시간1~127초까지 초 단위·이후60초 단위(최대1,800초)를 UI/API/shared/DB/codec에서 검증한다. 다른 조명 서비스 타이머의1초 단위와 구별한다. 감지 후 낮은 밝기·대기 구간·phase는 조명에 저장된 원 설정을 보존한다.
 - 명시적인 V3 native 지원 선언이 있어야 활성화한다. 지원 상실은 기존 소유권을 보존한 REJECTED로 저장한다. Gateway는 현재 매핑·USB 세대·펌웨어·권한/lease를 확인하고 원 설정/단계를 SET 전에 내구 저장한다. 독립 GET 일치 뒤만 ACK하며 비활성화 시 전체 원 설정을 복구한다. 부분 적용/재시작은 재전송하지 않고 보호한다.
@@ -16,7 +17,7 @@
 
 ### 미구현
 
-- 새 제품 UI에서 사용자가 규칙을 저장·활성화하는 첫물리시험은 아직이다. 저수준B1-L006 시험과배포확인을제품규칙의실제감지/해제성공으로확대하지않는다. 광출력정확한1초/재감지연장은실측하지않았다.
+- 제품 UI의 저장·수정·활성화와실제Gateway설정적용은47APPLIED까지확인했다. 해당제품규칙의실제움직임·광출력정확한1초/재감지연장은이번수리에서시험하지않았으며저수준B1-L006의과거관측과구분한다.
 
 ### 부족하거나 개선이 필요한 기능
 
