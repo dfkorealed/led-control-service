@@ -98,13 +98,25 @@ for (const viewport of viewports) {
     expect(mainBox).not.toBeNull();
     expect(mainBox!.width).toBeLessThanOrEqual(Math.min(viewport.width, 1160));
     await expectMinimumTouchTargets(page, "header");
-    if (viewport.width >= 760) {
-      await expect(page.getByLabel("현장 관리자 계정 표")).toBeVisible();
-      await expect(page.getByLabel("현장 관리자 계정 카드 목록")).toHaveCount(0);
-    } else {
-      await expect(page.getByLabel("현장 관리자 계정 표")).toHaveCount(0);
-      await expect(page.getByLabel("현장 관리자 계정 카드 목록")).toBeVisible();
-      await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="현장 관리자 계정 카드 목록"]');
+    // These eight columns require 1230px. The preserved 1160px operator frame
+    // supplies at most 1104px of content, so all named viewports use cards.
+    // The old label-only query also matched this UL and never proved a table.
+    const accounts = page.getByRole("list", { name: "현장 관리자 계정 표", exact: true });
+    await expect(accounts).toBeVisible();
+    expect((await accounts.boundingBox())!.width).toBeLessThan(1230);
+    await expect(page.getByRole("table", { name: "현장 관리자 계정 표", exact: true })).toHaveCount(0);
+    await expect(accounts.getByRole("listitem")).toHaveCount(4);
+    for (const site of siteAdmins) {
+      const row = accounts.getByRole("listitem").filter({ hasText: site.siteName });
+      await expect(row.getByText(site.customerName, { exact: true })).toBeVisible();
+      await expect(row.getByText(site.siteName, { exact: true })).toBeVisible();
+      if (site.admin) {
+        await expect(row.getByText(site.admin.loginId, { exact: true })).toBeVisible();
+        await expect(row.getByRole("button", { name: `${site.admin.name} 수정`, exact: true })).toBeEnabled();
+      } else await expect(row.getByRole("button", { name: `${site.siteName} 관리자 지정`, exact: true })).toBeEnabled();
+    }
+    if (viewport.width < 760) {
+      await expectMinimumTouchTargetsAfterScrolling(page, 'ul[aria-label="현장 관리자 계정 표"]');
       const metrics = page.locator('[data-testid="operator-summary-strip"] [data-metric-card]');
       const first = await metrics.nth(0).boundingBox();
       const second = await metrics.nth(1).boundingBox();

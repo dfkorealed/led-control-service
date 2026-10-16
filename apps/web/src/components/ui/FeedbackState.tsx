@@ -3,6 +3,7 @@ import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { cva } from "class-variance-authority";
 import { Text } from "./Typography";
 import { cn } from "./utils/cn";
+import { panelPaddingClass } from "./FunctionalLayout";
 
 export type FeedbackTone = "neutral" | "info" | "success" | "warning" | "danger";
 const feedbackText = {
@@ -11,7 +12,7 @@ const feedbackText = {
 } satisfies Record<FeedbackTone, string>;
 
 export interface FeedbackStateProps extends HTMLAttributes<HTMLElement> { variant?: "default"; tone?: FeedbackTone; icon: LucideIcon; title: string; description?: string; action?: ReactNode; liveRole?: "status" | "alert"; livePoliteness?: "polite" | "assertive" }
-const feedback = cva("flex items-start gap-2.5 rounded-panel border p-3.5", {
+const feedback = cva("flex items-start gap-2.5 rounded-panel border", {
   variants: {
     variant: { default: "" },
     tone: {
@@ -30,5 +31,5 @@ export const FeedbackState = forwardRef<HTMLElement, FeedbackStateProps>(functio
     "aria-live": livePoliteness
   };
 
-  return <section {...liveProps} {...props} ref={ref} className={cn(feedback({ variant, tone }), className)} data-tone={tone}><Icon size={22} className="shrink-0" aria-hidden="true" /><div className="grid gap-1.5"><Text as="strong" weight="bold" className={feedbackText[tone]}>{title}</Text>{description ? <Text className={feedbackText[tone]}>{description}</Text> : null}{action}</div></section>;
+  return <section {...liveProps} {...props} ref={ref} className={cn(feedback({ variant, tone }), panelPaddingClass("regular"), className)} data-tone={tone}><Icon size={22} className="shrink-0" aria-hidden="true" /><div className="grid min-w-0 gap-1.5"><Text as="strong" weight="bold" className={feedbackText[tone]}>{title}</Text>{description ? <Text className={feedbackText[tone]}>{description}</Text> : null}{action}</div></section>;
 });

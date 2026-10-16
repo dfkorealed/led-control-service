@@ -138,11 +138,12 @@ export function RequiredPasswordChangeView({ user, onCompleted }: {
       <Card
         data-testid="required-password-card"
         data-password-stage={passwordStage}
-        className="required-password-card grid w-full max-w-lg gap-5 p-7 shadow-panel"
+        padding="regular"
+        className="required-password-card grid w-full max-w-lg gap-5 shadow-panel"
       >
         <div className="required-password-heading flex items-center gap-3.5">
           <span className="required-password-icon grid size-11 shrink-0 place-items-center rounded-control bg-action-primary-soft text-action-primary"><KeyRound size={22} aria-hidden="true" /></span>
-          <div className="grid gap-1"><Text as="span" variant="overline" tone="secondary">최초 로그인</Text><Heading as="h1" variant="section-title">비밀번호를 변경해 주세요</Heading></div>
+          <div className="grid gap-1"><Text as="span" variant="overline" tone="secondary">최초 로그인</Text><Heading as="h1" variant="customer-page-title">비밀번호를 변경해 주세요</Heading></div>
         </div>
         <Text tone="secondary">임시 비밀번호를 본인만 아는 비밀번호로 변경한 뒤 서비스를 이용할 수 있습니다.</Text>
         <form className="grid gap-4" aria-label="최초 로그인 비밀번호 변경" onSubmit={handleSubmit}>

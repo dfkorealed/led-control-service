@@ -1,5 +1,30 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-16 공통 보안·상태·오버레이 표현 (Task 2)
+
+### 구현 완료
+
+- 고객 shell은 공통 계정 보안에 customer presentation을 명시한다. SettingsShell의 기존 h1을 유지하고 비밀번호·MFA·활성 세션은 공통 regular inset20/16px·카드 제목16px·card grid18px를 소비한다.
+- 비밀번호 팝업은 일반 modal inset20/16px를 사용하며 기존 pending 닫기 차단·초점 복귀를 보존한다. 계정 A의 지연 MFA 응답 뒤 계정 B의 실제 성공 상태·비밀 미노출을 검증하고 기존 principal별 remount·query/cache·세션 종료·비밀 입력 수명을 유지했다.
+- 공통 feedback/loading/recovery는 일반 inset과 제목 위계를 공유하며 기존 role/live/focus와 복구 action을 유지한다.
+
+### 미구현
+
+- 운영 인증/실제 계정·native WebView·장비/HIL·배포 검증은 이번 mock 소프트웨어 범위에 포함하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 이번 적용은 공유 보안과 공통 기반이다. 다른 설정 feature의 전용 overlay inset 및 페이지 소비 전체 정합화는 후속 Task와 전체 검증 대상이다.
+
+### 관련 파일
+
+- `apps/web/src/features/settings/security/AccountSecurityView.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`, 공통 `apps/web/src/components/ui/{FeedbackState,RouteLoadingState,AppRecoveryState,overlays/DialogBase}.tsx`와 대응 테스트.
+- `apps/web/e2e/{design-system-security,account-security,ui-overlays}.spec.ts`.
+
+### 갱신 규칙
+
+- 보안 presentation 변경 시 양 shell의 단일 h1과 지연 응답·principal cache·비밀 수명·pending/focus 회귀를 함께 검증한다. 부분 적용을 전체 설정 완료로 확대하지 않는다.
+
 ## 2026-10-16 조명 등록 삭제
 
 ### 구현 완료

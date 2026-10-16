@@ -1,5 +1,13 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-16 공통 상태·오버레이 기반 (Task 2)
+
+- 구현 완료: 공통 feedback/loading/recovery와 일반 modal/drawer 기본 내용이 regular inset20/16px를 사용한다. 상태 role/live·복구 focus·pending·52px 닫기·safe-area/reader를 보존한다.
+- 미구현: 통계 페이지/overlay 소비 전체 정합화·실제 데이터/보고서 운영 검증은 이번 범위가 아니다.
+- 부족하거나 개선이 필요한 기능: 통계의 전용 inset·차트 geometry·compact 리듬은 후속 Task와 전체 소비 검증을 따른다. 공통 fixture 통과만으로 통계 전체를 완료 처리하지 않는다.
+- 관련 파일: `apps/web/src/components/ui/{FeedbackState,RouteLoadingState,AppRecoveryState,overlays/DialogBase}.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
+- 갱신 규칙: 공통 상태/오버레이 영향과 mock/실제 운영 검증을 구분해 기록한다.
+
 ## 2026-10-16 등록 삭제 뒤 전력 이력 보존
 
 ### 구현 완료

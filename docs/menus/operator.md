@@ -1,5 +1,30 @@
 # 운영자 메뉴 기능 현황
 
+## 2026-10-16 공통 디자인 시스템 Task 2
+
+### 구현 완료
+
+- 현장 관리자·센서 프로파일·상담 문의·계정 보안의 page 제목 역할, section20px·card grid18px와 일반 카드 inset20/16px를 공통 표현으로 연결했다. 운영자 main은 최대1160px를 유지하며 desktop 좌우28/상하24px, compact 좌우14/상하18px를 사용한다.
+- 계정 보안은 operator presentation을 명시하고 shell의 h1 하나를 유지한다. 공통 modal/drawer 일반 inset과 상태 표시를 정합화했으며 기존 권한·API·cursor·프로파일 승인/철회·비밀번호·MFA·세션 수명은 유지한다.
+
+### 미구현
+
+- 실제 운영 계정·NAVER WORKS·서버/장비·native/HIL 검증과 배포는 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 현장 관리자 열의 최소폭 합1230px가 현행 operator 최대 content1104px보다 커 현재 지정 viewport에서는 모두 카드 목록이다. 기존 label 기반 시험은 UL을 표로 오인했으며 이번에는 list/table 의미·폭·모든 행과 작업을 검증한다. 실제 operator 표 표시 완료로 기록하지 않는다.
+- 공통 오버레이 변경은 기반과 Task2 소비 범위다. 타 feature의 별도 내용 inset은 후속 작업과 전체 소비 검증 대상이다.
+
+### 관련 파일
+
+- `apps/web/src/features/operator/{OperatorShell,SensorProfilesView,LandingInquiriesView}.tsx`, `apps/web/src/features/operator/site-admins/SiteAdminManagementView.tsx`, 공통 `apps/web/src/components/ui/{FunctionalLayout,FeedbackState,RouteLoadingState,AppRecoveryState,overlays/DialogBase}.tsx`.
+- `apps/web/e2e/{design-system-security,account-security,calm-operations-auth-operator,ui-overlays}.spec.ts`.
+
+### 갱신 규칙
+
+- 카드/표 전환은 viewport 명칭 대신 실제 container 폭과 semantic surface를 확인한다. mock 소프트웨어 시험과 실제 권한·메일·장비 증거를 구분한다.
+
 ## 2026-10-14 공통 로딩 표시 적용
 
 ### 구현 완료

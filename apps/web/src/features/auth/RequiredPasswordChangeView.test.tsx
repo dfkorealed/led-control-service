@@ -59,11 +59,14 @@ describe("RequiredPasswordChangeView", () => {
     const { onCompleted } = renderView();
 
     expect(screen.getByTestId("required-password-card")).toHaveAttribute("data-password-stage", "ready");
+    const card = screen.getByTestId("required-password-card");
+    expect(card).toHaveClass("p-5", "max-compact:p-4");
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
     expect(screen.getByTestId("required-password-card")).toHaveAttribute("data-password-stage", "changing");
     await act(async () => rejectRequest?.(new Error("offline")));
     expect(screen.getByTestId("required-password-card")).toHaveAttribute("data-password-stage", "failed");
+    expect(screen.getByTestId("required-password-card")).toBe(card);
     expect(screen.getByLabelText("현재 임시 비밀번호")).toHaveFocus();
     expect(onCompleted).not.toHaveBeenCalled();
   });

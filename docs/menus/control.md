@@ -1,5 +1,13 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-16 공통 상태·오버레이 기반 (Task 2)
+
+- 구현 완료: 공통 feedback/loading/recovery와 일반 modal/drawer 기본 내용이 regular inset20/16px를 사용한다. 기존 role/live·복구 focus·pending·52px 닫기·safe-area/reader 계약을 유지하며 command와 위험 조작 로직은 변경하지 않았다.
+- 미구현: 제어 전용 페이지/overlay 전체 정합화와 실제 조명/HIL은 이번 범위가 아니다.
+- 부족하거나 개선이 필요한 기능: feature의 전용 inset·지도/명령 reader geometry는 후속 소유 작업과 전체 검증 대상이다. 공통 fixture 통과를 모든 제어 동작 완료로 확대하지 않는다.
+- 관련 파일: `apps/web/src/components/ui/{FeedbackState,RouteLoadingState,AppRecoveryState,overlays/DialogBase}.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
+- 갱신 규칙: 공유 표현 변경과 command/pending/disabled 안전 계약의 검증 범위를 함께 기록한다.
+
 ## 2026-10-16 등록 삭제와 제어 안전 경계
 
 ### 구현 완료

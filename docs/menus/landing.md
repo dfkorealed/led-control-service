@@ -1,5 +1,13 @@
 # 공개 랜딩 메뉴 기능 현황
 
+## 2026-10-16 공통 오버레이 기반 (Task 2)
+
+- 구현 완료: 공통 modal/drawer의 일반 내용 기본 inset을20/16px로 정합화하고 frame·focus·pending·52px 닫기를 유지했다. 공개 브랜드/hero·상담의 tel/mailto 의미는 변경하지 않았다.
+- 미구현: 공개 소비의 전용 inset 제거·각 entry 전체 검증·운영 배포는 후속 작업이다.
+- 부족하거나 개선이 필요한 기능: 공통 fixture 검증은 공개 상담 modal의 모든 caller 정합화 완료를 뜻하지 않는다. 공개 브랜드 구성과 일반 modal 내용을 구분한다.
+- 관련 파일: `apps/web/src/components/ui/overlays/DialogBase.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
+- 갱신 규칙: 공통 overlay 변경 시 공개 상담 소비와 mock/운영 배포 검증 범위를 함께 기록한다.
+
 기준일: 2026-10-11
 
 ## 구현 완료

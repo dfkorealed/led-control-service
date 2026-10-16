@@ -14,24 +14,24 @@ import {
   type MfaEnrollment
 } from "../../../api/auth";
 import { authSessionsQueryKey, clearPrincipalCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
-import { LoadingState, Button, Card, ConfirmDialog, FeedbackState, ModalDialog, Text, PasswordField, StatusBadge, TextField, formatTimestamp  } from "../../../components/ui";
+import { LoadingState, Button, Card, CardGrid, PageStack, ConfirmDialog, FeedbackState, Heading, ModalDialog, Text, PasswordField, StatusBadge, TextField, formatTimestamp  } from "../../../components/ui";
 import { PasswordChangeCard } from "./PasswordSettingsView";
 
 type MfaQueryKey = readonly ["auth", "mfa", string];
 type SessionsQueryKey = ReturnType<typeof authSessionsQueryKey>;
 
-export function AccountSecurityView({ user }: { user: AuthUser }) {
+export function AccountSecurityView({ user, presentation = "customer" }: { user: AuthUser; presentation?: "customer" | "operator" }) {
   const principal = principalKey(user);
   const mfaQueryKey: MfaQueryKey = ["auth", "mfa", principal];
   const sessionsQueryKey = authSessionsQueryKey(principal);
   const canManageMfa = user.role === "admin" || user.role === "operator";
 
   return (
-    <section className="grid gap-5">
+    <PageStack as="section" data-security-presentation={presentation}>
       <Text tone="secondary">{canManageMfa
           ? "비밀번호, 2단계 인증과 로그인된 기기를 관리합니다."
           : "비밀번호와 로그인된 기기를 관리합니다."}</Text>
-      <div key={principal} data-testid="account-security-layout" className="grid gap-3 compact:grid-cols-2">
+      <CardGrid key={principal} data-testid="account-security-layout" className="compact:grid-cols-2">
         <div data-testid="password-security-cell" className={canManageMfa ? "min-w-0" : "min-w-0 compact:col-span-2"}>
           <PasswordSecuritySummary />
         </div>
@@ -41,8 +41,8 @@ export function AccountSecurityView({ user }: { user: AuthUser }) {
         <div data-testid="sessions-security-cell" className="min-w-0 compact:col-span-2">
           <SessionsCard principal={principal} sessionsQueryKey={sessionsQueryKey} />
         </div>
-      </div>
-    </section>
+      </CardGrid>
+    </PageStack>
   );
 }
 
@@ -51,8 +51,8 @@ function PasswordSecuritySummary() {
   const [isPending, setIsPending] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   return <>
-    <Card className="grid gap-4 p-5">
-      <h2 className="m-0 text-card-title font-bold text-content-primary">비밀번호</h2>
+    <Card padding="regular" className="grid gap-4">
+      <Heading variant="customer-card-title">비밀번호</Heading>
       <Text tone="secondary">현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.</Text>
       <Text variant="body-sm" tone="secondary">새 비밀번호는 8자 이상 1024자 이하로 입력해 주세요.</Text>
       <Button ref={trigger} className="justify-self-start" onClick={() => setIsOpen(true)}>비밀번호 변경</Button>
@@ -164,10 +164,10 @@ function MfaCard({
   }
 
   return (
-    <Card className="grid min-w-0 gap-5 p-5" aria-labelledby="mfa-card-title" data-security-card="mfa">
+    <Card padding="regular" className="grid min-w-0 gap-5" aria-labelledby="mfa-card-title" data-security-card="mfa">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 id="mfa-card-title" className="m-0 text-card-title font-bold">2단계 인증</h2>
+          <Heading id="mfa-card-title" variant="customer-card-title">2단계 인증</Heading>
           <p className="mt-1 text-content-secondary">인증 앱 코드로 operator와 admin 계정을 추가 보호합니다.</p>
         </div>
         <ShieldCheck size={22} aria-hidden="true" />
@@ -307,10 +307,10 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
   const otherSessionCount = sessions.filter((session) => !session.current).length;
 
   return (
-    <Card className="grid min-w-0 gap-5 p-5" aria-labelledby="sessions-card-title" data-security-card="sessions">
+    <Card padding="regular" className="grid min-w-0 gap-5" aria-labelledby="sessions-card-title" data-security-card="sessions">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 id="sessions-card-title" className="m-0 text-card-title font-bold">활성 세션</h2>
+          <Heading id="sessions-card-title" variant="customer-card-title">활성 세션</Heading>
           <p className="mt-1 text-content-secondary">현재 로그인된 브라우저와 기기를 확인하고 필요 없는 세션을 종료합니다.</p>
         </div>
         <Laptop size={22} aria-hidden="true" />

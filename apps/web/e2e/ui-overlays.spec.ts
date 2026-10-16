@@ -2,22 +2,33 @@ import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
 import { expect, test } from "@playwright/test";
+import { installDesignMemoryBoundary } from "./support/design-system-fixture";
+
+test.use({ serviceWorkers: "block" });
 
 const require = createRequire(import.meta.url);
 const fixture = String.raw`
 import React,{useState,useRef} from "react";
 import {createRoot} from "react-dom/client";
-import {ModalDialog,ConfirmDialog,DropdownMenu,Popover,Button} from "/src/components/ui/index.ts";
+import {ModalDialog,DrawerDialog,ConfirmDialog,DropdownMenu,Popover,Button,AppRecoveryState,RouteLoadingState} from "/src/components/ui/index.ts";
 import {useDialogFocus} from "/src/components/ui/overlays/useDialogFocus.ts";
 import "/src/styles.css";
 const el=React.createElement;
 window.overlayEvents=[]; window.overlayRoots={};
 const record=(...value)=>window.overlayEvents.push(value);
 function App(){
+ const [sharedState,setSharedState]=useState(null);
  const [open,setOpen]=useState(false),[child,setChild]=useState(false),[pending,setPending]=useState(false),[legacy,setLegacy]=useState(false),[panel,setPanel]=useState(false),[removed,setRemoved]=useState(false),[bridge,setBridge]=useState(false);
  const initial=useRef(null),fallback=useRef(null),anchor=useRef(null);
  const [widthDialog,setWidthDialog]=useState(null);
+ const [drawer,setDrawer]=useState(false);
+ if(sharedState==="loading")return el(RouteLoadingState,{variant:"page"});
+ if(sharedState==="recovery")return el(AppRecoveryState,{variant:"service_unavailable",onRetry:()=>record("retry"),onRelogin:()=>record("relogin")});
  return el("main",{className:"flex flex-col gap-4"},
+  el(Button,{onClick:()=>setSharedState("loading")},"공통 로딩 확인"),
+  el(Button,{onClick:()=>setSharedState("recovery")},"공통 복구 확인"),
+  el(Button,{onClick:()=>setDrawer(true)},"긴 drawer 열기"),
+  drawer&&el(DrawerDialog,{title:"긴 drawer",onClose:()=>setDrawer(false)},...Array.from({length:70},(_,i)=>el("p",{key:i},"긴 한국어 읽기 영역 "+i)),el(Button,null,"마지막 안전 작업")),
   el("h1",null,"오버레이 검증"),
   ...["default","confirmation","custom"].map(kind=>el(Button,{key:kind,onClick:()=>setWidthDialog(kind)},"폭 "+kind)),
   widthDialog&&el(widthDialog==="confirmation"?ConfirmDialog:ModalDialog,{title:"폭 검증",className:widthDialog==="custom"?"w-[min(38.125rem,100%)]!":undefined,confirmLabel:"확인",onConfirm:()=>setWidthDialog(null),onCancel:()=>setWidthDialog(null),onClose:()=>setWidthDialog(null)},"내용"),
@@ -60,6 +71,7 @@ console.log(JSON.stringify({html,assets:result.output.map(asset=>[asset.fileName
 
 test.describe("production overlay contracts", () => {
   let server: Server; let url: string;
+  let closeBoundary: (() => Promise<void>) | undefined;
   test.beforeAll(async () => {
     const built = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", compile], { input: fixture, encoding: "utf8", timeout: 30_000, maxBuffer: 8 * 1024 * 1024 })) as { html: string; assets: [string, string][] };
     const assets = new Map(built.assets);
@@ -75,12 +87,58 @@ test.describe("production overlay contracts", () => {
   });
   test.afterAll(async () => { if (server) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); });
   test.beforeEach(async ({ page }) => {
-    await page.route("**/*", route => {
-      const target = new URL(route.request().url());
-      if (target.origin !== new URL(url).origin || target.pathname.startsWith("/api/")) return route.abort("blockedbyclient");
-      return route.continue();
-    });
+    closeBoundary = await installDesignMemoryBoundary(page.context(), url);
     await page.goto(url); await page.getByRole("button", { name: "부모 열기" }).waitFor();
+  });
+  test.afterEach(async () => { const close = closeBoundary; closeBoundary = undefined; await close?.(); });
+
+  for (const kind of ["api", "external", "socket", "beacon"] as const) {
+    test(`memory boundary fails observably on ${kind} attempts`, async ({ page }) => {
+      expect(await page.evaluate(async kind => {
+        if (kind === "api") return await fetch("/api/unconfigured").then(r => r.status === 404);
+        if (kind === "external") return await fetch("https://blocked.invalid/", { method: "POST" }).then(() => false, () => true);
+        if (kind === "beacon") return navigator.sendBeacon("https://blocked.invalid/", "blocked") === false;
+        try { new WebSocket(location.origin.replace("http", "ws")); return false; } catch { return true; }
+      }, kind)).toBe(true);
+      const close = closeBoundary!; closeBoundary = undefined;
+      await expect(close()).rejects.toThrow("Memory fixture attempted an unconfigured API or external write");
+    });
+  }
+
+  test("shared loading and recovery use functional insets without losing announcement or focus", async ({ page }) => {
+    for (const width of [320, 1440]) {
+      await page.setViewportSize({ width, height: 600 });
+      await page.getByRole("button", { name: "공통 로딩 확인" }).click();
+      await expect(page.getByRole("status")).toHaveCSS("padding", width < 760 ? "16px" : "20px");
+      await expect(page.getByRole("status")).toHaveAttribute("aria-live", "polite");
+      await expect(page.getByRole("main").locator(":scope > div")).toHaveCSS("padding", width < 760 ? "18px 14px" : "24px 28px");
+      await page.reload();
+      await page.getByRole("button", { name: "공통 복구 확인" }).click();
+      await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCSS("font-size", width < 760 ? "24px" : "26px");
+      await expect(page.locator("[data-variant='default']")).toHaveCSS("padding", width < 760 ? "16px" : "20px");
+      await page.getByRole("button", { name: "다시 시도" }).click();
+      expect(await page.evaluate(() => (window as any).overlayEvents)).toEqual([["retry"]]);
+      await page.reload();
+    }
+  });
+
+  test("regular modal and drawer inset preserve narrow keyboard access and the long reader", async ({ page }) => {
+    for (const width of [320, 390, 760, 1440]) {
+      await page.setViewportSize({ width, height: 600 });
+      const trigger = page.getByRole("button", { name: "긴 drawer 열기" });
+      await trigger.click();
+      const drawer = page.getByRole("dialog", { name: "긴 drawer", exact: true });
+      await expect(drawer).toHaveCSS("padding", width < 760 ? "16px" : "20px");
+      await expect(drawer.locator("[data-dialog-close]")).toHaveCSS("min-height", "52px");
+      await expect(page.getByRole("button", { name: "마지막 안전 작업" })).toBeFocused();
+      await page.getByRole("button", { name: "마지막 안전 작업" }).scrollIntoViewIfNeeded();
+      await expect(page.getByRole("button", { name: "마지막 안전 작업" })).toBeInViewport();
+      await page.keyboard.press("Tab");
+      expect(await drawer.evaluate(el => el.contains(document.activeElement))).toBe(true);
+      await page.keyboard.press("Escape");
+      await expect(trigger).toBeFocused();
+    }
   });
 
   test("preserves default, compatibility and public CSS widths without narrow viewport overflow", async ({ page }) => {
@@ -152,7 +210,7 @@ test.describe("production overlay contracts", () => {
     await page.getByRole("button", { name: "이전 확인 열기" }).click();
     const dialog = page.getByRole("dialog", { name: "이전 확인" });
     await expect(dialog).toHaveAttribute("data-dialog-surface", "");
-    await expect(dialog).toHaveCSS("padding", "24px");
+    await expect(dialog).toHaveCSS("padding", "20px");
     await expect(dialog).toHaveCSS("border-radius", "14px");
     await expect(dialog.getByRole("heading")).toHaveCSS("font-size", "20px");
     await expect(dialog.getByRole("button", { name: "이전 확인 닫기" })).toBeVisible();

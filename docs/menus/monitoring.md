@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-16 공통 상태·오버레이 기반 (Task 2)
+
+- 구현 완료: 공통 feedback/loading/recovery와 일반 modal/drawer 기본 내용이 regular inset20/16px를 사용한다. 기존 상태 role/live·복구 focus·pending·52px 닫기·safe-area/reader 계약을 유지한다.
+- 미구현: 모니터링 전용 소비의 전체 정합화와 실제 Gateway·LED HIL은 이번 범위가 아니다.
+- 부족하거나 개선이 필요한 기능: feature별 명시 inset override·workspace geometry는 후속 소유 작업과 전체 소비 검증을 따른다. 공통 메모리 fixture 통과를 모든 모니터링 overlay 완료로 기록하지 않는다.
+- 관련 파일: `apps/web/src/components/ui/{FeedbackState,RouteLoadingState,AppRecoveryState,overlays/DialogBase}.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
+- 갱신 규칙: 공유 상태/오버레이 변경 시 소비 영향과 mock/실장비 한계를 함께 기록한다.
+
 ## 2026-10-16 등록 삭제와 운영 조회
 
 ### 구현 완료

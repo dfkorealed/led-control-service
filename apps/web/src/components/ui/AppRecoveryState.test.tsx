@@ -10,7 +10,8 @@ it.each(["service_unavailable", "forbidden", "chunk_error"] as const)("catches m
   const heading = screen.getByRole("heading", { level: 1 });
   expect(heading).toHaveFocus();
   expect(heading).toHaveAttribute("tabindex", "-1");
-  expect(heading).toHaveClass("text-section-title", "compact:text-page-title");
+  expect(heading).toHaveClass("text-customer-page-title");
+  expect(heading.closest("[data-variant='default']")).toHaveClass("p-5", "max-compact:p-4");
   expect(heading.className).not.toContain("[");
 });
 it("catches disconnected recovery actions or duplicate requests while pending", () => {

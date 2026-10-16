@@ -124,6 +124,7 @@ describe("operator shell route boundary", () => {
     expect(screen.getByRole("link", { name: "현장 관리자" })).toHaveAttribute("href", "/operator/site-admins?source=account#sessions");
     expect(screen.getByRole("link", { name: "계정 보안" })).toHaveAttribute("aria-current", "page");
     expect(await screen.findByRole("heading", { name: "계정 및 보안", level: 1 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "계정 및 보안", level: 1 })).toHaveClass("text-customer-page-title");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));

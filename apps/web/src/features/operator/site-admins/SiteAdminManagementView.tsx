@@ -17,7 +17,7 @@ import { FeedbackState } from "../../../components/ui/FeedbackState";
 import { MetricCard } from "../../../components/ui/MetricCard";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
-import { LoadingState, formatTimestamp  } from "../../../components/ui";
+import { CardGrid, PageStack, LoadingState, panelPaddingClass, formatTimestamp  } from "../../../components/ui";
 import { DeleteSiteDialog } from "./DeleteSiteDialog";
 import { ResetAdminPasswordDialog } from "./ResetAdminPasswordDialog";
 import { SiteAdminFormDialog } from "./SiteAdminFormDialog";
@@ -70,11 +70,12 @@ export function SiteAdminManagementView() {
   ];
 
   return (
-    <section className="grid gap-5" aria-label="현장 관리자 계정">
+    <PageStack as="section" aria-label="현장 관리자 계정">
       <PageHeader
         data-operator-admin-header
         title="현장 관리자 계정"
         headingLevel={1}
+        titleRole="page"
         description="서비스 운영 · 현장별 설치 상태와 관리자 계정을 관리합니다."
         actions={<Button ref={createCommandRef} type="button" variant="primary" onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}>
           <Plus size={16} aria-hidden="true" /> 현장 및 관리자 생성
@@ -83,9 +84,9 @@ export function SiteAdminManagementView() {
 
       {notice ? <FeedbackState tone="success" icon={CircleCheck} title={notice} /> : null}
 
-      <div data-testid="operator-summary-strip" className="grid grid-cols-2 gap-3 compact:grid-cols-4">
-        {summaries.map(({ label, value, tone, icon }) => <MetricCard key={label} label={label} value={value} tone={tone} icon={icon} />)}
-      </div>
+      <CardGrid data-testid="operator-summary-strip" className="grid-cols-2 compact:grid-cols-4">
+        {summaries.map(({ label, value, tone, icon }) => <MetricCard key={label} label={label} value={value} tone={tone} icon={icon} className={panelPaddingClass("regular")} />)}
+      </CardGrid>
 
       {siteAdmins.isLoading ? <LoadingState tone="neutral" title="현장 관리자 목록을 불러오는 중입니다." /> : null}
       {siteAdmins.error ? (
@@ -99,7 +100,7 @@ export function SiteAdminManagementView() {
       {dialog?.type === "edit" ? <SiteAdminFormDialog mode="edit" admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
       {dialog?.type === "reset" ? <ResetAdminPasswordDialog admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onReset={resetSiteAdminPassword} onSuccess={() => complete("관리자 비밀번호를 재설정했습니다.")} onClose={closeDialog} /> : null}
       {dialog?.type === "delete" ? <DeleteSiteDialog site={dialog.site} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onDelete={deleteSiteAdmin} onSuccess={() => complete("현장과 관련 데이터를 영구 삭제했습니다.")} onClose={closeDialog} /> : null}
-    </section>
+    </PageStack>
   );
 }
 

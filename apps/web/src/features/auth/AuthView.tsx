@@ -107,20 +107,21 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
     <main className="mx-auto grid min-h-screen w-full max-w-auth grid-cols-2 items-center gap-12 bg-surface-canvas px-6 py-10 max-compact:grid-cols-1 max-compact:content-center max-compact:gap-7 max-compact:px-4 max-compact:py-8">
       <section className="max-w-xl" aria-label="킨다 소개">
         <KindaLogo className="mb-7" />
-        <Heading as="h1" variant="display">빛을 더 안정적으로,<br />현장을 더 선명하게.</Heading>
+        <Heading as="h1" variant="customer-page-title">빛을 더 안정적으로,<br />현장을 더 선명하게.</Heading>
         <Text className="mt-5 max-w-lg" variant="body-lg" tone="secondary">주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</Text>
       </section>
       <Card
         data-testid="auth-stage-card"
         data-auth-stage={authStage}
         data-auth-status={authStatus}
-        className="grid w-full max-w-lg gap-5 p-6 shadow-panel"
+        padding="regular"
+        className="grid w-full max-w-lg gap-5 shadow-panel"
       >
         {challenge ? (
           <>
             <div className="grid gap-1.5">
               <Text as="span" variant="overline" tone="secondary">계정 보안</Text>
-              <Heading>2단계 인증</Heading>
+              <Heading variant="customer-section-title">2단계 인증</Heading>
               <Text variant="body-sm" tone="secondary">인증 앱의 6자리 코드 또는 저장한 복구 코드를 입력하세요.</Text>
             </div>
             <form className="grid gap-3.5" onSubmit={submitMfa}>
@@ -155,7 +156,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
           <>
             <div className="grid gap-1.5">
               <Text as="span" variant="overline" tone="secondary">계정 로그인</Text>
-              <Heading>킨다 로그인</Heading>
+              <Heading variant="customer-section-title">킨다 로그인</Heading>
             </div>
             <form className="grid gap-3.5" onSubmit={submit}>
             <TextField

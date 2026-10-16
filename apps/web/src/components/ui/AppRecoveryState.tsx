@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from "react";
 import { Button } from "./Button";
 import { Card } from "./Card";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { Heading } from "./Typography";
 
 export interface AppRecoveryStateProps {
   variant: "service_unavailable" | "forbidden" | "chunk_error";
@@ -24,9 +25,9 @@ export function AppRecoveryState({ variant, onRetry, onReload, onRelogin, isPend
   const copy = recoveryCopy[variant];
 
   return <main className="grid min-h-dvh place-items-center p-6" aria-labelledby={headingId}>
-    <Card className="w-full max-w-130 min-w-0 wrap-anywhere p-5 compact:p-10">
+    <Card padding="regular" className="w-full max-w-130 min-w-0 wrap-anywhere">
       <div role="alert">
-        <h1 id={headingId} ref={heading} tabIndex={-1} className="m-0 text-section-title font-bold text-content-primary focus:outline-3 focus:outline-action-primary focus:outline-offset-4 compact:text-page-title">{copy.title}</h1>
+        <Heading as="h1" variant="customer-page-title" id={headingId} ref={heading} tabIndex={-1} className="focus:outline-3 focus:outline-action-primary focus:outline-offset-4">{copy.title}</Heading>
         <p className="mt-2 mb-0 text-body-lg text-content-secondary">{copy.description}</p>
       </div>
       <div role="group" aria-label="복구 작업" data-recovery-actions className="mt-6 flex flex-wrap gap-3" aria-busy={isPending}>

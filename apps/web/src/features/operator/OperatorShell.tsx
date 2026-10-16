@@ -8,6 +8,7 @@ import { KindaLogo } from "../../components/brand/KindaLogo";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { PageHeader } from "../../components/ui/PageHeader";
+import { PageStack } from "../../components/ui/FunctionalLayout";
 import { IconTooltipButton } from "../../components/ui/IconTooltipButton";
 import { Text } from "../../components/ui/Typography";
 import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/ui/UnderlineNavigation";
@@ -63,7 +64,7 @@ export function OperatorShell({ user }: { user: AuthUser }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto grid w-full max-w-operator content-start gap-5 px-6 py-8 max-compact:px-3.5 max-compact:py-6">
+      <main className="mx-auto grid w-full max-w-operator content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
         <UnderlineNavigation aria-label="운영자 메뉴">
           <NavLink to="/operator/sensor-profiles" className={({ isActive }) => operatorNavigationItemClass(isActive)}><UnderlineNavigationLabel>센서 프로파일</UnderlineNavigationLabel></NavLink>
@@ -93,10 +94,10 @@ export function OperatorShell({ user }: { user: AuthUser }) {
             <Route path="/operator/landing-inquiries" element={<LandingInquiriesView />} />
             {/* AccountSecurityView shares SettingsShell's title owner on customer
                 routes; this standalone operator route must supply its own h1. */}
-            <Route path="/operator/security" element={<section className="grid gap-5">
-              <PageHeader headingLevel={1} title="계정 및 보안" />
-              <AccountSecurityView user={user} />
-            </section>} />
+            <Route path="/operator/security" element={<PageStack as="section">
+              <PageHeader headingLevel={1} titleRole="page" title="계정 및 보안" />
+              <AccountSecurityView user={user} presentation="operator" />
+            </PageStack>} />
             <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />
           </Routes>
         </Suspense>

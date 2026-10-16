@@ -5,6 +5,7 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { Button } from "../Button";
 import type { ModalDialogProps } from "../ModalDialog";
 import { cn } from "../utils/cn";
+import { panelPaddingClass } from "../FunctionalLayout";
 import { focusConnected, registerOverlay } from "./overlay-stack";
 
 type DialogSurface = "modal" | "drawer" | "sheet";
@@ -17,8 +18,8 @@ const overlayClass = {
 } satisfies Record<DialogSurface, string>;
 
 const surfaceClass = {
-  modal: "w-[min(var(--container-lg),100%)] max-h-[calc(100dvh-48px)] overflow-y-auto rounded-panel! border! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!",
-  drawer: "h-dvh w-full max-w-status-drawer overflow-y-auto border-l! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!",
+  modal: "w-[min(var(--container-lg),100%)] max-h-[calc(100dvh-48px)] overflow-y-auto rounded-panel! border! border-border-default! bg-surface-panel! text-body text-content-primary shadow-popover! outline-none",
+  drawer: "h-dvh w-full max-w-status-drawer overflow-y-auto border-l! border-border-default! bg-surface-panel! text-body text-content-primary shadow-popover! outline-none",
   sheet: "flex max-h-dvh min-h-0 w-full flex-col overflow-hidden rounded-panel! border! border-border-default! bg-surface-panel! p-0! text-body text-content-primary shadow-popover! outline-none"
 } satisfies Record<DialogSurface, string>;
 
@@ -107,13 +108,13 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
   </>;
   return <Dialog ref={dialog} role={role} aria-describedby={description ? descriptionId : undefined} data-dialog-surface="" data-dialog-variant={surface}
     render={(domProps) => <section {...domProps} aria-modal="true" />}
-    className={cn(surfaceClass[surface], className, safeArea && "p-0! compact:p-0!")}>
+    className={cn(surfaceClass[surface], !isSheet && panelPaddingClass("regular"), className, safeArea && "p-0! compact:p-0!")}>
     {/* The opt-in wrapper or legacy sheet wrapper owns the insets, never both.
         Body/actions must not add shell navigation space or duplicate insets. */}
     {safeArea ? <div data-dialog-safe-area="" className="flex min-h-0 flex-1 flex-col overflow-hidden pt-safe-area-top pb-safe-area-bottom">
       {/* Insets belong only to this wrapper. Preserve the ordinary surface
           spacing inside it, without shell-nav space or a second sheet inset. */}
-      <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", isSheet ? "px-4.5 pt-4.5" : "p-4.5 compact:p-6")}>{content}</div>
+      <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", isSheet ? "px-4.5 pt-4.5" : panelPaddingClass("regular"))}>{content}</div>
     </div> : isSheet ? <div className="flex min-h-0 flex-col overflow-hidden px-4.5 pt-4.5 pb-safe-area-bottom">{content}</div> : content}
   </Dialog>;
 }

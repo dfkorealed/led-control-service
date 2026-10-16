@@ -12,7 +12,7 @@ import { DataGrid, type DataGridColumn } from "../../components/ui/DataGrid";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { StatusBadge } from "../../components/ui/StatusBadge";
-import { LoadingIndicator, LoadingState, formatTimestamp  } from "../../components/ui";
+import { LoadingIndicator, LoadingState, PageStack, formatTimestamp  } from "../../components/ui";
 
 const deliveryPresentation = {
   queued: { label: "발송 대기", tone: "neutral", icon: Clock3 },
@@ -38,13 +38,13 @@ export function LandingInquiriesView() {
     catch { setConnectionError(true); setIsConnecting(false); }
   }
 
-  return <section className="grid gap-5" aria-label="상담 문의 관리">
-    <PageHeader title="상담 문의 관리" headingLevel={1} description="최근 접수와 메일 전달 상태를 확인합니다. 접수일로부터 90일이 지난 문의는 목록에서 제외됩니다." />
+  return <PageStack as="section" aria-label="상담 문의 관리">
+    <PageHeader title="상담 문의 관리" titleRole="page" headingLevel={1} description="최근 접수와 메일 전달 상태를 확인합니다. 접수일로부터 90일이 지난 문의는 목록에서 제외됩니다." />
 
-    <Card className="grid gap-3 p-4">
+    <Card padding="regular" className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <h2 className="text-card-title font-bold text-content-primary">NAVER WORKS 메일 연결</h2>
+          <PageHeader title="NAVER WORKS 메일 연결" titleRole="card" />
           {mail.isPending ? <LoadingIndicator isPaused={mail.isPaused}>연결 상태를 확인하는 중입니다.</LoadingIndicator> : null}
           {mail.isSuccess ? <p className="text-content-secondary">{mail.data.connected ? "연결됨" : "연결되지 않음"}</p> : null}
         </div>
@@ -56,8 +56,8 @@ export function LandingInquiriesView() {
 
     <FeedbackState tone="info" icon={Mail} title="메일 전달 상태 안내" description="제공자 수락은 NAVER WORKS가 요청을 202로 수락했다는 뜻이며, 받은편지함 도착을 뜻하지 않습니다. 수락 여부 불확실 또는 발송 실패라면 보낸메일과 접수번호를 대조하고 회신 필요 여부를 확인하세요." />
 
-    <div className="grid gap-3">
-      <h2 className="text-card-title font-bold text-content-primary">최근 상담 문의</h2>
+    <PageStack as="section">
+      <PageHeader title="최근 상담 문의" titleRole="section" />
       {inquiries.isPending ? <LoadingState isPaused={inquiries.isPaused} tone="neutral" title="문의 목록을 불러오는 중입니다." /> : null}
       {inquiries.isError ? <FeedbackState tone="danger" icon={CircleAlert} title="문의 목록을 불러오지 못했습니다." description="연결을 확인한 뒤 다시 시도하세요." action={<Button type="button" onClick={() => void inquiries.refetch()}>다시 시도</Button>} /> : null}
       {inquiries.isSuccess ? <DataGrid caption="최근 상담 문의 표" rows={inquiries.data.items} columns={inquiryColumns}
@@ -66,8 +66,8 @@ export function LandingInquiriesView() {
         {cursorHistory.length > 0 ? <Button type="button" onClick={() => setCursorHistory((history) => history.slice(0, -1))}>이전 문의</Button> : null}
         {inquiries.isSuccess && inquiries.data.nextCursor ? <Button type="button" onClick={() => setCursorHistory((history) => [...history, inquiries.data.nextCursor!])}>다음 문의</Button> : null}
       </div>
-    </div>
-  </section>;
+    </PageStack>
+  </PageStack>;
 }
 
 const inquiryColumns: readonly DataGridColumn<OperatorLandingInquiry>[] = [

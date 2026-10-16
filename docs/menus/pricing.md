@@ -1,5 +1,13 @@
 # 요금제 페이지 기능 현황
 
+## 2026-10-16 공통 오버레이 기반 (Task 2)
+
+- 구현 완료: 공통 modal/drawer 일반 내용 기본 inset20/16px를 적용하고 frame·focus·pending·52px 닫기를 유지했다. 선택 요금제 맥락·기존 tel/mailto 상담과 공개 브랜드는 유지한다.
+- 미구현: 요금제 상담 caller의 전용 inset 정합화·각 entry 전체 검증·배포는 후속 작업이다.
+- 부족하거나 개선이 필요한 기능: 공통 fixture 통과를 요금제 상담 전체 정합화나 실제 문의 접수/메일 검증으로 확대하지 않는다.
+- 관련 파일: `apps/web/src/components/ui/overlays/DialogBase.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
+- 갱신 규칙: 공통 기반과 공개 소비·운영 검증의 완료 범위를 구분한다.
+
 기준일: 2026-10-11
 
 ## 구현 완료

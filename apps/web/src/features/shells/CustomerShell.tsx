@@ -412,7 +412,7 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
               />
               <Route
                 path="security"
-                element={<AccountSecurityView user={user} />}
+                element={<AccountSecurityView user={user} presentation="customer" />}
               />
               <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
             </Route>

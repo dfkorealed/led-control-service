@@ -29,19 +29,31 @@ async function scopedBoundary(context: BrowserContext, origin: string, sentinels
   return async () => { for (const handler of handlers) await context.unroute("**/*", handler); };
 }
 
-async function denyLiveChannels(context: BrowserContext, sentinels: string[]) {
+async function denyLiveChannels(context: BrowserContext, sentinels: string[], allowDevHmr = true) {
     await context.exposeBinding("__designBoundaryBlocked", (_source, kind: string) => { sentinels.push(kind); });
-    await context.addInitScript(() => {
+    await context.addInitScript(({ allowDevHmr }) => {
       const report = (kind: string) => { void (window as unknown as { __designBoundaryBlocked(kind: string): Promise<void> }).__designBoundaryBlocked(kind); };
       // Vite's same-origin HMR handshake is also denied, but is expected runner
       // infrastructure rather than an attempted product live channel.
       window.WebSocket = class { constructor(url: string | URL) {
         const target = new URL(url, location.href);
-        if (target.host !== location.host) report("WebSocket");
+        if (!allowDevHmr || target.host !== location.host) report("WebSocket");
         throw new Error("Design fixture blocks WebSocket");
       } } as unknown as typeof WebSocket;
       navigator.sendBeacon = () => { report("sendBeacon"); return false; };
-    });
+    }, { allowDevHmr });
+}
+
+// Production memory fixtures have no HMR channel. Every attempted socket is
+// observable, including same-origin ones, and cleanup checks attempts on failure.
+export async function installDesignMemoryBoundary(context: BrowserContext, origin: string) {
+  const sentinels: string[] = [];
+  const remove = await scopedBoundary(context, origin, sentinels);
+  await denyLiveChannels(context, sentinels, false);
+  return async () => {
+    await remove();
+    expect(sentinels, "Memory fixture attempted an unconfigured API or external write").toEqual([]);
+  };
 }
 
 export const test = base.extend<{ designScenario: (scenario: DesignScenario) => Promise<void>; _designBoundary: void }>({

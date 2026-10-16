@@ -91,7 +91,8 @@ test("MFA 로그인 후 계정 보안에서 MFA 등록과 세션 종료를 완�
 
   await expect(page).toHaveURL(/\/operator\/site-admins$/);
   await page.getByRole("link", { name: "계정 보안" }).click();
-  await expect(page.getByRole("heading", { name: "계정 보안" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "계정 및 보안", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(page.getByText("Chrome current")).toBeVisible();
   await expect(page.getByText("Safari other")).toBeVisible();
 
@@ -100,9 +101,13 @@ test("MFA 로그인 후 계정 보안에서 MFA 등록과 세션 종료를 완�
   const sessionsCard = page.locator('[data-security-card="sessions"]');
   const mfaBox = await mfaCard.boundingBox();
   const sessionsBox = await sessionsCard.boundingBox();
+  const passwordBox = await page.getByTestId("password-security-cell").boundingBox();
   expect(mfaBox).not.toBeNull();
   expect(sessionsBox).not.toBeNull();
-  expect(Math.abs(mfaBox!.y - sessionsBox!.y)).toBeLessThanOrEqual(1);
+  expect(passwordBox).not.toBeNull();
+  expect(Math.abs(mfaBox!.y - passwordBox!.y)).toBeLessThanOrEqual(1);
+  expect(sessionsBox!.y).toBeGreaterThanOrEqual(Math.max(mfaBox!.y + mfaBox!.height, passwordBox!.y + passwordBox!.height));
+  expect(sessionsBox!.width).toBeGreaterThan(mfaBox!.width);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileMfaBox = await mfaCard.boundingBox();

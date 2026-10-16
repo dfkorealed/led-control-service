@@ -97,7 +97,7 @@ describe("overlay migration contracts", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.querySelector("[data-dialog-safe-area]")).not.toBeInTheDocument();
     if (surface !== "sheet") {
-      expect(dialog).toHaveClass("p-4.5!", "compact:p-6!", "overflow-y-auto");
+      expect(dialog).toHaveClass("p-5", "max-compact:p-4", "overflow-y-auto");
       expect(dialog.querySelector("[data-dialog-body]")).not.toHaveClass("overflow-y-auto");
     } else expect(dialog.querySelectorAll(".pb-safe-area-bottom")).toHaveLength(1);
   });

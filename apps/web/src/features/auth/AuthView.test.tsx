@@ -63,6 +63,7 @@ describe("AuthView MFA login", () => {
     expect(screen.getByRole("main")).toHaveClass("max-w-auth");
     expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "credentials");
     expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-status", "ready");
+    expect(screen.getByTestId("auth-stage-card")).toHaveClass("p-5", "max-compact:p-4");
     expect(screen.queryByText(/role|state picker|review/i)).not.toBeInTheDocument();
   });
 
@@ -76,8 +77,10 @@ describe("AuthView MFA login", () => {
 
     submitCredentials();
     expect(await screen.findByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "totp");
+    expect(screen.getByTestId("auth-stage-card")).toHaveClass("p-5", "max-compact:p-4");
     fireEvent.click(screen.getByRole("button", { name: "복구 코드 사용" }));
     expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-stage", "recovery");
+    expect(screen.getByTestId("auth-stage-card")).toHaveClass("p-5", "max-compact:p-4");
   });
 
   it("exposes pending and error presentation without changing the login flow", async () => {
@@ -87,9 +90,12 @@ describe("AuthView MFA login", () => {
 
     submitCredentials();
     expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-status", "pending");
+    const card = screen.getByTestId("auth-stage-card");
+    expect(card).toHaveClass("p-5", "max-compact:p-4");
     await act(async () => rejectLogin?.(new ApiError("failed", 401, {})));
     expect(await screen.findByRole("alert")).toHaveTextContent("아이디 또는 비밀번호를 확인해 주세요.");
     expect(screen.getByTestId("auth-stage-card")).toHaveAttribute("data-auth-status", "error");
+    expect(screen.getByTestId("auth-stage-card")).toBe(card);
   });
 
   it("일반 로그인 응답은 기존 인증 완료 흐름을 유지한다", async () => {

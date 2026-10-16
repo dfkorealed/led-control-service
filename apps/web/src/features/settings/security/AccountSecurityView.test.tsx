@@ -13,7 +13,7 @@ import {
   startMfaEnrollment,
   type AuthUser
 } from "../../../api/auth";
-import { authMeQueryKey } from "../../../api/principal-cache";
+import { authMeQueryKey, principalKey } from "../../../api/principal-cache";
 import { AccountSecurityView } from "./AccountSecurityView";
 import { CustomerThemeProvider } from "../../../components/ui/theme/CustomerThemeProvider";
 import { ThemeToggle } from "../../../components/ui/theme/ThemeToggle";
@@ -58,6 +58,35 @@ function renderView(user: AuthUser = admin) {
 }
 
 describe("AccountSecurityView", () => {
+  it.each(["customer", "operator"] as const)("uses regular security cards without stealing the %s shell h1", async (presentation) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(authMeQueryKey, { user: admin });
+    render(<QueryClientProvider client={client}><h1>계정 및 보안</h1><AccountSecurityView user={admin} presentation={presentation} /></QueryClientProvider>);
+    await screen.findByRole("list", { name: "활성 세션" });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByTestId("account-security-layout")).toHaveClass("gap-4.5");
+    for (const heading of ["비밀번호", "2단계 인증", "활성 세션"]) {
+      expect(screen.getByRole("heading", { name: heading }).closest("[data-variant='default']")).toHaveClass("p-5", "max-compact:p-4");
+    }
+  });
+
+  it("late MFA response after principal switch does not publish secret", async () => {
+    let resolveEnrollment!: (value: Awaited<ReturnType<typeof startMfaEnrollment>>) => void;
+    vi.mocked(startMfaEnrollment).mockImplementation(() => new Promise(resolve => { resolveEnrollment = resolve; }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const userB = otherAdmin;
+    queryClient.setQueryData(authMeQueryKey, { user: admin });
+    const view = render(<QueryClientProvider client={queryClient}><AccountSecurityView user={admin} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "2단계 인증 설정" }));
+    expect(screen.getByRole("button", { name: "준비 중" })).toBeDisabled();
+    queryClient.setQueryData(authMeQueryKey, { user: userB });
+    view.rerender(<QueryClientProvider client={queryClient}><AccountSecurityView user={userB} /></QueryClientProvider>);
+    await waitFor(() => expect(queryClient.getQueryState(["auth", "mfa", principalKey(userB)])?.status).toBe("success"));
+    await act(async () => resolveEnrollment({ enrollmentToken: "A-token", secret: "A-secret", recoveryCodes: ["A-code"], otpauthUri: "otpauth://A", expiresAt: "2026-10-16T12:10:00Z" } as Awaited<ReturnType<typeof startMfaEnrollment>>));
+    expect(screen.queryByText("A-secret")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("A-secret")).not.toBeInTheDocument();
+    expect(queryClient.getQueryData(["auth", "mfa", principalKey(userB)])).toEqual({ enabled: false, enabledAt: null });
+  });
   it.each(["close", "escape", "outside"])("blocks pending password dismissal via %s until session refresh completes", async (method) => {
     let resolveRequest: ((result: { ok: true; user: AuthUser }) => void) | undefined;
     vi.mocked(changePassword).mockImplementation(() => new Promise(resolve => { resolveRequest = resolve; }));
@@ -315,7 +344,7 @@ describe("AccountSecurityView", () => {
     renderView(user);
 
     const layout = screen.getByTestId("account-security-layout");
-    expect(layout).toHaveClass("gap-3", "compact:grid-cols-2");
+    expect(layout).toHaveClass("gap-4.5", "compact:grid-cols-2");
     expect(screen.getByTestId("password-security-cell")).not.toHaveClass("compact:col-span-2");
     expect(screen.getByTestId("sessions-security-cell")).toHaveClass("compact:col-span-2");
     expect(await screen.findByText("2단계 인증이 꺼져 있습니다.")).toBeVisible();
