@@ -53,6 +53,14 @@ const dashboard: Dashboard = {
 };
 
 describe("VehicleEventDialog spatial source and targets", () => {
+  it("lets an existing registered BIO lamp control itself with one-second hold and no other targets", () => {
+    const onSubmit = vi.fn();
+    renderVehicleEventDialog({ dashboard: bioDashboard("ready"), rule: existingRule({ sensorProtocol: "bio-usb-pulse", targetFixtureIds: [], holdSeconds: 1 }), onSubmit });
+    const self = screen.getByRole("checkbox", { name: "감지한 조명도 제어" });
+    expect(self).not.toBeChecked(); fireEvent.click(self);
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ selfControlEnabled: true, sourceFixtureIds: [sourceFixtureId], targetFixtureIds: [], holdSeconds: 1 }));
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     floorMapQuery.mockReturnValue({ data: snapshot, error: null, isLoading: false, isFetching: false });

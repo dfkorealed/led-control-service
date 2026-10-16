@@ -30,6 +30,34 @@ test.beforeEach(async ({ context, baseURL }) => {
   await installMockApiBoundary(context, baseURL);
 });
 
+for (const width of [390, 1440]) {
+  test(`native self-only ${width}px saves one-second configuration without additional light selection`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const api = await installControlMapRoutes(page, { bioReadiness: "ready" });
+    await page.goto(`/control?siteId=${ids.site}&mode=event`);
+    await page.getByRole("button", { name: "이벤트 추가", exact: true }).click();
+    await page.getByRole("button", { name: "감지 센서 선택", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await marker(dialog, "B2-SENSOR-001").click();
+    await dialog.getByRole("button", { name: "1개 조명 선택 완료" }).click();
+    await expect(dialog.getByRole("checkbox", { name: "감지한 조명도 제어", exact: true })).toBeChecked();
+    await expect(dialog.getByText("자기 조명만 제어합니다.", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "직접 입력", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "유지 시간", exact: true }).fill("1");
+    await expect(dialog.getByText(/꺼졌다 다시 켜질 수/)).toHaveCount(0);
+    await dialog.getByRole("button", { name: "저장", exact: true }).scrollIntoViewIfNeeded();
+    await expectNoHorizontalOverflow(page);
+    const bounds = await dialog.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+    expect(bounds!.height).toBeLessThanOrEqual(900);
+    await page.screenshot({ path: testInfo.outputPath(`native-self-${width}.png`), fullPage: true });
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.eventRequests).toHaveLength(1);
+    expect(api.eventRequests[0]).toMatchObject({ selfControlEnabled: true, sourceFixtureIds: [ids.sensor], targetFixtureIds: [], holdSeconds: 1, status: "disabled" });
+  });
+}
+
 test("Task6 unmodified wheel zoom preserves the pointer anchor without a control POST", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const api = await installControlMapRoutes(page);

@@ -7,6 +7,11 @@ import { automationScope, automationSnapshot } from "./automation-test-fixtures"
 import { handleAutomationConfigPayload } from "../gateway";
 
 describe("AutomationRuntime", () => {
+  it("acknowledges a native pending configuration with its safe reason instead of a generic scheduler error", async () => {
+    const runtime = createRuntime(memoryStore(), { recompute: async () => { throw new Error("bio_self_configuration_pending"); } });
+    const ack = await handleAutomationConfigPayload(Buffer.from(JSON.stringify(automationSnapshot(5))), runtime, async () => {});
+    expect(ack).toMatchObject({ revision: 5, status: "rejected", errorCode: "bio_self_configuration_pending" });
+  });
   it("does not expose a swapped snapshot as applied while activation is pending", async () => {
     let resolve!: () => void;
     const pending = new Promise<void>(done => { resolve = done; });

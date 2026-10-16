@@ -2,6 +2,14 @@
 
 작성일: 2026-10-04
 
+## 2026-10-16 BIO 자기 제어 — 운영 미적용
+
+- `20261015160000_bio_event_hold_one_second`는 BIO hold CHECK를1~1,800초로 낮추고 BlueZ5초 하한을 보존한다.
+- `20261016100000_bio_native_self_control`는 `VehicleEventRule.selfControlEnabled Boolean NOT NULL DEFAULT false`, `GatewayAutomationProtocolSupport.bioNativeSelfControlVersion Int?`(NULL/1)을 추가한다. 기존 규칙은 자동 전환하지 않는다.
+- self=true는 BIO source 정확히1개·일반 target0개 이상이며 source/target 중복과 활성 native 소유 중복을 금지한다. counter/실제 membership 일치를 보존한다. self=false의 source/target 최소1개는 그대로다.
+- Native CHECK는 hold1~127초/이후60초 배수·최대1,800초와 감지 밝기1~100%(dimming=false는100%로 정규화)를 강제한다. 공통 mutation lock을 먼저 잡고 DDL/검증 함수를 한 transaction에서 교체한다.
+- 자체 disposable PostgreSQL에서 기존false 보존/self-only 허용/잘못된 protocol·counter·시간·0% 거절과 전체 migration 신규 적용을 확인했다. 운영 DB/client 미적용이며 승인된 백업/점검 후 forward 적용한다. 활성 native 원장 해소 없이 구버전으로 rollback하지 않는다.
+
 ## 2026-10-14 BIO 시간제 제어·휴일 저장 구조 — 2026-10-15 로컬 DB 반영
 
 순방향 `20261014090000_bio_temporary_control_calendar`는 기존 등록/native/BIO 설정·이력·보존 ON/OFF 설정을 변경하지 않고 아래 저장 구조를 추가한다. `LightingSchedule.excludeWeekends/excludeHolidays`는 모두 `NOT NULL DEFAULT false`다. 자기 소유 PostgreSQL16의 SQL 검증 이후, 사용자 명시 승인으로 2026-10-15 로컬 PostgreSQL16.14의138→139번째 migration을 실제 적용했다. 원 migration 원장/checksum·과거 rolled-back 기록은 그대로이며 미완료0, public120→128/new8empty 및 새 기본값·11함수/8인덱스/25트리거를 확인했다. API 재개 전 기존119개 데이터 테이블의 원컬럼 행 수/전체 aggregate SHA는 모두 동일했다(신규5컬럼만 비교에서 제외).
@@ -1866,6 +1874,7 @@ PK는 `(gatewayId, assignmentVersion, declarationRevision)`이다. API는 MQTT b
 | `name` | `String` | 예 | DB check `btrim(name) <> ''` |
 | `status` | `AutomationRuleStatus` | 예 | `enabled` |
 | `sensorProtocol` | `VehicleSensorProtocol` | 예 | `bluez_stateful`; source MeshNode protocol과 일치해야 함 |
+| `selfControlEnabled` | `Boolean` | 예 | 신규 migration 후 `false`; true는 BIO source1개/native 출력, 일반 target0개 허용 |
 | `dimmingEnabled` | `Boolean` | 예 | 감지 action 디밍 여부 |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
 | `holdSeconds` | `Int` | 예 | `60`, BlueZ DB check `5..1800`, BIO `1..1800` (신규 migration 적용 이후) |

@@ -73,7 +73,7 @@ export class AutomationSnapshotService {
         inventory: { select: { id: true, claimedAt: true, disabledAt: true } },
         certificates: { where: { purpose: "mqtt", status: "active", revokedAt: null }, select: { inventoryId: true } },
         automationProtocolDeclarations: { orderBy: [{ assignmentVersion: "desc" }, { declarationRevision: "desc" }],
-          take: 1, select: { assignmentVersion: true, maxSnapshotVersion: true, temporaryControlVersion: true, bioConfigurationReadback: true, durableFixtureLease: true } },
+          take: 1, select: { assignmentVersion: true, maxSnapshotVersion: true, temporaryControlVersion: true, bioConfigurationReadback: true, durableFixtureLease: true, bioNativeSelfControlVersion: true } },
         site: { select: { timeZone: true } },
         automationConfiguration: { select: { desiredRevision: true, appliedRevision: true } }
       }
@@ -91,23 +91,11 @@ export class AutomationSnapshotService {
 
     await tx.lightingSchedule.updateMany({ where: { gatewayId }, data: { desiredRevision } });
     await tx.vehicleEventRule.updateMany({ where: { gatewayId }, data: { desiredRevision } });
-    if (version === 1) {
-      // Losing declaration authority cannot turn BIO into BlueZ, even for a
-      // legacy enabled row. Keep its draft pending while publishing V1 peers.
-      await tx.vehicleEventRule.updateMany({ where: { gatewayId, sensorProtocol: "bio_usb_pulse" },
-        data: { status: "disabled", appliedRevision: 0 } });
-    }
-
     const schedules = await tx.lightingSchedule.findMany({
       where: { gatewayId },
       include: snapshotScheduleInclude,
       orderBy: { id: "asc" }
     });
-    // Losing V3 declaration authority must never silently enable excluded dates
-    // through a downgraded V1/V2 snapshot. The mutation rolls back instead.
-    if (version !== 3 && schedules.some(schedule => schedule.excludeWeekends || schedule.excludeHolidays)) {
-      throw new ConflictException({ code: "schedule_exclusions_unsupported" });
-    }
     const eventRules = await tx.vehicleEventRule.findMany({
       where: { gatewayId },
       include: {
@@ -122,8 +110,37 @@ export class AutomationSnapshotService {
     // Throw before configuration/outbox writes so the caller rolls back the
     // proposed rule and revision too; never publish an un-installable snapshot.
     const enabledTargetBio = new Map<string, boolean>();
+    const nativeSelfSupported = version === 3 && declaration?.bioNativeSelfControlVersion === 1;
+    if (!nativeSelfSupported && eventRules.some(rule => rule.status === "enabled" && rule.selfControlEnabled)) {
+      // Capability declarations and revision creation share a transaction. A
+      // throw here would roll back a genuine loss of support, leaving the old
+      // capability grant usable. Commit the rejection, publish nothing, and
+      // preserve source ownership until a capable Gateway can restore it.
+      return tx.gatewayAutomationConfiguration.upsert({
+        where: { gatewayId },
+        create: { gatewayId, siteId: gateway.siteId, desiredRevision, appliedRevision: 0,
+          syncStatus: "REJECTED", lastErrorCode: "bio_self_control_unsupported" },
+        update: { desiredRevision, syncStatus: "REJECTED", lastErrorCode: "bio_self_control_unsupported" },
+        select: { desiredRevision: true, appliedRevision: true, syncStatus: true }
+      });
+    }
+    // Only legacy pulse rules may become disabled drafts on a V1 peer. Native
+    // configuration owners above must never be discarded by a downgrade.
+    if (version === 1) {
+      await tx.vehicleEventRule.updateMany({ where: { gatewayId, sensorProtocol: "bio_usb_pulse" },
+        data: { status: "disabled", appliedRevision: 0 } });
+    }
+    if (version !== 3 && schedules.some(schedule => schedule.excludeWeekends || schedule.excludeHolidays)) {
+      throw new ConflictException({ code: "schedule_exclusions_unsupported" });
+    }
+    const selfSources = new Set<string>();
     for (const rule of eventRules) {
       if (rule.status !== "enabled") continue;
+      if (rule.selfControlEnabled) {
+        const source = rule.sources[0]?.fixtureId;
+        if (!source || selfSources.has(source)) throw new ConflictException({ code: "bio_self_control_conflict" });
+        selfSources.add(source);
+      }
       const isBio = rule.sensorProtocol === "bio_usb_pulse";
       for (const { fixtureId } of rule.targets) {
         if (enabledTargetBio.has(fixtureId) && (isBio || enabledTargetBio.get(fixtureId))) {
@@ -147,9 +164,12 @@ export class AutomationSnapshotService {
         .sort((left, right) => compareAutomationIds(left.id, right.id)),
       vehicleEventRules: eventRules
         .filter(rule => version !== 1 || rule.sensorProtocol !== "bio_usb_pulse")
+        // Old strict peers must never receive an empty-target native draft.
+        .filter(rule => !rule.selfControlEnabled || nativeSelfSupported)
         .map(rule => version === 1 ? toVehicleEventRuleSnapshot(rule) : {
           ...toVehicleEventRuleSnapshot(rule),
-          sensorProtocol: rule.sensorProtocol === "bio_usb_pulse" ? "bio-usb-pulse" : "bluez-stateful"
+          sensorProtocol: rule.sensorProtocol === "bio_usb_pulse" ? "bio-usb-pulse" : "bluez-stateful",
+          ...(rule.selfControlEnabled ? { selfControlEnabled: true } : {})
         })
         .sort((left, right) => compareAutomationIds(left.id, right.id)),
       generatedAt: this.clock.now().toISOString(),

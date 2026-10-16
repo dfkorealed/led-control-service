@@ -1,5 +1,27 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-16 기존·신규 등록의 자기 제어 호환
+
+### 구현 완료
+
+- 등록 UI/ID/밝기는 보존한다. 자기 제어는 기존·신규 모두 현재 confirmed 매핑과 공통 fingerprint를 대조하는 동일 resolver를 쓴다. 이름이나 A/B ID로 분기하거나 새 등록마다 개발자 연결 설정을 요구하지 않는다.
+
+### 미구현
+
+- 새 코드의 운영 DB/API/Web/Gateway 영구 반영·다른 펌웨어군의 물리 지원 검증은 아직이다. 방습등1·2에는 SET0이다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 등록/온라인만으로 지원을 추정하지 않는다. 지원군 device1/fw5.5.8.12889/sensor2/infrared1/ambient0/hardware3 외에는 근거 확인 전 거절한다.
+
+### 관련 파일
+
+- `apps/gateway/src/bio/bio-self-sensor-port.ts`, `apps/gateway/src/automation/bio-self-sensor-runtime.ts`, `docs/menus/control.md`.
+
+### 갱신 규칙
+
+- 공통 지원 경로와 개별 실물 시험을 구분하고 지원군 확대에는 명령/독립 조회/복구 근거를 기록한다.
+
 ## 2026-10-15 배포 HTTP 읽기 전용 점검 창 — 소프트웨어
 
 ### 구현 완료

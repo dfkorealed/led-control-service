@@ -6,20 +6,22 @@ import {
 import { z } from "zod";
 import type { VehicleSensorProtocol } from "@prisma/client";
 
-export type CreateVehicleEventRuleInput = Omit<VehicleEventRuleSnapshotV1, "id">;
+export type CreateVehicleEventRuleInput = Omit<VehicleEventRuleSnapshotV1, "id"> & { selfControlEnabled?: boolean };
 export type UpdateVehicleEventRuleInput = Partial<CreateVehicleEventRuleInput>;
 
-const fixtureIdsSchema = z.array(z.string().uuid()).min(1).superRefine((fixtureIds, context) => {
+const fixtureIds = (minimum: number) => z.array(z.string().uuid()).min(minimum).superRefine((fixtureIds, context) => {
   if (new Set(fixtureIds).size !== fixtureIds.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "fixture IDs must be distinct" });
   }
 });
+const fixtureIdsSchema = fixtureIds(1);
 
 const vehicleEventRuleFields = {
   name: z.string().trim().min(1),
   status: z.enum(["enabled", "disabled"]),
   sourceFixtureIds: fixtureIdsSchema,
-  targetFixtureIds: fixtureIdsSchema,
+  targetFixtureIds: fixtureIds(0),
+  selfControlEnabled: z.boolean(),
   action: automationActionV1Schema,
   // Protocol is server-owned and checked after resolving the effective source.
   holdSeconds: z.number().int().min(1).max(1_800)
@@ -27,8 +29,13 @@ const vehicleEventRuleFields = {
 
 const createVehicleEventRuleSchema = z.object({
   ...vehicleEventRuleFields,
-  holdSeconds: vehicleEventRuleFields.holdSeconds.default(60)
-}).strict();
+  holdSeconds: vehicleEventRuleFields.holdSeconds.default(60),
+  selfControlEnabled: vehicleEventRuleFields.selfControlEnabled.default(false)
+}).strict().superRefine((input, context) => {
+  if ((!input.selfControlEnabled && input.targetFixtureIds.length === 0) || (input.selfControlEnabled && input.sourceFixtureIds.length !== 1)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "one self source or an execution target is required" });
+  }
+});
 
 const updateVehicleEventRuleSchema = z.object(vehicleEventRuleFields).strict().partial().refine(
   (input) => Object.keys(input).length > 0,

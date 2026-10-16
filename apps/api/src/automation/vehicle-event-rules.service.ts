@@ -24,6 +24,7 @@ import {
 } from "./dto/vehicle-event-rule.dto";
 import { TargetSnapshotService } from "./target-snapshot.service";
 import { automationSyncWhere, literalAutomationName } from "./automation-list-filters";
+import { loadBioNativeSelfControlSupport } from "./automation-protocol-support";
 
 const responseInclude = {
   sources: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" as const } },
@@ -184,9 +185,11 @@ export class VehicleEventRulesService {
       const status = input.status ?? existing.status;
       // A degraded source may remain in an existing disabled audit rule. New
       // memberships still require readiness, matching the DB admission trigger.
-      const membership = await this.resolveMembership(tx, siteId, { sourceFixtureIds, targetFixtureIds },
+      const selfControlEnabled = input.selfControlEnabled ?? existing.selfControlEnabled;
+      const membership = await this.resolveMembership(tx, siteId, { sourceFixtureIds, targetFixtureIds, selfControlEnabled, status },
         existing.sensorProtocol === "bio_usb_pulse" && !replacesMembership && status === "disabled");
-      this.assertQualifiedRule({ status, holdSeconds: input.holdSeconds ?? existing.holdSeconds }, membership.sensorProtocol);
+      this.assertQualifiedRule({ status, holdSeconds: input.holdSeconds ?? existing.holdSeconds, selfControlEnabled,
+        action: input.action ?? { dimmingEnabled: existing.dimmingEnabled, brightnessPercent: existing.brightnessPercent } }, membership.sensorProtocol);
       if (replacesMembership) {
         await tx.vehicleEventSource.deleteMany({ where: { ruleId } });
         await tx.vehicleEventTarget.deleteMany({ where: { ruleId } });
@@ -203,6 +206,7 @@ export class VehicleEventRulesService {
             brightnessPercent: input.action.brightnessPercent
           }),
           ...(input.holdSeconds === undefined ? {} : { holdSeconds: input.holdSeconds }),
+          ...(input.selfControlEnabled === undefined ? {} : { selfControlEnabled: input.selfControlEnabled }),
           ...(membership.gatewayId === existing.gatewayId && membership.sensorProtocol === existing.sensorProtocol
             ? {} : { appliedRevision: 0 }),
           updatedById: actor.id
@@ -255,7 +259,7 @@ export class VehicleEventRulesService {
   private async resolveMembership(
     tx: Prisma.TransactionClient,
     siteId: string,
-    input: Pick<CreateVehicleEventRuleInput, "sourceFixtureIds" | "targetFixtureIds">,
+    input: Pick<CreateVehicleEventRuleInput, "sourceFixtureIds" | "targetFixtureIds" | "selfControlEnabled" | "status">,
     allowUnavailable = false
   ) {
     const qualification = await this.targetSnapshot.resolveVehicleSources(
@@ -265,12 +269,19 @@ export class VehicleEventRulesService {
       allowUnavailable
     );
     const sourceFixtureIds = qualification.fixtureIds;
-    const targetFixtureIds = await this.targetSnapshot.resolve(tx, siteId, {
+    if (!input.selfControlEnabled && input.targetFixtureIds.length === 0) throw new BadRequestException("event requires an execution target");
+    if (input.selfControlEnabled && (qualification.sensorProtocol !== "bio_usb_pulse" || sourceFixtureIds.length !== 1)) {
+      throw new BadRequestException("native self control requires one BIO source");
+    }
+    const targetFixtureIds = input.targetFixtureIds.length === 0 ? [] : await this.targetSnapshot.resolve(tx, siteId, {
       type: "fixtures",
       fixtureIds: input.targetFixtureIds
     });
     const allFixtureIds = [...new Set([...sourceFixtureIds, ...targetFixtureIds])].sort(compareAutomationIds);
     const gatewayId = await this.targetSnapshot.assertSingleGateway(tx, allFixtureIds);
+    if (input.selfControlEnabled && input.status === "enabled" && !await loadBioNativeSelfControlSupport(tx, { siteId, gatewayId })) {
+      throw new ConflictException({ code: "bio_self_control_unsupported", message: "Gateway native self control support is required" });
+    }
     await assertNoActiveBioSourceTarget(tx, siteId, targetFixtureIds, "event");
     if (qualification.sensorProtocol === "bio_usb_pulse" && targetFixtureIds.some(id => sourceFixtureIds.includes(id))) {
       throw new BadRequestException("BIO source must be distinct from event targets");
@@ -278,9 +289,15 @@ export class VehicleEventRulesService {
     return { sourceFixtureIds, targetFixtureIds, gatewayId, sensorProtocol: qualification.sensorProtocol };
   }
 
-  private assertQualifiedRule(input: Pick<CreateVehicleEventRuleInput, "status" | "holdSeconds">,
+  private assertQualifiedRule(input: Pick<CreateVehicleEventRuleInput, "status" | "holdSeconds" | "selfControlEnabled" | "action">,
     sensorProtocol: VehicleSensorProtocol) {
     assertVehicleEventRuleHoldSeconds(input.holdSeconds, sensorProtocol);
+    if (input.selfControlEnabled && input.action.dimmingEnabled && input.action.brightnessPercent < 1) {
+      throw new BadRequestException({ code: "bio_self_brightness_invalid", message: "Native detection brightness must be at least 1 percent" });
+    }
+    if (input.selfControlEnabled && (input.holdSeconds > 127 && input.holdSeconds % 60 !== 0)) {
+      throw new BadRequestException({ code: "bio_self_hold_not_representable", message: "Use seconds up to 127, or whole minutes above 127 seconds" });
+    }
     // Source resolution uses the same current preparation/V2 predicate as DB
     // admission. Disabled audit edits and release workflows do not require ready.
   }
@@ -331,6 +348,7 @@ export class VehicleEventRulesService {
     const configuration = rule.gateway.automationConfiguration;
     return {
       ...snapshot,
+      selfControlEnabled: rule.selfControlEnabled,
       sensorProtocol: rule.sensorProtocol === "bio_usb_pulse" ? "bio-usb-pulse" : "bluez-stateful",
       gatewayId: rule.gatewayId,
       sources: rule.sources.map(({ fixtureId }) => ({ fixtureId })),
@@ -384,7 +402,8 @@ function vehicleEventRuleData(input: CreateVehicleEventRuleInput) {
     status: input.status,
     dimmingEnabled: input.action.dimmingEnabled,
     brightnessPercent: input.action.brightnessPercent,
-    holdSeconds: input.holdSeconds
+    holdSeconds: input.holdSeconds,
+    selfControlEnabled: input.selfControlEnabled ?? false
   };
 }
 

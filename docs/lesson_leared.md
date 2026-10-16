@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-16 / 자기 감지 설정은 별도 내구 소유자로 관리한다
+
+- 자기 조명을 일반 force target에 넣으면 센서 모드가 깨진다. 장비 native 설정/원 설정/물리 신원을 별도 내구 원장에 저장하고 독립 전체 GET 일치 뒤 ACK한다. 부분 쓰기는 일반 snapshot rollback으로 지우지 않는다.
+- Capability 선언 저장과 snapshot 생성이 같은 transaction일 때 지원 상실을 throw하면 이전 지원 권한까지 복원된다. native 지원 상실은 REJECTED를 commit하고 전송/자동 소유권 해제를 하지 않는다.
+- PC 주소 변경과 USB 재열거는 별개다. 승인된 최소 alias/단일USB grant만 교정하고 같은 immutable image·설정·암호화 백업을 보존한다. 등록된 unicast 신원 확인에 불필요한 broadcast scan을 선행하면 약한 RF에서 직후 GET을 방해할 수 있다. 현재 매핑과 각 응답의 UUID/주소/network를 대조하며 timeout에서 무조건 재전송하지 않는다.
+- 1초 SET/readback과 사용자의 밝아짐→낮은 밝기 복귀는 확인했으나 광출력 경과시간·재감지 연장을 측정했다고 확대하지 않는다. 방습등 SET0과 전체 원복을 별도로 기록한다.
+
 ## 2026-10-15 / 읽기 전용 BIO 진단도 기존 초기화와 운전 복귀를 검증한다
 
 - GET 전용 USB 필터에도 기존 transport의 두 zero-trailer startup literal이 필요하다. 일반 CRC 예외를 확대하지 않고 검증된 두 literal의 정확한 값·순서·1회만 허용하며, 이후에는 대상3대의6GET/고정 검색만 허용한다. 이번 첫 필터는 초기화까지 막아 RF 설정조회0으로 실패했으며 원 실패를 보존했다.

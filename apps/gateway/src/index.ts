@@ -72,6 +72,8 @@ import { createBioSensorRuntime } from "./bio/bio-sensor-runtime";
 import { BioUsbDongleAdapter } from "./adapters/bio-usb-dongle-adapter";
 import type { BioDeviceMappingStore } from "./bio/bio-device-mapping-store";
 import { BioTemporaryControlRuntime } from "./automation/bio-temporary-control-runtime";
+import { BioSelfSensorRuntime } from "./automation/bio-self-sensor-runtime";
+import { createBioSelfSensorResolver } from "./bio/bio-self-sensor-port";
 import { TemporaryControlResultOutbox } from "./automation/temporary-control-result-outbox";
 import { TemporaryControlMqtt } from "./automation/temporary-control-mqtt";
 import { isDeepStrictEqual } from "node:util";
@@ -327,10 +329,12 @@ export function createGatewayAutomationServices(options: {
   bioProductPulse?: ScheduleRuntimeOptions["bioProductPulse"];
   bioNormalAssignmentVersion?: number;
   bioSnapshotLifecycle?: BioSnapshotLifecycle;
+  nativeSelf?: ScheduleRuntimeOptions["nativeSelf"];
 }) {
   const scheduleRuntime = new ScheduleRuntime({
     store: options.stateStore,
     bioNormalAssignmentVersion: options.bioNormalAssignmentVersion,
+    ...(options.nativeSelf ? { nativeSelf: options.nativeSelf } : {}),
     clockTrust: options.clockTrust,
     execute: options.execute,
     // BIO sensor mode에서는 순간 출력 밝기를 읽을 수 없으므로, 검증된 첫 수동 SET/GET 결과가
@@ -992,6 +996,12 @@ async function main() {
     bioCapabilityReporting, { siteId, gatewayId, assignmentVersion: assignment.configVersion },
     process.env.GATEWAY_BIO_SENSOR_STATE_PATH ?? "/var/lib/led-control/bio-sensor", () => clockTrust.isTrusted(new Date())) : undefined;
   const automationServices = createGatewayAutomationServices({
+    ...(adapters.bioSensorHardware && adapters.bioPulseSource && bioSensors ? { nativeSelf: new BioSelfSensorRuntime({
+      path: process.env.GATEWAY_BIO_SELF_SENSOR_STATE_PATH ?? "/var/lib/led-control/bio-self-sensor.json",
+      scope: { siteId, gatewayId, assignmentVersion: assignment.configVersion },
+      resolve: createBioSelfSensorResolver({ ...adapters.bioSensorHardware, source: adapters.bioPulseSource,
+        assignmentVersion: assignment.configVersion, hasLease: fixtureId => !!automationStateStore.read().fixtureLeases[fixtureId]?.sessionId })
+    }) } : {}),
     bioSnapshotLifecycle: bioSensors?.authority,
     configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
@@ -1156,6 +1166,7 @@ async function main() {
   });
   const automationConfigRequester = new AutomationCurrentConfigRequester({ siteId, gatewayId }, {
     protocolSupport: { assignmentVersion: assignment.configVersion, maxSnapshotVersion: temporaryServices ? 3 : 2,
+      ...(temporaryServices && adapters.bioSensorHardware && adapters.bioPulseSource && bioSensors ? { bioNativeSelfControlVersion: 1 as const } : {}),
       nextRevision: async () => {
         if (reservedProtocolRevision === undefined) return protocolRevision.next();
         const revision = reservedProtocolRevision;

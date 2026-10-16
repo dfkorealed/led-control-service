@@ -9,6 +9,7 @@ import {
   listVehicleEventRules,
   listSchedules,
   scheduleMutationErrorMessage,
+  vehicleEventMutationErrorMessage,
   scheduleQueryKey,
   vehicleEventRuleQueryKey,
   updateSchedule,
@@ -62,6 +63,11 @@ const vehicleEventInput = {
 };
 
 describe("schedule API", () => {
+  it("explains native Gateway support and device-representable inputs without a generic conflict", () => {
+    expect(vehicleEventMutationErrorMessage(new ApiError("denied", 409, { code: "bio_self_control_unsupported" }))).toContain("Gateway");
+    expect(vehicleEventMutationErrorMessage(new ApiError("denied", 400, { code: "bio_self_hold_not_representable" }))).toContain("127");
+    expect(vehicleEventMutationErrorMessage(new ApiError("denied", 400, { code: "bio_self_brightness_invalid" }))).toContain("1%");
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.apiGet.mockResolvedValue({ items: [], total: 0, nextCursor: null });

@@ -1,4 +1,4 @@
-import { loadAutomationProtocolSupport, recordAutomationProtocolSupport } from "./automation-protocol-support";
+import { loadAutomationProtocolSupport, loadBioNativeSelfControlSupport, recordAutomationProtocolSupport } from "./automation-protocol-support";
 
 const gatewayId = "00000000-0000-4000-8000-000000000001";
 const siteId = "00000000-0000-4000-8000-000000000002";
@@ -7,6 +7,18 @@ const request = { schemaVersion: 2 as const, requestId: "00000000-0000-4000-8000
   requestedAt: "2026-09-30T00:00:00.000Z" };
 
 describe("Gateway automation protocol support authority", () => {
+  it("requires an explicit native declaration from the current claimed assignment", async () => {
+    const h = harness();
+    const v3 = { ...request, schemaVersion: 3 as const, maxSnapshotVersion: 3 as const, temporaryControlVersion: 1 as const,
+      bioConfigurationReadback: true as const, durableFixtureLease: true as const };
+    await recordAutomationProtocolSupport(h.tx as never, v3);
+    expect(await loadBioNativeSelfControlSupport(h.tx as never, request)).toBe(false);
+    expect(await recordAutomationProtocolSupport(h.tx as never, { ...v3, declarationRevision: 2,
+      requestId: "00000000-0000-4000-8000-000000000006", bioNativeSelfControlVersion: 1 })).toBe("accepted");
+    expect(await loadBioNativeSelfControlSupport(h.tx as never, request)).toBe(true);
+    h.identity.assignmentVersion = 5;
+    expect(await loadBioNativeSelfControlSupport(h.tx as never, request)).toBe(false);
+  });
   it("records strict V3 capabilities and does not infer them from a numeric version", async () => {
     const h = harness();
     const v3 = { ...request, schemaVersion: 3 as const, maxSnapshotVersion: 3 as const,

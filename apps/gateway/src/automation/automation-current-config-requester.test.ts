@@ -23,6 +23,17 @@ describe("AutomationCurrentConfigRequester", () => {
       expect(delivered).toEqual([expect.objectContaining({ schemaVersion: 3, maxSnapshotVersion: 3,
         assignmentVersion: 4, declarationRevision: 8, temporaryControlVersion: 1,
         bioConfigurationReadback: true, durableFixtureLease: true })]);
+      expect(delivered[0]).not.toHaveProperty("bioNativeSelfControlVersion");
+    } finally { requester.disconnect(); }
+  });
+  it("advertises native self control only for explicitly installed native wiring", async () => {
+    const requester = new AutomationCurrentConfigRequester(automationScope, {
+      protocolSupport: { assignmentVersion: 4, maxSnapshotVersion: 3, bioNativeSelfControlVersion: 1, nextRevision: async () => 9 }
+    });
+    const delivered: unknown[] = [];
+    try {
+      await requester.connect(async (_topic, value) => { delivered.push(value); });
+      expect(delivered[0]).toMatchObject({ schemaVersion: 3, declarationRevision: 9, bioNativeSelfControlVersion: 1 });
     } finally { requester.disconnect(); }
   });
 

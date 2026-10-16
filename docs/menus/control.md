@@ -1,5 +1,34 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-16 BIO 자기 감지 제어 — 코드·최소 장비 확인
+
+### 구현 완료
+
+- 공통 Checkbox `감지한 조명도 제어`로 자기 조명만 제어하거나 다른 조명을 추가한다. 새 규칙은true, 기존 규칙은false이며 기존/신규 등록에 같은 처리 경로를 쓴다. 자기 조명을 일반 force 출력 대상으로 추가하지 않는다.
+- 자기 제어 감지 밝기1~100%, 유지시간1~127초까지 초 단위·이후60초 단위(최대1,800초)를 UI/API/shared/DB/codec에서 검증한다. 다른 조명 서비스 타이머의1초 단위와 구별한다. 감지 후 낮은 밝기·대기 구간·phase는 조명에 저장된 원 설정을 보존한다.
+- 명시적인 V3 native 지원 선언이 있어야 활성화한다. 지원 상실은 기존 소유권을 보존한 REJECTED로 저장한다. Gateway는 현재 매핑·USB 세대·펌웨어·권한/lease를 확인하고 원 설정/단계를 SET 전에 내구 저장한다. 독립 GET 일치 뒤만 ACK하며 비활성화 시 전체 원 설정을 복구한다. 부분 적용/재시작은 재전송하지 않고 보호한다.
+- 승인된 B1-L006 시험에서 임시100%/대기30%/1초의 독립 GET과 사용자의 감지 중 밝아짐·퇴장 후 낮은 밝기 복귀를 확인했다. 전체 원 설정100%/대기10%/5초/force-off 등으로 복구하고 같은 운전 버전·영속3root/등록/설정digest 보존을 확인했다. 방습등1·2 SET0이다.
+- focused shared60/API53/Gateway107/Web145, API/Gateway 타입·Gateway/Web build, PC1440/모바일390 격리 브라우저 자기 조명만1초 저장2건을 확인했다. 전체 suite나 운영 UI 성공으로 확대하지 않는다.
+
+### 미구현
+
+- 운영 DB의 두 신규 migration과 새 API/Web/Gateway 영구 반영은 아직이다. 광출력의 정확한1초 경과·재감지 연장은 실측하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 지원군은 device1/fw5.5.8.12889/sensor2/infrared1/ambient0/hardware3다. 같은 군의 기존/신규 등록에 공통 적용하되 미검증 펌웨어를 임의 지원하지 않는다. 모든 모델의 실물 검증을 뜻하지 않는다.
+- 활성 native 원장이 남은 상태의 구형 Gateway 다운그레이드는 금지한다. 부분 적용·외부 설정 변경은 실제 설정/물리 신원 확인이 필요하다. 목록은 적용 실패를 표시하고 상세 원인은 보존된 코드/운영 진단에서 확인한다.
+
+### 관련 파일
+
+- `apps/gateway/src/automation/bio-self-sensor-runtime.ts`, `bio-self-sensor-errors.ts`, `apps/gateway/src/bio/bio-self-sensor-port.ts` 및 해당 회귀.
+- `packages/shared/src/automation-contracts.ts`, API automation service/DTO·Prisma schema, `20261016100000_bio_native_self_control/migration.sql`.
+- Web `VehicleEventDialog.tsx`, `VehicleEventControlPanel.tsx`, `vehicle-event-form.ts`, `control-map-target-selection.spec.ts`; `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`.
+
+### 갱신 규칙
+
+- 아래10월15일 기록은 당시 이력이다. 코드/격리 검증/임시 장비 시험과 영구 배포를 구분하고 운영 반영 후 실제 revision/ACK를 별도로 기록한다.
+
 ## 2026-10-15 BIO 자기 감지 제어 진행 중
 
 ### 구현 완료

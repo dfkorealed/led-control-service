@@ -10,11 +10,31 @@ const FIXTURE_A = "00000000-0000-4000-8000-000000000005";
 const FIXTURE_B = "00000000-0000-4000-8000-000000000006";
 
 describe("AutomationSnapshotService", () => {
+  it.each([1, 3])("retains native owners and records rejection without rolling back a capability loss to V%s", async version => {
+    const writes: any[] = [], payloads: any[] = [], ruleUpdates: any[] = [];
+    const tx = {
+      gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID, assignmentVersion: 1,
+        site: { timeZone: "Asia/Seoul" }, automationConfiguration: { desiredRevision: 8, appliedRevision: 8 },
+        inventory: { id: "inventory", claimedAt: new Date(), disabledAt: null }, certificates: [{ inventoryId: "inventory" }],
+        automationProtocolDeclarations: [{ assignmentVersion: 1, maxSnapshotVersion: version,
+          temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true, bioNativeSelfControlVersion: null }] }) },
+      lightingSchedule: { updateMany: async () => ({}), findMany: async () => [] },
+      vehicleEventRule: { updateMany: async (value: any) => { ruleUpdates.push(value); }, findMany: async () => [
+        { status: "enabled", selfControlEnabled: true, sources: [{ fixtureId: FIXTURE_A }], targets: [] }] },
+      gatewayAutomationConfiguration: { upsert: async (value: any) => { writes.push(value); return value.update; } },
+      mqttOutbox: { create: async (value: any) => { payloads.push(value); } }
+    };
+    await expect(new AutomationSnapshotService({ now: () => new Date() }).incrementDesiredRevision(tx as never, GATEWAY_ID))
+      .resolves.toMatchObject({ desiredRevision: 9, syncStatus: "REJECTED", lastErrorCode: "bio_self_control_unsupported" });
+    expect(writes).toHaveLength(1);
+    expect(payloads).toEqual([]);
+    expect(ruleUpdates.some(update => update.data.status === "disabled")).toBe(false);
+  });
   it("publishes the same-transaction verified holiday dataset using inclusive Seoul active dates", async () => {
-    const semantic = { country: "KR", source: "kasi", year: 2026, coverageFrom: "2026-01-01", coverageUntil: "2026-12-31", dates: [] };
+    const semantic = { country: "KR", source: "kasi", year: 2026, coverageFrom: "2026-01-01", coverageUntil: "2026-12-31", dates: [{ date: "2026-01-01", names: ["신정"] }] };
     const dataset = { ...semantic, revision: "verified2026", payloadHash: canonicalPayloadHash(semantic), fetchedAt: new Date("2026-01-01Z"),
       coverageFrom: new Date("2026-01-01Z"), coverageUntil: new Date("2026-12-31Z"), complete: true,
-      completenessProof: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, totalCount: 0, pageCount: 1, numOfRows: 100, pages: [{ page: 1, itemCount: 0 }] })) };
+      completenessProof: Array.from({ length: 12 }, (_, i) => ({ month: i + 1, totalCount: i === 0 ? 1 : 0, pageCount: 1, numOfRows: 100, pages: [{ page: 1, itemCount: i === 0 ? 1 : 0 }] })) };
     const payloads: any[] = [];
     const tx = { gateway: { findUnique: async () => ({ id: GATEWAY_ID, siteId: SITE_ID, assignmentVersion: 1, site: { timeZone: "Asia/Seoul" }, automationConfiguration: null,
       inventory: { id: "inventory", claimedAt: new Date("2026-01-01Z"), disabledAt: null }, certificates: [{ inventoryId: "inventory" }],
@@ -26,7 +46,7 @@ describe("AutomationSnapshotService", () => {
       mqttOutbox: { create: async ({ data }: any) => { payloads.push(data.payload); } } };
     await new AutomationSnapshotService({ now: () => new Date("2026-01-01Z") }).incrementDesiredRevision(tx as never, GATEWAY_ID);
     expect(payloads[0]).toMatchObject({ schemaVersion: 3, schedules: [{ excludeWeekends: false, excludeHolidays: true }],
-      holidayDatasets: [{ year: 2026, revision: "verified2026", payloadHash: dataset.payloadHash, dates: [] }] });
+      holidayDatasets: [{ year: 2026, revision: "verified2026", payloadHash: dataset.payloadHash, dates: [{ date: "2026-01-01", names: ["신정"] }] }] });
   });
   it("retains stored exclusions in evaluator input and refuses silent V1 downgrade", async () => {
     const row = { ...scheduleRow(SCHEDULE_A, [FIXTURE_A]), excludeWeekends: true, excludeHolidays: false };

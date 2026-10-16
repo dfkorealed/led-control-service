@@ -14,11 +14,14 @@ const DEFAULT_RETRY_MAX_DELAY_MS = 30_000;
 const DEFAULT_PUBLISH_TIMEOUT_MS = 10_000;
 
 type RequestPublish = (topic: string, request: AutomationCurrentConfigRequest) => Promise<void>;
+interface ProtocolSupport {
+  assignmentVersion: number; maxSnapshotVersion: 1 | 2 | 3; nextRevision: () => Promise<number>; bioNativeSelfControlVersion?: 1;
+}
 
 export class AutomationCurrentConfigRequester {
   private publish: RequestPublish | undefined;
   private request: AutomationCurrentConfigRequest | undefined;
-  private readonly protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2 | 3; nextRevision: () => Promise<number> };
+  private readonly protocolSupport?: ProtocolSupport;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private retryDelayMs: number;
@@ -40,7 +43,7 @@ export class AutomationCurrentConfigRequester {
       now?: () => Date;
       random?: () => number;
       onError?: (error: unknown) => void;
-      protocolSupport?: { assignmentVersion: number; maxSnapshotVersion: 1 | 2 | 3; nextRevision: () => Promise<number> };
+      protocolSupport?: ProtocolSupport;
     } = {}
   ) {
     this.retryInitialDelayMs = options.retryInitialDelayMs ?? DEFAULT_RETRY_INITIAL_DELAY_MS;
@@ -70,7 +73,8 @@ export class AutomationCurrentConfigRequester {
     };
     this.request = this.protocolSupport?.maxSnapshotVersion === 3 ? automationCurrentConfigRequestV3Schema.parse({ ...request,
       schemaVersion: 3, assignmentVersion: this.protocolSupport.assignmentVersion, declarationRevision,
-      maxSnapshotVersion: 3, temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true
+      maxSnapshotVersion: 3, temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true,
+      ...(this.protocolSupport.bioNativeSelfControlVersion === 1 ? { bioNativeSelfControlVersion: 1 } : {})
     }) : this.protocolSupport ? automationCurrentConfigRequestV2Schema.parse({ ...request,
       schemaVersion: 2, assignmentVersion: this.protocolSupport.assignmentVersion,
       maxSnapshotVersion: this.protocolSupport.maxSnapshotVersion, declarationRevision

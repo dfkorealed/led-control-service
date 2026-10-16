@@ -91,7 +91,7 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 - [x] 확인된 byte·정규화 읽기 fixture와1초·최대값·다른network·표현불가·부분쓰기/모드보존·소유권·연결세대·내구intent 실패 회귀를 확인했다.
 - [x] 저수준 직렬화와 parser, 전체 설정 GET 및 변경/독립 재조회를 구현했다. 불일치 시 observed 설정을 보존하며 자동 SET 재시도/자동 복구를 하지 않는다. 설정 복구는 전체 현재값/원raw를 검증한다.
 - [x] 직접관련4파일287PASS·Gateway타입/build·diff와 직접 검토를 확인했다. 실제 광출력 성공으로 확대하지 않는다.
-- [ ] 실장비1초 SET/readback·감지 후 기본 밝기 복귀와 원 설정 복구를 최소1대로 확인한다. 읽기 전용 승인을 설정 쓰기 승인으로 재사용하지 않는다. 이 확인 전 제품 Task4–6의 단계 의미/firmware 자격을 추측하지 않는다.
+- [x] 별도 승인된 B1-L006만1초 SET/독립 readback·사용자 감지 시 밝아짐/퇴장 후 낮은 밝기 복귀·정확 원 설정 복구를 확인했다. 방습등 SET0이다. 광출력의 정확한1초와 재감지 연장은 실측하지 않았다.
 
 ### Task 4: 자기 제어의 저장과 공통 계약
 
@@ -99,9 +99,9 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 
 **Interfaces:** `selfControlEnabled: boolean`의 기존 저장값 기본false, 새 UI 요청true. source한개·self=true때만 다른target0개 허용. 자기 제어 설정은 일반target으로 확장하지 않는다. 변경 계약의 capability/strict parsing/ACK로 이전 Gateway의 오실행을 차단한다.
 
-- [ ] self-only 저장·기존 payload/행false·다른source거절·권한/현장/소유권/호환누락·stale Gateway 회귀를 먼저 추가하고 RED를 확인한다.
-- [ ] 공유 계약을 먼저 구현한 뒤 서버 저장/현재 장비의 자동 호환 준비·snapshot 연결을 수정한다. 신규 forward migration은 disposable DB에서만 검증하며 운영 DB는 변경하지 않는다.
-- [ ] 해당 회귀·타입·migration/schema 문서와 기존ID/설정 보존을 확인하고 커밋한다.
+- [x] self-only/기존false/구형 Gateway/잘못된 native밝기·시간 및 capability상실 회귀의 RED→GREEN을 확인했다.
+- [x] 명시 native capability·공통 계약·서버 저장/snapshot과 forward migration을 구현했다. 자체 disposable DB 제약/전체순방향 적용만 검증하며 운영 DB 변경0이다.
+- [x] shared60/API53·API타입0과 schema 문서를 확인했다. 기존ID/설정·사용자 변경을 포함하지 않고 기능 commit을 보존한다.
 
 ### Task 5: Gateway의 자기 제어 내구 적용과 원복
 
@@ -109,9 +109,9 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 
 **Interfaces:** Task3 설정 port와 Task4 명시self 설정을 소비한다. 원 설정/물리 신원/규칙revision/소유권/진행단계를 RF전에 내구 저장하며 전체readback 일치 뒤에만 적용 완료를 인정한다.
 
-- [ ] 자기제어와 일반대상 분리·원설정전읽기실패RF0·부분적용/재시작/다른소유자변경·비활성화복구·동시규칙충돌 회귀를 먼저 추가하고 RED를 확인한다.
-- [ ] 현재 단일USB client/serial queue와 내구 state에 연결하고 자기 제어 apply/restore를 일반force 경로와 분리한다. 기존 source 보호는 유지한다.
-- [ ] 관련 Gateway 회귀·타입과 상태 구버전 복원을 확인하고 커밋한다.
+- [x] 내구owner/port/production ACK순서와 부분실패·재시작·복구·물리 신원/lease/세대/건강 보호의 semantic RED→GREEN을 확인했다.
+- [x] 같은 단일USB client/queue·별도 fsync 원장에 연결했다. 일반 force target에서 자기 조명을 분리하고 부분원장의 source 보호를 유지한다.
+- [x] 관련Gateway107·타입/build0을 확인했다. 기존snapshot은새필드없이유효하며 native지원이없는구형peer에새필드를전송하지않는다. 활성 native원장 상태의 구형 binary다운그레이드는 금지한다.
 
 ### Task 6: UI와 최소 통합 확인
 
@@ -119,7 +119,8 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 
 **Interfaces:** 기존 공통 입력/Checkbox를 재사용해self=true의source-only 입력을 만들고 기존rule은false·새rule은true로 표시한다. 원시 패킷/주소 정보나 별도 등록 절차를 사용자에게 노출하지 않는다.
 
-- [ ] 기존/새 조명self선택·기존rule편집·다른target0개·1초저장·자동준비실패/구체오류 회귀를 먼저 추가하고 RED를 확인한다.
-- [ ] 기존 입력/선택 컴포넌트로 최소UI를 구현하고 PC1440/모바일390의 격리 브라우저에서 저장/활성화 실패·성공 경로만 검사한다.
-- [ ] 직접관련 테스트/타입/Web build·diff와 직접 전체diff리뷰 후 문서와 결과를 일치시킨다. 기존 사용자/병행 변경을 포함하지 않고 메인에 병합한다.
+- [x] self기존false/새true·target0개·1초저장·표현불가/구체오류 회귀의 RED→GREEN을 확인했다.
+- [x] 공통 Checkbox/기존 입력을 재사용했다. PC1440/모바일390의 mock API 자기 조명만1초 저장2건과 시각검사를 확인했다. 실제 규칙활성화/HIL은 반복하지 않았다.
+- [x] 직접관련Web145·타입포함build·diff/자가리뷰·메뉴/schema 문서를 확인했다. 사용자 단독 지시에 따라 다른 채팅 공유/에이전트0이다.
+- [ ] 개발 브랜치에 병합한다. 공유 상태판의 병행 미커밋 내용을 임의 stage/stash/덮어쓰지 않는다.
 - [ ] 실제 서버/장비 반영 전에 변경 범위와 남은 검증을 사용자에게 보고한다. 장비 쓰기 승인 전에는 배포/규칙 활성화/RF를 하지 않는다.

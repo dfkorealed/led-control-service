@@ -17,6 +17,7 @@ import {
   automationSnapshotSchema,
   automationConfigAppliedDeliverySchema,
   vehicleEventRuleSnapshotV2Schema,
+  vehicleEventRuleSnapshotV3Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV2Schema,
   vehicleSensorCapabilityDeliveryV2Schema,
@@ -77,6 +78,26 @@ const snapshot = {
   generatedAt: occurredAt,
   payloadHash
 };
+
+describe("BIO native self control contract", () => {
+  const rule = { ...snapshot.vehicleEventRules[0], sensorProtocol: "bio-usb-pulse", holdSeconds: 1,
+    selfControlEnabled: true, targetFixtureIds: [] };
+  it("allows one BIO source to control itself without a force-output target", () => {
+    expect(vehicleEventRuleSnapshotV3Schema.safeParse(rule).success).toBe(true);
+    expect(automationSnapshotV3Schema.safeParse({ ...snapshot, schemaVersion: 3, schedules: [], holidayDatasets: [], vehicleEventRules: [rule] }).success).toBe(true);
+  });
+  it("keeps old protocol snapshots strict and refuses empty non-self targets", () => {
+    expect(vehicleEventRuleSnapshotV2Schema.safeParse(rule).success).toBe(false);
+    expect(vehicleEventRuleSnapshotV3Schema.safeParse({ ...rule, selfControlEnabled: false }).success).toBe(false);
+    expect(vehicleEventRuleSnapshotV3Schema.safeParse({ ...rule, sourceFixtureIds: [fixtureId, fixtureId2] }).success).toBe(false);
+    expect(vehicleEventRuleSnapshotV3Schema.safeParse({ ...rule, sensorProtocol: "bluez-stateful", holdSeconds: 60 }).success).toBe(false);
+  });
+  it("rejects a native off brightness and an interval the lamp cannot represent", () => {
+    expect(vehicleEventRuleSnapshotV3Schema.safeParse({ ...rule, action: { dimmingEnabled: true, brightnessPercent: 0 } }).success).toBe(false);
+    expect(vehicleEventRuleSnapshotV3Schema.safeParse({ ...rule, holdSeconds: 128 }).success).toBe(false);
+    expect(vehicleEventRuleSnapshotV3Schema.safeParse({ ...rule, holdSeconds: 180 }).success).toBe(true);
+  });
+});
 
 describe("automation shared contracts", () => {
   it("admits V3 schedules with explicit exclusion flags without downgrading V2", () => {

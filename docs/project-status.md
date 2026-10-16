@@ -2,6 +2,14 @@
 
 기준일: 2026-10-15
 
+## 2026-10-16 BIO 자기 감지 제어 — 구현·최소 장비 확인 완료, 영구 반영 전
+
+- 별도 `codex/bio-self-sensing-control-20261015`에서 shared/API/DB·Gateway 내구 native owner·공통 UI를 구현했다. 기존/신규에 같은 설정, 새 규칙self=true/기존false, 자기 조명만 실행, 감지 밝기1~100%·유지시간1~127초/이후60초 배수(최대1,800초)를 제공한다. 무감지 밝기·phase·대기 구간은 조명의 원 설정을 보존한다.
+- 승인된 B1-L006만1초 SET/독립 전체 GET·사용자의 밝아짐→낮은 밝기 복귀·정확한 전체 원복을 확인했다. 방습등 SET0이다. 광출력 경과시간/재감지 연장 실측은 하지 않았다. 주소 별칭2개·단일USB grant 교정과 새 암호화 백업 후 같은 immutable 버전/설정·영속3root·ID/등록/기본밝기/인증을 보존해 재개했다. 불필요한 scan/조회 실패는SET0으로 종료하고 원 기록을 보존했다.
+- focused shared60/API53/Gateway107(저수준 포함 최종355)/Web145·PC1440/모바일390 저장2건, API/Gateway 타입·API/Gateway/Web build를 검증했다. 지원 상실의 stale capability rollback과0%/표현불가 시간·부분원장 오류를 보완했다. 사용자 단독 지시로 작성자 자가리뷰만 했으며 다른 채팅 공유/agent0이다. 기존 무관 전체suite 실패를 숨기지 않되 이번에는 관련 검증만 수행했다.
+- 현재 코드 병합 준비이며 운영 DB 두 migration·새 API/Web/Gateway 영구 반영은 미실행이다. 실제 운영 image는 기존 버전이다. 배포 전 별도 사용자 승인·백업·버전 일치·명시 native capability·정확 revision/ACK 확인이 필요하다. 활성 native 원장이 남은 구형 Gateway 다운그레이드는 금지하고 부분 설정은 자동 SET 재전송하지 않는다.
+- 상세 범위/한계는 `docs/menus/control.md`, `docs/menus/settings.md`, `docs/database-schema.md`와 `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`다. 아래10월15일 자기 제어 미구현/장비 상태는 당시 이력이며 이 항목으로 갱신한다. 병행 미커밋 기록을 임의 stage/삭제하지 않는다.
+
 ## 2026-10-15 BIO 자기 감지 제어 설계 검토
 
 - 후속 저수준 SDK 구현: 별도 `codex/bio-self-sensing-control-20261015`에서 standby/hold SET·정확한1초 인코딩·필수 intent callback·원 설정/세대/소유권 보존·독립 재조회·검증형 복구를 구현했다. 새codec5/변환7/client7 및 추가guard3 RED→관련4파일287PASS·Gateway타입/build exit0이다. 원phase/대기구간은 보존하고 phase1/높은밝기0/표현불가 새시간은 거절한다. 원interval0/장시간raw는 복구에서 보존한다. 실제 규칙/프로파일/내구저장소/UI 연결·메인병합·운영 반영은 아직이다.

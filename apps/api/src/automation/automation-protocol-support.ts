@@ -40,6 +40,17 @@ export async function loadAutomationProtocolSupport(tx: Prisma.TransactionClient
   return declaredAutomationVersion(declaration);
 }
 
+/** New native settings cannot be inferred from generic V3/GET support. */
+export async function loadBioNativeSelfControlSupport(tx: Prisma.TransactionClient, scope: Scope): Promise<boolean> {
+  const identity = await lockAutomationProtocolIdentity(tx, scope);
+  if (!identity) return false;
+  const declaration = await tx.gatewayAutomationProtocolSupport.findFirst({
+    where: { siteId: scope.siteId, gatewayId: scope.gatewayId, assignmentVersion: identity.assignmentVersion },
+    orderBy: { declarationRevision: "desc" }
+  });
+  return declaredAutomationVersion(declaration) === 3 && declaration?.bioNativeSelfControlVersion === 1;
+}
+
 export async function recordAutomationProtocolSupport(
   tx: Prisma.TransactionClient, value: AutomationCurrentConfigRequestV2 | AutomationCurrentConfigRequestV3
 ): Promise<"accepted" | "refreshed" | "duplicate" | "stale" | "unverified"> {
@@ -61,10 +72,12 @@ export async function recordAutomationProtocolSupport(
   await tx.gatewayAutomationProtocolSupport.create({ data: {
     ...scope, assignmentVersion: request.assignmentVersion, declarationRevision: BigInt(request.declarationRevision),
     declarationId: request.requestId, maxSnapshotVersion: request.maxSnapshotVersion,
-    ...(request.schemaVersion === 3 ? { temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true } : {}),
+    ...(request.schemaVersion === 3 ? { temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true,
+      bioNativeSelfControlVersion: request.bioNativeSelfControlVersion ?? null } : {}),
     payloadHash, declaredAt: new Date(request.requestedAt)
   } });
   // A new request identity announcing unchanged support is an exact snapshot
   // resync, not a policy transition. Preserve desiredRevision/hash and hold.
-  return latest && declaredAutomationVersion(latest) === request.maxSnapshotVersion ? "refreshed" : "accepted";
+  return latest && declaredAutomationVersion(latest) === request.maxSnapshotVersion
+    && (latest.bioNativeSelfControlVersion ?? null) === (request.schemaVersion === 3 ? request.bioNativeSelfControlVersion ?? null : null) ? "refreshed" : "accepted";
 }

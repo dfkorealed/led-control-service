@@ -4,6 +4,15 @@ const input = { name: "동일 센서 조명군", status: "disabled", sourceFixtu
   targetFixtureIds: ["00000000-0000-4000-8000-000000000002"], action: { dimmingEnabled: true, brightnessPercent: 70 } };
 
 describe("vehicle event effective hold duration", () => {
+  it("accepts an explicit one-source self-only rule while preserving legacy defaults", () => {
+    expect(parseCreateVehicleEventRuleInput({ ...input, selfControlEnabled: true, targetFixtureIds: [], holdSeconds: 1 })).toMatchObject({ selfControlEnabled: true, targetFixtureIds: [], holdSeconds: 1 });
+    expect(parseUpdateVehicleEventRuleInput({ selfControlEnabled: true, targetFixtureIds: [] })).toMatchObject({ selfControlEnabled: true, targetFixtureIds: [] });
+    expect(parseCreateVehicleEventRuleInput(input)).toMatchObject({ selfControlEnabled: false });
+  });
+  it("rejects no-output and multiple-source self-control creates", () => {
+    expect(() => parseCreateVehicleEventRuleInput({ ...input, targetFixtureIds: [] })).toThrow();
+    expect(() => parseCreateVehicleEventRuleInput({ ...input, selfControlEnabled: true, sourceFixtureIds: [...input.sourceFixtureIds, ...input.targetFixtureIds] })).toThrow();
+  });
   it.each([1, 2, 9, 10, 60, 1800])("preserves a %ss BIO create/PATCH value without coercion", holdSeconds => {
     expect(parseCreateVehicleEventRuleInput({ ...input, holdSeconds }).holdSeconds).toBe(holdSeconds);
     expect(parseUpdateVehicleEventRuleInput({ holdSeconds })).toEqual({ holdSeconds });
