@@ -5,7 +5,7 @@ import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "luci
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyObservedMeanHeatmap, useEnergyRankings, useEnergySummary } from "../../../api/energy";
-import { LoadingState, Button, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft  } from "../../../components/ui";
+import { LoadingState, Button, CardGrid, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, PageStack, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft  } from "../../../components/ui";
 import { draftToDate } from "../../../components/ui/date/useDateDraft";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { completedDateBounds } from "../completed-date-bounds";
@@ -24,7 +24,7 @@ const metricItems: Array<{ id: EnergyRankingMetric; label: string }> = [
 ];
 
 export function StatisticsAnalysisPage() {
-  const pageHeader = <PageHeader variant="customer" headingLevel={1} title="사용량 분석" />;
+  const pageHeader = <PageHeader variant="customer" titleRole="page" headingLevel={1} title="사용량 분석" />;
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const summary = useEnergySummary(siteId);
   const defaults = summary.data ? completedSiteMonth(summary.data.generatedAt, summary.data.timeZone) : null;
@@ -68,14 +68,14 @@ export function StatisticsAnalysisPage() {
   useEffect(() => { setSelectedId(null); }, [siteId]);
 
   if (summary.isError) {
-    return <section className="grid min-w-0 gap-6">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert}
-      title="현장 기간 기준을 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => summary.refetch()}>다시 시도</Button>} /></section>;
+    return <PageStack as="section" className="max-compact:gap-2">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert}
+      title="현장 기간 기준을 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => summary.refetch()}>다시 시도</Button>} /></PageStack>;
   }
   if (!siteId || summary.isLoading || !defaults) {
-    return <section className="grid min-w-0 gap-6">{pageHeader}<LoadingState isPaused={summary.isPaused} title="사용량 순위를 계산하는 중" /></section>;
+    return <PageStack as="section" className="max-compact:gap-2">{pageHeader}<LoadingState isPaused={summary.isPaused} title="사용량 순위를 계산하는 중" /></PageStack>;
   }
   return (
-    <section className="grid min-w-0 gap-5 max-compact:gap-2" aria-label="사용량 분석 결과">
+    <PageStack as="section" className="max-compact:gap-2" aria-label="사용량 분석 결과">
       {pageHeader}
       <FilterPanel label="사용량 분석 조건" mode="popover" variant="compact" className="flex-row-reverse flex-wrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1"
         activeFilterCount={Number(dimension !== "floor") + Number(metric !== "usage") + Number(sort !== "desc") + Number(from !== defaults.from || to !== defaults.to)}
@@ -110,26 +110,26 @@ export function StatisticsAnalysisPage() {
       {validRange && query.isError ? <FeedbackState tone="danger" icon={TriangleAlert} title="사용량 분석을 불러오지 못했습니다."
         action={<Button variant="secondary" onClick={() => query.refetch()}>다시 시도</Button>} /> : null}
       {ranking ? <>
-      <div className="grid grid-cols-3 gap-3 max-compact:grid-cols-1 max-compact:order-1">
+      <CardGrid className="grid-cols-3 max-compact:grid-cols-1 max-compact:order-1">
         <MetricCard label="현장 사용량" value={ranking.siteTotalKwh.toLocaleString("ko-KR")} unit="kWh" tone="primary" />
         <MetricCard label="저장 비용" value={Math.round(ranking.siteTotalCost).toLocaleString("ko-KR")} unit="원" />
         <MetricCard label="분석 대상" value={ranking.ranked.length} unit="개" />
-      </div>
+      </CardGrid>
       <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-control border border-status-info-border bg-status-info-background px-3 py-2 max-compact:order-1" aria-label="분석 상태">
         <StatusBadge tone="info" icon={BarChart3}>상태 기반 추정</StatusBadge>
         <Text variant="body-sm" tone="secondary">비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.</Text>
         {ranking.overlappingMemberships ? <StatusDetailButton label="그룹 중복" description="그룹 중복 소속 조명은 각 그룹에 포함됩니다. 그룹 합계는 현장 총계와 다를 수 있습니다." /> : null}
         {ranking.legacyExcludedBefore ? <StatusDetailButton label="과거 이력 제외" description={`${ranking.legacyExcludedBefore} 이전 구조 이력은 순위에서 제외하고 현장 총계에만 포함했습니다.`} /> : null}
       </div>
-      <div className="grid min-w-0 grid-cols-1 gap-4 tablet:grid-cols-2">
+      <CardGrid className="grid-cols-1 tablet:grid-cols-2">
         <EnergyRankingList items={ranking.ranked} unranked={ranking.unranked} metric={metric}
           selectedId={selected?.identityId ?? null} onSelect={(item) => setSelectedId(item.identityId)} />
         <EnergyRankingDetailPanel item={selected} />
-      </div>
+      </CardGrid>
       <EnergyHeatmap data={matchingHeatmap} isLoading={heatmap.isLoading && !heatmap.data} isError={heatmap.isError || Boolean(heatmap.data && !matchingHeatmap)}
         metric={heatmapMetric} onMetricChange={setHeatmapMetric} onRetry={() => heatmap.refetch()} />
       </> : null}
-    </section>
+    </PageStack>
   );
 }
 

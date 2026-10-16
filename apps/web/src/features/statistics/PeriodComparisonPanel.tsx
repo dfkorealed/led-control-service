@@ -12,7 +12,7 @@ const comparisonKinds = [
 
 export function PeriodComparisonPanel({ comparisons }: { comparisons: EnergyComparisonResponse["priorComparisons"] }) {
   return (
-    <SidePanel className="grid min-w-0 gap-3 p-4 compact:p-5" aria-label="동기간 비교">
+    <SidePanel padding="regular" className="grid min-w-0 gap-3" aria-label="동기간 비교">
       <div className="grid gap-1">
         <Heading as="h2" variant="customer-section-title">이전 기간과 비교</Heading>
       </div>

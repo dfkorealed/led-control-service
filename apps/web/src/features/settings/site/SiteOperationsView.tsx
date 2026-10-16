@@ -20,7 +20,7 @@ import {
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
-import { LoadingState, Button, Card, DataGrid, FeedbackState, Heading, IconTooltipButton, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn  } from "../../../components/ui";
+import { LoadingState, Button, Card, CardGrid, DataGrid, FeedbackState, Heading, IconTooltipButton, ModalDialog, PageHeader, PageStack, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn  } from "../../../components/ui";
 import { FixtureRegistrationRemovalFlow, type FixtureRemovalTarget } from "./FixtureRegistrationRemovalFlow";
 import { BioSensorSettingsPanel } from "./BioSensorSettingsPanel";
 import { SiteInformationEditDialog } from "./SiteInformationEditDialog";
@@ -115,7 +115,7 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false, ca
   }
 
   return (
-    <section className="grid min-w-0 content-start gap-6" aria-label="현장 관리">
+    <PageStack as="section" aria-label="현장 관리">
       <div role="group" aria-label="현장 관리 도구" className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <p className="m-0 text-body text-content-secondary">설치 후 운영에 필요한 현장, 층, 조명, 구역 정보를 관리합니다.</p>
         {settingsQuery.error && settingsQuery.data ? <StatusDetailButton label="운영 정보 갱신 실패"
@@ -131,9 +131,9 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false, ca
       ) : null}
 
       {settingsQuery.data ? <>
-        <div className="grid min-w-0 gap-5 tablet:grid-cols-2">
+        <CardGrid className="tablet:grid-cols-2">
           <SiteInformationForm siteId={siteId} site={settingsQuery.data.site} />
-          <Card className="grid content-start gap-4 p-5" role="region" aria-label="현장 구성">
+          <Card padding="regular" className="grid content-start gap-4" role="region" aria-label="현장 구성">
             <Heading as="h2" variant="customer-section-title">현장 구성</Heading>
             <dl className="grid grid-cols-2 gap-4">
               <div><dt className="text-body-sm text-content-secondary">운영 층</dt><dd className="m-0 text-customer-metric font-bold">{activeFloors.length}개</dd></div>
@@ -141,12 +141,12 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false, ca
             </dl>
             <p className="m-0 text-body-sm text-content-secondary">운영 층 {activeFloors.length}개 · 보관 층 {settingsQuery.data.floors.length - activeFloors.length}개 · 등록 조명 {settingsQuery.data.floors.reduce((count, floor) => count + floor.fixtureCount, 0)}개</p>
           </Card>
-        </div>
+        </CardGrid>
         {ownerUserId ? <BioSensorSettingsPanel key={siteId} siteId={siteId} ownerUserId={ownerUserId} canPrepare={canPrepare} /> : null}
 
-        <section className="grid min-w-0 items-start gap-5 tablet:grid-cols-2" aria-label="층·구역 관리">
-        <section className="grid min-w-0 gap-4 border-t border-border-default pt-6" aria-label="층 관리">
-          <PageHeader variant="customer" title="층 관리" headingLevel={3} description="층의 운영 표시 정보와 보관 상태를 관리합니다."
+        <PageStack as="section" className="items-start tablet:grid-cols-2" aria-label="층·구역 관리">
+        <PageStack as="section" className="border-t border-border-default pt-5" aria-label="층 관리">
+          <PageHeader variant="customer" titleRole="section" title="층 관리" headingLevel={3} description="층의 운영 표시 정보와 보관 상태를 관리합니다."
             actions={<Button variant="primary" onClick={event => setFloorEditor({ id: "create", trigger: event.currentTarget })}><Plus size={16} aria-hidden="true" />층 추가</Button>} />
           {floorActionError ? (
             <FeedbackState tone="danger" icon={CircleAlert} title={floorActionError.title} action={<Button type="button" onClick={floorActionError.retry}>{floorActionError.retryLabel}</Button>} />
@@ -166,10 +166,10 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false, ca
                 onClose={() => setFloorEditor(null)}
               />
             ))}
-        </section>
+        </PageStack>
 
         <FixtureGroupSection siteId={siteId} floors={settingsQuery.data.floors} />
-        </section>
+        </PageStack>
 
         <FixtureSection
           siteId={siteId}
@@ -201,7 +201,7 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false, ca
           <p>조명과 활성 구역이 없는지 다시 확인한 뒤 보관하세요.</p>
         </ModalDialog>
       ) : null}
-    </section>
+    </PageStack>
   );
 }
 
@@ -271,10 +271,10 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
   }
 
   return (
-    <section className="grid min-w-0 gap-4" aria-label="현장 정보">
+    <PageStack as="section" aria-label="현장 정보">
       {notice ? <FeedbackState tone="success" icon={CheckCircle2} title={notice} /> : null}
-      <Card className="p-5">
-        <PageHeader variant="customer" title="현장 정보" headingLevel={2}
+      <Card padding="regular">
+        <PageHeader variant="customer" titleRole="section" title="현장 정보" headingLevel={2}
           actions={<Button onClick={event => { setEditTrigger(event.currentTarget); setIsOpen(true); }}>현장 정보 수정</Button>} />
         <dl className="m-0 grid gap-3 pt-4 text-body-sm">
           {[["현장 이름", site.name], ["주소", site.address ?? "미등록"], ["시간대", site.timeZone], ["통화", site.currency], ["kWh 단가", site.tariffKwhRate === null ? "미설정" : `${site.tariffKwhRate.toLocaleString("ko-KR")}원`]].map(([label, value]) =>
@@ -291,7 +291,7 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
         }}>
         {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
       </SiteInformationEditDialog>
-    </section>
+    </PageStack>
   );
 }
 
@@ -411,8 +411,9 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
   );
 
   return (
-    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border-t border-border-default pt-6" aria-label="조명 관리">
+    <PageStack as="section" className="grid-cols-[minmax(0,1fr)] border-t border-border-default pt-5" aria-label="조명 관리">
       <PageHeader
+        titleRole="section"
         title="조명 관리"
         headingLevel={3}
         description="이름과 정격전력만 수정합니다. 위치와 크기는 맵 관리에서 조정합니다."
@@ -429,14 +430,14 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
       {fixturesQuery.isPending && selectedFloorId ? <LoadingState isPaused={fixturesQuery.isPaused} tone="neutral" title="조명 목록을 불러오는 중입니다." /> : null}
       {fixturesQuery.error && fixtures.length === 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void fixturesQuery.refetch()}>조명 목록 다시 시도</Button>} /> : null}
       {!fixturesQuery.isPending && !fixturesQuery.error && selectedFloorId && fixtures.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="이 층에 등록된 조명이 없습니다." /> : null}
-      {fixtures.length > 0 ? <div className="grid min-w-0 gap-3" aria-label="조명 목록">
+      {fixtures.length > 0 ? <CardGrid aria-label="조명 목록">
         {fixtures.map((fixture) => <FixtureRow key={fixture.id} siteId={siteId} floorId={selectedFloorId} fixture={fixture} onRemove={onRemove} />)}
-      </div> : null}
+      </CardGrid> : null}
       {fixturesQuery.hasNextPage ? <div className="flex flex-wrap items-center justify-between gap-3">
         <span>{fixtures.length}개 불러옴</span>
         <Button type="button" isLoading={fixturesQuery.isFetchingNextPage} loadingLabel="불러오는 중" onClick={() => void fixturesQuery.fetchNextPage()}>다음 200개 불러오기</Button>
       </div> : null}
-    </section>
+    </PageStack>
   );
 }
 
@@ -503,8 +504,8 @@ function FixtureRow({ siteId, floorId, fixture, onRemove }: {
   }
 
   return (
-    <Card className="grid min-w-0 gap-4 p-5">
-      <div className="flex min-w-0 items-center justify-between gap-3"><strong className="min-w-0 wrap-anywhere">{fixture.name}</strong>
+    <Card padding="regular" className="grid min-w-0 gap-4">
+      <div className="flex min-w-0 items-center justify-between gap-3"><strong className="min-w-0 wrap-anywhere text-body-lg">{fixture.name}</strong>
         {onRemove ? <IconTooltipButton icon={Trash2} label={`${fixture.name} 등록 삭제`} tooltip="등록 삭제"
           onClick={event => onRemove({ siteId, floorId, fixture, trigger: event.currentTarget })} /> : null}
       </div>
@@ -560,8 +561,8 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
   });
 
   return (
-    <section className="grid gap-4 border-t border-border-default pt-6" aria-label="구역 관리">
-      <PageHeader title="구역 관리" headingLevel={3} description="구역 구성은 맵 관리에서, 실제 조명 제어는 제어 화면에서 수행합니다. 여기서는 목록을 확인하고 보관을 시작할 수 있습니다."
+    <PageStack as="section" className="border-t border-border-default pt-5" aria-label="구역 관리">
+      <PageHeader titleRole="section" title="구역 관리" headingLevel={3} description="구역 구성은 맵 관리에서, 실제 조명 제어는 제어 화면에서 수행합니다. 여기서는 목록을 확인하고 보관을 시작할 수 있습니다."
         actions={groupsQuery.error && groupsQuery.data ? <StatusDetailButton label="구역 목록 갱신 실패"
           description="최신 구역 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
           action={{ label: "구역 목록 다시 시도", onClick: () => { void groupsQuery.refetch(); } }} /> : null} />
@@ -569,11 +570,11 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
       {groupsQuery.isPending ? <LoadingState isPaused={groupsQuery.isPaused} tone="neutral" title="구역 목록을 불러오는 중입니다." /> : null}
       {groupsQuery.error && !groupsQuery.data ? <FeedbackState tone="danger" icon={CircleAlert} title="구역 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void groupsQuery.refetch()}>구역 목록 다시 시도</Button>} /> : null}
       {groupsQuery.data?.length === 0 ? <FeedbackState tone="neutral" icon={Network} title="등록된 구역이 없습니다." /> : null}
-      {groupsQuery.data?.length ? <div className="grid gap-3" aria-label="구역 목록">
+      {groupsQuery.data?.length ? <CardGrid aria-label="구역 목록">
         {groupsQuery.data.map((group) => (
-          <Card className="grid gap-4 p-5" key={group.id}>
+          <Card padding="regular" className="grid gap-4" key={group.id}>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="grid gap-1"><strong>{group.name}</strong><span className="text-caption text-content-secondary">{group.floorId ? floorNames.get(group.floorId) ?? "알 수 없는 층" : "층 미지정"}</span></div>
+              <div className="grid gap-1"><strong className="text-body-lg">{group.name}</strong><span className="text-caption text-content-secondary">{group.floorId ? floorNames.get(group.floorId) ?? "알 수 없는 층" : "층 미지정"}</span></div>
               <StatusBadge tone={groupTone(group.lifecycleStatus)} icon={group.lifecycleStatus === "active" ? CheckCircle2 : Archive}>{groupStatusLabel(group.lifecycleStatus)}</StatusBadge>
             </div>
             <div className="flex flex-wrap gap-4 text-caption text-content-secondary"><span>조명 {group.fixtureCount}개</span><span>Mesh 상태 {meshStatusLabel(group.meshControlGroup?.status)}</span></div>
@@ -582,7 +583,7 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
             </div> : null}
           </Card>
         ))}
-      </div> : null}
+      </CardGrid> : null}
       {groupToArchive ? (
         <ModalDialog
           role="alertdialog"
@@ -598,7 +599,7 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
           <p>이 작업은 구역을 목록에서 즉시 삭제하지 않고 안전하게 보관 상태로 전환합니다.</p>
         </ModalDialog>
       ) : null}
-    </section>
+    </PageStack>
   );
 }
 

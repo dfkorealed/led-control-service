@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { CircleAlert, CircleCheck, Clock3, Plus, Search, UserCheck } from "lucide-react";
 import { ApiError } from "../../../api/client";
 import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary, type SiteUsersResponse } from "../../../api/site-users";
-import { LoadingState, Button, DataGrid, FeedbackState, FilterPanel, RowActions, SearchField, SelectBox, StatusBadge, StatusDetailButton, formatTimestamp, type DataGridColumn  } from "../../../components/ui";
+import { LoadingState, Button, DataGrid, FeedbackState, FilterPanel, PageStack, RowActions, SearchField, SelectBox, StatusBadge, StatusDetailButton, formatTimestamp, type DataGridColumn  } from "../../../components/ui";
 import { DeleteSiteUserDialog } from "./DeleteSiteUserDialog";
 import { ResetSiteUserPasswordDialog } from "./ResetSiteUserPasswordDialog";
 import { SiteUserFormDialog } from "./SiteUserFormDialog";
@@ -190,7 +190,7 @@ function SiteUsersWorkspace({ siteId }: { siteId?: string }) {
 
   if (!siteId) return <FeedbackState tone="neutral" icon={CircleAlert} title="유저를 관리할 현장을 선택하세요." />;
 
-  return <section className="grid min-w-0 content-start gap-4" aria-label="유저 관리">
+  return <PageStack as="section" aria-label="유저 관리">
     <div role="group" aria-label="사용자 관리 도구" className="flex min-w-0 flex-wrap items-center justify-between gap-3">
       <p className="m-0 text-body text-content-secondary">현장을 조회하거나 조명을 제어할 사용자를 관리합니다.</p>
       <div className="flex flex-wrap items-center gap-2">
@@ -232,7 +232,7 @@ function SiteUsersWorkspace({ siteId }: { siteId?: string }) {
     {dialog?.type === "edit" ? <SiteUserFormDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} fallbackFocusElement={addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} onMutationError={recoverMutationError} /> : null}
     {dialog?.type === "reset" ? <ResetSiteUserPasswordDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} fallbackFocusElement={addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} onMutationError={recoverMutationError} /> : null}
     {dialog?.type === "delete" ? <DeleteSiteUserDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} fallbackFocusElement={addButtonRef.current} onClose={() => setDialog(null)} onCompleted={(message) => completeDeletion(dialog.user.id, message)} onMutationError={recoverMutationError} /> : null}
-  </section>;
+  </PageStack>;
 }
 
 function formatLastLogin(value: string | null) {

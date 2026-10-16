@@ -21,11 +21,11 @@ export function GatewayClaimPanel({ siteId }: GatewayClaimPanelProps) {
   const disabled = mutation.isPending || !name.trim() || !serialNumber.trim() || !claimCode.trim();
 
   return (
-    <Card className="grid gap-3 p-4" data-testid="gateway-claim-form" aria-label="Gateway 연결">
+    <Card padding="regular" className="grid gap-3" data-testid="gateway-claim-form" aria-label="Gateway 연결">
       <div className="flex items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
           <span className="text-overline font-bold text-content-secondary">장비 연결</span>
-          <h3 className="m-0 text-card-title text-content-primary" id="gateway-claim-title">게이트웨이 등록</h3>
+          <h3 className="m-0 text-body-lg text-content-primary" id="gateway-claim-title">게이트웨이 등록</h3>
         </div>
         <StatusBadge tone={mutation.isSuccess ? "success" : "neutral"} icon={mutation.isSuccess ? CheckCircle2 : Clock3}>
           {mutation.isSuccess ? "등록됨" : "연결 준비"}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getBioSensorPolicy, saveBioSensorPolicy, vehicleEventRuleQueryKey } from "../../../api/automation";
 import { useControlDashboard } from "../../../api/queries";
-import { LoadingIndicator, Button, Card, Checkbox, Heading, SelectBox, Text, TextField  } from "../../../components/ui";
+import { LoadingIndicator, Button, Card, CardGrid, Checkbox, Heading, SelectBox, Text, TextField  } from "../../../components/ui";
 import { BioSensorPreparationPanel } from "../../control/automation/BioSensorPreparationPanel";
 
 export function BioSensorSettingsPanel({ siteId, ownerUserId, canPrepare }: { siteId: string; ownerUserId: string; canPrepare: boolean }) {
@@ -35,9 +35,9 @@ export function BioSensorSettingsPanel({ siteId, ownerUserId, canPrepare }: { si
     finally { if (generation.current === current) { busy.current = false; setPending(false); } }
   }
 
-  return <section className="grid min-w-0 gap-4" aria-label="센서 운영 관리">
-    <Card className="grid gap-3 p-4">
-      <Heading as="h3" variant="card-title">센서 운영 정책</Heading>
+  return <CardGrid as="section" aria-label="센서 운영 관리">
+    <Card padding="regular" className="grid gap-3">
+      <Heading as="h3" variant="customer-card-title">센서 운영 정책</Heading>
       <Text>기본 OFF · 현장 대응 정책과 승인된 호환 프로파일이 모두 확인되어야 사용할 수 있습니다. 저장만으로 센서가 사용 가능 상태가 되지 않습니다.</Text>
       {policy.isPending ? <LoadingIndicator isPaused={policy.isPaused}>센서 운영 정책을 불러오는 중입니다.</LoadingIndicator> : null}
       {policy.error ? <><Text role="alert" tone="danger">센서 운영 정책을 불러오지 못했습니다.</Text><Button type="button" variant="secondary" onClick={() => void policy.refetch()}>정책 다시 조회</Button></> : null}
@@ -53,12 +53,12 @@ export function BioSensorSettingsPanel({ siteId, ownerUserId, canPrepare }: { si
       {error ? <Text role="alert" tone="danger">{error}</Text> : null}
       {notice ? <Text role="status">{notice}</Text> : null}
     </Card>
-    <Card id="bio-sensor-preparation" className="grid min-w-0 gap-3 p-4">
-      <Heading as="h3" variant="card-title">등록 조명 센서 준비</Heading>
+    <Card padding="regular" id="bio-sensor-preparation" className="grid min-w-0 gap-3">
+      <Heading as="h3" variant="customer-card-title">등록 조명 센서 준비</Heading>
       <Text variant="caption">조명을 하나씩 선택해 준비 상태와 차단 사유를 확인합니다.</Text>
       {dashboard.error ? <><Text role="alert" tone="danger">등록 조명의 준비 정보를 불러오지 못했습니다.</Text><Button type="button" variant="secondary" onClick={() => void dashboard.refetch()}>조명 다시 조회</Button></> : null}
       <SelectBox label="준비 상태를 확인할 조명" items={fixtures.map(fixture => ({ id: fixture.id, label: fixture.name }))} selectedKey={fixtureId || null} onSelectionChange={value => setFixtureId(value ?? "")} />
       {selectedFixture ? <BioSensorPreparationPanel siteId={siteId} fixture={selectedFixture} disabled={pending} canPrepare={canPrepare} onRefreshSource={() => dashboard.refetch()} /> : <Text>준비 상태를 확인할 등록 조명을 선택하세요.</Text>}
     </Card>
-  </section>;
+  </CardGrid>;
 }

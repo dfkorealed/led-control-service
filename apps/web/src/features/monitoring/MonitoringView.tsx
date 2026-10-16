@@ -6,7 +6,7 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { useCurrentUser } from "../../api/auth";
 import { principalKey } from "../../api/principal-cache";
 import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
-import { LoadingSpinner, LoadingState, Button, Popover, FeedbackState, Heading, OperationMapPanel, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
+import { LoadingSpinner, LoadingState, Button, Popover, FeedbackState, Heading, OperationMapPanel, PageStack, SelectBox, Text, cn, useWorkspaceFocus, useSessionStatus, type SessionStatusItem } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { MapLoadingOverlay } from "../../components/ui/MapLoadingOverlay";
@@ -43,8 +43,8 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
   const { data, isLoading } = dashboardQuery;
 
   const pageHeader = <Heading as="h1" className="sr-only">모니터링</Heading>;
-  if (isLoading && !data) return <section className="grid min-w-0 gap-5">{pageHeader}<LoadingState title="모니터링 현황을 불러오는 중" /></section>;
-  if (!data) return <section className="grid min-w-0 gap-5">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></section>;
+  if (isLoading && !data) return <PageStack as="section">{pageHeader}<LoadingState title="모니터링 현황을 불러오는 중" /></PageStack>;
+  if (!data) return <PageStack as="section">{pageHeader}<FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." action={<Button variant="secondary" onClick={() => void dashboardQuery.refetch()}>다시 시도</Button>} /></PageStack>;
 
   return (
     <MonitoringDashboard
@@ -233,10 +233,10 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
 
   if (!data.site.id) {
     return (
-      <section className="grid min-w-0 gap-4" data-monitoring-screen="">
+      <PageStack as="section" data-monitoring-screen="">
         <Heading as="h1" className="sr-only">모니터링</Heading>
         <InstallationPending />
-      </section>
+      </PageStack>
     );
   }
 
@@ -328,7 +328,9 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
   return (
     // The compact minimum must include bottom-navigation padding after the
     // ticker; overflowing a fixed-height section loses that trailing scroll space.
-    <section className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4", !workspaceFocus.active && "max-compact:min-h-min max-compact:pb-shell-navigation-safe", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
+    // Keep the same section and map owner through fullview; only its geometry
+    // changes. The approved fullview rhythm is 8px instead of ordinary 20px.
+    <PageStack as="section" className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col", !workspaceFocus.active && "max-compact:min-h-min max-compact:pb-shell-navigation-safe", workspaceFocus.active && "h-full! gap-2!")} data-monitoring-screen="" onKeyDown={event => {
       if (event.key !== "Escape" || event.defaultPrevented || isPinOpen || isInspectorOpen || isDetailOpen || isLogDrawerOpen || !workspaceFocus.active) return;
       event.preventDefault(); workspaceFocus.exit();
     }}>
@@ -494,7 +496,7 @@ function MonitoringDashboard({ data, userRole, siteId, refreshDashboard }: Monit
         timeZone={data.site.timeZone}
       />
 
-    </section>
+    </PageStack>
   );
 }
 

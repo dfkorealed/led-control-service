@@ -10,7 +10,7 @@ const qualityPeriods = [
 /** Quality is reported by the summary API, not inferred from chart/ranking samples.
  * generatedAt is deliberately not used as a substitute for an unknown aggregate time. */
 export function StatisticsOperationalInfo({ summary }: { summary: EnergySummary }) {
-  return <Card className="grid min-w-0 content-start gap-4 p-4 compact:p-6" aria-label="운영 인사이트">
+  return <Card padding="regular" className="grid min-w-0 content-start gap-4" aria-label="운영 인사이트">
     <Heading as="h2" variant="customer-section-title">운영 인사이트</Heading>
     <div className="grid min-w-0 gap-3">
       {qualityPeriods.map(({ key, label }) => <dl key={key} role="group" aria-label={`${label} 수집 품질`}

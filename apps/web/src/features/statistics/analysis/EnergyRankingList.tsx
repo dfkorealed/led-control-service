@@ -23,7 +23,7 @@ export function EnergyRankingList({
 }) {
   const max = Math.max(...items.map((item) => item.metricValue ?? 0), 0);
   return (
-    <Card className="grid min-w-0 gap-3 p-4 compact:p-5" aria-label="사용량 순위">
+    <Card padding="regular" className="grid min-w-0 gap-3" aria-label="사용량 순위">
       <header className="flex items-start justify-between gap-3">
         <Heading as="h2" variant="customer-section-title">에너지 사용 비교</Heading>
         <Text as="span" variant="caption" tone="muted">{items.length}개 항목</Text>

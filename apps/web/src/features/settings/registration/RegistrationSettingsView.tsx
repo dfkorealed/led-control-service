@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard } from "../../../api/queries";
-import { Text } from "../../../components/ui";
+import { PageStack, Text } from "../../../components/ui";
 import { RegistrationPanel } from "../../registration/RegistrationPanel";
 import { GatewayClaimPanel } from "../../setup/GatewayClaimPanel";
 import { InstallationPending } from "../../setup/SetupWizard";
@@ -11,15 +11,15 @@ export function RegistrationSettingsView({ siteId }: { siteId?: string }) {
   const location = useLocation();
 
   if (!data?.site.id || data.site.installationStatus !== "installed") {
-    return <section className="grid min-w-0 gap-4"><InstallationPending /></section>;
+    return <PageStack as="section"><InstallationPending /></PageStack>;
   }
 
   if (data.gateways.length === 0) {
     return (
-      <section className="grid min-w-0 gap-4">
+      <PageStack as="section">
         <Text tone="secondary">조명을 검색하기 전에 현장에서 사용할 게이트웨이를 연결합니다.</Text>
         <GatewayClaimPanel siteId={data.site.id} />
-      </section>
+      </PageStack>
     );
   }
 
@@ -27,7 +27,7 @@ export function RegistrationSettingsView({ siteId }: { siteId?: string }) {
   mapSearch.set("siteId", data.site.id);
 
   return (
-    <section className="grid min-w-0 gap-4">
+    <PageStack as="section">
       <RegistrationPanel
         dashboard={data}
         dashboardQuerySiteId={siteId}
@@ -45,6 +45,6 @@ export function RegistrationSettingsView({ siteId }: { siteId?: string }) {
           >맵에서 조명 배치하기</Link>
         </div>
       ) : null}
-    </section>
+    </PageStack>
   );
 }

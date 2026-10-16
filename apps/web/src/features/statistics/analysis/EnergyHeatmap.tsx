@@ -38,9 +38,9 @@ export function EnergyHeatmap({
   const selected = data?.cells[selectedIndex] ?? data?.cells[0];
   const maximum = Math.max(...(data?.cells.flatMap(cell => cell.value === null ? [] : [cell.value]) ?? []), 0);
   return (
-    <Card className="grid min-w-0 max-w-full gap-4 overflow-hidden p-4 compact:p-6" aria-label={feedback ? undefined : "시간대별 사용량"}>
+    <Card padding="regular" className="grid min-w-0 max-w-full gap-4 overflow-hidden" aria-label={feedback ? undefined : "시간대별 사용량"}>
       <header className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
-        <div className="grid gap-1"><Text variant="overline" tone="muted">시간대 패턴</Text><Heading as="h3" variant="card-title">선택 항목 시간대별 평균</Heading>{data && <Text variant="body-sm" tone="secondary">선택한 완료 기간 {data.range.from} ~ {data.range.to} · 현장 시간대 {data.timeZone}</Text>}</div>
+        <div className="grid gap-1"><Text variant="overline" tone="muted">시간대 패턴</Text><Heading as="h3" variant="customer-card-title">선택 항목 시간대별 평균</Heading>{data && <Text variant="body-sm" tone="secondary">선택한 완료 기간 {data.range.from} ~ {data.range.to} · 현장 시간대 {data.timeZone}</Text>}</div>
         <FilterPanel label="히트맵 지표" mode="popover" activeFilterCount={Number(metric !== "energy")}
           summary={<Text variant="caption">{metric === "energy" ? "에너지" : "밝기"}</Text>}
           filterReset={<Button size="sm" variant="secondary" onClick={() => onMetricChange("energy")}>필터 초기화</Button>}>

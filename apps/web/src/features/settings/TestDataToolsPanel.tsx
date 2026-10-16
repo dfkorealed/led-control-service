@@ -73,12 +73,12 @@ function TestDataToolsControls({ dashboard }: { dashboard: Dashboard }) {
   }
 
   return (
-    <Card className="mt-4 grid gap-3 p-4" aria-label="테스트 데이터">
+    <Card padding="regular" className="grid gap-3" aria-label="테스트 데이터">
       <div className="flex items-center gap-3">
         <TriangleAlert size={20} aria-hidden="true" />
         <div className="grid min-w-0 gap-1">
           <span className="text-overline font-bold text-status-warning-foreground">개발·검증 전용</span>
-          <strong className="text-card-title text-content-primary">테스트 데이터</strong>
+          <strong className="text-body-lg text-content-primary">테스트 데이터</strong>
         </div>
       </div>
       <p className="m-0 text-body-sm text-content-secondary">현재 설치 현장에 테스트용 조명 데이터를 생성하거나 삭제합니다.</p>

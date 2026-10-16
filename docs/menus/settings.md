@@ -1,5 +1,31 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-16 설정 일반 section·card·제목 소비 (Task 3)
+
+### 구현 완료
+
+- 설정 overview/site/users/registration/floor-plans의 독립 section은 `PageStack`20px, 동급 navigation·현장 요약·조명/구역 목록·센서 카드·floor-plan card grid는 `CardGrid`18px를 사용한다. 일반 Card는 `regular` inset desktop20/mobile16px이며 shell의 page h1과 하위 section20/28·card16/24 역할을 구분한다. 현장·층·조명·구역의 문서 h2/h3 구조는 유지한다.
+- 등록 outer panel·게이트웨이 연결과 조건부 테스트 데이터 card도 같은 일반 inset을 소비한다. 보안은 Task 2의 공유 customer presentation·grid18·card16·regular inset을 소비 검증하며 인증/비밀 입력/권한/캐시 로직을 바꾸지 않는다.
+- 현장·층 수정 dialog는 공통 modal inset20/16과 기존 field gap16을 소비한다. 등록 삭제 dialog의 경고 문구·확인 조건·callback·reader와 paragraph/field 관계는 유지한다. 맵 editor shell의 gap8·최소256px·lease/dirty draft/preview 활성 수명은 작업 공간 계약으로 유지한다.
+
+### 미구현
+
+- 실제 계정·운영 API·DB·조명 등록 삭제·장비/HIL·native WebView 반영은 이번 범위가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- mock Chromium의 4폭·light/dark·현장 긴 이름 Range·실제 현장/층 저장은 소프트웨어 근거다. 조건부 테스트 데이터 card는 source 소비와 단위 회귀로 확인하며 운영 사용을 완료로 확대하지 않는다. 기존 전체 Web 실패/skip·과거 locator 한계는 Task 3 보고서에 분리 기록한다.
+
+### 관련 파일
+
+- `apps/web/src/features/settings/{SettingsView,SettingsShell,TestDataToolsPanel}.tsx`, `site/{SiteOperationsView,BioSensorSettingsPanel}.tsx`, `users/SiteUsersView.tsx`, `registration/RegistrationSettingsView.tsx`, `floor-plans/FloorPlanSettingsView.tsx`, `security/PasswordSettingsView.tsx`.
+- 같은 역할의 추가 소비: `apps/web/src/features/registration/RegistrationPanel.tsx`, `apps/web/src/features/setup/GatewayClaimPanel.tsx`. 확인만 한 dialog: `site/{DeleteFixtureRegistrationDialog,SiteInformationEditDialog,FloorEditDialog}.tsx`.
+- `apps/web/e2e/design-system-roles.spec.ts`, 기존 `SiteOperationsView.test.tsx`와 전체 Web 회귀. 상세 결과: `.superpowers/sdd/2026-10-16-web-design-system-unification/task-3-report.md`.
+
+### 갱신 규칙
+
+- section/grid/panel/title 역할을 바꾸면 20/18/20·16/20·28/16·24 computed 값과 저장·권한·pending·문서 heading 계층을 같은 작업에서 확인한다. field/toolbar/paragraph gap을 section20으로 일괄 치환하지 않는다.
+
 ## 2026-10-16 공통 보안·상태·오버레이 표현 (Task 2)
 
 ### 구현 완료

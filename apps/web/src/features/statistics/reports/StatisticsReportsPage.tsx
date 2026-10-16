@@ -3,7 +3,7 @@ import { Download, FileText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEnergyFileOperation, createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
-import { Button, PageHeader, PaginationBar, Text } from "../../../components/ui";
+import { Button, PageHeader, PageStack, PaginationBar, Text } from "../../../components/ui";
 import { useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
@@ -299,12 +299,12 @@ export function StatisticsReportsPage() {
     }
   }
 
-  return <section className="grid min-w-0 gap-6 max-compact:gap-2" aria-label="에너지 보고서">
-    <PageHeader variant="customer" headingLevel={1} title="보고서" status={undefined} className="max-compact:flex-row max-compact:items-center max-compact:[&>div:last-child]:w-auto"
+  return <PageStack as="section" className="max-compact:gap-2" aria-label="에너지 보고서">
+    <PageHeader variant="customer" titleRole="page" headingLevel={1} title="보고서" status={undefined} className="max-compact:flex-row max-compact:items-center max-compact:[&>div:last-child]:w-auto"
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
     <ReportHistoryFilters className="max-compact:order-1" scopeKey={draftScope} value={filters} invalidRequestedRange={invalidRequestedRange} onChange={changeFilters} onInvalidDraftChange={onInvalidDraftChange}
       actions={<Button variant="secondary" onClick={() => setIsDialogOpen(true)}><Download size={16} />CSV 내보내기</Button>} />
-    <section className="grid min-w-0 gap-4" aria-label="보고서 이력">
+    <PageStack as="section" aria-label="보고서 이력">
       {invalidRequestedRange ? <Text role="alert" tone="danger">URL의 요청 기간을 직접 수정하거나 필터를 초기화해 주세요.</Text> : <>
       {localInvalid ? <Text role="alert" tone="danger">요청 기간을 완성하거나 필터를 초기화한 뒤 이력을 조회하세요.</Text> : null}
       <fieldset disabled={localInvalid} className="contents">
@@ -331,7 +331,7 @@ export function StatisticsReportsPage() {
       />
       </fieldset>
       </>}
-    </section>
+    </PageStack>
     {downloadingReportId ? <Button variant="secondary" onClick={() => downloadOperationRef.current?.abort()}>파일 준비 취소</Button> : null}
     {fileNotice ? <Text role="status">{fileNotice}</Text> : null}
     {downloadError ? <Text tone="danger" role="alert">{downloadError}</Text> : null}
@@ -339,7 +339,7 @@ export function StatisticsReportsPage() {
     {isDialogOpen && siteId ? <ReportCreateDialog key={siteId} siteId={siteId} targetData={targets.data} onClose={() => setIsDialogOpen(false)}
       isTargetsLoading={targets.isLoading} isTargetsError={targets.isError} onCreate={create}
       onFileNotice={setFileNotice} onExportCsv={(request, signal) => downloadEnergyCsv(siteId, request, { signal })} /> : null}
-  </section>;
+  </PageStack>;
 }
 
 function withoutCursor(value: ReportHistoryFilterState): ReportHistoryFilterState {

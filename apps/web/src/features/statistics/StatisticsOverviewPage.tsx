@@ -13,7 +13,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { LoadingState, Button, Card, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft  } from "../../components/ui";
+import { LoadingState, Button, Card, CardGrid, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, PageStack, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft  } from "../../components/ui";
 import { StatisticsOperationalInfo } from "./StatisticsOperationalInfo";
 import { draftToDate } from "../../components/ui/date/useDateDraft";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
@@ -78,18 +78,18 @@ export function StatisticsOverviewPage() {
 
   if (!siteId || summaryQuery.isLoading) {
     return (
-      <section className="grid min-w-0 gap-6">
+      <PageStack as="section">
         {pageHeader}
         <LoadingState
           title="전력 통계를 불러오는 중"
           description="선택한 현장의 상태 기반 사용량을 집계하고 있습니다."
         />
-      </section>
+      </PageStack>
     );
   }
   if (summaryQuery.isError || !summaryQuery.data) {
     return (
-      <section className="grid min-w-0 gap-6">
+      <PageStack as="section">
         {pageHeader}
         <FeedbackState
           tone="danger"
@@ -97,7 +97,7 @@ export function StatisticsOverviewPage() {
           title="전력 통계를 불러오지 못했습니다."
           action={<Button variant="secondary" onClick={() => summaryQuery.refetch()}>전력 통계 다시 시도</Button>}
         />
-      </section>
+      </PageStack>
     );
   }
 
@@ -194,7 +194,7 @@ export function StatisticsOverviewPage() {
     ) : <Text variant="body-sm" tone="muted">{unavailableMessage}</Text>;
 
   return (
-    <section className="grid min-w-0 gap-5" aria-label="에너지 통계">
+    <PageStack as="section" aria-label="에너지 통계">
       {pageHeader}
       <ComparisonSection
         preset={comparisonPreset}
@@ -208,10 +208,10 @@ export function StatisticsOverviewPage() {
         query={comparisonQuery}
       />
 
-      <section className="grid min-w-0 gap-4 border-t border-border-default pt-5" aria-labelledby="statistics-current-title">
+      <PageStack as="section" className="border-t border-border-default pt-5" aria-labelledby="statistics-current-title">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
           <div className="grid min-w-0 gap-1">
-            <Heading as="h3" variant="section-title" id="statistics-current-title">오늘 사용량과 비용</Heading>
+            <Heading as="h3" variant="customer-section-title" id="statistics-current-title">오늘 사용량과 비용</Heading>
             <Text variant="body-sm" tone="secondary">
               {summary.timeZone} · {summary.lastAggregatedAt
                 ? `마지막 집계 ${formatTimestamp(summary.lastAggregatedAt, { timeZone: summary.timeZone })}`
@@ -227,20 +227,20 @@ export function StatisticsOverviewPage() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4" role="group" aria-label="에너지 요약">
+          <CardGrid className="grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))]" role="group" aria-label="에너지 요약">
             <EnergyMetric label="오늘" period={summary.today} periodLabel={todayRangeLabel} />
             <EnergyMetric label="이번 달 누적" period={summary.monthToDate} periodLabel={`${siteDate.slice(0, 7)}-01 ~ ${siteDate}`} />
             <EnergyMetric label="올해 누적" period={summary.yearToDate} periodLabel={`${siteDate.slice(0, 4)}-01-01 ~ ${siteDate}`} />
-          </div>
+          </CardGrid>
           <Text variant="body-sm" tone="muted">누적·일별·월별 비용은 당시 적용 단가의 저장 비용입니다.</Text>
 
           <div className="grid min-w-0 gap-4" role="group" aria-label="사용량 및 비용">
-            <Card className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="상태 기반 추정 사용량">
+            <Card padding="regular" className="grid min-w-0 gap-4" aria-label="상태 기반 추정 사용량">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="grid gap-1">
                   <Text variant="overline" tone="muted">{granularity === "day" ? "일별 사용량 추이" : "월별 사용량 추이"}</Text>
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <Heading as="h3" variant="card-title">상태 기반 추정 사용량</Heading>
+                    <Heading as="h3" variant="customer-card-title">상태 기반 추정 사용량</Heading>
                     {seriesGapLabel && !activeSeries.isLoading && !activeSeries.isError ? (
                       <StatusBadge tone="warning" icon={TriangleAlert} title={seriesGapExplanation} aria-label={`${seriesGapLabel}: ${seriesGapExplanation}`}>
                         {seriesGapLabel}
@@ -275,16 +275,16 @@ export function StatisticsOverviewPage() {
           </div>
         </>
       )}
-      </section>
-      <div className="grid min-w-0 gap-5 tablet:grid-cols-2">
-        {!hasNoKnownData ? <SidePanel className="grid min-w-0 content-start gap-4 p-4 compact:p-6" aria-label="비용 비교">
+      </PageStack>
+      <CardGrid className="tablet:grid-cols-2">
+        {!hasNoKnownData ? <SidePanel padding="regular" className="grid min-w-0 content-start gap-4" aria-label="비용 비교">
           <Heading as="h2" variant="customer-section-title">이번 달 비용 비교</Heading>
           {costRows}
           <Text variant="body-sm" tone="muted">예상·기준·절감 비용은 현재 설정 단가 기준입니다.</Text>
         </SidePanel> : null}
         <StatisticsOperationalInfo summary={summary} />
-      </div>
-    </section>
+      </CardGrid>
+    </PageStack>
   );
 }
 
@@ -336,9 +336,9 @@ function ComparisonSection({
     const savingsPrefix = presentation.tone === "danger" ? "기준 초과" : "예상 절감";
 
     content = (
-      <div className="grid min-w-0 gap-4 max-compact:gap-2">
+      <PageStack className="max-compact:gap-2">
         {isAvailable ? (
-          <div className="grid grid-cols-4 gap-3 tablet:grid-cols-4 max-compact:grid-cols-1 max-compact:order-2">
+          <CardGrid className="grid-cols-4 tablet:grid-cols-4 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
               <MetricCard
                 label={presentation.label}
@@ -374,9 +374,9 @@ function ComparisonSection({
                 tone={presentation.tone}
               />
             </div>
-          </div>
+          </CardGrid>
         ) : (
-          <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1 max-compact:order-2">
+          <CardGrid className="grid-cols-2 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
               <MetricCard
                 label="기준 사용량"
@@ -386,26 +386,26 @@ function ComparisonSection({
               />
             </div>
             <FeedbackState icon={CircleOff} title="절감률 산정 대기" description={presentation.description} />
-          </div>
+          </CardGrid>
         )}
-        <div className="grid min-w-0 gap-4" role="group" aria-label="기준 및 동기간 비교">
-          <Card className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="기준 대비 사용량 비교">
+        <CardGrid role="group" aria-label="기준 및 동기간 비교">
+          <Card padding="regular" className="grid min-w-0 gap-4" aria-label="기준 대비 사용량 비교">
             <div className="grid gap-1">
               <Heading as="h2" variant="customer-section-title">완료 기간 추정·예상 사용량 비교</Heading>
             </div>
             <EnergyComparisonChart comparison={query.data} />
           </Card>
           <PeriodComparisonPanel comparisons={query.data.priorComparisons} />
-        </div>
-      </div>
+        </CardGrid>
+      </PageStack>
     );
   }
 
   return (
-    <section className="grid min-w-0 gap-4 max-compact:gap-2" aria-labelledby="statistics-comparison-title">
+    <PageStack as="section" className="max-compact:gap-2" aria-labelledby="statistics-comparison-title">
       <div className="grid min-w-0 gap-3">
         <FilterPanel label="절감 비교 기간" mode="popover" className="flex-row-reverse flex-nowrap items-center justify-between [&>div:first-child]:shrink-0 [&>div:nth-child(2)]:flex-1" isOpen={isOpen} onOpenChange={onOpenChange}
-          activeFilterCount={Number(customActive || preset !== "current_month")} summary={<><Heading as="h3" variant="section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading><Text variant="caption">{currentRangeLabel}</Text></>}
+          activeFilterCount={Number(customActive || preset !== "current_month")} summary={<><Heading as="h3" variant="customer-section-title" id="statistics-comparison-title">기준 대비 에너지 절감</Heading><Text variant="caption">{currentRangeLabel}</Text></>}
           >
         <div className="flex flex-wrap gap-2" role="group" aria-label="절감 비교 프리셋">
           {comparisonPresetOptions.map((option) => (
@@ -427,7 +427,7 @@ function ComparisonSection({
         </FilterPanel>
       </div>
       {content}
-    </section>
+    </PageStack>
   );
 }
 

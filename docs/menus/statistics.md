@@ -1,5 +1,14 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-16 통계 일반 역할과 compact 예외 (Task 3)
+
+- 구현 완료: 통계 shell은 desktop section20px와 승인된 mobile8px를 구분한다. overview·analysis·reports의 일반 section은 `PageStack`, 동급 metric·chart/detail·cost/insight card grid는 `CardGrid`18px를 소비하며 기존 명시 compact8 리듬은 보존한다. 로딩·오류도 같은 일반 section 역할을 사용한다.
+- 구현 완료: 사용량/기준 비교 chart·비용·운영 인사이트·heatmap·선택 순위/빈 상세의 외부 Card/SidePanel은 `regular` inset20/16px다. section20/28과 작은 card16/24 제목은 기존 문서 h2/h3/h4를 유지하며 구분한다. chart margin/축/heatmap cell·내부 값 readout geometry와 필터/field 관계는 유지한다.
+- 미구현: 실제 집계 데이터·운영 보고서 생성/전달·native WebView·장비/HIL 검증은 이번 mock 소프트웨어 근거에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 기존 전체 Web ControlView 실패5·skip3 및 과거 별도 locator 실패는 미해결로 구분한다. 보고서 dialog는 공통 inset을 이미 소비하므로 field gap12·단일 body reader·56px 닫기·pending/파일 abort 수명을 보존하고 consumer 검증만 한다. 브라우저 통과를 실제 PDF/CSV 운영 검증으로 확대하지 않는다.
+- 관련 파일: `apps/web/src/features/statistics/{StatisticsShell,StatisticsOverviewPage,StatisticsOperationalInfo,PeriodComparisonPanel}.tsx`, `analysis/{StatisticsAnalysisPage,EnergyHeatmap,EnergyRankingDetailPanel,EnergyRankingList}.tsx`, `reports/StatisticsReportsPage.tsx`. `reports/ReportCreateDialog.tsx`는 ordinary 소비·override를 확인했으며 수정하지 않는다. `apps/web/e2e/design-system-roles.spec.ts`, `StatisticsShell.test.tsx`와 이전8수리 회귀. 명령/결과: `.superpowers/sdd/2026-10-16-web-design-system-unification/task-3-report.md`.
+- 갱신 규칙: 외부 panel과 chart 내부 geometry, section20과 compact8 예외를 구분한다. 실제 generated CSS·수치/단위 Range·탭/선택/보고서 dialog 조작·기존 큰 수치 회귀를 함께 검증한다.
+
 ## 2026-10-16 공통 상태·오버레이 기반 (Task 2)
 
 - 구현 완료: 공통 feedback/loading/recovery와 일반 modal/drawer 기본 내용이 regular inset20/16px를 사용한다. 상태 role/live·복구 focus·pending·52px 닫기·safe-area/reader를 보존한다.

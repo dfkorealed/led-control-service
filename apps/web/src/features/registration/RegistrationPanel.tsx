@@ -22,6 +22,8 @@ import {
   Checkbox,
   FeedbackState,
   IconTooltipButton,
+  PageStack,
+  panelPaddingClass,
   ProgressSteps,
   RadioGroup,
   SelectBox,
@@ -484,8 +486,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   }
 
   return (
-    <section
-      className={`grid min-w-0 gap-3.5 rounded-panel border p-4.5 shadow-panel ${hasFixtures ? "border-border-default bg-surface-panel" : "border-action-primary bg-action-primary-soft"}`}
+    <PageStack as="section"
+      className={`rounded-panel border shadow-panel ${panelPaddingClass("regular")} ${hasFixtures ? "border-border-default bg-surface-panel" : "border-action-primary bg-action-primary-soft"}`}
       data-testid="commissioning-registration"
     >
       <div className="flex items-start justify-between gap-3">
@@ -788,7 +790,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
           {sessionQuery.error ? <FeedbackState tone="danger" icon={CircleAlert} title="등록 세션 상태를 다시 확인하지 못했습니다." /> : null}
         </Card>
       ) : null}
-    </section>
+    </PageStack>
   );
 }
 

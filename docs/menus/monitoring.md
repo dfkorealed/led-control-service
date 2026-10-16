@@ -1,5 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-16 일반 section 역할 정합화 (Task 3)
+
+- 구현 완료: 일반 모니터링과 설치 대기·로딩·오류 section은 공통 `PageStack`의 20px 리듬을 소비한다. 전체 보기의 8px·shell inset·지도 높이/scroll·동일 root와 지도 수명은 유지한다. 지도·목록 내부 toolbar/field gap은 section 값으로 치환하지 않는다.
+- 미구현: 실제 Gateway/조명 상태 수집·장비/HIL·native WebView 검증은 이번 mock 브라우저 작업에 포함하지 않는다.
+- 부족하거나 개선이 필요한 기능: 전체 Web의 기존 ControlView 단위 실패 5건·skip 3건 및 과거 별도 locator 실패는 이번 작업으로 해결했다고 기록하지 않는다. 일반 section 변경과 지도 작업 공간의 geometry는 별도 계약이다.
+- 관련 파일: `apps/web/src/features/monitoring/MonitoringView.tsx`, `apps/web/e2e/design-system-roles.spec.ts`, `apps/web/e2e/ui-eight-layout-regressions.spec.ts`. 320/390/1024/1440px·light/dark에서 generated CSS의 일반 gap20/fullview8 및 진입·Escape 복귀 전후 실제 root/map 동일성을 검증한다. 상세 명령과 결과는 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-3-report.md`를 따른다.
+- 갱신 규칙: 일반 section과 fullview·지도 내부 geometry를 구분하고 root/map 수명·상태·bottom navigation safe-area를 함께 회귀 검증한다.
+
 ## 2026-10-16 공통 상태·오버레이 기반 (Task 2)
 
 - 구현 완료: 공통 feedback/loading/recovery와 일반 modal/drawer 기본 내용이 regular inset20/16px를 사용한다. 기존 상태 role/live·복구 focus·pending·52px 닫기·safe-area/reader 계약을 유지한다.

@@ -3,18 +3,19 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { changePassword, type AuthUser } from "../../../api/auth";
 import { authMeQueryKey, principalKey, refreshPrincipalCache } from "../../../api/principal-cache";
-import { Button, Card, FeedbackState, PageHeader, PasswordField } from "../../../components/ui";
+import { Button, Card, FeedbackState, PageHeader, PageStack, PasswordField, panelPaddingClass } from "../../../components/ui";
 import { passwordChangeErrorMessage, validatePasswordChange } from "../../auth/password-form";
 
 export function PasswordSettingsView() {
   return (
-    <section className="grid gap-5">
+    <PageStack as="section">
       <PageHeader
+        titleRole="section"
         title="비밀번호 변경"
         description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다."
       />
       <PasswordChangeCard />
-    </section>
+    </PageStack>
   );
 }
 
@@ -105,10 +106,10 @@ export function PasswordChangeCard({ presentation = "card", onPendingChange }: P
   const Container = presentation === "embedded" ? "div" : Card;
   return (
     <form className="grid gap-4" aria-label="비밀번호 변경" onSubmit={handleSubmit}>
-        <Container className={presentation === "embedded" ? "grid gap-5" : "grid gap-5 p-5"}>
+        <Container className={presentation === "embedded" ? "grid gap-5" : `grid gap-5 ${panelPaddingClass("regular")}`}>
           {presentation === "card" ? <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="m-0 text-card-title font-bold text-content-primary">비밀번호</h2>
+              <h2 className="m-0 text-body-lg font-bold text-content-primary">비밀번호</h2>
               <p className="mt-1 text-body text-content-secondary">현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.</p>
             </div>
           </div> : null}

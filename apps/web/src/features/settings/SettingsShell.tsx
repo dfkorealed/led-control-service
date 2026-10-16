@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { SiteCapabilities } from "../../api/queries";
 import { SettingsSubnavigation } from "./SettingsSubnavigation";
 import { settingsActionLinkClass } from "./settings-action-link";
-import { PageHeader } from "../../components/ui";
+import { PageHeader, PageStack } from "../../components/ui";
 import { settingsSectionsFor } from "./settings-sections";
 
 interface SettingsShellProps {
@@ -20,14 +20,14 @@ export function SettingsShell({ capabilities, accountSlot }: SettingsShellProps)
   const isSubpage = location.pathname !== "/settings" && location.pathname !== "/settings/";
   const isEditor = /^\/settings\/floor-plans\/[^/]+\/edit\/?$/.test(location.pathname);
   return (
-    <section className={isEditor ? "flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden [&>nav]:shrink-0 [&>a]:shrink-0" : "grid min-w-0 content-start gap-5"}>
-      {section ? <PageHeader variant="customer" headingLevel={1} title={section.pageTitle} /> : null}
+    <PageStack as="section" className={isEditor ? "flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden [&>nav]:shrink-0 [&>a]:shrink-0" : undefined}>
+      {section ? <PageHeader variant="customer" titleRole="page" headingLevel={1} title={section.pageTitle} /> : null}
       <SettingsSubnavigation capabilities={capabilities} />
       {accountSlot}
       {isSubpage ? <Link className={`${settingsActionLinkClass} compact:hidden`} to={{ pathname: "/settings", search: location.search, hash: location.hash }}>설정으로 돌아가기</Link> : null}
       <div className={isEditor ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "min-w-0"}>
         <Outlet />
       </div>
-    </section>
+    </PageStack>
   );
 }
