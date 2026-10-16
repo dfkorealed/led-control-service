@@ -72,6 +72,11 @@
 - [ ] exact 결과·재조정과 최종 퇴역/UUID 해제/맵·내부 그룹/catalog 동기화를 연결한다. raw/Prisma 조회·모니터링 수·pagination·선택·상태수집·기존 맵 복구를 조사해 retired 제외와 이력 읽기를 분리한다. 기존 전력 집계는 보존하고 삭제 뒤 적산을 종료한다.
 - [ ] 임시 실제 PostgreSQL로 pending↔제어/등록 경쟁·late telemetry/ACK·실패 재시도·퇴역 후 동일 UUID 새 등록·구/신 통계/제어 이력을 검증한다. API 관련 테스트/type/build 후 커밋·독립 검토한다.
 
+**Preflight 추가 인수 조건:**
+- `energy/fixture-state-ingestion.service.ts`의 요금 변경 cursor 재적산도 닫는다. 최종 transaction에서 기존 `retireFixture()`를 연결하고 삭제→요금 변경→늦은 상태→동일 제품 재등록 뒤 구/신 집계가 분리되는지 검증한다.
+- `floor-editor.service.ts`의 `existingFixtureIds`는 물리 존재가 아니라 운영 등록 자격으로 판정한다. legacy/document 복구·slot·save·snapshot에 같은 조건을 적용하고 두 복구 경로의 `skippedFixtureIds`·다른 도형 보존을 검증한다. `FixtureFreshnessService` raw UPDATE와 `MonitoringIncidentReconcilerService`의 운영 조회도 포함한다.
+- `TargetSnapshotService`, BIO eligibility/binding과 `MeshControlGroupService` desired 조회는 잠금 뒤 pending/불확정/retired를 거절한다. `BioSensorProfilesService.catalogInTransaction()`은 동일 revision의 과거 payload를 재사용하므로 새 catalog revision 발행·정확 applied ACK를 확인해야 하며 퇴역 필터만 추가해 완료로 처리하지 않는다.
+
 ## Task 4: 조명 카드 삭제 UI
 
 **담당:** web_frontend. **소유:** `apps/web`.
