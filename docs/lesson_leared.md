@@ -1,5 +1,15 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-16 / 등록 삭제는 이력 보존과 불확정 복구를 함께 검증한다
+
+- DB 원장 보호용 statement lock을 추가할 때 기존 metadata/heartbeat의 row lock 순서와 역전될 수 있다. 실제 PostgreSQL의 양방향 동시 실행으로 40P01을 재현하고 일반 UPDATE 범위를 좁혔다. 모의 transaction 테스트만으로 잠금 안전을 확정하지 않는다.
+- 공유 package export를 추가하면 tsconfig ESM entry와 실제 생성된 Node ESM/CJS import를 함께 검증한다. 타입 또는 CJS 빌드 성공만으로 브라우저 공개 subpath의 존재를 보장하지 않는다.
+- 상태 수신도 Fixture.updatedAt을 바꾼다. 파괴적 작업의 확인 시점에 fresh preview의 대상 이름/시리얼/가능 여부를 재검사하고 timestamp를 전송 전에 고정한다. 응답 유실 재생에서는 요청 ID와 body를 바꾸지 않는다.
+- 동일 삭제 작업의 불확정 결과가 확정 증거로 수렴할 때 예전 terminal/ACK는 append-only로 남긴다. 늦은 과거 ACK가 새 결과를 완료 처리하면 안 되며, 원장/manifest만 남은 재시작도 같은 identity로 복구해야 한다.
+- 퇴역 row를 불변 이력으로 남기면 맵 clear/CAD apply의 넓은 UPDATE와 통계의 읽기 전용 live projection까지 점검해야 한다. 저장된 전력 cursor 종료만으로 조회 시 가상 적산이나 현재 기준 사용량에서 제외되는 것은 아니다. 이러한 consumer 결함은 별도 회귀로 보강한다.
+- 정상 저장뿐 아니라 clear/reset·legacy/common CAD·staged save/restore도 membership→Site→Floor 순서를 지킨다. statement DELETE는 0행에도 serializer를 잡으므로 빈 slot 목록도 실제 양방향 경쟁 테스트에 포함한다.
+- 과거 migration 하나를 검증하면서 그 migration만 제외하고 모든 미래 DDL을 먼저 배포하면 새 의존성 때문에 실패한다. 원 스키마 경계의 실제 열로 seed하고 대상 이후 migration은 나중에 적용한다. baseline은 해당 버전의 독립 generated client로 확인해 미래 열에 의한 가짜 실패와 구분한다.
+
 ## 2026-10-16 / 구형 등록의 누락 필드와 실제 미지원 장비를 구분한다
 
 - 구형 confirmed BIO mapping에는 firmware 문자열만 있고 fingerprint가 없다. 최신 독립 commissioning은 실제 fingerprint를 검증했지만 native resolver가 선택적 옛 필드만 검사하여 L006 규칙43을 `bio_self_firmware_unsupported`로 잘못 거절했다. 이 시도는 native 원장 생성/SET 전이었다.

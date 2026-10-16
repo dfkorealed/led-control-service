@@ -2,16 +2,18 @@
 
 기준일: 2026-10-15
 
-## 2026-10-16 실제 조명 등록 삭제 구현 시작
+## 2026-10-16 실제 조명 등록 삭제 구현 및 최종 적용
 
 - 사용자 지시로 서면 설계를 승인하고 실행 계획 작성 후 즉시 구현·별도 브랜치 후 MAIN 병합을 진행한다. 브랜치 `codex/fixture-registration-removal-20261015`, 계획 `docs/superpowers/plans/2026-10-16-fixture-registration-removal.md`다. 기존 MAIN a6260156 변경을 양쪽 문서 보존 merge로 통합했다.
-- 계획5개 작업은 공유 계약/DB→Gateway→API→Web→통합 검증이다. 현재 [x]계획/격리 준비, [x]Task1, [ ]Task2, [ ]Task3, [ ]Task4, [ ]Task5다. Task1 `a960dbd8`/`549055d2`의 shared585·최종helper61·DB/정책30과 독립PG139→141/30PASS·ReadyYES를 확인했다. 잠금 역전과 기존 Site cascade 회귀를 보완했고 나머지 소비 역할은 구현 중이다.
+- 계획5개 작업은 공유 계약/DB→Gateway→API→Web→통합 검증이다. 현재 [x]계획/격리 준비, [x]Task1, [x]Task2, [x]Task3, [x]Task4, [ ]Task5다. Task1 `a960dbd8`/`549055d2`, Task2 `1cd8cac2`/`2cb424c7`, Task4 `9946de16`의 독립 승인을 확인했고 MAIN `e4794fdf`를 `7c4b49af`로 보존 통합했다.
+- API는 `db4aa219`/`d35e6180`/`5c0e5ce4`/`84ae1936`에서 거절 복구·기존 recommission·맵/CAD 퇴역 제외·통계 projection·맵 잠금 순서5건을 수리했다. 임시PG146·실제Nest HTTP/software Gateway, 43/40/72/60개 지정 회귀와 독립49+12PASS·C/I/M0·ReadyYES를 확인했다. 제품 소스를 고정하고 마지막 전체 API 검증 및 로컬 적용을 진행한다.
+- 통합 후 전체 Shared597/597, Web3,899PASS·기존ControlView5FAIL·3SKIP/Chromium10PASS/UI정책79PASS/타입·빌드0, Gateway2,098PASS·기존14FAIL/타입·빌드0을 확인했다. 새 실패와 기존 baseline을 구분하며 전체 GREEN으로 표현하지 않는다. API 최종 통합 회귀와 로컬 적용은 후속 관문이다.
 - 추가 사용자 승인으로 검증 후 로컬 DB 백업·migration·개발 서버 재시작까지 허용했다. 실제 삭제·Pi 배포/장비 명령은 여전히 제외하며 실제 로컬 적용은 아직 실행하지 않았다. 아래 10/15 검토 대기는 후속 승인 전 기록이다.
 
-## 2026-10-15 실제 조명 등록 삭제 — 서면 설계 검토 대기
+## 2026-10-15 실제 조명 등록 삭제 — 당시 설계 검토 이력
 
 - 사용자는 admin의 등록 삭제·공장 초기화 제외·서버/Gateway 연결 정리·이력 보존·진행 작업/규칙 연결 시 차단·재등록 방향을 승인했다. 별도 `codex/fixture-registration-removal-20261015`에서 기존 `docs/superpowers/specs/2026-09-12-settings-assets-operations-design.md`의 같은 날짜 추가 설계에 누적한다.
-- 현재 삭제 API/UI는 없다. 물리 CASCADE에 따른 제어·전력 원장 소실과 Gateway mapping만 지울 때 이미 캡처한 명령의 실행 위험을 확인했다. 제안은 내구 삭제 확인 뒤 운영 퇴역, 과거 FK/주소와 등록 세대 fence 보존이다. 설계 체크리스트의 조사만 완료이며 서면 검토/실행 계획/제품 구현·검증은 미완료다.
+- 당시에는 삭제 API/UI가 없었다. 물리 CASCADE의 이력 소실과 매핑만 지울 때 구세대 명령의 실행 위험을 조사했다. 후속 구현/검증의 현재 상태는 위10월16일 항목을 따른다.
 - 읽기 전용 조사와 문서 작성만 했다. 실제 삭제/RF/SSH·사용자 DB/migration·서비스 재시작·배포는 실행하지 않는다. MAIN의 사용자 AGENTS/기존 상태판 변경은 보존한다.
 
 ## 2026-10-16 BIO 자기 제어 적용 실패 수리 — 메인·장비 반영 및 활성47 APPLIED 완료

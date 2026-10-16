@@ -71,12 +71,15 @@
 
 POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clientRequestId`는 같은 actor/site/floor/fixture의 `FixtureRegistrationRemovalView|null`을 반환한다. POST의 같은 요청 ID 재생은 인가 뒤, expectedUpdatedAt·진행 차단 검사보다 먼저 조회한다. 이 예외는 동일 body 재생에만 적용하며 새 요청은 허용하지 않는다.
 
-- [ ] RED: assigned admin만 허용·다른 현장404·preview와 POST 재검사·offline/version0·스케줄/이벤트/구역/제어·맵 lease409·요청 ID 재생/충돌·Gateway 완료 후 DB 실패/재시작을 작성하고 실패 확인.
-- [ ] POST는 canonical 잠금/재인가 후 snapshot·outbox를 원자 생성한다. DB-only 보호와 기존 생산자의 pending/retired 거절을 연결한다. Publisher 네트워크 I/O는 DB transaction 밖이며 trusted time/assignment·인증 계약을 유지한다.
-- [ ] exact 결과·재조정과 최종 퇴역/UUID 해제/맵·내부 그룹/catalog 동기화를 연결한다. raw/Prisma 조회·모니터링 수·pagination·선택·상태수집·기존 맵 복구를 조사해 retired 제외와 이력 읽기를 분리한다. 기존 전력 집계는 보존하고 삭제 뒤 적산을 종료한다.
-- [ ] 임시 실제 PostgreSQL로 pending↔제어/등록 경쟁·late telemetry/ACK·실패 재시도·퇴역 후 동일 UUID 새 등록·구/신 통계/제어 이력을 검증한다. API 관련 테스트/type/build 후 커밋·독립 검토한다.
+- [x] RED: assigned admin만 허용·다른 현장404·preview와 POST 재검사·offline/version0·스케줄/이벤트/구역/제어·맵 lease409·요청 ID 재생/충돌·Gateway 완료 후 DB 실패/재시작을 작성하고 실패 확인.
+- [x] POST는 canonical 잠금/재인가 후 snapshot·outbox를 원자 생성한다. DB-only 보호와 기존 생산자의 pending/retired 거절을 연결한다. Publisher 네트워크 I/O는 DB transaction 밖이며 trusted time/assignment·인증 계약을 유지한다.
+- [x] exact 결과·재조정과 최종 퇴역/UUID 해제/맵·내부 그룹/catalog 동기화를 연결한다. raw/Prisma 조회·모니터링 수·pagination·선택·상태수집·기존 맵 복구를 조사해 retired 제외와 이력 읽기를 분리한다. 기존 전력 집계는 보존하고 삭제 뒤 적산을 종료한다.
+- [x] 임시 실제 PostgreSQL로 pending↔제어/등록 경쟁·late telemetry/ACK·실패 재시도·퇴역 후 동일 UUID 새 등록·구/신 통계/제어 이력을 검증한다. API 관련 테스트/type/build 후 커밋·독립 검토한다.
 
 **Preflight 추가 인수 조건:**
+- 확정 rejected terminal은 삭제 전에 변경된 catalog/내부 멤버십의 원 상태를 새 revision과 정확한 ACK로 복구한 뒤에만 rejected로 종결한다. 불확정 결과에는 이 경로를 쓰지 않는다. 복구 snapshot은 재시작 후에도 불변이며 전역 catalog를 영구 잠그지 않아야 한다.
+- 기존 Site 유지 recommission은 실제 mqtt_revoked 작업의 정확한 scope와 정상 폐기 완료를 검증하는 좁은 DB 경계로만 새 원장을 정리한다. 일반 hard delete·가짜 GUC·다른 현장/작업의 삭제는 계속 거절한다.
+- 퇴역 후 맵 clear/reset와 legacy/common CAD apply가 불변 row를 UPDATE하거나 snapshot에 다시 포함하지 않는지 확인한다. 통계 조회의 live projection은 retiredAt에서 끝내고 현재 baseline/forecast에서는 퇴역을 제외하되 과거 합계는 유지한다.
 - Gateway의 `reconcile_required -> removed`는 같은 command에 새 event/hash의 확정 증거를 반환할 수 있다. 기존 result/ACK를 append-only 이력으로 보존한 뒤 이 진행만 허용하는 forward migration/API를 추가한다. 이미 확정된 결과 변경·이전 결과로의 상태 회귀는 막고 정확한 과거 재생은 보존 ACK로 처리한다. 임시 PostgreSQL에서 unknown 수신/ACK→TTL 뒤 새 removed→완료→옛 terminal/ACK 재생과 두 증거 보존을 검증한다.
 - `energy/fixture-state-ingestion.service.ts`의 요금 변경 cursor 재적산도 닫는다. 최종 transaction에서 기존 `retireFixture()`를 연결하고 삭제→요금 변경→늦은 상태→동일 제품 재등록 뒤 구/신 집계가 분리되는지 검증한다.
 - `floor-editor.service.ts`의 `existingFixtureIds`는 물리 존재가 아니라 운영 등록 자격으로 판정한다. legacy/document 복구·slot·save·snapshot에 같은 조건을 적용하고 두 복구 경로의 `skippedFixtureIds`·다른 도형 보존을 검증한다. `FixtureFreshnessService` raw UPDATE와 `MonitoringIncidentReconcilerService`의 운영 조회도 포함한다.
@@ -100,7 +103,7 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 
 **담당:** 총괄 통합 + 독립 qa_reviewer. 구현자와 reviewer의 같은 diff 중복 작업은 하지 않는다.
 
-- [ ] Task1–4의 소유 커밋과 검토 결과를 통합하고 shared/Prisma/engine을 격리 작업 환경에서 준비한다. MAIN node_modules/Prisma 생성물을 덮지 않는다.
+- [x] Task1–4의 소유 커밋과 검토 결과를 통합하고 shared/Prisma/engine을 격리 작업 환경에서 준비한다. MAIN node_modules/Prisma 생성물을 덮지 않는다.
 - [ ] 실제 임시 PostgreSQL·소프트웨어 Gateway·브라우저 등록 삭제→조회/맵/제어 제외→재검색/새 등록과 과거 이력 보존의 연결을 검증한다. 실제 장비/운영 DB 검증은 미실행으로 기록한다.
 - [ ] 관련 앱 전체 테스트/빌드·타입과 source 변경 diff를 확인한다. 기존 알려진 실패와 신규 실패를 분리하며 전체 GREEN으로 축약하지 않는다.
 - [ ] 설정/모니터링/제어/통계 현황, DB 구조, 반복 교훈과 상태판을 같은 실제 결과로 갱신하고 최종 독립 whole-branch review를 통과한다.
@@ -114,3 +117,7 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - Task1 완료: `a960dbd8`와 fix `549055d2`, reviewer James 독립 실제 PostgreSQL139→141/DB·정책30/30·Critical/Important0·ReadyYES다. 기존 raw-row 잠금과 새 전역 잠금의 순서 역전을 RED로 재현해 일반 UPDATE 범위를 좁혔고, 실제 Site cascade와 일반 직접 삭제 차단·과거 command/energy/settled lease의 DDL 보존을 확인했다. Site를 유지하는 resetInstallation의 새 원장 cleanup은 Task3 필수 인계다.
 - Task2 완료: `1cd8cac2`와 `2cb424c7`. 최초 focused379/379, 시계 불신 중 durable intent 보존/TTL 후 동일 작업 복구와 실제 production factory 연결을 보강한 focused273/273, type/build 통과다. 독립 재검토50/50·C/I/M0·ReadyYES다. 기존 Gateway3개 suite14FAIL은 a6260156 비교에서도 동일하며 본 기능 성공 근거와 분리한다. MAIN의 신규 native sensor 통합 후 추가 회귀 검증은 Task5다.
 - Task4 완료: `9946de16`. 공식 focused64/64·Chromium10/10(1440/390)·type/build/UI policy 통과, 독립64/64·C/I/M0·ReadyYES다. 동일 현장 default dashboard 캐시 갱신과 fresh preview 재확인을 포함한다. route fixture 브라우저 결과이지 실제 API/장비 삭제 결과는 아니다.
+- Task3 중간 커밋 `a69abd18`/`9381b402`/`38af5b5b`: shared 실제ESM/CJS22, 임시PG/실제Nest HTTP·software Gateway11, foundation30·직접489PASS/1SKIP다. 독립 검토 I4건(확정거절 복구·recommission·맵 초기화/CAD·통계 projection)을 발견해 각 소유자가 보완 중이며 Task3 완료나 전체 승인이 아니다. 최신 MAIN `e4794fdf`를 `7c4b49af`로 보존 merge했다.
+- Task5 중간 Gateway 전체: 통합 `7c4b49af` 기준113파일/2,112개 중2,098PASS·14FAIL, type/build0. 3개 suite14FAIL은 a6260156 baseline의 이름/오류와 일치하며 신규 실패는0이다. 별도 legacy ACL wildcard 기대1FAIL은 이전과 같고 새 removal ACL1PASS다. root 관련 runtime/ACL74PASS·5SKIP·0FAIL이며 실제 broker 정책 변경/HIL 결과는 아니다.
+- Task3 최종: `db4aa219` recommission(PG146/40PASS), `d35e6180` 맵/통계(PG146포함72PASS), `5c0e5ce4` 확정 거절 복구(PG43PASS·직접169PASS/1SKIP), `84ae1936` clear/CAD/staged 잠금 순서(60PASS·양방향8PASS)를 확정했다. I1–I5 독립 재검토49+12PASS·C/I/M0·ReadyYES다. `d7f87124`는 미래 의존 migration을 먼저 실행하던 staged 시험과 command harness를 정합화했다. 새 schema는146 migrations/삭제 작업·결과 증거·설정 복구 원장3개다.
+- 최종 API 전체 검증은 제품 소스 `84ae1936` 고정 후 별도 코호트에서 진행한다. source 수정 중 시작한 전체 실행은 최종 freeze 증거로 사용하지 않는다. 추가 코드 변경은 없으며 문서와 승인된 로컬 적용만 남았다.

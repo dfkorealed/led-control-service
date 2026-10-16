@@ -2,7 +2,16 @@
 
 작성일: 2026-10-04
 
-## 2026-10-16 조명 등록 삭제 Task 1 기반
+## 2026-10-16 조명 등록 삭제 구조
+
+### Task 3 확정 거절 후 Cleanup Rollback
+
+`20261016140000_fixture_removal_cleanup_rollback`은 기존 migration과 operation/evidence/delete guard를 다시 쓰지 않는 순방향 확장이다. `FixtureRegistrationRemovalCleanupRecovery`는 operation별 원래 catalog 내용과 group desired 멤버/version/hash를 `beforeSnapshot`에 변경 전 고정하고, 확정 rejected terminal 뒤 새 catalog revision/group version의 ACK 목표를 `rollbackSnapshot`에 한 번만 기록한다. 두 snapshot과 원 command ID/TTL/result 증거는 덮어쓰지 않는다.
+
+- unknown 결과에는 복구 권한이 없고, cleanup 뒤 거절도 복구 exact ACK 전에는 reconcile_required로 남아 신규 control·등록 삭제·catalog 변경을 계속 차단한다.
+- desired=true 예외는 확정 rejected 원장의 원래 멤버인 해당 group과 고정 rollback version에만 허용한다. 일반 제어/새 멤버/미래 version에는 운영 eligibility guard를 계속 적용한다.
+- DB는 before image를 실제 변경 전 desired 상태와 대조하며 rollback 목표·원 멤버십의 원자적 커밋, write-once snapshot, 원 catalog 내용의 새 revision 복구, 정확한 catalog ACK/hash 및 group applied 멤버/operation ACK를 검사한 뒤에만 rejected 종결을 허용한다. 일반 recovery 행 삭제는 금지하고, 독립적으로 승인된 부모 operation 삭제의 FK cascade만 따른다.
+- 이 migration 전 접수되어 before image가 없는 미완료 cleanup은 과거 멤버십을 추정해 복구하지 않고 busy를 유지한다. 운영 migration/과거 행 처리 승인은 별도이며 실제 운영 DB에는 실행하지 않았다.
 
 ### Task 3 결과 복구 원장 확장
 
@@ -12,7 +21,7 @@
 - 과거 exact terminal 재생은 해당 불변 증거의 과거 ACK로 종결하며 최신 상태를 되돌리지 않는다. command 만료 시각과 operation ID는 재작성하지 않는다.
 - 이 확장의 격리 PostgreSQL 검증과 운영 migration 적용은 별도다. 운영 DB에는 실행하지 않는다.
 
-순방향 `20261016090000_fixture_registration_removal`은 기존 migration과 등록/명령/전력 이력을 다시 쓰지 않고 다음 구조를 추가한다. 운영 DB에는 적용하지 않았으며 Task 1은 shared/DB 기반만 제공한다. HTTP 접수·인가·publisher·terminal 소비·전력 종료·맵 복구·catalog/group exact ACK 수렴은 Task 3에서 연결한다.
+순방향 `20261016090000_fixture_registration_removal`은 기존 migration과 등록/명령/전력 이력을 다시 쓰지 않고 다음 구조를 추가한다. HTTP 접수·인가·publisher·terminal 소비·전력 종료·맵 복구·catalog/group exact ACK 수렴은 서버/Gateway 구현에서 연결했다. 임시 PostgreSQL 검증과 승인된 로컬 DB 적용은 구분하며 실제 적용 결과는 상태판을 따른다.
 
 | 모델 | 추가 계약 |
 | --- | --- |
@@ -28,8 +37,8 @@
 - 불변 Json: `bindingSnapshot,payload`. snapshot은 shared `fixtureRegistrationRemovalBindingIdentity(command)`의 정확한 `{version,siteId,gatewayId,gatewaySerial,assignmentVersion,fixtureId,nodeId,deviceUuid,meshAddress,originalProvisionCommandId}`이며 `bindingHash`는 그 canonical JSON의 `sha256:hex`다. `commandHash`는 전체 command의 canonical JSON hash이며 자기 자신을 포함하지 않는다. `floorId,meshNodeId`는 별도 불변 컬럼으로 보존한다.
 - `cleanupSnapshot Json?`: 최초 NULL→값 기록 뒤 write-once. `{catalog:{assignmentVersion:number,revision:number,payloadHash:string}|null,groups:[{id:string,configurationVersion:number,desiredHash:string}]}`. catalog assignment는 작업과 같고 revision은 양수 safe integer, group version은 양수 Int, hash는 모두 `sha256:64hex`다. group ID 중복을 거부한다. 실제 delivery/applied ACK와의 대조는 Task 3 책임이다.
 - `status String`: `pending|gateway_confirmed|completed|rejected|reconcile_required`; `errorCode String?`. 정상 흐름은 pending→gateway_confirmed→completed. uncertain은 계속 운영 차단하며 같은 작업의 결과 확인만 허용한다. completed/rejected는 재개할 수 없다.
-- 결과: `result Json?,resultHash String?,resultEventId String?,gatewayConfirmedAt DateTime?,completedAt DateTime?`. terminal은 원 command 전체와 commandHash/eventId를 정확히 대조하고 최초 수락 결과/hash/event는 불변이다. `gateway_confirmed`와 `completed`는 removed terminal이 있어야 한다. reconcile에서 결과가 아직 없으면 같은 작업의 후착 terminal을 받을 수 있지만 이미 저장된 terminal을 덮어쓰지 않는다.
-- application ACK: `applicationAck Json?,applicationAckHash String?,ackPublishedAt DateTime?,ackAttempts Int(default0),ackNextAttemptAt DateTime(default UTC now),ackLockedBy String?,ackLeaseExpiresAt DateTime?`. 최초 ACK payload/hash는 write-once며 정확한 operation/event/command/result hash와 등록 identity를 결합한다. broker PUBACK와 구별한다.
+- 결과: `result Json?,resultHash String?,resultEventId String?,gatewayConfirmedAt DateTime?,completedAt DateTime?`. terminal은 원 command 전체와 commandHash/eventId를 정확히 대조한다. 후속 evidence 확장 이후 이 필드는 latest 포인터이며 원 terminal/event/hash와 ACK는 별도 append-only 원장에 보존한다. 불확정 terminal에서 동일 명령의 확정 terminal로 진행할 수 있지만 확정 결과 변경이나 과거 상태 회귀는 거절한다. `gateway_confirmed`와 `completed`에는 removed terminal이 필요하다.
+- application ACK: `applicationAck Json?,applicationAckHash String?,ackPublishedAt DateTime?,ackAttempts Int(default0),ackNextAttemptAt DateTime(default UTC now),ackLockedBy String?,ackLeaseExpiresAt DateTime?`. 각 evidence의 ACK payload/hash는 write-once이며 operation/event/command/result hash와 등록 identity를 결합한다. 작업 필드는 최신 evidence를 가리키고 과거 ACK 재생도 해당 증거와 정확히 결합한다. broker PUBACK와 구별한다.
 - command outbox: `publishedAt DateTime?,attempts Int(default0),nextAttemptAt DateTime(default UTC now),lockedBy String?,leaseExpiresAt DateTime?`. lease owner/expiry는 함께 null 또는 함께 값이고 attempts는 비음수다. 네트워크 I/O는 DB transaction 밖에서 수행해야 한다.
 
 DB 보호는 기존 `lock_automation_membership_mutation()`을 INSERT/DELETE 및 binding/배정/퇴역 UPDATE의 statement 전에 사용한다. 후속 migration은 일반 metadata/telemetry/heartbeat/ACK/원장 배달 상태 UPDATE에 새 전역 잠금을 요구하지 않는다. 기존 row guard는 그대로 유지한다. `assert_fixture_registration_active(fixture_id)`는 퇴역/삭제 진행/불확정 등록을 거부한다. 새 구역·스케줄·이벤트·manual target, command/automation fixture result 예약, 센서 작업, temporary target, light slot 배정과 desired 내부 멤버십에 연결했다. 기존 결과 UPDATE는 이력 ACK 경로로 남기며 late ingestion 분류는 Task 3이 담당한다. 삭제 접수도 기존 구역/저장 규칙/소유 중인 temporary lease와 정확한 현재 binding/명시적 version1을 재검사한다. 상세 busy 제어·인증·맵 lease 조건은 Task 3에서 추가한다.
@@ -48,7 +57,19 @@ API `fixtures/fixture-registration-removal-policy.ts`는 `supportsFixtureRegistr
 
 자기 소유 PostgreSQL에서 metadata-first와 heartbeat-first의 수정 전 40P01 및 반대 순서 경합을 검증한다. 수정 후에는 두 일반 writer의 정상 처리/삭제 pending fencing, 완료·거절 원장과 command/energy의 실제 Site cascade, 기존 직접 삭제 방어를 검사한다. 별도 139→141 staged DB에는 실제 과거 Command/Dispatch/FixtureResult·EnergyUsage와 종료된 TemporaryControlSession/Target/Lease(lastGeneration=releaseTombstoneGeneration=2)를 미리 넣고 원본 컬럼 JSON·FK·counter/tombstone 보존을 대조한다. 이 사례는 DDL의 기존 이력 보존 증거이며 Task 3 최종 퇴역 서비스 검증이 아니다.
 
-경계: `GatewayRecommissionService.resetInstallation`은 Site를 유지하므로 Site-cascade 예외를 사용할 수 없다. 현재 원장과 퇴역 row를 남기는 재설치 정리 계약은 Task 3이 명시적으로 처리해야 하며 GUC로 우회해서는 안 된다. 기존 TemporaryControl 원장 자체의 Site/Gateway RESTRICT·최소 원장 삭제 금지도 이번에 약화하지 않았다. settled lease가 있는 전체 현장의 기존 삭제 제한은 별도 Task 3 정리 대상이고, 위 Site cascade 성공 사례의 과거 이력은 command/energy이며 lease를 포함한 전체 삭제 성공으로 확대하지 않는다. 운영 DB에는 두 migration 모두 적용하지 않았다.
+경계: `GatewayRecommissionService.resetInstallation`의 Site 보존 재설치는 후속 `20261016130000_fixture_removal_recommission_boundary`에서 아래의 실제 prepared/revoked job 경계로 보완했다. 기존 TemporaryControl 원장 자체의 Site/Gateway RESTRICT·최소 원장 삭제 금지는 약화하지 않았다. settled lease가 있는 전체 현장의 기존 삭제 제한은 이번 수리 범위 밖이며, 위 Site cascade 성공 사례의 과거 이력은 command/energy이고 lease를 포함한 전체 삭제 성공으로 확대하지 않는다. 운영 DB에는 이번 migration을 적용하지 않았다.
+
+### Site 보존 Gateway Recommission 경계
+
+`20261016130000_fixture_removal_recommission_boundary`는 테이블·컬럼·Prisma 모델을 추가하지 않는 독립 순방향 migration이다. 기존 `GatewayRecommissionJob`과 인증서 폐기 원장을 정본으로 사용한다. 새로운 session GUC나 임시 권한 플래그는 없다. 기존 INSERT/UPDATE identity·append-only·result 검증은 유지하고 DELETE만 actual Site cascade 또는 정확한 재설치 경계로 분기한다.
+
+- `fixture_recommission_canonical_json(jsonb)`는 기존 CLI의 sorted-key snapshot hash 형식을 DB에서 대조한다.
+- `fixture_removal_recommission_job(site_id,gateway_id)`는 실제 `mqtt_revoked`/revokedAt 기록, 미적용 job, Site·단일 Gateway·claimed inventory·serial 귀속, targetSnapshot SHA-256/원 objectKeys/신뢰 pointer, 정확한 certificateState 신원과 완료된 MQTT CRL 폐기 원장을 검증한다. 해당 DB backend가 membership advisory lock과 Job/Inventory/Certificate/Revocation/Gateway/Fixture/MeshNode/removal operation/evidence 9개 테이블의 SHARE ROW EXCLUSIVE 이상 fence를 실제 보유해야 한다. 다른 backend의 잠금이나 caller GUC는 인정하지 않는다.
+- `cleanup_fixture_removals_for_recommission(job_id,reset_digest)`는 위 검증과 job ID/digest 일치 후 현재 fixture/node/operation/evidence 집합이 준비 snapshot과 정확히 같은지 재검사하고 evidence→operation만 정리한다. 이어지는 일반 reset 흐름의 retired fixture/node DELETE guard도 같은 job의 불변 준비 ID만 허용한다. 다른 Site/Gateway/준비되지 않은 ID는 이 경계로 삭제할 수 없다.
+- Service preview/prepare/apply의 DB-only 구간은 membership→job/Site/inventory/certificate/Gateway 순서를 사용한다. 최종 쓰기 fence에 두 removal 원장과 Job/Revocation 원장을 포함하고 외부 CA/CRL/보고서 삭제 이후 기존 snapshot·폐기 완료를 다시 검증한다. retired node는 inventory 귀속 해제 전에 삭제한다. Site/층은 유지하고 전체 SQL 실패 시 원장/evidence/퇴역 row/claim hash 변경도 함께 rollback한다.
+- 새 준비 snapshot의 `children`에 `FixtureRegistrationRemovalOperation`의 operationId와 `FixtureRegistrationRemovalResultEvidence`의 eventId를 포함한다. 과거 version-2 job이 이 두 child key를 갖지 않으면 실제 두 집합이 모두 빈 경우에만 원 digest를 유지한다. 새로운 삭제 원장이 생겼는데 과거 빈 snapshot을 재사용하는 것은 허용하지 않는다.
+
+회귀는 실제 자기 소유 disposable PostgreSQL에서 completed removal→기존 preview/prepare/revoke/apply 성공, Site/다른 현장 보존, 일반 직접 DELETE/가짜 GUC/다른 scope 거절, 실제 Site cascade 유지, status/hash/snapshot/대상 집합/폐기 완료/membership·table fence 불일치 거절을 검증했다. MAIN 합병 및 별도 rollback migration `20261016140000_fixture_removal_cleanup_rollback`을 포함한 146개 migration 적용과 직접 2 suite 40/40 PASS, API typecheck를 확인했다. PKI/오브젝트 저장소는 기존 software test doubles이며 실제 CA·MQTT·Pi·운영 DB·서버 재시작은 실행하지 않았다. 기존 TemporaryControl 제약은 그대로 유지한다.
 ## 2026-10-16 BIO 자기 제어 — 로컬 운영 DB 반영
 
 - `20261015160000_bio_event_hold_one_second`는 BIO hold CHECK를1~1,800초로 낮추고 BlueZ5초 하한을 보존한다.
