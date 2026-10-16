@@ -159,7 +159,7 @@ export class MapDocumentResetService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.access.assert(user, floor.siteId, "manage");
 
-    // Site -> Floor matches every existing editor/admin writer. Replays also
+    // Membership -> Site -> Floor matches removal admission. Replays also
     // acquire these locks and reauthorize, but do not need the old lease renewed.
     const preflight = await this.prisma.$transaction(tx =>
       this.authorizeLocked(tx, floorId, floor.siteId, user, input, payloadHash), TRANSACTION_OPTIONS);
@@ -254,6 +254,9 @@ export class MapDocumentResetService {
 
   private async authorizeLocked(tx: Prisma.TransactionClient, floorId: string, siteId: string,
     user: AuthenticatedUser, input: MapDocumentResetInput, payloadHash: string, action = ACTION) {
+    // Slot DELETE takes this serializer even with zero rows. Acquire it before
+    // Site/Floor so clear/reset cannot invert removal admission's lock order.
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
     const site = await this.access.assertManageInTransaction(tx, user, siteId);
     const [floor] = await tx.$queryRaw<LockedFloor[]>(Prisma.sql`
       SELECT "siteId", "status"::text, "mapRevision", "editorLeaseFence", "editorLeaseHolderId",

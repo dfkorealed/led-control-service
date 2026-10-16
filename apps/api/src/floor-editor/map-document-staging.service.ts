@@ -272,6 +272,9 @@ export class MapDocumentStagingService implements OnModuleInit, OnModuleDestroy 
     if (total !== Number(stage.expectedDecodedBytes) || hash.digest("hex") !== stage.payloadHash) throw new BadRequestException("stage stream hash mismatch");
   }
   private async authority(tx: Prisma.TransactionClient, floorId: string, user: AuthenticatedUser) {
+    // Staged save/restore can write slots during activation. Keep removal's
+    // serializer -> Site -> Floor order before acquiring either row lock.
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
     const found = await tx.floor.findUnique({ where: { id: floorId }, select: { siteId: true } });
     if (!found) throw new NotFoundException("floor not found");
     const site = await this.access.assertManageInTransaction(tx, user, found.siteId);

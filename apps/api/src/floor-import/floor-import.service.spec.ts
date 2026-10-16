@@ -705,13 +705,16 @@ describe("FloorImportService", () => {
       await expect(applying).rejects.toThrow(/cancel.*re-import/i);
       for (const mutation of [tx.floorImportJob.update, tx.floorMapObject.deleteMany, tx.floorLightSlot.deleteMany,
         tx.fixture.updateMany, tx.floorPlan.upsert, tx.floorCadScene.deleteMany, tx.floorMapRevision.create,
-        tx.floorMapDocument.create, tx.floorMapGeneration.update, tx.floor.update, tx.$executeRaw, audit.record, store.pinRevision]) {
+        tx.floorMapDocument.create, tx.floorMapGeneration.update, tx.floor.update, audit.record, store.pinRevision]) {
         expect(mutation).not.toHaveBeenCalled();
       }
     } else {
       await expect(applying).resolves.toMatchObject({ status: "completed", mapDocument: ref, createdSlotCount: 0, acceptedCandidateIds: [] });
     }
     expect(events).toEqual(["job locked", "region digest read"]);
+    expect(tx.$executeRaw.mock.calls[0][0].join(""))
+      .toBe('SELECT "lock_automation_membership_mutation"()');
+    if (mode !== "geometry") expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(tx.floorImportCandidate.updateMany).not.toHaveBeenCalled();
   });
 
@@ -720,7 +723,7 @@ describe("FloorImportService", () => {
     ["stale revision", { mapRevision: 5 }, "floor editor revision conflict"]
   ])("rejects apply with %s", async (_label, floorOverride, message) => {
     const floorId = randomUUID(); const jobId = randomUUID(); const renderedAssetId = randomUUID();
-    const tx: any = { $queryRaw: jest.fn().mockResolvedValue([{ status: "active", mapRevision: 4, editorLeaseFence: 8,
+    const tx: any = { $executeRaw: jest.fn().mockResolvedValue(0), $queryRaw: jest.fn().mockResolvedValue([{ status: "active", mapRevision: 4, editorLeaseFence: 8,
       editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
       dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(), renderedAssetId,
       excludedRegionPrimitiveCount: 0,
@@ -757,6 +760,7 @@ describe("FloorImportService", () => {
         sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
       } }) },
       $transaction: jest.fn((run: (client: any) => unknown) => run({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         $queryRaw: jest.fn().mockResolvedValue([{
           status: "active", mapRevision: 4, editorLeaseFence: 8,
           editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
@@ -785,6 +789,7 @@ describe("FloorImportService", () => {
     const findCandidates = jest.fn();
     const deleteObjects = jest.fn();
     const tx: any = {
+      $executeRaw: jest.fn().mockResolvedValue(0),
       $queryRaw: jest.fn().mockResolvedValue([{
         status: "active", mapRevision: 4, editorLeaseFence: 8,
         editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),

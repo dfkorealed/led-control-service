@@ -541,6 +541,8 @@ export class FloorImportService {
     const cadDraft = selectedRegion ? await this.loadCadSceneDraft(floorId, jobId) : null;
     try {
       return await this.prisma.$transaction(async tx => {
+        // Slot replacement shares removal's serializer -> Site -> Floor order.
+        await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
         const authorizedSite = await this.access.assertManageInTransaction(tx, user, floor.siteId);
         const locked = await this.lockApplyState(tx, floorId, jobId);
         if (!locked) throw new NotFoundException("floor import job not found");
@@ -884,6 +886,8 @@ export class FloorImportService {
     await this.mapStore!.readManifest(floorId, ref);
     await this.mapPreparation!.readDisplayManifest(floorId, ref);
     return this.prisma.$transaction(async tx => {
+      // Match legacy apply before locking Site/Floor, including empty slot deletes.
+      await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
       const site = await this.access.assertManageInTransaction(tx, user, siteId);
       await tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id" = ${floorId} FOR UPDATE`;
       const floor = await tx.floor.findUniqueOrThrow({ where: { id: floorId } });
