@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-16 / 운영 전환은 프로세스·데이터의 실제 관문으로 확인한다
+
+- 기존pnpm supervisor에SIGTERM을보내도shell wrapper만종료되고Nestwatch/Vite가orphan으로남았다. 포트0·원process identity종료를확인하기전migration/merge를진행하지않는다. 이번관문은DB쓰기전거절했고정확한args/PID를대조해leaf에SIGTERM을보내해소했다. 강제kill/이름기반전체종료는하지않는다.
+- 전체행보존hash SQL의 `row_to_json(x)`는기존테이블의numeric `x`열에가려질수있다. composite `x.*`를명시하고비교실패시DDL전에멈춘다. 이번실패는migrationintent저장전이었으며원127개테이블hash와기존migration이력불변을실제반영전후검증했다.
+- 기존운영launch는EXPECTED_* env가아닌서명assignment에scope를저장할수있다. 기존env를변조하거나검증을생략하지않고새image의network-none/RO제품신원검사에현재신뢰scope/serial을명시해실제assignment·device/MQTT인증서를대조한다.
+- 사용자가DB/서비스/Gateway전환을승인한뒤에도이벤트활성화/물리동작시험까지자동확장하지않는다. 명시native지원선언·서버/장비동일revision/hash/ACK와실제UI입력가능을준비완료로기록하고사용자감지시험과구분한다.
+
 ## 2026-10-16 / 자기 감지 설정은 별도 내구 소유자로 관리한다
 
 - 자기 조명을 일반 force target에 넣으면 센서 모드가 깨진다. 장비 native 설정/원 설정/물리 신원을 별도 내구 원장에 저장하고 독립 전체 GET 일치 뒤 ACK한다. 부분 쓰기는 일반 snapshot rollback으로 지우지 않는다.

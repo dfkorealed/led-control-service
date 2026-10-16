@@ -2,7 +2,10 @@
 
 기준일: 2026-10-15
 
-## 2026-10-16 BIO 자기 감지 제어 — 구현·최소 장비 확인 완료, 영구 반영 전
+## 2026-10-16 BIO 자기 감지 제어 — 운영 반영 완료·사용자 UI 시험 준비
+
+- 후속운영결과: 새전체DB백업검증→DB2migration139→141/원127개데이터테이블행·기존원장불변→MAIN9169fe1c ff-only병합/사용자AGENTS·기존메모9행보존→동일env/인증의API/Web/broker재개5up→ARM64검증image5df95b0c/원3root CMS백업·독립검증→새Gateway전환을완료했다. Config의image/이미지소유label외설정·USB/ID/기본밝기/인증을보존했다. canonical release CI/artifact/state98/98·실제CMSflow/cleanup exit0이다. broker도기존coupled구조때문에1회정상재기동했으며ACL/인증서/권한변경0이다.
+- 실제새Gateway source9169fe1c에서6/6observed·freshhealth/USBowner1·보호identity/assignment/mapping24항목불변, assignment1/선언26/native1·V3revision40 APPLIED·서버/장비payloadhash일치를확인했다. 실제UI에서B1-L006/self체크/다른대상0/1초입력/저장가능을확인했고저장/활성화/움직임시험은하지않았다. L002/L004기존등록재확인차단은유지하며지원조건을우회하지않는다. 사용자직접제품규칙시험은남아있다. 아래구현/승인대기는당시이력이다.
 
 - 후속 사용자 승인으로 DB 백업·migration2개·MAIN 병합·API/Web 재기동·Gateway 영구 배포를 진행한다. 기존ID/기본밝기/인증·병행 미커밋 기록·원 컨테이너/백업을 보존하며 규칙 활성화/움직임 시험은 하지 않는다. 실행 체크리스트는 기존 계획 Task7에 추가했다. 아직 운영 변경은 시작 전이다.
 
