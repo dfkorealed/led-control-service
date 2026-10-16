@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import * as shared from "./index";
 
 const api = shared as unknown as Record<string, any>;
@@ -17,15 +19,31 @@ const ack = { ...identity, commandHash: hash, eventId: id, resultHash: hash,
   ingestedAt: command.requestedAt, status: "ingested" };
 
 describe("fixture registration removal contracts", () => {
+  it("loads the built public subpath through actual Node ESM and CommonJS", () => {
+    const cwd = fileURLToPath(new URL("..", import.meta.url));
+    const assertion = `
+      if (contract.fixtureRegistrationRemovalCanonicalJson({ z: 1, a: 2 }) !== '{"a":2,"z":1}') throw new Error("canonical dependency missing");
+      if (!contract.fixtureRegistrationRemovalCommandSchema.safeParse(${JSON.stringify(command)}).success) throw new Error("command contract missing");
+    `;
+    for (const [flags, expression] of [
+      [["--input-type=module"], 'await import("@led-control/shared/fixture-registration-removal-contracts")'],
+      [[], 'require("@led-control/shared/fixture-registration-removal-contracts")']
+    ] as const) {
+      expect(execFileSync(process.execPath, [...flags, "--eval", `const contract = ${expression};${assertion}`],
+        { cwd, encoding: "utf8" })).toBe("");
+    }
+  });
   it("exports strict HTTP request, preview and operation views", () => {
     expect(api.fixtureRegistrationRemovalRequestSchema).toBeDefined();
     expect(api.fixtureRegistrationRemovalRequestSchema.parse({ clientRequestId: id, expectedUpdatedAt: command.requestedAt }))
       .toEqual({ clientRequestId: id, expectedUpdatedAt: command.requestedAt });
     expect(api.fixtureRegistrationRemovalRequestSchema.safeParse({ clientRequestId: id, expectedUpdatedAt: command.requestedAt, force: true }).success).toBe(false);
-    const preview = { fixtureId: id, fixtureName: "Light", serialNumber: null, allowed: false,
+    const preview = { fixtureId: id, fixtureName: "Light", serialNumber: null, expectedUpdatedAt: command.requestedAt, allowed: false,
       blockedReasons: [{ code: "GATEWAY_UNSUPPORTED", message: "Update required" }] };
     expect(api.fixtureRegistrationRemovalPreviewSchema.parse(preview)).toEqual(preview);
     expect(api.fixtureRegistrationRemovalPreviewSchema.safeParse({ ...preview, allowed: true }).success).toBe(false);
+    expect(api.fixtureRegistrationRemovalPreviewSchema.safeParse({ ...preview, expectedUpdatedAt: undefined }).success).toBe(false);
+    expect(api.fixtureRegistrationRemovalPreviewSchema.safeParse({ ...preview, expectedUpdatedAt: "bad" }).success).toBe(false);
     expect(api.fixtureRegistrationRemovalViewSchema.parse({ operationId: id, siteId: id, floorId: id,
       fixtureId: id, status: "pending", errorCode: null, createdAt: command.requestedAt, completedAt: null }).status).toBe("pending");
   });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { bioRegistrationRevalidationCanonicalJson } from "./bio-registration-revalidation-contracts";
+import { bioRegistrationRevalidationCanonicalJson } from "./bio-registration-revalidation-contracts.js";
 
 export const FIXTURE_REGISTRATION_REMOVAL_TTL_MS = 30_000;
 const id = z.string().uuid();
@@ -14,7 +14,7 @@ export const fixtureRegistrationRemovalRequestSchema = z.object({
   clientRequestId: id, expectedUpdatedAt: timestamp
 }).strict();
 export const fixtureRegistrationRemovalPreviewSchema = z.object({
-  fixtureId: id, fixtureName: z.string().min(1), serialNumber: z.string().nullable(),
+  fixtureId: id, fixtureName: z.string().min(1), serialNumber: z.string().nullable(), expectedUpdatedAt: timestamp,
   allowed: z.boolean(), blockedReasons: z.array(z.object({ code: errorCode, message: z.string().min(1) }).strict())
 }).strict().refine(value => value.allowed === (value.blockedReasons.length === 0), "allowed must agree with blockedReasons");
 export const fixtureRegistrationRemovalViewSchema = z.object({
