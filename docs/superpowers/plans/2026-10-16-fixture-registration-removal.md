@@ -40,12 +40,13 @@
 - `fixtureRegistrationRemovalCommandSchema`: version1, operationId/siteId/gatewayId/gatewaySerial/assignmentVersion/fixtureId/nodeId/deviceUuid/meshAddress/originalProvisionCommandId/bindingHash/requestedAt/expiresAt. UUID/주소/일관성은 strict 검증한다.
 - terminal은 동일 command identity와 `eventId`, `occurredAt`, `status: removed|rejected|reconcile_required`, `errorCode`를 갖는다. 명령 hash는 서버/Gateway가 기존 canonical hash 방식으로 대조한다. application ACK도 operation/event/hash를 결합한다.
 - `fixtureRegistrationRemovalTopics`는 `sites/{siteId}/gateways/{gatewayId}/commands/registration-removal`, `/events/registration-removal`, `/commands/registration-removal-ack`를 제공한다. 실제 ACL 생성 계약도 API/장비 소유자가 통합한다.
+- `nodeId`는 원 provisioning command의 후보 ID이며 Cloud MeshNode.id와 구별한다. `fixtureRegistrationRemovalBindingIdentity(command)`는 `{version,siteId,gatewayId,gatewaySerial,assignmentVersion,fixtureId,nodeId,deviceUuid,meshAddress,originalProvisionCommandId}`만 반환한다. bindingHash는 이 객체의 canonical JSON을 SHA256한 `sha256:`+hex이며 commandHash는 전체 command를 같은 방식으로 해시한다. DB 원장은 Cloud meshNodeId도 별도 보존한다.
 - Gateway heartbeat `fixtureRegistrationRemovalVersion?: 1`; DB default0은 미지원이다. Fixture/MeshNode `retiredAt: DateTime?`; Gateway 지원 버전, 삭제 작업(원장/outbox/불변 snapshot·중복 방지·결과·재전송·lease)을 추가한다.
 
-- [ ] RED: strict 계약/미지원 heartbeat·원장 idempotency·퇴역 row/동시 mutation 보호 migration 회귀 작성 및 실패 확인.
-- [ ] 위 계약/schema/공유 상태 판정 구현. 기존 기능 default는 모두 active/null이며 퇴역을 offline으로 표현하지 않는다.
-- [ ] shared 테스트/type/build·격리 PostgreSQL migration 검증, DB 문서 갱신, 소유 파일 커밋.
-- [ ] 독립 task 검토와 필요한 수정/재검토 후 소비 계약을 고정한다.
+- [x] RED: strict 계약/미지원 heartbeat·원장 idempotency·퇴역 row/동시 mutation 보호 migration 회귀 작성 및 실패 확인.
+- [x] 위 계약/schema/공유 상태 판정 구현. 기존 기능 default는 모두 active/null이며 퇴역을 offline으로 표현하지 않는다.
+- [x] shared 테스트/type/build·격리 PostgreSQL migration 검증, DB 문서 갱신, 소유 파일 커밋.
+- [x] 독립 task 검토와 필요한 수정/재검토 후 소비 계약을 고정한다.
 
 ## Task 2: Gateway 영속 삭제와 실행 직전 차단
 
@@ -67,6 +68,8 @@
 
 **인터페이스:** 설계의 조명 경로 아래 GET preview, POST removals(202), GET removals/:operationId. Task 1 response 타입과 exact terminal/ACK를 사용한다.
 
+POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clientRequestId`는 같은 actor/site/floor/fixture의 `FixtureRegistrationRemovalView|null`을 반환한다. POST의 같은 요청 ID 재생은 인가 뒤, expectedUpdatedAt·진행 차단 검사보다 먼저 조회한다. 이 예외는 동일 body 재생에만 적용하며 새 요청은 허용하지 않는다.
+
 - [ ] RED: assigned admin만 허용·다른 현장404·preview와 POST 재검사·offline/version0·스케줄/이벤트/구역/제어·맵 lease409·요청 ID 재생/충돌·Gateway 완료 후 DB 실패/재시작을 작성하고 실패 확인.
 - [ ] POST는 canonical 잠금/재인가 후 snapshot·outbox를 원자 생성한다. DB-only 보호와 기존 생산자의 pending/retired 거절을 연결한다. Publisher 네트워크 I/O는 DB transaction 밖이며 trusted time/assignment·인증 계약을 유지한다.
 - [ ] exact 결과·재조정과 최종 퇴역/UUID 해제/맵·내부 그룹/catalog 동기화를 연결한다. raw/Prisma 조회·모니터링 수·pagination·선택·상태수집·기존 맵 복구를 조사해 retired 제외와 이력 읽기를 분리한다. 기존 전력 집계는 보존하고 삭제 뒤 적산을 종료한다.
@@ -85,6 +88,8 @@
 
 **인터페이스:** Task 1 HTTP 타입과 Task 3 경로. 공통 ConfirmDialog/Modal, IconButton/Tooltip, Feedback/Toast/Loading을 재사용한다.
 
+전송 전에 actor/site/floor/fixture와 requestId/expectedUpdatedAt을 저장한다. operationId 미확보 시 by-request 조회로 복구하고, 미확정/null을 성공·실패 확정으로 바꾸지 않는다. 명시적인 재시도는 같은 requestId/body만 재전송한다.
+
 - [ ] RED: admin만 노출·취소 요청0·차단 이유·정확한 장치/시리얼·중복 클릭·pending/unknown≠성공·재조회 실패·새로고침 복구·현장 전환 stale 결과 무시를 작성하고 실패 확인.
 - [ ] 카드의 등록 삭제 아이콘→preview→확인→같은 요청ID POST→terminal 조회를 연결한다. 진행 작업은 현장별 operation identity로 복구하고 완료만 삭제 성공/관련 query 갱신한다. 불확정은 동일 작업 상태 확인만 제공한다.
 - [ ] 웹 관련 테스트/type/build/UI정책과 Chromium1440/390 정상·취소·차단·재시작 복구를 검증하고 커밋·독립 검토한다. fake 브라우저 결과를 장비 성공으로 기록하지 않는다.
@@ -102,3 +107,6 @@
 ## 실행 상태
 
 - 2026-10-16: 사용자 서면 설계 승인 및 계획 후 즉시 구현/별도 브랜치 병합 지시. 기존 브랜치를 최신 MAIN a6260156까지 문서 양쪽 보존 merge했다. Task1 시작 전이다.
+- Task1 구현 `a960dbd8`: shared585/585·helper61/61, 임시PG/정책23/23·migration139→140, 타입/빌드 통과. 독립검토의 DB 잠금 역전1건은 fixround1 진행 중이며 Task1 전체 완료가 아니다. 고정된 shared 계약만 소비하는 Task2/4는 DB 수리와 독립이므로 구현을 시작하고 DB 기반을 사용하는 Task3는 수리 gate까지 대기한다. 커밋은 공유 index 보호를 위해 총괄이 직렬 승인한다.
+- 병행 범위 보완: Task3도 고정 schema/helper를 소비하는 별도 API 파일 구현은 진행하되 Carver의 migration/policy 파일을 수정하지 않는다. Task1 전체 gate와 Task3 실제 PostgreSQL 최종 검증은 잠금 수리 재검토 뒤에 통과시킨다. 고정된 계약의 소비 작업과 DB 기반 승인 시점을 구분한다.
+- Task1 완료: `a960dbd8`와 fix `549055d2`, reviewer James 독립 실제 PostgreSQL139→141/DB·정책30/30·Critical/Important0·ReadyYES다. 기존 raw-row 잠금과 새 전역 잠금의 순서 역전을 RED로 재현해 일반 UPDATE 범위를 좁혔고, 실제 Site cascade와 일반 직접 삭제 차단·과거 command/energy/settled lease의 DDL 보존을 확인했다. Site를 유지하는 resetInstallation의 새 원장 cleanup은 Task3 필수 인계다.
