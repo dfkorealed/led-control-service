@@ -13,6 +13,7 @@ import { MqttService } from "../src/mqtt/mqtt.service";
 import { RedisProvider } from "../src/redis/redis.provider";
 import { SessionAuthGuard } from "../src/auth/session-auth.guard";
 import { CommandDbClockHealth } from "../src/mqtt/command-db-clock-health.service";
+import { createConfiguredCommandDbClockEvidenceSource } from "../src/mqtt/command-db-clock-evidence-source";
 import { FixtureRegistrationRemovalsService } from "../src/fixtures/fixture-registration-removals.service";
 import { FixtureRegistrationRemovalPublisherService } from "../src/mqtt/fixture-registration-removal-publisher.service";
 import { FixtureRegistrationRemovalCleanupService } from "../src/fixtures/fixture-registration-removal-cleanup.service";
@@ -154,6 +155,21 @@ const enabled = process.env.FIXTURE_REMOVAL_API_DISPOSABLE_POSTGRES === "1";
       assignmentVersion: 1, eventId: payload.eventId, catalogRevision: payload.catalogRevision, deliveryPayloadHash: catalog.payloadHash,
       status: "applied", occurredAt: new Date().toISOString() }, { siteId: ids.site, gatewayId: ids.gateway });
   }
+  it("explains missing clock attestation as HTTP 503 and leaves admission empty until trusted evidence is restored", async () => {
+    const missing = new CommandDbClockHealth(createConfiguredCommandDbClockEvidenceSource({}));
+    const clock = app.get(CommandDbClockHealth);
+    const failure = jest.spyOn(clock, "assertHealthy").mockImplementation(tx => missing.assertHealthy(tx));
+    try {
+      expect(await http("/registration-removal-preview")).toMatchObject({ status: 503,
+        body: { code: "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE", message: expect.any(String) } });
+      const fixture = await db.fixture.findUniqueOrThrow({ where: { id: ids.fixture } });
+      expect(await http("/registration-removals", { clientRequestId: randomUUID(), expectedUpdatedAt: fixture.updatedAt.toISOString() }))
+        .toMatchObject({ status: 503, body: { code: "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE" } });
+      expect(await db.fixtureRegistrationRemovalOperation.count({ where: { siteId: ids.site } })).toBe(0);
+      expect(published).toEqual([]);
+    } finally { failure.mockRestore(); }
+    expect(await http("/registration-removal-preview")).toMatchObject({ status: 200, body: { allowed: true } });
+  });
   it("boots production Nest providers and performs HTTP -> exact terminal -> atomic retirement preserving history", async () => {
     expect(app.get(FixtureRegistrationRemovalPublisherService)).toBeInstanceOf(FixtureRegistrationRemovalPublisherService);
     expect(await http("/registration-removal-preview")).toMatchObject({ status: 200, body: { allowed: true } });

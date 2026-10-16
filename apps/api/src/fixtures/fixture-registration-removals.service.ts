@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { Prisma, type FixtureRegistrationRemovalOperation } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -32,7 +32,7 @@ export class FixtureRegistrationRemovalsService {
     return this.prisma.$transaction(async tx => {
       await this.authorize(tx, user, scope);
       const fixture = await this.fixture(tx, scope);
-      const now = await this.clock.assertHealthy(tx);
+      const now = await this.assertAdmissionClockHealthy(tx);
       const blockedReasons = await this.blockers(tx, fixture, now);
       return { fixtureId: fixture.id, fixtureName: fixture.name, serialNumber: fixture.meshNode?.serialNumber ?? null,
         expectedUpdatedAt: fixture.updatedAt.toISOString(),
@@ -63,7 +63,7 @@ export class FixtureRegistrationRemovalsService {
       await lockFixtureRegistrationRemovalDomain(tx, { ...scope, gatewayId: initial.gatewayId,
         meshNodeId: initial.meshNode.id, deviceUuid: initial.meshNode.deviceUuid });
       const fixture = await this.fixture(tx, scope);
-      const now = await this.clock.assertHealthy(tx);
+      const now = await this.assertAdmissionClockHealthy(tx);
       if (fixture.updatedAt.toISOString() !== request.expectedUpdatedAt) throw new ConflictException({ code: "SETTINGS_VERSION_CONFLICT" });
       const blockedReasons = await this.blockers(tx, fixture, now);
       if (blockedReasons.length) throw new ConflictException({ code: "REGISTRATION_REMOVAL_BLOCKED", blockedReasons });
@@ -200,6 +200,16 @@ export class FixtureRegistrationRemovalsService {
       await this.retirement.retire(tx, row, now);
       await tx.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "completed", completedAt: now } });
     }, txOptions);
+  }
+
+  private async assertAdmissionClockHealthy(tx: Prisma.TransactionClient): Promise<Date> {
+    try { return await this.clock.assertHealthy(tx); }
+    catch {
+      // Clock evidence is mandatory even for preview: never substitute wall time
+      // or infer gateway availability when attestation is missing or unhealthy.
+      throw new ServiceUnavailableException({ code: "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE",
+        message: "Registration removal is blocked because server clock verification is unavailable." });
+    }
   }
 
   private async authorize(tx: Prisma.TransactionClient, user: AuthenticatedUser, scope: RemovalScope) {

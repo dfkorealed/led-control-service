@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
+import { CommandDbClockHealth } from "../mqtt/command-db-clock-health.service";
+import { createConfiguredCommandDbClockEvidenceSource } from "../mqtt/command-db-clock-evidence-source";
 
 const Service: any = require("./fixture-registration-removals.service").FixtureRegistrationRemovalsService;
 
@@ -15,13 +17,25 @@ describe("fixture registration removal HTTP boundary", () => {
       createdAt: new Date(request.expectedUpdatedAt), completedAt: null };
     const tx = { $executeRaw: jest.fn(), $queryRaw: jest.fn().mockResolvedValue([]),
       fixtureRegistrationRemovalOperation: { findUnique: jest.fn().mockResolvedValue(prior),
-        findFirst: jest.fn().mockResolvedValue(prior) },
+        findFirst: jest.fn().mockResolvedValue(prior), create: jest.fn() },
       fixture: { findFirst: jest.fn().mockRejectedValue(new Error("replay must not re-admit fixture")) } };
     const access = { assertManageInTransaction: jest.fn() };
     const prisma = { $transaction: jest.fn((fn: any) => fn(tx)) };
     const service = Service && new Service(prisma, access, { assertHealthy: jest.fn() }, {}, {});
-    return { service, tx, access, prior };
+    return { service, tx, access, prior, prisma };
   }
+  it.each(["preview", "create"])("returns explicit unavailable for %s with no trusted clock without admitting work", async method => {
+    const { tx, access, prisma } = setup();
+    tx.fixtureRegistrationRemovalOperation.findUnique.mockResolvedValue(null);
+    tx.fixture.findFirst.mockResolvedValue({ id: fixtureId, siteId, floorId, gatewayId: randomUUID(),
+      updatedAt: new Date(request.expectedUpdatedAt), meshNode: { id: randomUUID(), deviceUuid: "bio:aabbccddeeff" },
+      floor: { status: "active" } });
+    const clock = new CommandDbClockHealth(createConfiguredCommandDbClockEvidenceSource({}));
+    const service = new Service(prisma, access, clock, {}, {});
+    await expect(service[method](user, scope, request)).rejects.toMatchObject({ status: 503,
+      response: { code: "REGISTRATION_REMOVAL_CLOCK_UNAVAILABLE", message: expect.any(String) } });
+    expect(tx.fixtureRegistrationRemovalOperation.create).not.toHaveBeenCalled();
+  });
   it("exports the production HTTP service", () => expect(Service).toBeDefined());
   it("authorizes before exact replay and does not reject its own pending operation", async () => {
     const { service, access, tx, prior } = setup();
