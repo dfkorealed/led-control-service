@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1 구현·독립 검토와 보완 재검토를 완료하고 Task2를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 기존 전체 unit5FAIL과 추가 관측 browser3FAIL은 해결·무관으로 단정하지 않는다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
+상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1·2 구현·독립 검토와 보완 재검토를 완료하고 Task3를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 전체 unit5FAIL은 남아 있고 Task1 추가 관측 browser3FAIL은 Task2에서 전제·의미를 검증해 실제 흐름 PASS로 확인했다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
 
 ## Global Constraints
 
@@ -168,7 +168,7 @@ test("functional computed spacing and actual control size", async ({ page }) => 
 
 **Interfaces:** Task1의 PageStack/CardGrid/panelPaddingClass/titleRole을 소비한다. `AccountSecurityView({user, presentation="customer"}: {user:AuthUser; presentation?:"customer"|"operator"}): JSX.Element` 생산. auth·overlay public API는 그대로다.
 
-- [ ] **Step 1: 실패 검증 작성.** 기존 보안 단위에 customer/operator presentation에서 동일 regular 카드와 단일 shell h1을 단언한다. A→B principal 전환 중 MFA/session 지연 응답·secret remount·다른 세션 revoke 회귀를 유지한다. auth ready/pending/error/MFA/recovery와 operator loading/empty/error가 같은 wrapper를 소비하는지 단언한다. OperatorShell 일반 main은 PC좌우28/상하24px·compact좌우14/상하18px를 computed로 단언한다.
+- [x] **Step 1: 실패 검증 작성.** 기존 보안 단위에 customer/operator presentation에서 동일 regular 카드와 단일 shell h1을 단언한다. A→B principal 전환 중 MFA/session 지연 응답·secret remount·다른 세션 revoke 회귀를 유지한다. auth ready/pending/error/MFA/recovery와 operator loading/empty/error가 같은 wrapper를 소비하는지 단언한다. OperatorShell 일반 main은 PC좌우28/상하24px·compact좌우14/상하18px를 computed로 단언한다.
 
 ```ts
 test("security regular inset and modal return focus", async ({ page, designScenario }) => {
@@ -184,11 +184,11 @@ test("security regular inset and modal return focus", async ({ page, designScena
 ```
 
 기존 AccountSecurityView 단위에 test `late MFA response after principal switch does not publish secret`를 추가한다. A enrollment promise를 보류하고 B user로 rerender한 뒤 B status query가 `{enabled:false,enabledAt:null}`로 실제 완료되는 것을 기다린다. A 응답 `{secret:"A-secret",recoveryCodes:["A-code"]}`를 resolve한 뒤 `expect(screen.queryByText("A-secret")).not.toBeInTheDocument()`, `expect(screen.queryByDisplayValue("A-secret")).not.toBeInTheDocument()`, `expect(queryClient.getQueryData(["auth","mfa",principalKey(userB)])).toEqual({enabled:false,enabledAt:null})`를 단언한다. userB/queryClient는 해당 test의 실제 fixture이며 빈 query로 통과하지 않게 한다. 기존 mounted/principal cache 방어 단언은 유지한다.
-- [ ] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec vitest run src/features/auth/AuthView.test.tsx src/features/auth/RequiredPasswordChangeView.test.tsx src/features/operator/OperatorShell.test.tsx src/features/settings/security/AccountSecurityView.test.tsx` → 새 regular/역할 단언 FAIL과 기존 실패 baseline을 구분한다.
-- [ ] **Step 3: 최소 구현.** 일반 card20/16·grid18·section20·명시 titleRole을 적용한다. 보안 presentation을 양 shell에서 전달한다. operator max1160과 auth 소개/form 구성은 보존한다. loaded/pending/error/empty의 wrapper만 통일하고 query·권한·조건·문구 의미를 바꾸지 않는다.
-- [ ] **Step 4: overlay 내용 정합화.** DialogBase의 modal/drawer 일반 내용 inset을 공통 regular recipe로 적용하고 feature의 상충 inset override를 제거한다. backdrop·최대폭·safe-area·sheet/workspace geometry·단일 reader·52px close·pending 차단·RAC/ref/focus stack은 유지한다. feedback는 기존 semantic 역할과 liveRole을 보존한다.
-- [ ] **Step 5: GREEN 검증.** Step2 focused PASS 및 Task1 mock config로 account-security·calm-operations-auth-operator 실행. overlay는 `pnpm --filter @led-control/web exec playwright test --config=playwright.ui-cascade.config.ts e2e/ui-overlays.spec.ts`로 분리한다. narrow 실제 focus/Tab/Escape/복귀·긴reader·disabled action과 computed inset을 확인한다. FormField primary help 보정을 유지한다.
-- [ ] **Step 6: 문서·독립 검토·commit.** 영향 메뉴의 software/mock 한계를 갱신하고 이 Task Files의 실제 변경만 선택 stage한다. AGENTS/status 타 소유 변경 제외 후 `git commit -m "refactor(web): align auth operator and overlay presentation"`. principal/secret/domain 무변경 근거 제출.
+- [x] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec vitest run src/features/auth/AuthView.test.tsx src/features/auth/RequiredPasswordChangeView.test.tsx src/features/operator/OperatorShell.test.tsx src/features/settings/security/AccountSecurityView.test.tsx` → 새 regular/역할 단언 FAIL과 기존 실패 baseline을 구분한다.
+- [x] **Step 3: 최소 구현.** 일반 card20/16·grid18·section20·명시 titleRole을 적용한다. 보안 presentation을 양 shell에서 전달한다. operator max1160과 auth 소개/form 구성은 보존한다. loaded/pending/error/empty의 wrapper만 통일하고 query·권한·조건·문구 의미를 바꾸지 않는다.
+- [x] **Step 4: overlay 내용 정합화.** DialogBase의 modal/drawer 일반 내용 inset을 공통 regular recipe로 적용하고 feature의 상충 inset override를 제거한다. backdrop·최대폭·safe-area·sheet/workspace geometry·단일 reader·52px close·pending 차단·RAC/ref/focus stack은 유지한다. feedback는 기존 semantic 역할과 liveRole을 보존한다.
+- [x] **Step 5: GREEN 검증.** Step2 focused PASS 및 Task1 mock config로 account-security·calm-operations-auth-operator 실행. overlay는 `pnpm --filter @led-control/web exec playwright test --config=playwright.ui-cascade.config.ts e2e/ui-overlays.spec.ts`로 분리한다. narrow 실제 focus/Tab/Escape/복귀·긴reader·disabled action과 computed inset을 확인한다. FormField primary help 보정을 유지한다.
+- [x] **Step 6: 문서·독립 검토·commit.** 영향 메뉴의 software/mock 한계를 갱신하고 이 Task Files의 실제 변경만 선택 stage한다. AGENTS/status 타 소유 변경 제외 후 `git commit -m "refactor(web): align auth operator and overlay presentation"`. principal/secret/domain 무변경 근거 제출.
 
 ## Task 3: P3 여섯 항목과 고객 설정·통계 소비
 
