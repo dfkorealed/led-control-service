@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex" />
   <title>페이지를 찾을 수 없습니다 | 킨다</title>
-  <style>
-    body { margin: 0; background: #f6f4ee; color: #15324a; font-family: system-ui, sans-serif; }
-    main { min-height: 100dvh; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
-    h1 { font-size: clamp(24px, 5vw, 36px); } p { line-height: 1.6; }
-    a { color: inherit; display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border: 1px solid currentColor; border-radius: 8px; }
-  </style>
+  <link rel="stylesheet" href="/src/styles.css" />
 </head>
-<body><main><p>404</p><h1>페이지를 찾을 수 없습니다.</h1><p>주소를 확인하거나 킨다 홈으로 이동해 주세요.</p><a href="/">킨다 홈으로</a></main></body>
+<body class="m-0 bg-surface-canvas text-content-primary">
+  <main class="flex min-h-dvh flex-col items-center justify-center gap-5 p-5 text-center max-compact:p-4">
+    <p class="m-0 text-body">404</p>
+    <h1 class="m-0 text-customer-page-title font-bold max-compact:text-section-title">페이지를 찾을 수 없습니다.</h1>
+    <p class="m-0 text-body">주소를 확인하거나 킨다 홈으로 이동해 주세요.</p>
+    <a class="inline-flex min-h-12 min-w-11 items-center justify-center gap-2 rounded-control border border-action-primary bg-action-primary px-5 py-3 text-body font-bold text-content-inverse hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-border-focus" href="/">킨다 홈으로</a>
+  </main>
+</body>
 </html>

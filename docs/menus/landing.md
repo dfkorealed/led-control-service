@@ -1,9 +1,19 @@
 # 공개 랜딩 메뉴 기능 현황
 
+## 2026-10-16 공개·복구 표현 정합화 (Task 5)
+
+- 구현 완료: 일반 main·독립 landing·service entry가 공유하는 공개3페이지의 브랜드 font·hero·카드·포함형430/720/1050px 경계를 보존하고, 연락 팝업의 일반 inset을20/16px로 맞췄다.320px 헤더 상담 버튼에서 관측된40.921875px 너비는 공통 공개 레이아웃 caller의 최소44px로 보완했다. 전화·이메일 href, 양식/API 없는 연락, 선택 요금제와 닫기·포커스 복귀는 유지한다.
+- 구현 완료: main/service 준비·실패는 공통 `MobilePreparation`의 gap20·inset20/16·status/alert와 다시 연결을 사용한다. bootstrap·root·native promise 수명은 유지한다. 독립404는 canonical CSS를 소비하며 JS 없이 실제 HTTP404·제목26/24px·본문14px·44px 이상 홈 귀환을 제공한다. React 공개 fallback도 같은 functional 역할을 사용한다.
+- 미구현: 실제 native WebView·OS 키보드·전화/메일 응답·운영 배포·실장비 검증은 하지 않았다. 연락 안내를 온라인 문의 접수 완료로 기록하지 않는다.
+- 부족하거나 개선이 필요한 기능: 검증은 소유15341의 실제 main과 소유15342의 각 production mode, 차단된 API·외부 write·WebSocket·beacon 및 service worker 환경의 Chromium 소프트웨어 결과다. 분수430.5/720.5/1050.5는 iframe의 실제 CSS viewport와 exact-width media query를 함께 측정한다. mock 인증 결과는 실제 인증/운영 API 증거가 아니며 과거 전체 Web 실패를 해결 완료로 바꾸지 않는다.
+- 검증 주의: 최종 Chromium72PASS/8mode제외, 집중 단위10PASS·타입/빌드/정책0·0이다. 마지막 단독 전체 Web은3924PASS/6FAIL/3SKIP으로 전체 GREEN이 아니다. 이전에 관측된 ControlView5개 외 CAD 미리보기 `common=true, interruption=principal` 준비 상태1개가 실패했다. 해당 파일85/85와 새 bootstrap 테스트 동시 cohort87/87에서는 미재현됐으나 원인은 미확정이며 전체 실패를 덮지 않는다.
+- 관련 파일: `apps/web/src/components/ui/MobilePreparation.tsx`, `apps/web/src/{main,service-main,landing-main}.tsx`, `apps/web/404.html`, `apps/web/src/features/landing/PublicSiteLayout.tsx`, `apps/web/src/components/ui/public-site/PublicContactDialog.tsx`, `apps/web/e2e/{public-deploy,static-landing}.spec.ts`.
+- 갱신 규칙: 공개 페이지는3개로 집계하고3entry·mode별 coverage를 별도 추적한다. 브랜드 구성과 일반 연락/복구 역할, 실제 운영과 mock 검증을 구분하며 영향받은 공개3메뉴를 함께 갱신한다.
+
 ## 2026-10-16 공통 오버레이 기반 (Task 2)
 
 - 구현 완료: 공통 modal/drawer의 일반 내용 기본 inset을20/16px로 정합화하고 frame·focus·pending·52px 닫기를 유지했다. 공개 브랜드/hero·상담의 tel/mailto 의미는 변경하지 않았다.
-- 미구현: 공개 소비의 전용 inset 제거·각 entry 전체 검증·운영 배포는 후속 작업이다.
+- 당시 미구현: 공개 소비의 전용 inset 제거·각 entry 검증은 위 Task5에서 보완했다. 운영 배포는 미실행이다.
 - 부족하거나 개선이 필요한 기능: 공통 fixture 검증은 공개 상담 modal의 모든 caller 정합화 완료를 뜻하지 않는다. 공개 브랜드 구성과 일반 modal 내용을 구분한다.
 - 관련 파일: `apps/web/src/components/ui/overlays/DialogBase.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
 - 갱신 규칙: 공통 overlay 변경 시 공개 상담 소비와 mock/운영 배포 검증 범위를 함께 기록한다.

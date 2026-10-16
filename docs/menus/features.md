@@ -1,9 +1,19 @@
 # 주요 기능 페이지 기능 현황
 
+## 2026-10-16 공개·복구 표현 정합화 (Task 5)
+
+- 구현 완료: `/features`를 공유하는 main·landing·service의 기존 브랜드 font·header·카드·anchor100px와 포함형430/720/1050px 경계를 보존한다. 연락 팝업은 공통 regular inset20/16px를 사용하고,320px 헤더 상담의40.921875px 너비는 공개 레이아웃 caller에서 최소44px로 보완했다. 전화·이메일 href, API/양식 없는 상담과 keyboard·touch 닫기·포커스 복귀를 유지한다.
+- 구현 완료: main/service의 준비/실패 공통 표현은 gap20·inset20/16·status/alert·다시 연결을 사용하며 bootstrap/root 수명은 유지한다. landing은 private/bootstrap 모듈을 가져오지 않는다. canonical CSS 독립404는 JS 없이 실제 HTTP404·제목26/24·본문14px와44px 이상 귀환을 제공한다.
+- 미구현: 실제 native·Safari/WebKit·OS 키보드·운영 API·전화/메일·배포·장비 검증은 이번 범위에서 하지 않았다.
+- 부족하거나 개선이 필요한 기능: 소유15341 main과15342 actual production mode의 Chromium mock 검증으로 범위를 제한한다. 실제 CSS 분수430.5/720.5/1050.5와 exact-width media query를 검증하며 API·외부 write·WebSocket·beacon과 service worker를 차단한다. 기능 설명용 UI를 실제 조명 제어 또는 보고서 실행으로 기록하지 않는다.
+- 검증 주의: 최종 Chromium72PASS/8mode제외, 집중 단위10PASS·타입/빌드/정책0·0이다. 마지막 단독 전체 Web은3924PASS/6FAIL/3SKIP으로 전체 GREEN이 아니다. 이전 관측 ControlView5개와 추가 CAD 미리보기 `common=true, interruption=principal` 준비 상태1개 실패를 보존한다. CAD85/85·bootstrap 동시 cohort87/87에서 미재현됐으나 원인은 미확정이다.
+- 관련 파일: `apps/web/src/features/landing/PublicSiteLayout.tsx`, `apps/web/src/components/ui/public-site/{SiteFrame,PublicContactDialog}.tsx`, `apps/web/src/components/ui/MobilePreparation.tsx`, `apps/web/404.html`, `apps/web/e2e/{public-deploy,static-landing}.spec.ts`.
+- 갱신 규칙: 공개3page와3entry를 중복 page로 합산하지 않는다. 일반 연락·복구 역할과 브랜드 구성을 구분하고 랜딩·요금제 현황과 함께 갱신한다.
+
 ## 2026-10-16 공통 오버레이 기반 (Task 2)
 
 - 구현 완료: 공통 modal/drawer 일반 내용 기본 inset20/16px를 적용하고 frame·focus·pending·52px 닫기를 유지했다. 공개 브랜드와 기존 상담 의미는 유지한다.
-- 미구현: 주요 기능 페이지 caller의 전용 inset 정합화·각 entry 전체 검증·배포는 후속 작업이다.
+- 당시 미구현: 주요 기능 페이지 caller의 전용 inset·각 entry 검증은 위 Task5에서 보완했다. 배포는 미실행이다.
 - 부족하거나 개선이 필요한 기능: 공통 fixture 통과를 주요 기능 페이지의 전체 overlay 완료로 확대하지 않는다.
 - 관련 파일: `apps/web/src/components/ui/overlays/DialogBase.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
 - 갱신 규칙: 공통 기반과 공개 소비·운영 검증의 완료 범위를 구분한다.

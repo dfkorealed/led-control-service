@@ -8,7 +8,7 @@ import { FeaturesPage } from "./features/landing/FeaturesPage";
 import { PricingPage } from "./features/landing/PricingPage";
 import { startMobileWebEntry } from "./features/mobile/mobile-bootstrap";
 import { requiresNativeBootstrap } from "./features/mobile/mobile-environment";
-import { Button } from "./components/ui/Button";
+import { MobilePreparation } from "./components/ui/MobilePreparation";
 
 function WebEntry({ queryClient }: { queryClient?: QueryClient }) {
   switch (window.location.pathname) {
@@ -27,10 +27,3 @@ void startMobileWebEntry((queryClient) => root.render(<React.StrictMode><WebEntr
   .then((cleanup) => { dispose = cleanup; })
   .catch(() => root.render(<MobilePreparation failed />));
 import.meta.hot?.dispose(() => { dispose?.(); root.unmount(); });
-
-function MobilePreparation({ failed = false }: { failed?: boolean }) {
-  return <main className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-surface-canvas p-6 text-body text-content-primary" role={failed ? "alert" : "status"}>
-    <p>{failed ? "앱 연결을 준비하지 못했습니다. 다시 시도해 주세요." : "앱 연결을 준비하고 있습니다."}</p>
-    {failed && <Button onClick={() => location.reload()}>다시 연결</Button>}
-  </main>;
-}

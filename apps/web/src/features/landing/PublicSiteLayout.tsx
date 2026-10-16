@@ -18,7 +18,7 @@ export function PublicSiteLayout({ page, children }: { page: PublicPage; childre
     navigationClassName="landing-wide:landing-stack:w-full landing-wide:landing-stack:justify-between landing-wide:landing-stack:gap-2.5 landing-wide:landing-stack:text-landing-navigation-stacked landing-wide:landing-stack:landing-narrow:gap-1.5 landing-wide:landing-stack:landing-narrow:text-landing-navigation-narrow"
     navigation={<><a className="text-surface-panel no-underline hover:text-brand-coral" href="/features" aria-current={page === "features" ? "page" : undefined}>주요 기능</a>
       <a className="text-surface-panel no-underline hover:text-brand-coral" href="/pricing" aria-current={page === "pricing" ? "page" : undefined}>요금제</a>
-      <Button ref={contact.headerContact} type="button" variant="landingHeaderContact" className="header-contact" onClick={contact.open}>도입 상담</Button>
+      <Button ref={contact.headerContact} type="button" variant="landingHeaderContact" className="header-contact min-w-11" onClick={contact.open}>도입 상담</Button>
       <PublicLogin /></>}
     footer={<CompanyFooter />}
     consultation={contact.isOpen && <PublicContactDialog key={contact.selectedPlan ?? "general"} opener={contact.opener} plan={contact.selectedPlan} onClose={contact.close} />}>

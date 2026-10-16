@@ -1,9 +1,19 @@
 # 요금제 페이지 기능 현황
 
+## 2026-10-16 공개·복구 표현 정합화 (Task 5)
+
+- 구현 완료: `/pricing`의 가격·준비중·선택plan·브랜드 카드 geometry와 main·landing·service별 기존 로그인 모드를 보존한다. 연락 팝업의 일반 inset만20/16px로 정합화하고 전화/이메일 href·선택 Plus 맥락·양식/API 없는 상담·keyboard/touch 닫기와 포커스 복귀를 유지한다.320px 헤더 상담에서 실제 관측한40.921875px 너비는 공개 레이아웃 caller의 최소44px로 보완했다.
+- 구현 완료: main/service 준비·실패는 공통 gap20·inset20/16·status/alert·다시 연결을 소비하고 기존 bootstrap/root 수명을 유지한다. 독립404는 canonical CSS로 JS 없이 HTTP404·제목26/24·본문14px·44px 이상 홈 귀환을 제공한다. landing bundle의 private/auth/API/mobile/concept 배제는 유지한다.
+- 미구현: 온라인 결제·요금제 변경·문의 접수 API를 추가하지 않았다. 실제 전화/메일 응답·native WebView·운영 API·배포·장비 검증은 미실행이다.
+- 부족하거나 개선이 필요한 기능: 소유15341 실제 main과15342 각 production mode의 Chromium mock 검증으로 한정한다. 기본4viewport와 포함형 공개 경계·실제 CSS 분수430.5/720.5/1050.5, normal/reduced-motion·modal focus를 구별하며, API·외부 write·WebSocket·beacon과 service worker를 차단한다. 실제 과금·계약 적용이나 모든 브라우저 검증으로 확대하지 않는다.
+- 검증 주의: 최종 Chromium72PASS/8mode제외, 집중 단위10PASS·타입/빌드/정책0·0이다. 마지막 단독 전체 Web은3924PASS/6FAIL/3SKIP으로 전체 GREEN이 아니다. 이전 관측 ControlView5개 외 CAD 미리보기 `common=true, interruption=principal` 준비 상태1개가 실패했다. CAD85/85·새 bootstrap 동시 cohort87/87에서는 미재현됐으나 원인은 미확정이며 전체 실패를 덮지 않는다.
+- 관련 파일: `apps/web/src/features/landing/PublicSiteLayout.tsx`, `apps/web/src/components/ui/public-site/PublicContactDialog.tsx`, `apps/web/src/components/ui/MobilePreparation.tsx`, `apps/web/src/{main,service-main,landing-main}.tsx`, `apps/web/404.html`, `apps/web/e2e/{public-deploy,static-landing}.spec.ts`.
+- 갱신 규칙: 공개3page와3entry/mode 검증을 구분하고 랜딩·주요 기능 메뉴와 함께 갱신한다. 요금제 맥락을 온라인 전송/실제 계약 완료로 표시하지 않는다.
+
 ## 2026-10-16 공통 오버레이 기반 (Task 2)
 
 - 구현 완료: 공통 modal/drawer 일반 내용 기본 inset20/16px를 적용하고 frame·focus·pending·52px 닫기를 유지했다. 선택 요금제 맥락·기존 tel/mailto 상담과 공개 브랜드는 유지한다.
-- 미구현: 요금제 상담 caller의 전용 inset 정합화·각 entry 전체 검증·배포는 후속 작업이다.
+- 당시 미구현: 요금제 상담 caller의 전용 inset·각 entry 검증은 위 Task5에서 보완했다. 배포는 미실행이다.
 - 부족하거나 개선이 필요한 기능: 공통 fixture 통과를 요금제 상담 전체 정합화나 실제 문의 접수/메일 검증으로 확대하지 않는다.
 - 관련 파일: `apps/web/src/components/ui/overlays/DialogBase.tsx`, `apps/web/e2e/ui-overlays.spec.ts`.
 - 갱신 규칙: 공통 기반과 공개 소비·운영 검증의 완료 범위를 구분한다.

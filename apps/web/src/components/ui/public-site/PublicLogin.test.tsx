@@ -14,3 +14,10 @@ it.each(["service", undefined])("service and ordinary app use same-origin login 
   render(<PublicLogin />);
   expect(screen.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "/login");
 });
+it("landing preserves the configured HTTPS login without navigating", () => {
+  vi.stubEnv("VITE_PUBLIC_DEPLOY_MODE", "landing");
+  vi.stubEnv("VITE_LANDING_SERVICE_URL", "https://control.dfkorealed.com/login");
+  render(<PublicLogin />);
+  expect(screen.getByRole("link", { name: /로그인/ })).toHaveAttribute("href", "https://control.dfkorealed.com/login");
+  expect(screen.queryByRole("button", { name: "준비 중" })).not.toBeInTheDocument();
+});

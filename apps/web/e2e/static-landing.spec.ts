@@ -1,7 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { createRequire } from "node:module";
 import { classifyLandingAxe, runLandingAxe } from "./support/landing-accessibility";
+import { installDesignMemoryBoundary } from "./support/design-system-fixture";
 const require = createRequire(import.meta.url);
+test.use({ serviceWorkers: "block" });
+const boundaries = new WeakMap<object, () => Promise<void>>();
+test.beforeEach(async ({ context, baseURL }) => { boundaries.set(context, await installDesignMemoryBoundary(context, baseURL!)); });
+test.afterEach(async ({ context }) => { await boundaries.get(context)!(); });
 
 for (const [route, heading] of [["/", /현장의 하루.*한눈에 이어지다/], ["/features", "현장 운영에 필요한 네 가지 흐름"], ["/pricing", "현장에 맞는 운영 방식을 선택하세요."]] as const) {
   test(`standalone production ${route} direct load, reload and all contact actions`, async ({ page }) => {
@@ -29,8 +34,11 @@ for (const [route, heading] of [["/", /현장의 하루.*한눈에 이어지다/
   });
 }
 
-test("production unknown/internal/concept routes are true 404 public not-found", async ({ page }) => {
+test("production unknown/internal/concept routes are true 404 public not-found", async ({ page, request, baseURL }) => {
+  expect(new URL(baseURL!).port).toBe("15342");
   for (const path of ["/login", "/operator", "/control", "/api/auth/me", "/concepts/field-day.html", "/features/", "/unknown"]) {
+    expect((await request.get(`${baseURL}${path}`)).status()).toBe(404);
+    if (path.startsWith("/api/")) continue;
     expect((await page.goto(path))!.status()).toBe(404);
     await expect(page.getByRole("heading", { name: "페이지를 찾을 수 없습니다." })).toBeVisible();
     await expect(page.getByRole("link", { name: "킨다 홈으로" })).toHaveAttribute("href", "/");
@@ -38,7 +46,8 @@ test("production unknown/internal/concept routes are true 404 public not-found",
 });
 
 test("375px public pages and contact modal support touch, keyboard and axe", async ({ browser }) => {
-  const context = await browser.newContext({ baseURL: test.info().project.use.baseURL, viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
+  const context = await browser.newContext({ baseURL: test.info().project.use.baseURL, viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, reducedMotion: "reduce", serviceWorkers: "block" });
+  const closeBoundary = await installDesignMemoryBoundary(context, test.info().project.use.baseURL!);
   const page = await context.newPage();
   try {
     for (const route of ["/", "/features", "/pricing"]) {
@@ -57,5 +66,5 @@ test("375px public pages and contact modal support touch, keyboard and axe", asy
         await prepared.dispatchEvent("click"); await expect(page).toHaveURL(new RegExp(`${route}$`));
       }
     }
-  } finally { await context.close(); }
+  } finally { await closeBoundary(); await context.close(); }
 });

@@ -4,7 +4,7 @@ import { publicContact } from "./public-contact";
 export function PublicContactDialog({ opener, onClose, plan }: { opener: HTMLElement | null; onClose: () => void; plan: string | null }) {
   return <ModalDialog isOpen title="도입 상담" description="전화 또는 이메일로 편하게 문의해 주세요. 필요한 관제 구성을 함께 살펴보겠습니다."
     closeLabel="상담 팝업 닫기" onClose={onClose} returnFocusElement={opener}
-    className="w-[min(650px,100%)]! max-h-[calc(100dvh-32px)]! rounded-panel! p-5! compact:p-8!"
+    className="w-[min(650px,100%)]! max-h-[calc(100dvh-32px)]! rounded-panel!"
     bodyClassName="field-day-inquiry-body">
     {plan && <p className="inquiry-selected-plan m-0 mb-4.5 rounded-landing-compact-summary-surface bg-action-primary-soft p-landing-inquiry-plan-inset text-landing-inquiry-plan text-brand-navy">선택한 요금제: <strong className="text-brand-blue">{plan}</strong></p>}
     <dl className="m-0 grid gap-6 text-body">
