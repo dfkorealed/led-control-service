@@ -10,6 +10,10 @@ const viewports = [
   { width: 320, height: 720 }
 ] as const;
 
+// The timestamp formatter intentionally uses the device timezone. Pin this
+// fixture's browser zone so expected display values stay independent and exact.
+test.use({ timezoneId: "Asia/Seoul" });
+
 const siteAdmins = [
   {
     siteId: "site-pending-active",
@@ -40,6 +44,31 @@ const siteAdmins = [
     admin: null
   }
 ];
+
+// Hand-written display/action expectations catch a missing column, placeholder,
+// status mapping or action even when the API fixture still contains its data.
+const expectedSiteAdminCards = [
+  {
+    siteName: "인천 물류센터",
+    fields: [["고객사", "새빛 물류"], ["현장", "인천 물류센터"], ["설치 상태", "설치 대기"], ["관리자 이름", "김관리"], ["로그인 아이디", "customer_admin"], ["계정 상태", "활성"], ["최종 변경", "2026-08-27 17:00:00"]],
+    actions: ["김관리 수정", "김관리 비밀번호 재설정", "인천 물류센터 현장 전체 삭제"]
+  },
+  {
+    siteName: "강남 주차장",
+    fields: [["고객사", "한결 주차"], ["현장", "강남 주차장"], ["설치 상태", "설치 완료"], ["관리자 이름", "관리자 미지정"], ["로그인 아이디", "-"], ["계정 상태", "-"], ["최종 변경", "-"]],
+    actions: ["강남 주차장 관리자 지정"]
+  },
+  {
+    siteName: "성수 주차장",
+    fields: [["고객사", "동행 파크"], ["현장", "성수 주차장"], ["설치 상태", "설치 완료"], ["관리자 이름", "이비활성"], ["로그인 아이디", "disabled_admin"], ["계정 상태", "비활성"], ["최종 변경", "2026-08-26 17:00:00"]],
+    actions: ["이비활성 수정", "이비활성 비밀번호 재설정", "성수 주차장 현장 전체 삭제"]
+  },
+  {
+    siteName: "종로 상가",
+    fields: [["고객사", "한빛 상가"], ["현장", "종로 상가"], ["설치 상태", "설치 대기"], ["관리자 이름", "관리자 미지정"], ["로그인 아이디", "-"], ["계정 상태", "-"], ["최종 변경", "-"]],
+    actions: ["종로 상가 관리자 지정"]
+  }
+] as const;
 
 for (const viewport of viewports) {
   test(`calm operations auth and operator surfaces remain responsive at ${viewport.width}px`, async ({ page }) => {
@@ -106,14 +135,23 @@ for (const viewport of viewports) {
     expect((await accounts.boundingBox())!.width).toBeLessThan(1230);
     await expect(page.getByRole("table", { name: "현장 관리자 계정 표", exact: true })).toHaveCount(0);
     await expect(accounts.getByRole("listitem")).toHaveCount(4);
-    for (const site of siteAdmins) {
-      const row = accounts.getByRole("listitem").filter({ hasText: site.siteName });
-      await expect(row.getByText(site.customerName, { exact: true })).toBeVisible();
-      await expect(row.getByText(site.siteName, { exact: true })).toBeVisible();
-      if (site.admin) {
-        await expect(row.getByText(site.admin.loginId, { exact: true })).toBeVisible();
-        await expect(row.getByRole("button", { name: `${site.admin.name} 수정`, exact: true })).toBeEnabled();
-      } else await expect(row.getByRole("button", { name: `${site.siteName} 관리자 지정`, exact: true })).toBeEnabled();
+    for (const expected of expectedSiteAdminCards) {
+      const row = accounts.getByRole("listitem").filter({ hasText: expected.siteName });
+      await expect(row.getByRole("term")).toHaveText(["고객사", "현장", "설치 상태", "관리자 이름", "로그인 아이디", "계정 상태", "최종 변경", "작업"]);
+      for (const [label, value] of expected.fields) {
+        const field = row.getByRole("term").filter({ hasText: new RegExp(`^${label}$`) }).locator("..");
+        await expect(field.getByRole("definition")).toHaveText(value);
+        await expect(field.getByRole("definition")).toBeVisible();
+      }
+      const actions = row.getByRole("term").filter({ hasText: "작업" }).locator("..").getByRole("definition");
+      await expect(actions.getByRole("button")).toHaveCount(expected.actions.length);
+      for (const label of expected.actions) {
+        const action = actions.getByRole("button", { name: label, exact: true });
+        await expect(action).toBeVisible();
+        // Account disabled status does not disable operator maintenance actions;
+        // unassigned rows expose only assignment, verified by the exact count.
+        await expect(action).toBeEnabled();
+      }
     }
     if (viewport.width < 760) {
       await expectMinimumTouchTargetsAfterScrolling(page, 'ul[aria-label="현장 관리자 계정 표"]');
