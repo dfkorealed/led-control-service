@@ -91,7 +91,8 @@ export class CommandDbClockHealth {
     const [observed] = await tx.$queryRaw<PrimaryObservation[]>`
       SELECT clock_timestamp() AS "dbNow", pg_is_in_recovery() AS "isReplica",
         pg_postmaster_start_time() AS "primaryStartedAt",
-        inet_server_addr()::text AS "serverAddress", inet_server_port() AS "serverPort"`;
+        -- inet::text adds /32 or /128; the protected evidence identifies a host IP.
+        host(inet_server_addr()) AS "serverAddress", inet_server_port() AS "serverPort"`;
     if (!observed || observed.isReplica || !validDate(observed.dbNow) || !validDate(observed.primaryStartedAt) ||
       !evidence || !validDate(evidence.issuedAt) || !validDate(evidence.primary?.startedAt)) {
       throw new Error("DB clock primary evidence unavailable");

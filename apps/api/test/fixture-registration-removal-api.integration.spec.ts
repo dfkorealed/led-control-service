@@ -56,7 +56,7 @@ const enabled = process.env.FIXTURE_REMOVAL_API_DISPOSABLE_POSTGRES === "1";
     db = new PrismaClient({ datasourceUrl: url });
     const clock = new CommandDbClockHealth({ read: async () => {
       const [row] = await db.$queryRaw<any[]>`SELECT clock_timestamp() AS now, pg_postmaster_start_time() AS started,
-        inet_server_addr()::text AS address, inet_server_port() AS port`;
+        host(inet_server_addr()) AS address, inet_server_port() AS port`;
       return { issuedAt: row.now, offsetMs: 0, stepGeneration: 0, clearedStepGeneration: 0,
         failoverGeneration: 0, clearedFailoverGeneration: 0, primary: { startedAt: row.started, address: row.address, port: row.port } };
     } });

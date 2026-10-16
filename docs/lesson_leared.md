@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-16 / 실제 PostgreSQL의 inet 직렬화와 시각 증거를 대조한다
+
+- 실제 primary의 `inet_server_addr()::text`는 IPv4 `/32`·IPv6 `/128`를 붙인다. 보호 시각 증거의 정규 IP와 단순 비교하면 동일 primary도 거절한다. `host(inet_server_addr())`로 조회하고 주소·포트·기동 시각의 정확한 비교는 유지한다.
+- 동일한 잘못된 SQL로 만든 test evidence는 이 결함을 숨긴다. 임시 실제 PostgreSQL에서 host와 inet text 차이를 먼저 증명하고 건강한 host 증거의 실패→성공, 다른 주소/포트/기동 시각·만료·오차·세대의 계속 거절을 함께 검증한다.
+- readiness와 clock 승인 성공은 현재 transaction의 시각 검증 성공을 대신하지 않는다. 별도로 실제 보호 reader와 운영 DB의 같은 transaction을 확인한다. CPU 부하·절전·네트워크 표본 실패로 시각 관문이 닫히면 임의 시간을 주입하거나 오차/만료 기준을 완화하지 않는다.
+
 ## 2026-10-16 / 등록 삭제는 이력 보존과 불확정 복구를 함께 검증한다
 
 - DB 원장 보호용 statement lock을 추가할 때 기존 metadata/heartbeat의 row lock 순서와 역전될 수 있다. 실제 PostgreSQL의 양방향 동시 실행으로 40P01을 재현하고 일반 UPDATE 범위를 좁혔다. 모의 transaction 테스트만으로 잠금 안전을 확정하지 않는다.

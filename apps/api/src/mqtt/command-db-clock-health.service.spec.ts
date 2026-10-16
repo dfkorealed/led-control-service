@@ -19,6 +19,11 @@ function transaction(row = { dbNow, isReplica: false, primaryStartedAt, serverAd
 }
 
 describe("CommandDbClockHealth", () => {
+  it("accepts canonical IPv6 host evidence without weakening primary equality", async () => {
+    const evidence = { ...healthy, primary: { ...observedPrimary, address: "::1" } };
+    const tx = transaction({ dbNow, isReplica: false, primaryStartedAt, serverAddress: "::1", serverPort: 5432 });
+    await expect(new CommandDbClockHealth({ read: async () => evidence }).assertHealthy(tx)).resolves.toEqual(dbNow);
+  });
   it("refuses a fresh process joining an existing epoch without durable continuity evidence", async () => {
     const restarted = new CommandDbClockHealth({ read: async () => healthy });
     await expect(restarted.assertHealthy(transaction(), 7)).rejects.toThrow(/durable|continuity/);
