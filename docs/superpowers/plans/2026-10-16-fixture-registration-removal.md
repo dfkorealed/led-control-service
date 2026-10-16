@@ -117,7 +117,7 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - [x] 기존 로컬 환경/ACL과 Gateway의 인증·등록 매핑·영속 상태를 백업하고 실제 배포 대상·진행 작업·센서 소유권을 재확인한다.
 - [x] 보호 clock의 정상 독립 표본/관리자 승인·같은 transaction의 DB primary 검증 후 API에 고정 소켓을 연결한다. 삭제용 MQTT 권한만 추가한다.
 - [x] 안전한 drain/복구 조건을 충족한 뒤 최신 Gateway를 배포하고 실제 heartbeat의 삭제 지원 version1과 기존 identity 보존을 확인한다.
-- [ ] 브라우저 삭제 사전 조회/취소·원장/조명 수 보존을 확인하고 수동 시험 절차와 남은 차단 사유를 기록한다. 실제 삭제 POST는 실행하지 않는다.
+- [x] 브라우저 삭제 사전 조회/취소·원장/조명 수 보존을 확인하고 수동 시험 절차와 남은 차단 사유를 기록한다. 실제 삭제 POST는 실행하지 않는다.
 
 운영 중간 기록: env/ACL 및 기존 TLS 파일을 private 백업한 뒤 고정 socket과 삭제 전용 ACL4행만 추가하고 broker reload를 확인했다. 실제 DB `::1/128` 대 보호 증거 `::1` 차이를 새 임시 PG RED1/6PASS로 재현하고 `host(inet_server_addr())`로 수리했다(`64eeb6d0`, MAIN ff-only). 초기 관련112PASS·IPv6 회귀·type/build0, 제어 outbox/등록 재검증/HTTP 삭제14PASS를 확인했다. 확장 런의 IPC 시간 제한1건은 단독78PASS 재검증으로 구분하며 전체 저장소 GREEN은 아니다.
 
@@ -129,7 +129,15 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 
 남은 관문: 시간 증거가 정상 관측 뒤에도 간헐적으로 unavailable/새 step latch로 바뀌어 브라우저 확인창이503으로 차단됐다. 실제 기존 clock 프로세스의 background scheduling을 해제했으나 보안 기준·설치 프로그램/plist·세대 상태 초기화는 하지 않았다. 추가 Mac 인증 명령은10분 넘게 응답 대기여서 소유 osascript32814를 신원 확인 후 SIGTERM/exit143으로 취소했다. launchd runs1/기존63547로 정상 재시작 미실행을 확인했으며 대기 중 특권 명령은 없다. 사람의 실제 OS 인증 완료 뒤 기존 서비스 정상 재시작→보호된3개 독립 표본→현재 observation 승인→동일 DB transaction 검증→브라우저 사전 확인/취소를 이어야 한다. 안정화 전 수동 삭제 시험 준비 완료로 기록하지 않는다. Gateway/인증/매핑/조명 수·삭제 원장은 보존한다.
 
-최종 사전 조회: 실제 admin의 방습등1 확인창에서 한국어 시간 검증 미준비 안내와 삭제 disabled를 다시 확인하고 취소했다. 현장6개 등록은 유지하며 실제 삭제 POST는0이다. 증거 이미지는 root `.local/fixture-removal-20261016-ops/final-clock-blocked-preview.jpg`다. Mac 인증 창과 실제 명령 실행 완료는 별개이므로 재개 시 먼저 보호된 operator의 `status`와 launchd의 현재 PID/실행 횟수를 확인한다. 새 인증 창을 누적 생성하거나 지연 실행할 명령을 남기지 않는다.
+당시 사전 조회: 실제 admin의 방습등1 확인창에서 한국어 시간 검증 미준비 안내와 삭제 disabled를 다시 확인하고 취소했다. 현장6개 등록은 유지하며 실제 삭제 POST는0이다. 증거 이미지는 root `.local/fixture-removal-20261016-ops/final-clock-blocked-preview.jpg`다. Mac 인증 창과 실제 명령 실행 완료는 별개이므로 재개 시 먼저 보호된 operator의 `status`와 launchd의 현재 PID/실행 횟수를 확인한다. 새 인증 창을 누적 생성하거나 지연 실행할 명령을 남기지 않는다.
+
+최종 후속(16:43~16:44KST): 사용자 터미널에서 기존 서비스 정상 종료/재시작을 실행해 runs2·새51344·이전exit0을 확인했다. 새 인증 명령도 실제 실행됐다. 동일 서비스 계정의 primary 검사3회는 정상이고7~8ms였으며 SNTP는 간헐 실패했다.5초 간격 진단3회는213~232ms/return0·children0·stoppedfalse였다. 공용 서버 제한이나 수집기 영구 고장을 원인으로 확정하지 않는다. 기존 daemon의5초 간격 독립 probe1→2→3·세대167/9/같은primary·마지막 observation의 승인에 성공했다. 실제 보호 reader+같은 운영 DB transaction은16:43:35KST 통과했다.
+
+실제 admin의 방습등1 삭제 preview가 정상 반환되어 최종 등록 삭제 버튼 활성화를 확인했다. `.local/fixture-removal-20261016-ops/final-clock-approved-preview.jpg`를 저장하고 취소했다. POST·퇴역·삭제 작업·결과/복구 원장0, 현장6개/전체8개 조명과 Gateway version1을 유지한다. 시간 안전 기준·설치 프로그램/plist·상태 세대의 강제 변경은0이다. runtime scheduling 해제는 현재 프로세스 한정이며 재시작 후 영구 적용으로 보장하지 않는다. 처리 중이던 특권 명령은 모두 종료됐다.
+
+규칙 후속: 최초 복구55활성/APPLIED 뒤16:27KST 정상 PATCH가 있었고 현재56비활성/APPLIED·errornull이다. 자동 비활성화로 추정하지 않고 현재 상태를 보존했다. 이전 복구 승인을 현재 사용자의 변경을 덮어쓰는 권한으로 해석하지 않는다.
+
+수동 시험: 설정→현장 관리→조명 관리에서 방습등1 또는2의 등록 삭제를 열고 이름/시리얼을 확인한 뒤 사용자가 최종 승인한다. 다른4개는 규칙/구역/진행 작업 또는 지원 분류 등 기존 사전 차단 사유가 있으므로 강제 삭제하지 않는다. 시간 서버 응답이 실패하면503 안내 후 수동 재확인하며 Mac sleep/새 step·primary 세대는 새 승인부터 수행한다. 실제 장비 삭제·구세대 RF 차단·재등록 HIL은 아직이다.
 
 ## 실행 상태
 
