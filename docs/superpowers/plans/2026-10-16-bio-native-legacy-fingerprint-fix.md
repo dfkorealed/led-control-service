@@ -27,7 +27,16 @@
 - [x] Run focused file and observe legacy-specific RED (1 failed/9 passed, exact firmware error).
 - [x] Update `bio-self-sensor-port.ts`: derive strict supported fingerprint from qualified binding, compare optional mapping fingerprint and existing firmware string, retain beforeWrite fencing.
 - [x] Run directly related resolver/source/runtime tests (52/52) and production lifecycle/path tests (37/37), Gateway typecheck/build exit0; solo whole-diff review found no new C/I. No independent agent used per user instruction; no full suite repetition.
-- [ ] Update control menu/lesson/status and commit; merge main preserving user changes.
+- [x] Update control menu/lesson/status and commit `c0e39904`; merge main preserving user changes and re-run resolver10/10.
+
+### Follow-up: first ready ACK/configuration handoff
+
+- Actual deployment was verified with unchanged24protected identity/mapping entries, same launch/USB/security and new encrypted backup67,435,326bytes. Startup outage made existing source evidence expire; server automatically disabled to revision44 APPLIED. HTTP logs show no user PATCH during this change; current predicate was `link_unverified`.
+- Approved UI activation ran normal preparation and created45, but preflight rejected `bio_pulse_control_unavailable` before native journal/SET. Server ready2184 committed01:58:37.658, its ACK published01:58:38.504, config rejection01:58:38.534: configuration overtook durable local ACK handling.
+- [x] Reproduce with actual monitor/delivery/provider/source/AutomationRuntime and delayed ACK, correct snapshot hash: RED rejected before ACK.
+- [x] Wait at most2000ms for an exact staged live commission's accepted durable ACK, using existing change notifications. No probing/SET/retransmission, no presumed readiness. Revalidate original generation and complete source identity/double-read fences afterward. Already-qualified calls keep their original fences.
+- [x] Accepted ACK/timeout/reconnect tests plus source revision fences and native ownership regressions:5files105PASS; Gateway typecheck/build0. Solo review, no other chats or agents.
+- [ ] Commit/merge follow-up and deploy immutable candidate with a fresh backup; verify approved unchanged100%/5s rule actually active/APPLIED.
 
 ## Task 2 — approved deployment and exact rule verification
 

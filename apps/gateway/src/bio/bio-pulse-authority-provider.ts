@@ -24,6 +24,7 @@ export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityP
   private readonly pins = new Map<string, { capabilityRevision: number; healthEpoch: string; reportEventId: string }>();
   private currentRevision?: number;
   private readonly listeners = new Set<(fixtureId?: string) => void>();
+  private readonly pendingHandoffs = new Set<() => void>();
   private readonly releases: (() => void)[];
   constructor(private readonly options: { scope: BioSensorScope; catalog: BioPulseCatalogPort; monitor: BioNodeLinkMonitor; delivery: BioCapabilityDeliveryController }) {
     const changed = (fixtureId?: string) => {
@@ -81,6 +82,31 @@ export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityP
       observation: { health: "healthy", reason: "qualified", connectionEpoch: connection.epoch, connectionGeneration: connection.generation,
         healthySinceMonotonicMs: health.healthySinceMonotonicMs } };
   }
+  async waitForAuthority(fixtureId: string, connection: { epoch: string; generation: number },
+    request: { snapshotRevision: number; requireHealthy: boolean }): Promise<void> {
+    if (!request.requireHealthy || this.read(fixtureId, connection, request)) return;
+    const context = this.contexts.get(request.snapshotRevision), initial = this.options.monitor.snapshot(fixtureId);
+    // Only an exact staged, live commission may wait for its ACK. Missing health,
+    // a revoked catalog, a changed commission or an arbitrary revision is not a
+    // recoverable message-order race and must remain immediately unavailable.
+    const current = () => {
+      const health = this.options.monitor.snapshot(fixtureId);
+      return !!context && this.contexts.get(request.snapshotRevision) === context && this.executable.has(request.snapshotRevision)
+        && this.options.catalog.snapshot()?.executionPolicy.enabled === true && !!initial && !!health
+        && health.healthEpoch === initial.healthEpoch && health.commission.report.eventId === initial.commission.report.eventId
+        && health.commission.report.connectionGeneration === connection.generation
+        && (context.snapshot.schemaVersion === 2 || context.snapshot.schemaVersion === 3)
+        && context.snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled"
+          && rule.sourceFixtureIds.includes(fixtureId));
+    };
+    if (!current()) return;
+    await new Promise<void>(resolve => {
+      const finish = () => { clearTimeout(timer); this.listeners.delete(check); this.pendingHandoffs.delete(finish); resolve(); };
+      const check = () => { if (!current() || this.read(fixtureId, connection, request)) finish(); };
+      const timer = setTimeout(finish, 2000);
+      this.pendingHandoffs.add(finish); this.listeners.add(check); check();
+    });
+  }
   async preflightRelease(binding: BioSourceBinding, refresh = true): Promise<boolean> {
     return this.releaseContext(binding) && await this.options.monitor.preflightRelease(binding, refresh);
   }
@@ -89,5 +115,5 @@ export class CommissionedBioPulseAuthorityProvider implements BioPulseAuthorityP
     const snapshot = this.contexts.get(binding.snapshotRevision)?.snapshot;
     return (snapshot?.schemaVersion === 2 || snapshot?.schemaVersion === 3) && snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.sourceFixtureIds.includes(binding.sourceFixtureId));
   }
-  stop() { this.pins.clear(); for (const release of this.releases) release(); for (const fn of this.listeners) fn(); this.listeners.clear(); }
+  stop() { for (const finish of this.pendingHandoffs) finish(); this.pins.clear(); for (const release of this.releases) release(); for (const fn of this.listeners) fn(); this.listeners.clear(); }
 }

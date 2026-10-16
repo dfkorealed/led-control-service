@@ -5,7 +5,8 @@
 ## 2026-10-16 BIO 자기 제어 적용 실패 수리 — 코드 검증 완료·승인 배포 준비
 
 - 실제 L006 규칙 desired43/applied42는 `bio_self_firmware_unsupported`로 거절됐다. 기존 등록 mapping의 fingerprint 누락을 미지원으로 잘못 해석한 resolver가 원인이며 native 원장/SET은 없다. 최신 독립 commissioning 권위를 사용하되 매핑/펌웨어/건강/소유권 검증은 유지한다.
-- 별도 `codex/fix-native-legacy-fingerprint-20261016`, [체크리스트](superpowers/plans/2026-10-16-bio-native-legacy-fingerprint-fix.md): [x] 읽기 원인 확인, [x] 회귀 RED→GREEN·관련89PASS·타입/build0·단독 직접 검토, [ ] 메인 병합, [ ] 새 암호화 백업/배포, [ ] 현재100%/5초 규칙의 실제APPLIED 확인. 사용자는 최대6~8분 중단/배포/현재규칙 적용을 승인했다. 방습등시험·DB/인증/기본밝기변경은 제외한다.
+- 별도 `codex/fix-native-legacy-fingerprint-20261016`, [체크리스트](superpowers/plans/2026-10-16-bio-native-legacy-fingerprint-fix.md): [x] 원인/legacy회귀 수리·메인c0e39904 병합·암호화백업/동일launch 배포, [x] 후속ACK/config 경합의 실제시각·RED→5files105PASS·타입/build0·단독검토, [ ] 후속commit/병합/새백업·배포, [ ] 현재100%/5초 규칙의 실제APPLIED 확인. 사용자는 최대6~8분 중단/배포/현재규칙 적용을 승인했다. 방습등시험·DB/인증/기본밝기변경은 제외한다.
+- 첫배포 후 서버의연결증거만료가자동44disabled/APPLIED를만들었다(해당시각사용자PATCH0). 정상UI준비후45활성은서버ready2184의ACK를Gateway가내구저장하기전에config가도착하여 `bio_pulse_control_unavailable`로거절됐다. native원장/SET0이며, 정확한livecommission의ACK만최대2초기다리고전체identity/연결fence를재검증한다. 활성규칙성공은아직미확인이다.
 
 ## 2026-10-16 BIO 자기 감지 제어 — 운영 반영 완료·사용자 UI 시험 준비
 

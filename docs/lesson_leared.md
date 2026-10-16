@@ -5,6 +5,11 @@
 - 구형 confirmed BIO mapping에는 firmware 문자열만 있고 fingerprint가 없다. 최신 독립 commissioning은 실제 fingerprint를 검증했지만 native resolver가 선택적 옛 필드만 검사하여 L006 규칙43을 `bio_self_firmware_unsupported`로 잘못 거절했다. 이 시도는 native 원장 생성/SET 전이었다.
 - 지원 판정은 현재 독립 권위의 strict fingerprint를 소비하고 기존 문자열/선택적 fingerprint/물리 identity를 교차 검증한다. 지원 family·GET/내구intent·USB/lease guard를 완화하거나 old mapping을 추정값으로 갱신하지 않는다. 회귀는 반드시 fingerprint가 빠진 실제 구형 구조도 사용한다.
 
+## 2026-10-16 / 서버 ready와 게이트웨이의 내구 ACK 수신은 서로 다른 시점이다
+
+- L006 준비의ready2184가서버에먼저저장되고UI활성45가즉시전송됐다. Gateway의ACK처리는fsync를포함하는별도비동기작업이어서새config가정당한독립권위형성보다앞서거절됐다. 서버완료/브로커publish를Gateway내구ACK완료로해석하면안된다.
+- 이미정확히commission된정상연결의초기ACK만bounded/event-driven으로기다린뒤전체source검증을다시한다. timeout·다른commission·연결변경을허용하거나SET/부분원장을자동재전송하지않는다. 기존자격의revision변경fence는첫await전부터그대로유지해야한다.
+
 ## 2026-10-16 / 운영 전환은 프로세스·데이터의 실제 관문으로 확인한다
 
 - 기존pnpm supervisor에SIGTERM을보내도shell wrapper만종료되고Nestwatch/Vite가orphan으로남았다. 포트0·원process identity종료를확인하기전migration/merge를진행하지않는다. 이번관문은DB쓰기전거절했고정확한args/PID를대조해leaf에SIGTERM을보내해소했다. 강제kill/이름기반전체종료는하지않는다.
