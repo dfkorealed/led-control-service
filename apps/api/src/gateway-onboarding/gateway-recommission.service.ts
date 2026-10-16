@@ -39,7 +39,7 @@ interface GatewayRecommissionPrepareInput extends GatewayRecommissionInput {
   resetDigest: string;
 }
 
-type LockedTransaction = Pick<Prisma.TransactionClient, "$queryRaw" | "gatewayRecommissionJob">;
+type LockedTransaction = Pick<Prisma.TransactionClient, "$queryRaw" | "$executeRaw" | "gatewayRecommissionJob">;
 type IdRow = { id: string };
 type CertificateRow = GatewayCertificate;
 type InventoryRow = { id: string; serialNumber: string; claimedGatewayId: string | null; disabledAt: Date | null; certificateFingerprint: string | null };
@@ -64,6 +64,7 @@ export class GatewayRecommissionService {
       throw new BadRequestException("invalid claim code hash");
     }
     const preflight = await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
       const job = await this.lockJob(tx, jobId, resetDigest);
       if (job.status === "applied" || job.status === "finalized") return { job, applied: this.appliedResult(job, claimCodeHash) };
       await this.validateTargets(tx, job);
@@ -76,6 +77,7 @@ export class GatewayRecommissionService {
     // 트랜잭션은 함께 롤백할 수 없으므로 실패 시 mqtt_revoked 상태에서 동일 작업을 재시도한다.
     await this.storage.deleteRecordedReportObjects(preflight.job.objectKeys);
     return this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
       const job = await this.lockJob(tx, jobId, resetDigest);
       if (job.status === "applied" || job.status === "finalized") return this.appliedResult(job, claimCodeHash);
       if (job.status !== "mqtt_revoked") throw new ConflictException("gateway recommission MQTT revocation is incomplete");
@@ -120,6 +122,13 @@ export class GatewayRecommissionService {
     if (sha256(canonicalJson(recorded)) !== job.resetDigest || canonicalJson(job.objectKeys) !== canonicalJson(recorded.objectKeys)) {
       throw new ConflictException("gateway recommission snapshot changed");
     }
+    // Existing version-2 prepared jobs predate these child sets. Preserve their
+    // exact digest only when no removal/evidence rows have appeared since then.
+    for (const table of ["FixtureRegistrationRemovalOperation", "FixtureRegistrationRemovalResultEvidence"]) {
+      if (recorded.children && !Object.hasOwn(recorded.children, table) && built.snapshot.children[table].length === 0) {
+        delete built.snapshot.children[table];
+      }
+    }
     const processing = await tx.energyReportJob.count({ where: { siteId: job.siteId, status: "processing" } });
     if (processing) throw new ConflictException("gateway recommission report is processing");
     if (job.status !== "prepared") {
@@ -144,6 +153,9 @@ export class GatewayRecommissionService {
 
   private async resetInstallation(tx: Prisma.TransactionClient, job: GatewayRecommissionJob, claimCodeHash: string) {
     const siteId = job.siteId;
+    // The DB validates the actual revoked job/snapshot and this transaction's
+    // write fences. No caller-controlled flag can authorize evidence deletion.
+    await tx.$executeRaw`SELECT cleanup_fixture_removals_for_recommission(${job.id},${job.resetDigest})`;
     // 실행 이력의 nullable source와 dispatch의 MeshControlGroup RESTRICT 참조를
     // 먼저 제거한다. 규칙/그룹을 Fixture보다 먼저 지워 cardinality trigger도 만족시킨다.
     await tx.automationExecution.deleteMany({ where: { siteId } });
@@ -165,6 +177,9 @@ export class GatewayRecommissionService {
     await tx.floorMapRevision.deleteMany({ where: { floor: { siteId } } });
     await tx.fixtureGroup.deleteMany({ where: { siteId } });
     await tx.fixture.deleteMany({ where: { siteId } });
+    // Delete retained nodes while inventory/Gateway attribution is still exact;
+    // the later Gateway cascade must not lose the prepared reset boundary.
+    await tx.meshNode.deleteMany({ where: { gatewayId: job.gatewayId } });
     await tx.gatewayInventory.update({ where: { id: job.inventoryId }, data: { claimedGatewayId: null, claimedAt: null, disabledAt: null, claimCodeHash } });
     await tx.gateway.delete({ where: { id: job.gatewayId } });
     await tx.floor.updateMany({ where: { siteId }, data: { nextFixtureSequence: 0, mapRevision: 0 } });
@@ -204,8 +219,9 @@ export class GatewayRecommissionService {
   private async buildPreview(tx: LockedTransaction, input: GatewayRecommissionInput) {
     const siteId = requiredText(input.siteId);
     const serialNumber = requiredText(input.serialNumber);
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
 
-    // The order is intentional: Site, then inventory/certificates, then Gateway
+    // The order is intentional: membership, Site, inventory/certificates, Gateway
     // establish the topology fence. This does not lock every child/retention row;
     // the later destructive worker must revalidate/fence this digest snapshot rather
     // than treating the preparation transaction as a broad deletion lock.
@@ -339,6 +355,8 @@ function childTargets(siteId: string, gatewayId: string): Array<[string, string[
   const energyFixtures = Prisma.sql`SELECT "id" FROM "EnergyFixtureIdentity" WHERE "siteId" = ${siteId}`;
   const energyGroups = Prisma.sql`SELECT "id" FROM "EnergyGroupIdentity" WHERE "siteId" = ${siteId}`;
   return [
+    ["FixtureRegistrationRemovalOperation", ["operationId"], Prisma.sql`"siteId" = ${siteId}`],
+    ["FixtureRegistrationRemovalResultEvidence", ["eventId"], Prisma.sql`"siteId" = ${siteId}`],
     ["GroupFixture", ["groupId", "fixtureId"], Prisma.sql`"groupId" IN (${group}) OR "fixtureId" IN (${fixture})`],
     ["CommandDispatch", ["id"], Prisma.sql`"commandId" IN (${commands}) OR "gatewayId" = ${gatewayId}`],
     ["CommandFixtureResult", ["dispatchId", "fixtureId"], Prisma.sql`"dispatchId" IN (${dispatches}) OR "fixtureId" IN (${fixture})`],
@@ -366,6 +384,7 @@ function childTargets(siteId: string, gatewayId: string): Array<[string, string[
 }
 
 const resetTables = [...new Set([
+  "GatewayRecommissionJob", "CertificateRevocationReconciliation",
   "Floor", "GatewayInventory", "GatewayCertificate", "Gateway", "Fixture", "MeshNode", "FixtureGroup", "ProvisioningSession", "Command",
   "AutomationExecution", "MonitoringIncident", "ProcessedGatewayEvent", "GatewayEventWatermark", "GatewayClaimAudit", "EnergyFixtureIdentity",
   "EnergyGroupIdentity", "EnergyUsage", "FixtureEnergyStateCursor", "FixtureEnergyHourlyAggregate", "FixtureEnergyDailyAggregate", "EnergyReportJob", "FloorMapRevision",

@@ -113,6 +113,7 @@ function fixture(overrides: {
   let index = 0;
   let jobCreated = false;
   const tx = {
+    $executeRaw: jest.fn(async () => 0),
     $queryRaw: jest.fn(async () => rows[index++] ?? []),
     gatewayRecommissionJob: {
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {

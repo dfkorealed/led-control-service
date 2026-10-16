@@ -7,8 +7,10 @@ import { CertificateRevocationReconciliationService } from "../pki/certificate-r
 import { createTestCrl } from "../pki/crl.test-support";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { EnergyReportCleanupService } from "../energy/reports/energy-report-cleanup.service";
+import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 
 const enabled = process.env.GATEWAY_RECOMMISSION_DISPOSABLE_POSTGRES === "1";
+const boundaryFenceSql = 'LOCK TABLE "GatewayRecommissionJob","GatewayInventory","GatewayCertificate","CertificateRevocationReconciliation","Gateway","Fixture","MeshNode","FixtureRegistrationRemovalOperation","FixtureRegistrationRemovalResultEvidence" IN SHARE ROW EXCLUSIVE MODE';
 
 (enabled ? describe : describe.skip)("gateway recommission migration on disposable PostgreSQL", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
@@ -24,6 +26,8 @@ const enabled = process.env.GATEWAY_RECOMMISSION_DISPOSABLE_POSTGRES === "1";
     expect(deployed.status).toBe(0);
     db = new PrismaClient({ datasourceUrl: url });
     await db.$connect();
+    const [migrations] = await db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL`;
+    console.info(`recommission disposable PostgreSQL: ${migrations.count} migrations applied`);
     mqttCrl = await createTestCrl(["10", "11", "12", "13"], "CN=MQTT Test", 0);
     rootCrl = await createTestCrl([], "CN=Root Test", 0);
   }, 30_000);
@@ -33,6 +37,106 @@ const enabled = process.env.GATEWAY_RECOMMISSION_DISPOSABLE_POSTGRES === "1";
   beforeEach(async () => {
     await db.$executeRawUnsafe('TRUNCATE TABLE "Organization" CASCADE');
     await db.$executeRawUnsafe('TRUNCATE TABLE "GatewayInventory", "GatewayCertificate", "CertificateRevocationReconciliation", "GatewayRecommissionJob", "EnergyReportObjectCleanup" CASCADE');
+  });
+
+  it("recommissions a completed removal through the existing prepared/revoked apply boundary and keeps its Site", async () => {
+    const installation = await seedRemovedInstallation();
+    const other = await seedInstallation();
+    const runtime = resetRuntime();
+    const preview = await runtime.service.preview(installation);
+    const prepared = await runtime.service.prepare({ ...installation, resetDigest: preview.resetDigest });
+    const job = await db.gatewayRecommissionJob.findUniqueOrThrow({ where: { id: prepared.jobId } });
+    expect(job.targetSnapshot).toMatchObject({ children: {
+      FixtureRegistrationRemovalOperation: [JSON.stringify([installation.operationId])],
+      FixtureRegistrationRemovalResultEvidence: [JSON.stringify([installation.eventId])]
+    } });
+    await expect(runtime.service.apply(prepared.jobId, preview.resetDigest, claimCodeHash)).resolves.toMatchObject({ status: "applied" });
+    expect(await db.site.count({ where: { id: installation.siteId } })).toBe(1);
+    expect(await db.floor.findUniqueOrThrow({ where: { id: installation.floorId } })).toMatchObject({ nextFixtureSequence: 0, mapRevision: 0 });
+    expect(await db.fixtureRegistrationRemovalOperation.count({ where: { siteId: installation.siteId } })).toBe(0);
+    expect(await db.fixtureRegistrationRemovalResultEvidence.count({ where: { siteId: installation.siteId } })).toBe(0);
+    expect(await db.fixture.count({ where: { siteId: installation.siteId } })).toBe(0);
+    expect(await db.meshNode.count({ where: { gatewayId: installation.gatewayId } })).toBe(0);
+    expect(await db.gatewayInventory.findUniqueOrThrow({ where: { id: installation.inventoryId } })).toMatchObject({ claimedGatewayId: null, claimCodeHash });
+    expect(await db.gateway.count({ where: { id: other.gatewayId } })).toBe(1);
+    expect(await db.fixture.count({ where: { id: other.fixtureId } })).toBe(1);
+  });
+
+  it("never authorizes ordinary deletes or a forged GUC while the Site still exists", async () => {
+    const installation = await seedRemovedInstallation();
+    const other = await seedRemovedInstallation();
+    const runtime = resetRuntime();
+    const preview = await runtime.service.preview(installation);
+    const prepared = await runtime.service.prepare({ ...installation, resetDigest: preview.resetDigest });
+    await runtime.certificates.revokeMqttCertificatesForRecommission(installation.inventoryId, prepared.jobId);
+    for (const table of ["FixtureRegistrationRemovalOperation", "FixtureRegistrationRemovalResultEvidence", "Fixture", "MeshNode"]) {
+      const [column, value] = table === "FixtureRegistrationRemovalOperation" ? ["operationId", installation.operationId]
+        : table === "FixtureRegistrationRemovalResultEvidence" ? ["eventId", installation.eventId]
+        : ["id", table === "Fixture" ? installation.fixtureId : installation.nodeId];
+      await expect(db.$transaction(async tx => {
+        await tx.$executeRaw`SELECT set_config('app.fixture_removal_recommission_job', ${prepared.jobId}, true)`;
+        await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "${column}"=$1`, value);
+      })).rejects.toThrow();
+    }
+    await expect(db.$executeRaw`SELECT cleanup_fixture_removals_for_recommission(${prepared.jobId},${preview.resetDigest})`).rejects.toThrow();
+    let scopedBoundaryReached = false;
+    await expect(db.$transaction(async tx => {
+      await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
+      await tx.$executeRawUnsafe(boundaryFenceSql);
+      await tx.$executeRaw`SELECT cleanup_fixture_removals_for_recommission(${prepared.jobId},${preview.resetDigest})`;
+      scopedBoundaryReached = true;
+      await tx.fixtureRegistrationRemovalOperation.delete({ where: { operationId: other.operationId } });
+    })).rejects.toThrow();
+    expect(scopedBoundaryReached).toBe(true);
+    expect(await db.fixtureRegistrationRemovalResultEvidence.count({ where: { eventId: installation.eventId } })).toBe(1);
+    expect(await db.fixtureRegistrationRemovalOperation.count({ where: { operationId: other.operationId } })).toBe(1);
+  });
+
+  it("preserves the existing actual-Site cascade exception including immutable evidence", async () => {
+    const installation = await seedRemovedInstallation();
+    await db.site.delete({ where: { id: installation.siteId } });
+    expect(await db.fixtureRegistrationRemovalOperation.count({ where: { operationId: installation.operationId } })).toBe(0);
+    expect(await db.fixtureRegistrationRemovalResultEvidence.count({ where: { eventId: installation.eventId } })).toBe(0);
+    expect(await db.fixture.count({ where: { id: installation.fixtureId } })).toBe(0);
+    expect(await db.meshNode.count({ where: { id: installation.nodeId } })).toBe(0);
+  });
+
+  it("keeps a previous version-2 prepared job valid only when its missing removal child sets are empty", async () => {
+    const installation = await seedCompleteInstallation();
+    const runtime = resetRuntime();
+    const preview = await runtime.service.preview(installation);
+    const prepared = await runtime.service.prepare({ ...installation, resetDigest: preview.resetDigest });
+    const job = await db.gatewayRecommissionJob.findUniqueOrThrow({ where: { id: prepared.jobId } });
+    const legacy = JSON.parse(JSON.stringify(job.targetSnapshot));
+    delete legacy.children.FixtureRegistrationRemovalOperation;
+    delete legacy.children.FixtureRegistrationRemovalResultEvidence;
+    const digest = canonicalPayloadHash(legacy).slice("sha256:".length);
+    await db.gatewayRecommissionJob.update({ where: { id: prepared.jobId }, data: { targetSnapshot: legacy, resetDigest: digest } });
+    await expect(runtime.service.apply(prepared.jobId, digest, claimCodeHash)).resolves.toMatchObject({ status: "applied" });
+    expect(await db.site.count({ where: { id: installation.siteId } })).toBe(1);
+  });
+
+  it.each(["prepared", "digest", "scope", "snapshot", "targets", "revocation", "table-fence", "membership-fence"])("DB recommission boundary rejects %s mismatch", async failure => {
+    const installation = await seedRemovedInstallation();
+    const runtime = resetRuntime();
+    const preview = await runtime.service.preview(installation);
+    const prepared = await runtime.service.prepare({ ...installation, resetDigest: preview.resetDigest });
+    if (failure !== "prepared") await runtime.certificates.revokeMqttCertificatesForRecommission(installation.inventoryId, prepared.jobId);
+    if (failure === "scope") await db.gatewayRecommissionJob.update({ where: { id: prepared.jobId }, data: { gatewayId: randomUUID() } });
+    if (failure === "snapshot") await db.gatewayRecommissionJob.update({ where: { id: prepared.jobId }, data: { targetSnapshot: {} } });
+    if (failure === "targets") {
+      const node = await db.meshNode.create({ data: { gatewayId: installation.gatewayId, meshAddress: "0x1002", firmwareVersion: "test" } });
+      await db.fixture.create({ data: { floorId: installation.floorId, meshNodeId: node.id, name: "not prepared", ratedWatt: 20, x: 0, y: 0 } });
+    }
+    if (failure === "revocation") await db.certificateRevocationReconciliation.updateMany({ where: { inventoryId: installation.inventoryId }, data: { completedAt: null } });
+    await expect(db.$transaction(async tx => {
+      if (failure !== "membership-fence") await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
+      if (failure !== "table-fence") await tx.$executeRawUnsafe(boundaryFenceSql);
+      await tx.$executeRaw`SELECT cleanup_fixture_removals_for_recommission(${prepared.jobId},${failure === "digest" ? "0".repeat(64) : preview.resetDigest})`;
+    })).rejects.toThrow();
+    expect(await db.fixtureRegistrationRemovalOperation.count({ where: { operationId: installation.operationId } })).toBe(1);
+    expect(await db.fixtureRegistrationRemovalResultEvidence.count({ where: { eventId: installation.eventId } })).toBe(1);
+    expect(await db.fixture.count({ where: { id: installation.fixtureId } })).toBe(1);
   });
 
   it("atomically removes every installation history family, preserves device trust and keeps a late-PUT cleanup obligation", async () => {
@@ -348,6 +452,44 @@ const enabled = process.env.GATEWAY_RECOMMISSION_DISPOSABLE_POSTGRES === "1";
     const node = await db.meshNode.create({ data: { gatewayId: gateway.id, meshAddress: "0x1001", firmwareVersion: "test" } });
     const fixture = await db.fixture.create({ data: { floorId: floor.id, meshNodeId: node.id, name: "L01", ratedWatt: "40", x: 1, y: 1 } });
     return { siteId: site.id, serialNumber: gateway.serialNumber, gatewayId: gateway.id, fixtureId: fixture.id, floorId: floor.id, inventoryId: inventory.id, nodeId: node.id, organizationId: organization.id };
+  }
+
+  async function seedRemovedInstallation() {
+    const installation = await seedInstallation();
+    await db.gateway.update({ where: { id: installation.gatewayId }, data: { assignmentVersion: 1, fixtureRegistrationRemovalVersion: 1 } });
+    const deviceUuid = `bio:${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+    await db.meshNode.update({ where: { id: installation.nodeId }, data: { deviceUuid, vehicleSensorProtocol: "bio_usb_pulse" } });
+    await db.gatewayCertificate.create({ data: { inventoryId: installation.inventoryId, gatewayId: installation.gatewayId, purpose: "mqtt", status: "active",
+      issuer: `issuer-${installation.inventoryId}`, certificateSerial: "10", fingerprint: randomUUID().replaceAll("-", "").repeat(2).toUpperCase(),
+      notBefore: new Date("2026-01-01T00:00:00.000Z"), notAfter: new Date("2027-01-01T00:00:00.000Z") } });
+    const fixture = await db.fixture.findUniqueOrThrow({ where: { id: installation.fixtureId } });
+    const bindingSnapshot = { version: 1, siteId: installation.siteId, fixtureId: installation.fixtureId, gatewayId: installation.gatewayId,
+      gatewaySerial: installation.serialNumber, assignmentVersion: 1, nodeId: installation.fixtureId, deviceUuid,
+      meshAddress: "0x1001", originalProvisionCommandId: randomUUID() };
+    const { version: _version, ...identity } = bindingSnapshot;
+    const requestedAt = new Date(), operationId = randomUUID(), eventId = randomUUID();
+    const expiresAt = new Date(requestedAt.getTime() + 30_000), bindingHash = canonicalPayloadHash(bindingSnapshot);
+    const payload = { ...bindingSnapshot, operationId, bindingHash, requestedAt: requestedAt.toISOString(), expiresAt: expiresAt.toISOString() };
+    const commandHash = canonicalPayloadHash(payload);
+    await db.fixtureRegistrationRemovalOperation.create({ data: { ...identity, operationId, floorId: installation.floorId, meshNodeId: installation.nodeId,
+      fixtureName: fixture.name, requestedById: randomUUID(), clientRequestId: randomUUID(), expectedUpdatedAt: fixture.updatedAt,
+      requestHash: canonicalPayloadHash({ fixtureId: fixture.id }), bindingSnapshot, bindingHash, payload, commandHash, requestedAt, expiresAt } });
+    const terminal = { ...payload, commandHash, eventId, occurredAt: requestedAt.toISOString(), status: "removed", errorCode: null };
+    const { requestedAt: _requested, expiresAt: _expires, ...ackIdentity } = payload;
+    const resultHash = canonicalPayloadHash(terminal);
+    const ack = { ...ackIdentity, commandHash, eventId, resultHash, ingestedAt: requestedAt.toISOString(), status: "ingested" };
+    const ackHash = canonicalPayloadHash(ack);
+    await db.fixtureRegistrationRemovalResultEvidence.create({ data: { eventId, operationId, siteId: installation.siteId, terminal, terminalHash: resultHash,
+      applicationAck: ack, applicationAckHash: ackHash, receivedAt: requestedAt } });
+    await db.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "gateway_confirmed", result: terminal, resultHash,
+      resultEventId: eventId, applicationAck: ack, applicationAckHash: ackHash, gatewayConfirmedAt: new Date() } });
+    await db.$transaction(async tx => {
+      const retiredAt = new Date();
+      await tx.meshNode.update({ where: { id: installation.nodeId }, data: { retiredAt, deviceUuid: null } });
+      await tx.fixture.update({ where: { id: installation.fixtureId }, data: { retiredAt } });
+      await tx.fixtureRegistrationRemovalOperation.update({ where: { operationId }, data: { status: "completed", completedAt: retiredAt } });
+    });
+    return { ...installation, operationId, eventId };
   }
 
   async function fixtureIncident(installation: Awaited<ReturnType<typeof seedInstallation>>, status: "open" | "resolved") {
