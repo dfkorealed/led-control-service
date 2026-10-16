@@ -1,5 +1,13 @@
 # 공개 사이트 모바일 보완 — 2026-10-13 실제 배포
 
+## 2026-10-16 Plus 준비중 표시 — r7 공개 완료
+
+- 운영 주소 https://kinda.dfkorealed.com/pricing, 공개 source `b536b5ef7f0fe640a1feafcdd8dc0830ac4e1712`, `landing` / `20261016-landing-ui-r7`. [정확 커밋 Public Landing Release 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38837111557), artifact `12019083189`. 공개 unit37/Chromium12·실패/skip/flaky0·scoped blocked0이다. 기존 운영 소스 대비 제품 변경은 Plus 가격을 `준비중`으로 바꾸고 월 단위를 숨기는 범위다.
+- CI ZIP SHA `944dc4cf54dfd2ceaf3b73eb41cc69e30eaa7594685147345883ecca0e0c27bf`, source SHA `769f60352d3df0f84e920b602402034419b0fec6558cc2670496884e31b7fe90`, artifact SHA `2ca8a3b74915b6c8172e52b000196244825ec5b902893d1308f09a92023c0261`, proof file SHA `d7e99fde0e6a1e31138460f6a3dc763bd79fff739916bcee1bda8640b98d22e3`. 공식 MCP 인증의 refresh 만료 뒤 기존 프로필 로그인을 갱신하고 동일 회사 계정456721863474를 확인했다. CI proof와 새 local build/source/artifact guard를 통과했다.
+- 기존 Sydney/private S3/OAC/CloudFront에 불변10파일 게시, stack UPDATE_COMPLETE·distribution Deployed·invalidation `IBZXEETJW54LB3YQ2F38R10ADS` Completed·소유 lock 삭제·engine exit0. 공식 MCP 추가3read도 실제 api_calls 성공과 같은 상태를 확인했다. 회사/CloudFront 두 HTTPS smoke exit0(공개3경로200·내부/API/unknown/concepts/archive404·보안 헤더/HTTPS 계약).
+- 실제 운영 Chromium320/637/1440px에서 Plus `준비중`·월 단위0·이전 가격0, Basic `99,000원 / 월`, 가로 넘침0을 확인했다. Plus 상담의 선택 문맥·이메일 CTA·Escape 닫기를 확인했고 API 요청0이다. 새 JS `/assets/landing/public-eSjXLKbU.js`. [실제 운영637px 화면](pricing-ready-637-r7.jpg)은 자동 Chromium 캡처이며 native 수동 검증·메일 전송/수신·관제/장비/HIL 검증으로 확대하지 않는다.
+- 이번 작업은 기존 공개 후보만 사용했다. MAIN/BIO/API/DB/Gateway·DNS/무료 플랜/리전은 변경하지 않았다. 원시 로그와 CI proof·공식 API 응답은 후보의 ignored `.local`에 보존했다.
+
 ## 2026-10-13 공개 페이지 간격·상담 카드 정리 — r6 공개 완료
 
 - 실제 공개 소스 `2627a80d7717e51f83ee75f4a75a7aa2969dfc4d`, `landing` / `20261013-landing-ui-r6`. [동일 SHA Public Landing Release 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38388627479), artifact `11806909424`, 공개 unit 37/37·Chromium 12/12·실패/skip/flaky 0·scoped blocked 0. 독립 검토 C/I/M 0, frozen source 25/25를 확인했다.

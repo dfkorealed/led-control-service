@@ -214,6 +214,10 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 사용자 승인: 기존 수정의 운영 배포. 제품 소스4130f74a를 유지하며 기존 무료 플랜·Sydney·landing-only·private S3/OAC와 source/artifact/lock/immutable guard로 새 release20261016-landing-ui-r7을 게시한다. MAIN/관제/API/DB/Gateway 변경은 범위 밖이다.
 
 - [x] 기존 source diff와 실행서/대상을 확인한다. Plus `준비중`·단위 숨김, Basic99,000원 유지와 기존 가격 검증을 확인했고 공식 MCP preflight의 LoginRefreshRequired로 게시 쓰기0을 확인했다.
-- [ ] 인증을 갱신하고 정확 커밋의 Public Landing Release 성공·artifact ZIP digest·CI proof와 fresh local build 동일성을 확인한다.
-- [ ] 공식 MCP transport로 r7을 게시하고 기존 stack UPDATE_COMPLETE/CloudFront Deployed/invalidation Completed·소유 lock 삭제를 확인한다.
-- [ ] 실제 회사/CloudFront HTTPS와 모바일·데스크톱 Plus `준비중`/단위0·Basic금액·상담 열기를 확인하고 메뉴/상태/실행서를 완료한다.
+- [x] 인증을 갱신하고 정확 커밋의 Public Landing Release 성공·artifact ZIP digest·CI proof와 fresh local build 동일성을 확인한다.
+- [x] 공식 MCP transport로 r7을 게시하고 기존 stack UPDATE_COMPLETE/CloudFront Deployed/invalidation Completed·소유 lock 삭제를 확인한다.
+- [x] 실제 회사/CloudFront HTTPS와 모바일·데스크톱 Plus `준비중`/단위0·Basic금액·상담 열기를 확인하고 메뉴/상태/실행서를 완료한다.
+
+- 인증 갱신 후 회사456721863474를 공식 MCP 실제 STS로 확인했다. 정확 source `b536b5ef7f0fe640a1feafcdd8dc0830ac4e1712`의 Public Landing Release38837111557 SUCCESS(unit37/browser12·실패/skip/flaky0·scoped blocked0), artifact12019083189/zipSHA944dc4cf/sourceSHA769f6035/artifactSHA2ca8a3b7를 확인했다. 새 adapter fresh build/proof guard 및 ownedtarget8을 통과해 r7 게시가 진행 중이며 전환 완료는 아직 아니다.
+
+- r7 공개 완료: engine10파일/UPDATE_COMPLETE/Deployed·invalidation IBZXEETJW54LB3YQ2F38R10ADS Completed·소유 lock 삭제·exit0. 공식 MCP 추가3read actual api_calls도 성공했다. 실제 회사/CloudFront smoke exit0와 운영320/637/1440px Plus준비중/단위0·Basic월99,000원·넘침0·Plus상담/이메일/Escape/API0을 확인했다. 운영637px JPEG 및 메뉴/상태/실행서를 갱신했다. 인증 갱신 외 계정/무료 플랜/리전/MAIN/API/DB/장비 변경0이다.

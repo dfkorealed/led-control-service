@@ -1,12 +1,18 @@
 # 킨다 공개 Web AWS 배포
 
-기준일: 2026-10-13. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 전용 Sydney stack·private S3·CloudFront 생성과 릴리스 게시, 호스팅케이알 `kinda` CNAME 연결 및 실제 HTTPS 검증까지 완료했다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
+기준일: 2026-10-16. AWS 계정 연결, ACM 인증서 발급과 호스팅케이알 인증서 검증 CNAME 저장은 완료했다. 전용 Sydney stack·private S3·CloudFront 생성과 릴리스 게시, 호스팅케이알 `kinda` CNAME 연결 및 실제 HTTPS 검증까지 완료했다. 전용 private S3·CloudFront 배포에서 `WEB_DEPLOY_MODE` 하나로 공개 범위를 선택한다. 기존 관제 API·DB·장비를 생성하거나 변경하는 도구가 아니다. 아래 `kinda.dfkorealed.com` 절차는 호스팅케이알에서 DNS를 관리하는 경우의 수동 절차다.
 
 현재 계정의 무료 플랜을 유지하기로 선택했으므로 첫 사이트 배포 리전은 **Sydney `ap-southeast-2`**다. CloudFront용 ACM만 `us-east-1`에 둔다. 아래 Seoul 리전 예시는 일반 입력 형식 설명이며 현재 계정에 그대로 적용하지 않는다. 추후 Seoul 이전은 새 리소스 생성·검증·DNS 전환이 필요하다. 전체 서비스는 정확한 배포 후보의 canonical CI 여섯 단계 통과를 요구한다. 사용자가 승인한 landing-only 공개는 아래의 별도 landing 관문 통과를 요구한다. 관문 통과 전 사이트 리소스 생성·콘텐츠 게시를 하지 않는다. 최신 진행 상태는 [실행 계획](../superpowers/plans/2026-10-11-web-deploy-mode.md)을 참조한다.
 
 현재 공개 후보의 네 보안 업데이트와 CI launcher 보완은 독립 검토를 통과했다. 그러나 전체 저장소 감사는 수정 릴리스가 없는 모바일 도구 `node-forge`·`braces` High 두 건으로 실패한다. 실제 landing 빌드의 unfiltered module graph에는 두 패키지가 없고 manifest 파일 검증도 통과했지만, 이 증거는 기존 전체 CI 통과 요구를 대신하지 않는다. 2026-10-12 사용자가 landing 전용 release 관문 추가와 통과 후 배포를 명시 승인했다. 별도 frozen dependencies/공개 기능/산출물 security graph/HTTP 차단 검증을 구현·독립 검토하고 exact 후보의 landing CI가 실제 성공한 뒤에만 공개한다. 전체 서비스 CI·감사 정책은 유지하며 현재 두 High findings의 해결을 주장하지 않는다.
 
-## 최신 실제 공개 결과 — r6, 2026-10-13
+## 최신 실제 공개 결과 — r7, 2026-10-16
+
+- 공개 source `b536b5ef7f0fe640a1feafcdd8dc0830ac4e1712` · `landing` / `20261016-landing-ui-r7`. [정확 커밋 CI 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38837111557), unit37/Chromium12·실패/skip/flaky0·scoped blocked0와 새 local build/source/artifact guard를 확인했다.
+- Plus 가격을 `준비중`으로 표시하고 `/ 월` 단위를 숨겼다. 실제 운영320/637/1440px에서 새 JS·준비중/단위0·Basic 월99,000원·가로 넘침0·Plus 상담/이메일/Escape를 확인했다.
+- 기존 stack/private S3/OAC/CloudFront에10파일 게시·UPDATE_COMPLETE/Deployed·invalidation `IBZXEETJW54LB3YQ2F38R10ADS` Completed·소유 lock 삭제·engine exit0. 두 HTTPS smoke와 공식 MCP 추가3read 통과. 무료 플랜/Sydney/DNS/MAIN/API/DB/장비 불변. [CI·해시·실제 운영 화면](../assets/landing-mobile-2026-10-13/README.md).
+
+## 이전 r6 실제 공개 결과 — 2026-10-13
 
 - 공개 source `2627a80d7717e51f83ee75f4a75a7aa2969dfc4d` · `landing` / `20261013-landing-ui-r6`. [정확 커밋 CI 성공](https://github.com/dfkorealed/led-control-service/actions/runs/38388627479), unit 37/Chromium 12·실패/skip/flaky 0·scoped blocked 0·CI proof와 fresh local build 일치.
 - 주요 기능·요금제 첫 제목의 헤더 간격, 상담 카드 단독 UI, overview 안내 1개/demo footer 5개 삭제를 반영했다. 실제637px 두 페이지 제목 여유 37px, 320/637/1440px 상담 외곽 padding/border 0·내부 Plus/닫기/초점 복귀와 삭제 요소 0개를 확인했다.

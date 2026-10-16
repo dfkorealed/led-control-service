@@ -2,9 +2,9 @@
 
 기준일: 2026-10-16
 
-## 2026-10-16 Plus 준비중 표시 — 운영 배포 진행 중
+## 2026-10-16 Plus 준비중 표시 — 운영 공개 완료
 
-- 사용자가 기존 Plus 가격 수정의 운영 반영을 승인했다. 기존 공개 후보4130f74a와 source guard/정확 CI/private S3/OAC/CloudFront/Sydney/landing-only 절차를 재사용한다. 제품 diff는 Plus `준비중` 및 단위 숨김과 기존 검증의 최소 변경이며 Basic/기능/상담은 유지한다. 공식 MCP preflight에서 로그인 refresh 만료를 확인했으며 게시 쓰기는 실행하지 않았다. 인증 갱신과 fresh CI 이후 새 불변 r7을 게시하고 실제 요금제 화면/HTTP를 확인한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
+- 사용자가 기존 Plus 가격 수정의 운영 반영을 승인했다. 기존 공개 후보4130f74a와 source guard/정확 CI/private S3/OAC/CloudFront/Sydney/landing-only 절차를 재사용한다. 제품 diff는 Plus `준비중` 및 단위 숨김과 기존 검증의 최소 변경이며 Basic/기능/상담은 유지한다. 공식 MCP preflight의 refresh 만료 뒤 기존 로그인 갱신과 회사456721863474 재확인을 완료했다. 정확 source b536b5ef의 CI38837111557 SUCCESS(unit37/browser12·실패/skip/flaky0·scoped blocked0) 및 CI artifact/새 local build/source/proof guard를 통과했고 불변 r7 10파일 게시·UPDATE_COMPLETE/Deployed·invalidation IBZXEETJW54LB3YQ2F38R10ADS Completed·소유 lock 삭제·engine exit0을 확인했다. 두 HTTPS smoke 및 공식 MCP3read가 성공했다. 실제 운영320/637/1440px에서 Plus 준비중/월 단위0·Basic 월99,000원·가로 넘침0·Plus 상담/이메일/Escape와 API 요청0을 확인했다. [운영 화면과 증거](assets/landing-mobile-2026-10-13/README.md)를 보존했다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
 
 ## 2026-10-15 Plus 요금 표시 — 소스 적용 완료·운영 미배포
 
