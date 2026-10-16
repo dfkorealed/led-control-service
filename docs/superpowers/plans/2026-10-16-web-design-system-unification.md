@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 수치 목표 검토·계획 초안 작성만 허용됨. 상세 값·계획·실행 방식은 사용자 검토 대기다. 아래 체크박스는 미래 실행용이며 모두 미완료다. 이번 작성에서는 테스트·제품·서비스를 실행하지 않았다.
+상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 순차 subagent-driven 방식으로 Task1을 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
 
 ## Global Constraints
 
@@ -347,4 +347,4 @@ test("coverage names all customer surfaces and operator routes", () => {
 
 ## 계획 검토와 실행 인계
 
-현재는 수치표·계획 작성 결과의 검토를 기다린다. 제안 실행 방식은 순차 subagent-driven이다. 공통 API를 먼저 고정하고 같은 공유파일을 한 소유자가 수정한 뒤 소비자를 순차 검토하므로 경계 회귀를 일찍 찾을 수 있다. Native 실행도 가능하며 선택 전 어느 방식으로도 제품을 적용하지 않는다. 계획에 적힌 미래 명령은 현재 실행 결과가 아니다.
+2026-10-16 사용자 승인으로 순차 subagent-driven 실행을 시작했다. 공통 API를 먼저 고정하고 같은 공유파일을 한 소유자가 수정한 뒤 소비자를 순차 검토한다. 승인된 Git worktree는 `.worktrees/web-design-system-unification-20261016`이며 시작 SHA는 `24d2d8e4`다. 계획의 명령은 실제 결과가 기록되기 전까지 실행 증거가 아니다. 병합·배포·운영 서비스 변경은 별도 승인 범위다.
