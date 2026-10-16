@@ -61,6 +61,82 @@
 
 - 브랜치 코드·임시DB·격리 브라우저와 실제 서비스/장비 적용을 구분한다. 자기 조명 지원은 모드 보존·정확 시간 단위·독립 조회·복구 근거를 확인한 뒤 완료로 갱신한다.
 
+## 2026-10-16 전체 등록 조명 공통 복구 및 시계 검증 호환성
+
+### 구현 완료
+
+- 기존 현장 관리의 전체 조명 목록과 등록 연결/센서 준비 경로가 ID·이름·종류·기존/신규 등록에 따라 제외하지 않는 공통 경로임을 확인했다. 방습등1·2를 포함한 실제 등록6개 모두 같은 화면에서 현재 사유를 확인했다. 새 UI나 선택 자격 예외를 추가하지 않았다.
+- macOS Apple Python launcher가 반환하는 보호된 runtime 실행 링크를 처리하도록 ClockAttestor installer를 보완했다. 링크와 원/대상·중간·상위 경로의 root 소유·쓰기 권한·ACL·종류·순환/길이를 검사하며 일반 설치 파일·표준 라이브러리의 symlink 거절은 유지한다. semantic RED 후 시계 관련65PASS, 독립 검토 C/I/M0을 확인했고 `f14e5ece`로 로컬 병합했다.
+
+### 미구현
+
+- 현재 전체6개의 실제 등록 복구/센서 준비 완료와 이벤트 동작 HIL은 아직 확인하지 않았다. 공통 UI 경로 접근을 실제 RF 성공으로 기록하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 조사 시 Gateway의 이전 서버 IP·USB 번호 잔류를 확인했다. 복구 plan은 원본이 외부 작업에서 중지된 것을 발견해 실행을 거절했고, 이후 같은 image/영속root의 새 healthy 실행체를 확인했다. 본 작업의 원격 stop/create/start는0이며 새 실행체를 임의 조작하지 않는다. 실제 조명 준비는 해당 작업과 순서를 조율한 뒤 확인해야 한다.
+- 시계 서비스 설치는 별도 작업에서 변경된 것을 관측했다. 이 소프트웨어 수정과 현재 설치본의 healthy/approved 상태·primary 검증을 구분하며, 보호 검사나 조명 준비 자격을 임의로 완화하지 않는다.
+
+### 관련 파일
+
+- `scripts/clock-attestor/installer.py`, `scripts/clock-attestor/test_installer.py`.
+- 기존 `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx`, `apps/web/src/features/control/automation/BioSensorPreparationPanel.tsx`, `components/BioRegistrationConnectionCheck.tsx`는 이번에 변경하지 않았다.
+- `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`의 10/16 후속과 `docs/project-status.md`.
+
+### 갱신 규칙
+
+- 조명별 실제 등록/준비 결과와 서버/Gateway 연결·시각 검증 선행 조건을 구분한다. 실제6대 성공·새 장비 성공은 각 실제 검증이 있을 때만 기록한다. 불필요 UI·특정 조명 ID 예외를 추가하지 않는다.
+
+## 2026-10-15 이벤트 기준 조명 등록 차단 사유와 정상 복구 동선
+
+### 구현 완료
+
+- 이벤트 감지 조명 선택에서 서버의 실제 센서 준비 차단 사유를 표시한다. `binding_changed`로 선택이 막힌 조명에는 공통 링크 버튼으로 현재 현장의 설정 → 현장 관리 → 등록 조명 센서 준비를 안내한다. 조명 선택 자격이나 감지·실행 분리 조건은 바꾸지 않는다.
+- 센서 자동 준비 API 실패와 이벤트 규칙 저장 실패를 구분한다. 기존 등록 연결 확인이 필요한 정확한 서버 응답, 실행 대상 충돌, 점검 중 변경 차단을 구체적으로 안내한다. 알 수 없는 오류나 장비 진단 문자열을 그대로 출력하지 않으며 기존 401 로그인 만료 처리를 유지한다.
+- PC 1,440px·모바일 390px의 격리 Chromium에서 등록 미완료/legacy 조명의 선택 불가 → 현재 현장 설정 이동 → 해당 조명 선택 → 기존 등록 연결 확인 버튼 접근을 확인했다. 이동·조명 선택만으로 장비 요청이나 규칙 저장은 발생하지 않는다.
+
+### 미구현
+
+- 실제 등록 연결 조회·검증 결과 적용·센서 준비 SET 및 이벤트 저장·활성화·움직임 HIL은 이번 소프트웨어 검증에서 실행하지 않았다. 운영 조명의 등록 상태를 이 UI 수정으로 복구했다고 표시하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 기존 설정 화면에서 해당 조명을 직접 선택해 등록 연결 확인 후 센서 준비를 진행해야 한다. 확인 전에는 이벤트 기준 조명으로 사용할 수 없다. 등록 완료와 센서 사용 자격은 별도 서버 검증이며, 온라인 표시가 이를 대신하지 않는다.
+- Web 전체 검사와 기존 ControlView 실패 5개는 이번 한정 검사 범위 밖이다. fixture 결과를 실제 Gateway/RF/광출력 증거로 확대하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/api/automation.ts`, `apps/web/src/features/control/automation/VehicleEventControlPanel.tsx`, `VehicleEventDialog.tsx` 및 직접 테스트.
+- `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx` 및 직접 테스트, `apps/web/e2e/event-source-create.spec.ts`, `apps/web/playwright.event-source-create.config.ts`, `apps/web/e2e/support/event-source-create-server.mjs`.
+
+### 갱신 규칙
+
+- 준비 실패와 규칙 저장 실패의 단계를 구분하며 서버가 확인한 코드·차단 사유만 설명한다. 복구 링크는 현장 범위를 보존하고 기존 등록/센서/권한 검증을 우회하지 않는다. 운영 복구와 HIL은 별도 실행 증거가 있을 때만 기록한다.
+
+## 2026-10-15 지도 가용 폭과 긴 확인 명령 상세 읽기 영역
+
+### 구현 완료
+
+- 수동 공간 선택기는 사이드바·실행 패널을 제외한 실제 콘텐츠 폭을 관찰한다. 지도 320px + 기존 선택 패널 256px + 간격 12px의 588px 미만에서는 선택 정보를 지도 아래에 배치하고 충분한 폭에서는 기존 두 열을 유지한다. 지도·선택·실행·이력을 보존하며 카메라 44px와 조명 48px hit를 축소하지 않는다.
+- 확인 필요한 명령은 목록·상세 전체를 본문 한 곳에서 스크롤하고 닫기·이전/다음은 바깥에 유지한다. 100개 UUID의 마지막 텍스트까지 wheel 뒤 읽을 수 있으며 실제 상태 확인 요청·위험 승인은 계속 비활성이다.
+- 실제 587/588/589px 콘텐츠 경계의 resize에서 선택·지도 DOM·배율·열린 이력 수명을 확인했다. 시간제 제어와 승인·잠금·재전송 정책은 변경하지 않는다.
+
+### 미구현
+
+- 실제 명령 전송·장비 상태 확인·위험 승인 활성화·Raspberry Pi/조명 HIL은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- fail-closed 메모리 fixture의 Chromium 증거를 OS 키보드·실기기·Safari 결과로 확대하지 않는다. 전체 unit의 기존 실패와 작업 중 외부에서 병합된 전송 전 거절 후속은 최종 보고서에서 시작 기준과 구별한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx`, `apps/web/src/features/control/CommandVerificationCases.tsx`, `apps/web/e2e/ui-eight-layout-regressions.spec.ts`, `apps/web/playwright.ui-eight.config.ts`, `.local/ui-eight-fixes-20261015/report.md`.
+
+### 갱신 규칙
+
+- viewport만으로 가용 지도 폭을 판단하지 않는다. 759/760·1023/1024·1120·1440px, 실제 588px 열 경계와 320/390px 긴 상세를 scroll/hit로 검사하고 selection/camera/history/modal·제어 안전 정책의 수명을 보존한다.
+
 ## 2026-10-15 수동 제어의 전송 전 거절과 불확정 결과 구분
 
 ### 구현 완료

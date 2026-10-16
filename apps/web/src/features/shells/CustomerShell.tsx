@@ -349,13 +349,13 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
             Other normal routes keep their existing document scroll policy. */}
         {/* Short monitoring fullview preserves the map's natural minimum and
             scrolls normally when live notice height exceeds the viewport. */}
-        {/* The editor's account/navigation rows reserve their actual height;
-            the remaining finite viewport belongs to the shrinkable workspace. */}
+        {/* Editor chrome can exceed a short viewport. Its local scrollport
+            owns that overflow while preserving the workspace's minimum height. */}
         {/* Only the page's authorized manual-active report gives mobile a
             finite remaining row and safe-navigation reserve. Desktop retains
             its outer scrollport; schedules/events/groups/account/editor keep
             their existing flow. Mobile lists/More own reachable overflow. */}
-        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualMobileWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] px-2 py-1" : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2 overflow-hidden p-2 compact:p-3" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
+        <div data-shell-content className={`m-0! min-w-0 flex-1 ${focus.active ? `min-h-0 ${isMonitoringRoute ? "" : "overflow-hidden"} p-2 compact:p-3` : isManualMobileWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] px-2 py-1" : isManualDesktopWorkspace ? "grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-auto gap-5 px-7 py-6" : isEditorRoute ? "grid min-h-0 grid-rows-[auto_minmax(min-content,1fr)] gap-2 overflow-y-auto p-2 compact:p-3" : isMonitoringRoute ? "flex min-h-0 flex-col px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : isControlWorkspace ? "grid grid-rows-[minmax(min-content,1fr)] gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5" : "grid content-start gap-5 px-7 py-6 max-compact:px-3.5 max-compact:py-4.5"}`}>
           {/* The eager account region stays outside the lazy route boundary so
               failed settings chunks and installation/permission gates retain
               the same logout controller, confirmation and initiating ref. */}

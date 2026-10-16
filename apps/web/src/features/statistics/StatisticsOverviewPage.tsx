@@ -227,7 +227,7 @@ export function StatisticsOverviewPage() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-4" role="group" aria-label="에너지 요약">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4" role="group" aria-label="에너지 요약">
             <EnergyMetric label="오늘" period={summary.today} periodLabel={todayRangeLabel} />
             <EnergyMetric label="이번 달 누적" period={summary.monthToDate} periodLabel={`${siteDate.slice(0, 7)}-01 ~ ${siteDate}`} />
             <EnergyMetric label="올해 누적" period={summary.yearToDate} periodLabel={`${siteDate.slice(0, 4)}-01-01 ~ ${siteDate}`} />

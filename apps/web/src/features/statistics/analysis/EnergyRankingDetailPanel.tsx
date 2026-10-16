@@ -18,7 +18,7 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
         <div className="grid min-w-0 flex-1 gap-2"><Text variant="caption" tone="secondary">선택 대상 상세</Text><Heading as="h2" variant="customer-section-title" className="[overflow-wrap:anywhere]">{item.name}</Heading></div>
         <Text as="span" variant="label" tone="primary" className="shrink-0 rounded-control bg-action-primary-soft px-2 py-1">#{item.rank}</Text>
       </header>
-      <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
+      <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
         <MetricCard className="min-w-0 gap-1 p-2.5" label="사용량" value={item.estimatedKwh === null ? "—" : formatKwh(item.estimatedKwh)} />
         <MetricCard className="min-w-0 gap-1 p-2.5" label="저장 비용" value={item.estimatedCost === null ? "—" : formatWon(item.estimatedCost)} />
       </div>

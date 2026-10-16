@@ -68,6 +68,21 @@ describe("VehicleEventDialog spatial source and targets", () => {
 
   afterEach(cleanup);
 
+  it("explains a blocked legacy binding and links to current site settings without selecting it", () => {
+    const legacy = structuredClone(dashboard);
+    legacy.floors[0].fixtures[0].vehicleEventSource = { sensorProtocol: "bluez-stateful", sourceEligible: false,
+      targetEligible: true, readiness: "off", capabilityEvidence: null, blockReasons: ["capability_unverified"],
+      modeVerification: { commandId: null, modeVerified: false, verifiedAt: null, status: "unverified" } };
+    legacy.floors[0].fixtures[0].bioSensorPreparation = { preparationCandidate: false, status: "unverified", commandId: null,
+      profileKey: null, observedAt: null, blockedReasons: ["binding_changed"] };
+    const onSubmit = vi.fn(); renderVehicleEventDialog({ dashboard: legacy, onSubmit }); openSourceView();
+    expect(screen.getByRole("button", { name: /Gateway A 감지 조명.*등록 연결 재확인 필요/ })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "등록 연결 확인하러 가기" })).toHaveAttribute("href",
+      `/settings/site?siteId=${dashboard.site.id}#bio-sensor-preparation`);
+    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("selects registered sensor lights directly without a preparation panel", () => {
     const arbitrary = structuredClone(dashboard);
     arbitrary.floors[0].fixtures = arbitrary.floors[0].fixtures.slice(0, 3).map((item, index) => ({ ...item,

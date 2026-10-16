@@ -643,7 +643,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                         onChange={() => toggleNode(node.id)}
                       />
                     ) : <span aria-hidden="true" />}
-                    <div className="grid min-w-0 flex-1 gap-1 break-all text-body-sm text-content-secondary">
+                    {/* Identity owns a full reading row on phones; selection,
+                        eligibility and identify actions flow below it. */}
+                    <div className="grid min-w-0 flex-1 gap-1 break-all text-body-sm text-content-secondary max-compact:order-first max-compact:w-full max-compact:flex-none">
                       {hidesIdentity ? (
                         <span>{hasKnownEligibility
                           ? "다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다."

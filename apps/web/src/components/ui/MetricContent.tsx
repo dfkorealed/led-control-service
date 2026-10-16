@@ -10,8 +10,10 @@ const metricValue = cva("", { variants: { tone: {
 
 export function MetricContent({ label, value, unit, helper, icon: Icon, tone = "neutral", status }: MetricContentProps) {
   return <>
-    <div className="flex items-center gap-1.5 text-body-sm font-bold text-content-secondary" data-metric-label="">{Icon ? <Icon size={18} aria-hidden="true" /> : null}<span>{label}</span></div>
-    <Text as="strong" variant="metric" className={metricValue({ tone })}><Text as="span" variant="metric" className={metricValue({ tone })}>{value}</Text>{unit ? <> <Text as="small" variant="body-lg" className={metricValue({ tone })}>{unit}</Text></> : null}</Text>
-    {helper ? <Text variant="caption" tone="secondary">{helper}</Text> : null}{status}
+    <div className="flex min-w-0 items-center gap-1.5 text-body-sm font-bold text-content-secondary" data-metric-label="">{Icon ? <Icon size={18} className="shrink-0" aria-hidden="true" /> : null}<span className="min-w-0 wrap-anywhere">{label}</span></div>
+    {/* Keep every digit and unit readable when a metric has less inline space;
+        units can move to another line without shrinking the approved type. */}
+    <Text as="strong" variant="metric" className={`${metricValue({ tone })} flex min-w-0 flex-wrap items-baseline gap-x-1 wrap-anywhere`}><Text as="span" variant="metric" className={`${metricValue({ tone })} min-w-0 max-w-full wrap-anywhere`}>{value}</Text>{unit ? <> <Text as="small" variant="body-lg" className={metricValue({ tone })}>{unit}</Text></> : null}</Text>
+    {helper ? <Text variant="caption" tone="secondary" className="min-w-0 wrap-anywhere">{helper}</Text> : null}{status}
   </>;
 }

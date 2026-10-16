@@ -3,6 +3,7 @@ import { CarFront, CircleCheck, Clock3, Eye, Power, PowerOff, TriangleAlert } fr
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   automationListAccessErrorMessage,
+  bioSensorPreparationErrorMessage,
   createVehicleEventRule,
   deleteVehicleEventRule,
   isAutomationListAccessDenied,
@@ -349,6 +350,11 @@ export function VehicleEventControlPanel({
           return latest;
         }
       });
+    } catch (error) {
+      // Preserve the original HTTP failure for auth expiry while keeping the
+      // preparation phase distinct from a rule POST/PATCH failure in the UI.
+      if (error instanceof BioEventSetupError) throw error;
+      throw new BioEventSetupError(bioSensorPreparationErrorMessage(error), { cause: error });
     } finally {
       if (mounted.current && isCurrent(variables.operationScope, variables.operationGeneration)) setPreparingScope(null);
     }
@@ -359,7 +365,8 @@ export function VehicleEventControlPanel({
   }
 
   function expireMutationPrincipal(error: unknown, variables: { operationScope: string; operationGeneration: number; operationPrincipal: string | null }) {
-    if (!isScheduleUnauthorized(error) || currentPrincipal() !== variables.operationPrincipal) return;
+    const authError = error instanceof BioEventSetupError ? error.cause : error;
+    if (!isScheduleUnauthorized(authError) || currentPrincipal() !== variables.operationPrincipal) return;
     if (mounted.current && !isCurrent(variables.operationScope, variables.operationGeneration)) return;
     void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
   }

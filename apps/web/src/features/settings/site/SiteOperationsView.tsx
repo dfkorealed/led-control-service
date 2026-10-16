@@ -401,23 +401,25 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
   );
 
   return (
-    <section className="grid gap-4 border-t border-border-default pt-6" aria-label="조명 관리">
+    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border-t border-border-default pt-6" aria-label="조명 관리">
       <PageHeader
         title="조명 관리"
         headingLevel={3}
         description="이름과 정격전력만 수정합니다. 위치와 크기는 맵 관리에서 조정합니다."
-        actions={<div className="flex flex-wrap items-end gap-2">
+        actions={<div className="flex min-w-0 flex-wrap items-end gap-2">
           {fixturesQuery.error && fixtures.length > 0 ? <StatusDetailButton label="조명 목록 갱신 실패"
             description="다음 조명 목록을 불러오지 못했습니다. 기존 목록을 표시합니다."
             action={{ label: "다음 목록 다시 시도", onClick: () => { void fixturesQuery.fetchNextPage(); } }} /> : null}
-          {floors.length > 0 ? <SelectBox aria-label="조명 층 선택" label="층 선택" className="min-w-48" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={selectedFloorId || null} onSelectionChange={(floorId) => { if (floorId) onSelectedFloorIdChange(floorId); }} /> : null}
+          {/* A long selected floor must not impose its intrinsic trigger width
+              on the grid track shared by every fixture card below it. */}
+          {floors.length > 0 ? <SelectBox aria-label="조명 층 선택" label="층 선택" className="w-full min-w-0 compact:w-auto compact:min-w-48" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={selectedFloorId || null} onSelectionChange={(floorId) => { if (floorId) onSelectedFloorIdChange(floorId); }} /> : null}
         </div>}
       />
       {floors.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="조명을 조회할 운영 중인 층이 없습니다." /> : null}
       {fixturesQuery.isPending && selectedFloorId ? <LoadingState isPaused={fixturesQuery.isPaused} tone="neutral" title="조명 목록을 불러오는 중입니다." /> : null}
       {fixturesQuery.error && fixtures.length === 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void fixturesQuery.refetch()}>조명 목록 다시 시도</Button>} /> : null}
       {!fixturesQuery.isPending && !fixturesQuery.error && selectedFloorId && fixtures.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="이 층에 등록된 조명이 없습니다." /> : null}
-      {fixtures.length > 0 ? <div className="grid gap-3" aria-label="조명 목록">
+      {fixtures.length > 0 ? <div className="grid min-w-0 gap-3" aria-label="조명 목록">
         {fixtures.map((fixture) => <FixtureRow key={fixture.id} siteId={siteId} floorId={selectedFloorId} fixture={fixture} />)}
       </div> : null}
       {fixturesQuery.hasNextPage ? <div className="flex flex-wrap items-center justify-between gap-3">
@@ -489,13 +491,13 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
   }
 
   return (
-    <Card className="grid gap-4 p-5">
-      <div className="flex items-center justify-between gap-3"><strong>{fixture.name}</strong></div>
+    <Card className="grid min-w-0 gap-4 p-5">
+      <div className="flex min-w-0 items-center justify-between gap-3"><strong className="min-w-0 wrap-anywhere">{fixture.name}</strong></div>
       {identities.length > 0 ? <dl className="flex flex-wrap gap-4 text-caption text-content-secondary">
-        {identities.map(([label, value]) => <div className="flex gap-2" key={label}><dt>{label}</dt><dd className="m-0 font-bold text-content-primary">{value}</dd></div>)}
+        {identities.map(([label, value]) => <div className="flex min-w-0 max-w-full gap-2" key={label}><dt className="shrink-0">{label}</dt><dd className="m-0 min-w-0 wrap-anywhere font-bold text-content-primary">{value}</dd></div>)}
       </dl> : null}
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <form aria-label={`${fixture.name} 조명 정보 수정`} className="grid gap-4 tablet:grid-cols-[2fr_1fr_auto] tablet:items-end" onSubmit={submit}>
+      <form aria-label={`${fixture.name} 조명 정보 수정`} className="grid min-w-0 gap-4 tablet:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] tablet:items-end" onSubmit={submit}>
         <TextField aria-label={`${fixture.name} 이름`} label="이름" isRequired maxLength={120} value={name} onChange={setName} />
         <TextField
           aria-label={`${fixture.name} 정격전력`}
@@ -511,8 +513,8 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
             if (ratedWattError) setRatedWattError("");
           }}
         />
-        <div className="flex items-end">
-          <Button type="submit" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} aria-hidden="true" /> {fixture.name} 조명 정보 저장</Button>
+        <div className="flex min-w-0 items-end">
+          <Button type="submit" className="min-w-0 max-w-full wrap-anywhere" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} className="shrink-0" aria-hidden="true" /> {fixture.name} 조명 정보 저장</Button>
         </div>
       </form>
     </Card>

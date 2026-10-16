@@ -269,6 +269,65 @@ def protected(path, run=command):
         check_acl(item, run)
 
 
+def protected_runtime_executable(path, run=command):
+    # Apple's launcher reports a symlink under CommandLineTools. This exception
+    # is executable-only: inspect every lexical component before following it,
+    # including relative targets and intermediate directory links. resolve()
+    # alone would hide a mutable link/ancestor behind a protected final file.
+    value = str(path)
+    if not Path(value).is_absolute() or Path(value).anchor != '/':
+        raise ValueError('absolute_runtime_path_required')
+    if len(value.encode('utf-8')) > 4096 or '\x00' in value:
+        raise ValueError('runtime_path_too_long')
+
+    def inspect(item):
+        info = os.lstat(item)
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('unprotected_runtime_path')
+        check_acl(item, run)
+        return info
+
+    current = Path('/')
+    if not stat.S_ISDIR(inspect(current).st_mode):
+        raise ValueError('runtime_directory_required')
+    pending = value.split('/')[1:]
+    links = steps = 0
+    while pending:
+        steps += 1
+        if steps > 256 or len(str(current).encode('utf-8')) + sum(len(part.encode('utf-8')) + 1 for part in pending) > 4096:
+            raise ValueError('runtime_path_too_long')
+        part = pending.pop(0)
+        if part in ('', '.'):
+            continue
+        if part == '..':
+            current = current.parent
+            if not stat.S_ISDIR(inspect(current).st_mode):
+                raise ValueError('runtime_directory_required')
+            continue
+        item = current / part
+        info = inspect(item)
+        if stat.S_ISLNK(info.st_mode):
+            links += 1
+            if links > 40:
+                raise ValueError('runtime_link_limit')
+            target = os.readlink(item)
+            if not target or '\x00' in target or len(target.encode('utf-8')) > 4096:
+                raise ValueError('invalid_runtime_link')
+            if target.startswith('/'):
+                current = Path('/')
+            pending = target.split('/') + pending
+            continue
+        if pending:
+            if not stat.S_ISDIR(info.st_mode):
+                raise ValueError('runtime_directory_required')
+            current = item
+            continue
+        if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o111:
+            raise ValueError('runtime_executable_required')
+        return item
+    raise ValueError('runtime_executable_required')
+
+
 def file_hashes(source):
     return {name: hashlib.sha256(secure_read(source / name)).hexdigest() for name in FILES}
 
@@ -287,8 +346,8 @@ def check_installed(config, private_state=True, run=command):
     # installation as well; neither user site nor environment are imported by -I.
     runtime = json.loads(run(('/usr/bin/python3', '-I', '-S', '-c',
                              'import sys,sysconfig,json;print(json.dumps([sys.executable,sysconfig.get_path("stdlib")]))')))
-    for path in runtime:
-        protected(Path(path), run)
+    protected_runtime_executable(runtime[0], run)
+    protected(Path(runtime[1]), run)
     for name in FILES:
         protected(PREFIX / name, run)
     if file_hashes(PREFIX) != config['fileHashes']:

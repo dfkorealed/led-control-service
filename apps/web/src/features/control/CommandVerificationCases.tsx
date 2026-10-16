@@ -85,7 +85,7 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
 
   return <>
     <DrawerDialog isOpen={open} title="확인 필요한 명령" description="원본 이력 만료 후에도 결과가 불확실한 명령을 별도 안전 기록으로 조회합니다." closeLabel="확인 필요한 명령 닫기" onClose={onClose} returnFocusRef={returnFocusRef}
-      className="grid! h-dvh! w-full! max-w-status-drawer! grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden!" bodyClassName="grid min-h-0 overflow-hidden"
+      className="grid! h-dvh! w-full! max-w-status-drawer! grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden!" bodyClassName="grid min-h-0 overflow-y-auto overscroll-contain"
       actions={<div className="flex items-center justify-between gap-2 pb-safe-area-bottom"><Button ref={previousButtonRef} type="button" variant="secondary" disabled={pageIndex === 0 || cases.isFetching} onClick={() => { setPageIndex((index) => index - 1); if (pageIndex === 1) nextButtonRef.current?.focus(); }}>이전</Button><Button ref={nextButtonRef} type="button" variant="secondary" disabled={!page?.nextCursor || cases.isFetching} onClick={() => {
         const generation = paginationGeneration.current;
         const nextIndex = pageIndex + 1;
@@ -98,8 +98,10 @@ export function CommandVerificationCases({ open, siteId, userId, canControl, can
         if (cached) showNext(Boolean(cached.nextCursor));
         else void cases.fetchNextPage().then((result) => { const nextPage = result.data?.pages[nextIndex]; if (!result.isError && nextPage) showNext(Boolean(nextPage.nextCursor)); });
       }}>다음</Button></div>}>
-      <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-3">
-        <div className="grid min-h-0 content-start gap-2 overflow-y-auto overscroll-contain" aria-label="확인 필요 case 목록">
+      {/* One body reader includes list and detail; header and pagination stay
+          outside it so every target ID remains reachable in a short drawer. */}
+      <div className="grid min-w-0 content-start gap-3">
+        <div className="grid min-w-0 content-start gap-2" aria-label="확인 필요 case 목록">
           {cases.isPending ? <LoadingIndicator isPaused={cases.isPaused}>확인 필요한 명령을 불러오는 중입니다.</LoadingIndicator> : null}
           {!cases.isPending && !cases.error && !permissionLost && !page?.items.length ? <Text>확인 필요한 명령이 없습니다.</Text> : null}
           {permissionLost ? <Text role="alert" tone="danger">조회 권한이 변경되었습니다. 다시 로그인한 뒤 확인하세요. 제어 잠금은 유지됩니다.</Text> : null}

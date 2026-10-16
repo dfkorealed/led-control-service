@@ -22,6 +22,80 @@
 
 - 공통 지원 경로와 개별 실물 시험을 구분하고 지원군 확대에는 명령/독립 조회/복구 근거를 기록한다.
 
+## 2026-10-16 전체 등록 조명 공통 복구 및 시계 검증 호환성
+
+### 구현 완료
+
+- 기존 현장 관리의 전체 조명 목록과 등록 연결/센서 준비 경로가 ID·이름·종류·기존/신규 등록에 따라 제외하지 않는 공통 경로임을 확인했다. 방습등1·2를 포함한 실제 등록6개 모두 같은 화면에서 현재 사유를 확인했다. 새 UI나 선택 자격 예외를 추가하지 않았다.
+- macOS Apple Python launcher가 반환하는 보호된 runtime 실행 링크를 처리하도록 ClockAttestor installer를 보완했다. 링크와 원/대상·중간·상위 경로의 root 소유·쓰기 권한·ACL·종류·순환/길이를 검사하며 일반 설치 파일·표준 라이브러리의 symlink 거절은 유지한다. semantic RED 후 시계 관련65PASS, 독립 검토 C/I/M0을 확인했고 `f14e5ece`로 로컬 병합했다.
+
+### 미구현
+
+- 현재 전체6개의 실제 등록 복구/센서 준비 완료와 이벤트 동작 HIL은 아직 확인하지 않았다. 공통 UI 경로 접근을 실제 RF 성공으로 기록하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 조사 시 Gateway의 이전 서버 IP·USB 번호 잔류를 확인했다. 복구 plan은 원본이 외부 작업에서 중지된 것을 발견해 실행을 거절했고, 이후 같은 image/영속root의 새 healthy 실행체를 확인했다. 본 작업의 원격 stop/create/start는0이며 새 실행체를 임의 조작하지 않는다. 실제 조명 준비는 해당 작업과 순서를 조율한 뒤 확인해야 한다.
+- 시계 서비스 설치는 별도 작업에서 변경된 것을 관측했다. 이 소프트웨어 수정과 현재 설치본의 healthy/approved 상태·primary 검증을 구분하며, 보호 검사나 조명 준비 자격을 임의로 완화하지 않는다.
+
+### 관련 파일
+
+- `scripts/clock-attestor/installer.py`, `scripts/clock-attestor/test_installer.py`.
+- 기존 `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx`, `apps/web/src/features/control/automation/BioSensorPreparationPanel.tsx`, `components/BioRegistrationConnectionCheck.tsx`는 이번에 변경하지 않았다.
+- `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`의 10/16 후속과 `docs/project-status.md`.
+
+### 갱신 규칙
+
+- 조명별 실제 등록/준비 결과와 서버/Gateway 연결·시각 검증 선행 조건을 구분한다. 실제6대 성공·새 장비 성공은 각 실제 검증이 있을 때만 기록한다. 불필요 UI·특정 조명 ID 예외를 추가하지 않는다.
+
+## 2026-10-15 이벤트에서 센서 등록 연결 복구 위치 안내
+
+### 구현 완료
+
+- 현장 관리의 기존 `등록 조명 센서 준비` 구역에 고정 이동 목적지를 제공한다. 이벤트에서 현재 `siteId`를 보존해 이동하고, 등록 연결 재확인이 필요한 legacy 조명도 기존 목록에서 직접 선택할 수 있다.
+- 등록 연결 재확인 전에는 기존 공통 `등록 연결 확인`만 사용할 수 있고 센서 사용 설정은 차단된다. 검증 결과 적용과 최신 dashboard의 준비 가능 판정 후 기존 센서 준비 API가 분류·준비를 진행한다. 새 등록 API나 직접 DB 복구 경로를 추가하지 않는다.
+
+### 미구현
+
+- 실제 장비 조회·등록 복구 적용·센서 모드 설정·이벤트 활성화는 이번 소프트웨어 수리에서 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 링크 이동 후 대상 조명을 목록에서 직접 선택해야 한다. 등록 연결 확인 완료만으로 센서 자격이 주어지지 않으며, 별도 센서 준비와 현재 서버 사용 가능 판정이 필요하다. 현재 연결·권한·assignment가 달라지면 기존 차단을 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx`, `BioSensorSettingsPanel.test.tsx`, 기존 공통 `apps/web/src/features/control/automation/{BioSensorPreparationPanel.tsx,components/BioRegistrationConnectionCheck.tsx}`.
+- `apps/web/e2e/event-source-create.spec.ts` — PC 1,440px·모바일 390px 기존 복구 위치 접근 및 장비/저장 요청 0건 확인.
+
+### 갱신 규칙
+
+- 기존 등록 재확인·센서 준비의 권한/귀속/증거/기한 검사를 보존한다. 이동·fixture 검증을 실제 운영 데이터 복구로 표현하지 않는다.
+
+## 2026-10-15 편집·등록·현장·계정 읽기 영역 수리
+
+### 구현 완료
+
+- 맵 편집의 계정·설정 메뉴·복귀·도구 높이를 보존하면서 고객 셸이 짧은 화면의 세로 넘침을 스크롤한다. 작업 영역은 최소 256px와 size containment를 사용해 탭 내용이 지도를 늘리거나 본문을 0px로 압축하지 않는다. 기록 탭은 조명 위치 확인과 버전·복구를 하나의 읽기 스크롤에서 제공한다.
+- 모바일 등록 결과의 시리얼·UUID는 한 행의 읽기 폭을 확보하고 선택·상태·식별은 다음 행으로 흐른다. 현장의 긴 층 선택값이 조명 목록 전체 최소 폭을 늘리던 경로를 수리하고, 중간 PC 폭의 이름·정격전력·저장 열은 수축 가능한 비례 열을 사용한다. 긴 식별자와 저장 문구는 줄바꿈하고 저장 아이콘은 16×16px를 유지한다.
+- 비밀번호 초기화 대상 정보는 모바일 한 열과 긴 로그인 ID 줄바꿈을 사용한다. 기존 검증·저장/복구·식별·권한·pending·세션 정책은 유지한다. 원인별 실제 AppRoot geometry/hit/scroll RED→GREEN을 보존했다.
+
+### 미구현
+
+- 실제 장비 식별·등록·복구/HIL, OS 가상 키보드, Safari/WebKit과 실기기 WebView 검증은 수행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 외부/API 전달이 차단된 메모리 fixture의 Chromium 결과다. 전체 단위 테스트의 기존 실패와 최종 수치는 상태판 및 `.local/ui-eight-fixes-20261015/report.md`에 구별한다. P3 간격·제목·일반 패널 inset 정합성 후보는 포함하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/features/floor-editor/FloorEditorView.tsx`, `apps/web/src/features/registration/RegistrationPanel.tsx`, `apps/web/src/features/settings/site/SiteOperationsView.tsx`, `apps/web/src/features/settings/users/ResetSiteUserPasswordDialog.tsx`, `apps/web/e2e/ui-eight-layout-regressions.spec.ts`, `apps/web/playwright.ui-eight.config.ts`.
+
+### 갱신 규칙
+
+- 편집권 확보와 map-ready를 구별해 정상 편집 상태를 측정한다. 320×600·390×844 touch와 759/760·1023/1024·1120·1440px에서 입력·전체 텍스트·스크롤 뒤 hit를 검사하고 계정/복귀/52px 탭/44px 조작을 축소하지 않는다.
+
 ## 2026-10-15 배포 HTTP 읽기 전용 점검 창 — 소프트웨어
 
 ### 구현 완료

@@ -333,11 +333,32 @@ export function vehicleEventMutationErrorMessage(error: unknown): string {
   if (code === "bio_self_hold_not_representable") return "자기 조명 유지시간은 127초까지 1초 단위, 그 이상은 1분 단위로 설정해 주세요.";
   if (code === "bio_self_brightness_invalid") return "자기 조명의 감지 밝기는 1% 이상으로 설정해 주세요.";
   if (code === "single_gateway_required") return "같은 Gateway에 연결된 조명만 선택해 주세요.";
+  if (error.status === 409 && code === "bio_source_target_forbidden") return "감지 센서로 사용 중인 조명은 실행 대상으로 지정할 수 없습니다.";
+  if (error.status === 400 && code === "bio_target_activation_conflict") return "다른 활성 이벤트와 실행 조명이 겹칩니다. 다른 이벤트를 비활성화하거나 실행 대상을 바꿔 주세요.";
+  if (error.status === 503 && code === "gateway_deployment_read_only") return "점검 중에는 이벤트 규칙을 변경할 수 없습니다. 잠시 후 다시 시도해 주세요.";
   if (error.status === 400) return "이벤트 규칙 입력과 대상을 확인해 주세요.";
   if (error.status === 403) return "이벤트 규칙을 변경할 권한이 없습니다.";
   if (error.status === 404) return "이벤트 규칙 또는 현장을 찾을 수 없습니다.";
   if (error.status === 409) return "이벤트 규칙 변경이 현재 상태와 충돌했습니다.";
   return "이벤트 규칙 변경을 완료하지 못했습니다. 연결 상태를 확인해 주세요.";
+}
+
+/** Preparation precedes the rule write. Explain only recognized server causes;
+ * never expose arbitrary adapter diagnostics or imply that a rule was saved. */
+export function bioSensorPreparationErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return "센서 준비 요청 결과를 확인하지 못했습니다. 잠시 후 같은 작업을 다시 시도해 주세요.";
+  if (error.status === 401) return "로그인 세션이 만료되었습니다.";
+  if (error.status === 403) return "센서 준비 권한이 없습니다. 현장 관리자에게 문의해 주세요.";
+  if (error.status === 404) return "센서 준비 대상 또는 현장을 찾을 수 없습니다. 최신 조명 목록을 확인해 주세요.";
+  if (error.status === 503 && errorCode(error.body) === "gateway_deployment_read_only") return "점검 중에는 센서 준비를 요청할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+  const message = error.body && typeof error.body === "object" && "message" in error.body ? error.body.message : null;
+  if (error.status === 409 && ["BIO completed registration graph mismatch", "confirmed BIO registration preparation required",
+    "BIO fixture binding changed or unconfirmed"].includes(typeof message === "string" ? message : "")) {
+    return "센서 준비 전 등록 연결 확인이 필요합니다. 설정의 현장 관리에서 해당 조명의 등록 연결을 확인해 주세요.";
+  }
+  if (error.status === 409) return "센서 준비가 현재 등록 또는 설정 상태와 충돌했습니다. 설정의 현장 관리에서 등록 연결과 센서 준비 상태를 확인해 주세요.";
+  if (error.status === 400) return "센서 준비 요청 정보를 확인하지 못했습니다. 최신 조명 목록을 확인해 주세요.";
+  return "센서 준비 요청을 완료하지 못했습니다. 서비스 연결 상태를 확인한 뒤 같은 작업을 다시 시도해 주세요.";
 }
 
 export function scheduleMutationErrorMessage(error: unknown): string {

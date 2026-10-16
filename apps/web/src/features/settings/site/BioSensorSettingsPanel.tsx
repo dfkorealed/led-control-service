@@ -53,7 +53,7 @@ export function BioSensorSettingsPanel({ siteId, ownerUserId, canPrepare }: { si
       {error ? <Text role="alert" tone="danger">{error}</Text> : null}
       {notice ? <Text role="status">{notice}</Text> : null}
     </Card>
-    <Card className="grid min-w-0 gap-3 p-4">
+    <Card id="bio-sensor-preparation" className="grid min-w-0 gap-3 p-4">
       <Heading as="h3" variant="card-title">등록 조명 센서 준비</Heading>
       <Text variant="caption">조명을 하나씩 선택해 준비 상태와 차단 사유를 확인합니다.</Text>
       {dashboard.error ? <><Text role="alert" tone="danger">등록 조명의 준비 정보를 불러오지 못했습니다.</Text><Button type="button" variant="secondary" onClick={() => void dashboard.refetch()}>조명 다시 조회</Button></> : null}

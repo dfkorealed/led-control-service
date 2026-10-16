@@ -56,6 +56,20 @@ export function SpatialTargetSelector({
   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
   const manualWorkspace = presentation === "manual-workspace";
   const compactManual = manualWorkspace && compactWorkspace;
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [sideBySide, setSideBySide] = useState(false);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!manualWorkspace || compactManual || !content || typeof ResizeObserver === "undefined") return;
+    // Budget the actual map column after navigation and execution panels: a
+    // 320px map plus the existing 256px selection pane and 12px gap. Viewport
+    // breakpoints alone cannot account for the expanded 220px navigation.
+    const measure = () => setSideBySide(content.clientWidth >= 588);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [manualWorkspace, compactManual]);
   const auxiliary = useManualAuxiliary();
   const compactAuxiliary = compactManual && Boolean(auxiliary);
   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
@@ -153,7 +167,7 @@ export function SpatialTargetSelector({
     {hideEmbeddedSummary && !manualWorkspace ? <Text className="compact:hidden" variant="caption">{resolved.fixtureIds.length}개 선택 · {selection.mode === "fixtures" ? "개별 조명" : selection.mode === "floor" ? "층 전체" : "저장된 구역"}</Text> : null}
     {/* Manual desktop's outer workspace owns short-window scrolling. Let chrome
         wheels chain to it; embedded/mobile panes retain their containment. */}
-    <div className={compactManual ? "grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-1" : `grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? "compact:overscroll-auto" : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
+    <div ref={contentRef} className={compactManual ? "grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-1" : `grid ${hideEmbeddedSummary ? "min-h-min" : "min-h-0"} min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain ${manualWorkspace ? `compact:overscroll-auto ${sideBySide ? "grid-cols-[minmax(0,1fr)_16rem]" : "grid-cols-1"}` : ""} ${hideEmbeddedSummary ? "max-compact:flex-none max-compact:overflow-visible" : ""} ${hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "tablet:overflow-hidden" : manualWorkspace ? "tablet:overflow-hidden" : "tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden"}`} data-target-selection-content="">
       {/* The transparent coarse hit box stays rectangular; the shared inner
           20px marker dot retains its circular appearance. Rounded hit boxes
           lose their corners and cannot provide the required 48×48 target. */}
@@ -184,7 +198,7 @@ export function SpatialTargetSelector({
       {/* Desktop list content is size-contained by the map row even when empty.
           Manual mobile owns a bounded inline list; embedded preparation keeps
           its natural-height inspection pane and existing scroll policy. */}
-      <div className={manualWorkspace ? (compactManual ? "flex min-h-0 min-w-0 flex-col" : "flex h-full min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain tablet:[contain:size]") : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
+      <div className={manualWorkspace ? (compactManual ? "flex min-h-0 min-w-0 flex-col" : `flex h-full min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain ${sideBySide ? "[contain:size]" : ""}`) : hideEmbeddedSummary && selection.mode === "fixtures" && !manualWorkspace ? "hidden" : `min-h-0 overflow-y-auto overscroll-contain tablet:[contain:size] ${inspectionPanel ? "max-tablet:min-h-min max-tablet:overflow-visible" : ""}`} data-target-selection-detail-panel="">{!hideEmbeddedSummary ? <SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} /> : null}
         {auxiliary ? <ManualAuxiliaryContent kind="selection">{selectionChoices}</ManualAuxiliaryContent> : selectionChoices}
         {manualWorkspace ? <div key={`${siteId}:${activeFloor?.id}:${selection.mode}`} className="min-h-0 flex-1">{inspectionPanel}</div> : inspectionPanel}
       </div>
