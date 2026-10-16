@@ -102,7 +102,9 @@ export type { DropdownMenuProps, DropdownItem, MenuKey } from "./overlays/Dropdo
 export { Popover } from "./overlays/Popover";
 export type { PopoverProps, PopoverPlacement } from "./overlays/Popover";
 export { PageHeader } from "./PageHeader";
-export type { PageHeaderProps } from "./PageHeader";
+export type { PageHeaderProps, TitleRole } from "./PageHeader";
+export { PageStack, CardGrid, panelPaddingClass } from "./FunctionalLayout";
+export type { FunctionalLayoutProps, PanelPadding } from "./FunctionalLayout";
 export { PaginationBar } from "./PaginationBar";
 export type { PaginationBarProps, PaginationPageSize, DefaultPaginationPageSize } from "./PaginationBar";
 export { ProgressSteps } from "./ProgressSteps";

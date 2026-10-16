@@ -64,7 +64,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     : null;
   // The customer palette has an independent primary foreground. Public/auth
   // controls keep their existing inverse foreground and landing variants.
-  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(classes, customerTheme && variant === "primary" && "text-action-primary-foreground", customerAppearance, className)}
+  return <button ref={ref} {...props} disabled={disabled || isDisabled || isLoading} aria-busy={isLoading || props["aria-busy"]} data-variant={variant} className={cn(classes, !variant.startsWith("landing") && "min-w-11", customerTheme && variant === "primary" && "text-action-primary-foreground", customerAppearance, className)}
     onKeyDown={(event) => {
       onKeyDown?.(event);
       if (!event.defaultPrevented && (event.key === "Enter" || event.key === " ")) activation.current = { key: event.key };

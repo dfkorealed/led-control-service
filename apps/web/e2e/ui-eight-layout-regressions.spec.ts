@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
-import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { expect, test } from "./support/design-system-fixture";
+import type { Locator, Page, TestInfo } from "@playwright/test";
 import { installMockApiBoundary } from "./support/mock-api-boundary";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 import { installFirstScreenStatisticsFixtures } from "./support/first-screen-statistics";

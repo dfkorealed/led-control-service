@@ -1,10 +1,11 @@
 import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { cva } from "class-variance-authority";
 import { cn } from "./utils/cn";
+import { panelPaddingClass, type PanelPadding } from "./FunctionalLayout";
 
 export type CardTone = "landingDemo" | "landingDemoSurface" | "default" | "selected" | "danger" | "landingGlass" | "landingFeature" | "landingPlan" | "landingPlanFeatured";
 
-export interface CardProps extends HTMLAttributes<HTMLElement> { tone?: CardTone; variant?: CardTone; padding?: "none" | "customer"; children: ReactNode }
+export interface CardProps extends HTMLAttributes<HTMLElement> { tone?: CardTone; variant?: CardTone; padding?: PanelPadding; children: ReactNode }
 const landingPlanFrame = "flex flex-col min-w-0 p-landing-pricing-card-inset";
 
 export const card = cva("rounded-panel border bg-surface-panel", {
@@ -25,5 +26,5 @@ export const card = cva("rounded-panel border bg-surface-panel", {
 });
 
 export const Card = forwardRef<HTMLElement, CardProps>(function Card({ tone = "default", variant = tone, padding = "none", className, children, ...props }, ref) {
-  return <section {...props} ref={ref} data-variant={variant} className={cn(card({ variant }), padding === "customer" && "p-5 max-compact:p-4", className)}>{children}</section>;
+  return <section {...props} ref={ref} data-variant={variant} className={cn(card({ variant }), panelPaddingClass(padding), className)}>{children}</section>;
 });

@@ -1,6 +1,16 @@
-# UI 간격 규칙
+# UI 간격 규칙 참조와 승인 이력
 
-기준일: 2026-10-10
+기준일: 2026-10-16
+
+## 현행 규칙의 정본
+
+승인된 전체 Web 통일 계획의 최초 기반 작업부터 간격·타이포그래피·목적 variant·접근성 규범은 [Web 공통 디자인 시스템 가이드](ui-design-system.md)를 따른다. 일반 기능 UI의 section20px/card grid18px/panel20·16px/page26·24px/section20px/card16px/실제 hit44×44px와 정확한 예외 범위는 해당 가이드가 소유한다. 이 전환은 토큰·정책 변경 또는 전체 소비 화면의 적용 완료가 아니다.
+
+현재 token source는 `apps/web/src/styles/theme.css`, 승인 anchor는 `e841c57b11321a5ae35d15920031020089f06ee2`, 실제 PostCSS AST는738선언이며 빈 policy baseline `files: {}`를 유지한다. [적용 전 fresh baseline](assets/web-design-system-2026-10-16/baseline.md)과 후속 coverage를 현재 검증 근거로 사용한다.
+
+## 역사 기록 — 아래 규칙·승인·실패는 각 날짜 당시의 근거
+
+이하 본문 전체는 원래 수치·anchor 회전·성공과 실패를 보존한 역사 기록이다. 아래의 ‘현재’, ‘기본24px’, ‘고객 opt-in’ 등은 기록 당시 문맥이며 현행 functional 규칙을 덮어쓰지 않는다. 과거 승인과 검증은 현재 적용 coverage로 승격하지 않는다.
 
 ## 2026-10-10 고객 compact typography·spacing 계약
 

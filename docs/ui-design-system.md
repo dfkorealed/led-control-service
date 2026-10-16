@@ -2,17 +2,17 @@
 
 현장 운영·시설관리 담당자가 상태·대상·조작 결과를 쉽게 읽고 편하게 작업할 수 있는 일관된 UI를 만든다. 공개 페이지는 기존 브랜드 특징을 유지한다.
 
-상태: **검토용 초안 · 서면 승인 전 · 제품 미적용**
+상태: **2026-10-16 사용자 승인 · 현재 Web 디자인 규범 · 공통 기반 적용**
 
 작성일: 2026-10-15
 
-상세 수치표 갱신: 2026-10-16. 사용자가 수치표와 계획 작성을 요청한 단계이며 아래 목표값의 상세 검토·계획·실행 방식은 대기 중이다. 현재 제품값을 변경하지 않았다.
+상세 수치표 갱신: 2026-10-16. 사용자가 상세 수치표·실행 계획·분리 작업공간 실행을 승인했다. 최초 기반 작업에서 공통 layout·panel padding·titleRole 계약을 제공하며, 개별 화면 소비 적용과 전체 coverage는 후속 작업에서 검증한다.
 
-사용자의 “다 포함 해”, “오케이”는 전체 Web 범위와 인챗 설계 방향에 대한 승인이다. 이 문서는 그 방향을 검토할 수 있도록 작성한 초안이며, 서면 설계 승인·구현 계획 승인·코드 적용 완료를 뜻하지 않는다. 현재 유효한 규범은 [ui-spacing.md](ui-spacing.md)다. 충돌하는 제안은 이 초안으로 현재 규범을 소급 변경하지 않는다.
+이 문서는 전체 Web의 현재 디자인 규범이다. [ui-spacing.md](ui-spacing.md)는 현행 규칙을 이 가이드로 연결하고 날짜별 승인·실패 이력을 보존한다. 규범 승인은 모든 화면의 적용 완료를 뜻하지 않는다. 적용 전 실제 실패는 [fresh baseline](assets/web-design-system-2026-10-16/baseline.md), 화면별 완료 여부는 실행 계획과 후속 coverage를 따른다.
 
 ## 정본 전환과 책임
 
-서면 승인은 목표 기준을 확정한다. 현재 규범 효력은 계획·실행 방식 승인 후 최초 기반 작업에서 `ui-spacing.md`의 현행 규칙 참조와 역사 분리를 함께 정리하면서 이 가이드로 전환한다. 날짜별 승인·실패·토큰 회전 기록은 역사적 근거로 표시하고, 실제 화면 적용 현황은 coverage로 별도 추적한다. 이력의 실패를 지우거나 과거 수치를 현재 검증으로 승격하지 않는다. 상태 요약은 계속 `project-status.md`, 메뉴 기능 현황은 `menus/*.md`, 운영 기준은 `agent-operations.md`가 소유한다. 이 초안 작성에서는 기존 정본을 변경하지 않는다.
+승인된 계획의 최초 기반 작업에서 현행 규칙 참조와 역사 분리를 함께 정리하여 규범 효력을 이 가이드로 전환했다. 날짜별 승인·실패·토큰 회전 기록은 역사적 근거이며, 실제 화면 적용 현황은 coverage로 별도 추적한다. 이력의 실패를 지우거나 과거 수치를 현재 검증으로 승격하지 않는다. 상태 요약은 계속 `project-status.md`, 메뉴 기능 현황은 `menus/*.md`, 운영 기준은 `agent-operations.md`가 소유한다.
 
 디자인 역할·예외는 designer가 정의하고 총괄과 web_frontend가 검토한다. 구현과 소비자 연결은 web_frontend, 독립 검증은 qa_reviewer가 맡는다. 공유 계약과 운영 변경의 권한은 기존 저장소 규칙을 따른다. 구체적인 적용 범위와 수용 기준은 [전체 Web 통일 설계](superpowers/specs/2026-10-15-web-design-system-unification-design.md)를 따른다.
 
@@ -33,7 +33,7 @@
 
 ## 일반 기능 UI의 엄격한 역할 계약
 
-아래는 서면 승인 이후 적용할 규칙이다. 고객뿐 아니라 운영자와 인증의 ordinary functional UI에도 같은 역할로 적용한다. viewport의 `compact` 경계는 현재 760px를 유지하며 `max-compact`는 760px 미만이다.
+아래는 승인된 현행 규칙이다. 고객뿐 아니라 운영자와 인증의 ordinary functional UI에도 같은 역할로 적용한다. viewport의 `compact` 경계는 현재 760px를 유지하며 `max-compact`는 760px 미만이다.
 
 | 역할 | desktop | compact | 소유자 |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ Card와 SidePanel은 일반 내용의 `regular` inset20/16px, 목적과 소비 �
 
 ## 정확한 값 검토표
 
-px 환산은 root16px 기준이며 사용자 font 설정·확대를 막는 전역16px 강제는 추가하지 않는다. 아래에서 ‘유지’는 현재 source의 역할·값을 보존한다는 뜻이고, ‘통일 목표’는 승인 후 소비자를 정합화할 값이다. 운영자 현재 main24/32px·mobile14/24px는 일반 문서형 main28/24px·mobile14/18px로 통일할 대상이다.
+px 환산은 root16px 기준이며 사용자 font 설정·확대를 막는 전역16px 강제는 추가하지 않는다. 아래에서 ‘유지’는 현재 source의 역할·값을 보존한다는 뜻이고, ‘통일 목표’는 승인된 소비자 정합화 값이다. 운영자 기존 main24/32px·mobile14/24px는 일반 문서형 main28/24px·mobile14/18px로 통일할 대상이다.
 
 | 구분 | 역할 | 크기 / 행간 / 굵기 | 결정 |
 | --- | --- | --- | --- |
@@ -104,7 +104,7 @@ px 환산은 root16px 기준이며 사용자 font 설정·확대를 막는 전�
 
 | primitive | 현재 정확한 계약과 결정 | source (`apps/web/src/components/ui` 기준) |
 | --- | --- | --- |
-| Button 일반 | min높이44, gap8, border1, radius10,700. sm inset좌우12/상하0·13/20; md16/0·14/22; lg min48·24/8·16/24 유지 | `Button.tsx:20,46` |
+| Button 일반 | min폭44·min높이44, gap8, border1, radius10,700. sm inset좌우12/상하0·13/20; md16/0·14/22; lg min높이48·24/8·16/24 유지. 더 큰 caller geometry 우선 | `Button.tsx` |
 | disabled/loading | 기본 opacity60%, disabled/aria-busy·중복 activation 차단 유지. action-disabled token을 실제 fill로 일괄 치환하지 않음 | `Button.tsx`, loading primitive |
 | field | min높이44(lg48); sm inset12/8, md12/10, lg16/12. coarse pointer 글자16/24 유지(viewport와 구분) | `fields/field-types.ts`, field primitive |
 | field 관계 | label/control/help gap8, label primary, help primary, error danger 유지 | `fields/FormField.tsx` |
@@ -123,7 +123,9 @@ form row gap·icon size·전역 duration을 하나의 새 숫자로 강제하지
 
 색은 semantic surface/content/border/action/status 역할을 소비하고 고객 theme alias가 지원 light/dark를 결정한다. 기존 브랜드 팔레트는 유지한다. 기본 control radius10px, panel radius14px는 현재 `--radius-control`/`--radius-panel`을 사용하며 브랜드의 등록된 geometry는 별도 variant다. 본문 font는 기존 승인 scale을 재사용한다. hover/focus/disabled/error/loading 표현은 공통 primitive가 소유하고 feature가 같은 상태를 개별 재정의하지 않는다.
 
-초안 기준 현재 고객 compact 승인 anchor는 `e841c57b11321a5ae35d15920031020089f06ee2`이며 당시 실제 PostCSS AST는 738선언이다. 이는 현재 승인 사실이며, 향후 토큰 추가나 anchor 회전을 이 초안으로 승인하는 것이 아니다. 기존 역할로 표현 가능하면 재사용한다. 새 역할이 필수면 의미·정확 값·소비 범위·기존 역할로 표현 불가한 이유를 제출하고, 토큰 전용 변경의 독립 검토 후 정확한 승인 ref와 빈 baseline을 함께 회전한다. 규칙 완화, allowance 증가, lexical 검사 밖 CSS나 인라인 값으로 우회하지 않는다.
+현재 고객 compact 승인 anchor는 `e841c57b11321a5ae35d15920031020089f06ee2`이며 실제 PostCSS AST는738선언이다. 향후 토큰 추가나 anchor 회전은 이번 통일 작업의 승인이 아니다. 기존 역할로 표현 가능하면 재사용한다. 새 역할이 필수면 의미·정확 값·소비 범위·기존 역할로 표현 불가한 이유를 제출하고, 토큰 전용 변경의 독립 검토 후 정확한 승인 ref와 빈 baseline을 함께 회전한다. 규칙 완화, allowance 증가, lexical 검사 밖 CSS나 인라인 값으로 우회하지 않는다.
+
+공통 소비 API는 `PageStack`의 section 간격20px, `CardGrid`의 card 간격18px, `Card`·`SidePanel`의 `padding="regular"`20/16px·`compact`16px·`none`무padding이다. 기존 `customer`는 `regular`와 같은 alias이며 기본 padding은 계속 `none`이다. `PageHeader`의 명시적 `titleRole="page" | "section" | "card"`는 위 시각 역할을 사용한다. 미전달 시 기존 `variant="customer"`의 page 표현과 default의 legacy section 표현을 유지한다. `headingLevel`, ref·aria/data·rest props, Card tone/variant와 SidePanel surface는 호환을 유지한다. 열 수·반응형 배치는 소비 부모가 소유한다.
 
 `AccountSecurityView`는 customer/operator의 presentation을 shell에서 명시적으로 전달받는다. shell이 page title과 외부 여백을 소유하고, 공유 view는 presentation에 대응하는 공통 Card·Typography를 소비한다. 고객과 운영자의 일반 card 수치는 위 functional 계약을 공유하며 presentation이 임의 숫자 차이를 만드는 허가가 아니다. presentation은 theme scope·구성 경계만 표현한다. MFA 권한, principal, query key, cache 교체, 비밀 입력 수명과 API는 기존 도메인 로직을 유지한다.
 
@@ -160,10 +162,10 @@ keyboard 순서·visible focus·label·상태 announcement·pending 중 재입�
 | workspace geometry | 고객 지도·floor editor·chart 내부 geometry. editor 최소256px, 수동 지도 content588px split | 320×600/587·588·589px의 pointer·선택·단일 scroll·데이터 의미 보존 |
 | overlay frame | dialog/drawer의 backdrop·최대폭·viewport 배치·safe-area·단일 reader·기존52px 닫기·focus·pending | 일반 modal/drawer 내용은 functional panel20/16px로 정합화. frame 계약을 일반 inset 불일치의 포괄 예외로 쓰지 않음 |
 
-위 source는 `apps/web/src/features/statistics/StatisticsShell.tsx`, `apps/web/src/features/monitoring/MonitoringView.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/components/ui/DataGrid.tsx`다. 수치·소비 범위는 현재 소스와 대조한 보존 계약이며 이 초안에서 브라우저 재검증한 결과가 아니다. 새 예외는 designer·web_frontend가 근거를 검토하고 총괄 승인 후 좁게 적용한다. 토큰 변경이면 별도 토큰 승인 경로도 통과한다. 미확인 소비자를 무조건 예외로 넣지 않고 적용 coverage에서 미확인으로 남긴다.
+위 source는 `apps/web/src/features/statistics/StatisticsShell.tsx`, `apps/web/src/features/monitoring/MonitoringView.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/components/ui/DataGrid.tsx`다. 수치·소비 범위는 소스와 대조한 보존 계약이며 해당 소비 화면의 현재 브라우저 완료 판정은 후속 coverage를 따른다. 새 예외는 designer·web_frontend가 근거를 검토하고 총괄 승인 후 좁게 적용한다. 토큰 변경이면 별도 토큰 승인 경로도 통과한다. 미확인 소비자를 무조건 예외로 넣지 않고 적용 coverage에서 미확인으로 남긴다.
 
 ## 검증과 변경 완료
 
 lexical 정책 0건은 필요한 gate지만 역할 적합성과 화면 통일의 충분조건이 아니다. 소비 역할 목록, 실제 generated CSS/computed 값, 내용의 Range/box, keyboard/tap/wheel/focus와 상태별 시각 검증을 함께 사용한다. 미실행·실패·보류와 지원하지 않는 환경은 그대로 기록한다. 운영 배포·실제 API·메일·native·장비/HIL은 별도 증거 없이는 완료로 표시하지 않는다.
 
-2026-10-16 후속 요청으로 [writing-plans 초안](superpowers/plans/2026-10-16-web-design-system-unification.md)에 파일별 작업·테스트·검토 순서를 작성했다. 현재 상세 수치·계획 검토와 실행 방식 선택을 기다린다. 이 가이드와 계획 작성은 제품 적용을 시작하는 허가가 아니다.
+2026-10-16 승인된 [실행 계획](superpowers/plans/2026-10-16-web-design-system-unification.md)에 따라 공통 기반을 적용했다. Task1은 PageStack/CardGrid·panel inset·명시적 titleRole·일반 Button 최소폭과 격리 브라우저 기반을 제공한다. 미전달 legacy 제목·Card tone/variant/customer/none·SidePanel surface는 호환을 유지한다. 전체 화면과 상태의 적용 완료는 후속 coverage 및 독립 검토로 판단한다.
