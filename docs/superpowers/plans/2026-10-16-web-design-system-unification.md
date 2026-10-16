@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1·2 구현·독립 검토와 보완 재검토를 완료하고 Task3를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 전체 unit5FAIL은 남아 있고 Task1 추가 관측 browser3FAIL은 Task2에서 전제·의미를 검증해 실제 흐름 PASS로 확인했다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
+상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1·2·3 구현·독립 검토(필요 보완 재검토 포함)를 완료하고 Task4를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 전체 unit5FAIL은 남아 있고 Task1 추가 관측 browser3FAIL은 Task2에서 전제·의미를 검증해 실제 흐름 PASS로 확인했다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
 
 ## Global Constraints
 
@@ -198,13 +198,15 @@ test("security regular inset and modal return focus", async ({ page, designScena
 - Modify: `apps/web/src/features/settings/users/SiteUsersView.tsx`, `apps/web/src/features/settings/registration/RegistrationSettingsView.tsx`, `apps/web/src/features/settings/security/PasswordSettingsView.tsx`
 - Modify: `apps/web/src/features/statistics/{StatisticsShell,StatisticsOverviewPage}.tsx`, `apps/web/src/features/statistics/analysis/{StatisticsAnalysisPage,EnergyHeatmap}.tsx`, `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx`
 - Modify: `apps/web/src/features/statistics/analysis/EnergyRankingDetailPanel.tsx`
+- Modify (동일 역할 소비 조사로 추가): `apps/web/src/features/registration/RegistrationPanel.tsx`, `apps/web/src/features/setup/GatewayClaimPanel.tsx`, `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx`, `apps/web/src/features/settings/TestDataToolsPanel.tsx`
+- Modify (이미 동등한 recipe 연결 포함): `apps/web/src/features/statistics/{StatisticsOperationalInfo,PeriodComparisonPanel}.tsx`, `apps/web/src/features/statistics/analysis/EnergyRankingList.tsx`
 - Test: `apps/web/src/features/settings/site/SiteOperationsView.test.tsx`, `apps/web/src/features/statistics/StatisticsShell.test.tsx`
 - Create/Test: `apps/web/e2e/design-system-roles.spec.ts`
 - Modify: `docs/menus/{monitoring,settings,statistics}.md`
 
 **Interfaces:** Task1 wrapper/titleRole/padding·typed fixture/config와 Task2 shared security를 소비한다. 도메인 API 생산 없음.
 
-- [ ] **Step 1: 역할 단언 작성.** browser spec에 OPS003 일반 MonitoringView section20, SET005 설정 section20/grid18, BUS004 통계 desktop20/mobile8 예외, SET006 일반 mobile panel16, BUS003 desktop 통계 panel20, SET007 형제 하위 section20/28·card16/24를 단언한다. h3의 visual section과 문서 계층을 따로 검사한다.
+- [x] **Step 1: 역할 단언 작성.** browser spec에 OPS003 일반 MonitoringView section20, SET005 설정 section20/grid18, BUS004 통계 desktop20/mobile8 예외, SET006 일반 mobile panel16, BUS003 desktop 통계 panel20, SET007 형제 하위 section20/28·card16/24를 단언한다. h3의 visual section과 문서 계층을 따로 검사한다.
 
 ```ts
 test("P3 exact section grid inset and heading roles", async ({ page, designScenario }) => {
@@ -222,11 +224,11 @@ test("P3 exact section grid inset and heading roles", async ({ page, designScena
 ```
 
 같은 spec의 test `site subsection h3 uses section visual role`는 mock 현장 진입 후 `층 관리` h3의 fontSize20px/lineHeight28px, `현장 구성` section20/28을 단언한다. 통계 외부 chart/cost/heatmap panel desktop20은 해당 기존 accessible heading의 closest Card에서 computed inset으로 검사한다.
-- [ ] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-roles.spec.ts` → 기존16/12/24px gap·mobile20px inset·26/24px 하위 title의 정확한 computed 불일치 FAIL을 기록한다. 현재 동등한 역할은 무리하게 RED로 만들지 않는다.
-- [ ] **Step 3: 순서대로 적용.** OPS003→SET005→BUS004→SET006→BUS003→SET007 순으로 공통 API를 소비한다. 일반 MonitoringView section은20, fullview는8을 유지한다. 통계 shell mobile8과 chart 내부 margin·cell geometry를 보존하고 외부 inset만 조정한다.
-- [ ] **Step 4: 나머지 설정·통계 leaf 연결.** 동일 역할이 있는 users/registration/security/reports 소비도 coverage에서 대조하고 공통 API로 연결한다. 회귀에서 발견한 추가 소비 파일은 이 Task 소유 목록과 메뉴 문서에 명시하고 새 기능은 넣지 않는다.
-- [ ] **Step 5: GREEN 검증.** Step2 PASS 및 `pnpm --filter @led-control/web exec vitest run src/features/settings/site/SiteOperationsView.test.tsx src/features/statistics/StatisticsShell.test.tsx`. 320/390/1024/1440·light/dark에서 text Range·단위·긴 이름·실제 저장/탭 mock action을 확인한다.
-- [ ] **Step 6: 문서·검토·commit.** P3 여섯의 소비역할/computed/예외와 영향 메뉴를 갱신한다. 이 Task Files 실제 변경만 선택 stage하고 타 소유 변경을 제외한 뒤 `git commit -m "refactor(web): unify settings monitoring and statistics roles"`.
+- [x] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-roles.spec.ts` → 기존16/12/24px gap·mobile20px inset·26/24px 하위 title의 정확한 computed 불일치 FAIL을 기록한다. 현재 동등한 역할은 무리하게 RED로 만들지 않는다.
+- [x] **Step 3: 순서대로 적용.** OPS003→SET005→BUS004→SET006→BUS003→SET007 순으로 공통 API를 소비한다. 일반 MonitoringView section은20, fullview는8을 유지한다. 통계 shell mobile8과 chart 내부 margin·cell geometry를 보존하고 외부 inset만 조정한다.
+- [x] **Step 4: 나머지 설정·통계 leaf 연결.** 동일 역할이 있는 users/registration/security/reports 소비도 coverage에서 대조하고 공통 API로 연결한다. 회귀에서 발견한 추가 소비 파일은 이 Task 소유 목록과 메뉴 문서에 명시하고 새 기능은 넣지 않는다.
+- [x] **Step 5: GREEN 검증.** Step2 PASS 및 `pnpm --filter @led-control/web exec vitest run src/features/settings/site/SiteOperationsView.test.tsx src/features/statistics/StatisticsShell.test.tsx`. 320/390/1024/1440·light/dark에서 text Range·단위·긴 이름·실제 저장/탭 mock action을 확인한다.
+- [x] **Step 6: 문서·검토·commit.** P3 여섯의 소비역할/computed/예외와 영향 메뉴를 갱신한다. 이 Task Files 실제 변경만 선택 stage하고 타 소유 변경을 제외한 뒤 `git commit -m "refactor(web): unify settings monitoring and statistics roles"`.
 
 ## Task 4: 제어4mode·workspace·editor와 이전8수리 보호
 
