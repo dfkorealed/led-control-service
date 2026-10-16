@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable } from "@nestjs/comm
 import type { DimmingTarget } from "@led-control/shared";
 import type { Prisma, VehicleSensorProtocol, BioPulseReadiness } from "@prisma/client";
 import { loadBioSensorEligibility } from "./bio-sensor-eligibility";
+import { assertFixtureRegistrationsActive } from "../fixtures/fixture-registration-removal-policy";
 
 type TargetFixture = {
   id: string;
@@ -41,6 +42,7 @@ const targetFixtureSelect = {
 export class TargetSnapshotService {
   async resolve(tx: Prisma.TransactionClient, siteId: string, target: DimmingTarget): Promise<string[]> {
     const fixtures = await this.loadSelection(tx, siteId, target);
+    await assertFixtureRegistrationsActive(tx, fixtures.map(fixture => fixture.id));
     if (fixtures.length === 0) throw new BadRequestException("automation target must contain at least one fixture");
     if (fixtures.some((fixture) => fixture.siteId !== siteId)) {
       throw new BadRequestException("automation target contains a fixture from another site");
@@ -56,6 +58,7 @@ export class TargetSnapshotService {
     allowUnavailable = false
   ): Promise<{ fixtureIds: string[]; sensorProtocol: VehicleSensorProtocol }> {
     const fixtures = await this.loadSelection(tx, siteId, { type: "fixtures", fixtureIds });
+    await assertFixtureRegistrationsActive(tx, fixtures.map(fixture => fixture.id));
     this.assertRegistered(fixtures);
     const protocols = new Set(fixtures.map(fixture => fixture.meshNode?.vehicleSensorProtocol));
     const sensorProtocol = fixtures[0]?.meshNode?.vehicleSensorProtocol;
@@ -83,6 +86,7 @@ export class TargetSnapshotService {
     if (fixtures.length !== fixtureIds.length) {
       throw new BadRequestException("automation target contains an unavailable fixture");
     }
+    await assertFixtureRegistrationsActive(tx, fixtureIds);
     this.assertRegistered(fixtures);
 
     const gatewayIds = [...new Set(fixtures.map((fixture) => fixture.gatewayId!))];
@@ -120,7 +124,7 @@ export class TargetSnapshotService {
     if (target.type === "floor") {
       const floor = await tx.floor.findFirst({
         where: { id: target.floorId, siteId },
-        select: { fixtures: { select: targetFixtureSelect } }
+        select: { fixtures: { where: { retiredAt: null }, select: targetFixtureSelect } }
       });
       if (!floor) throw new BadRequestException("automation target floor not found");
       return floor.fixtures;

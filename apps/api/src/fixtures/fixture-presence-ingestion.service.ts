@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { activeFixtureRegistrationSql } from "./fixture-registration-query";
 import {
   fixturePresenceV2Schema,
   type ApplicationStateIngestedAckV2,
@@ -81,6 +82,7 @@ export class FixturePresenceIngestionService {
     }
 
     if (gatewayId !== presence.gatewayId) throw new Error("fixture presence scope rejected");
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
 
     // freshness sweep과 state ingestion도 Site를 먼저 잡는다. Gateway의 복합 FK와
     // Fixture의 소유 관계를 거꾸로 잠그면 sweep(Site→Gateway→Fixture)과 대기 순서가
@@ -109,6 +111,7 @@ export class FixturePresenceIngestionService {
       INNER JOIN "Floor" fl ON fl."id" = f."floorId"
       INNER JOIN "MeshNode" mn ON mn."id" = f."meshNodeId"
       WHERE f."id" = ${presence.fixtureId}
+        AND ${activeFixtureRegistrationSql()}
         AND fl."siteId" = ${presence.siteId}
         AND mn."gatewayId" = ${gatewayId}
       FOR UPDATE OF f

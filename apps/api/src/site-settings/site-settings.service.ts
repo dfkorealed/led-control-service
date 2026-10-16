@@ -11,6 +11,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 
 const expectedUpdatedAtSchema = z.string().datetime({ offset: true });
 
@@ -107,7 +108,7 @@ export class SiteSettingsService {
             updatedAt: true,
             _count: {
               select: {
-                fixtures: true,
+                fixtures: { where: activeFixtureRegistrationWhere },
                 fixtureGroups: { where: { lifecycleStatus: "active" } }
               }
             }
@@ -245,7 +246,7 @@ export class SiteSettingsService {
       this.assertCurrentVersion(floor.updatedAt, input.expectedUpdatedAt);
 
       const [fixtureCount, activeGroupCount, activeSessionCount] = await Promise.all([
-        tx.fixture.count({ where: { siteId, floorId } }),
+        tx.fixture.count({ where: { siteId, floorId, ...activeFixtureRegistrationWhere } }),
         tx.fixtureGroup.count({ where: { siteId, floorId, lifecycleStatus: "active" } }),
         tx.provisioningSession.count({ where: { siteId, floorId, status: "active" } })
       ]);

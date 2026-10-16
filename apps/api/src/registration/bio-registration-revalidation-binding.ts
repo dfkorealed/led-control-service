@@ -6,6 +6,7 @@ import { applicationProvisioningDeviceTerminalIngestedAckV2Schema, bioRegistrati
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { BIO_DEVICE_UUID, PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE } from "../mqtt/provisioning-device-terminal.service";
 import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "./registration-domain-locks";
+import { assertFixtureRegistrationsActive } from "../fixtures/fixture-registration-removal-policy";
 
 export interface BioRegistrationBinding {
   siteId: string; gatewayId: string; floorId: string; fixtureId: string; nodeId: string;
@@ -48,6 +49,7 @@ export async function authorizeBioRegistrationGateway(tx: Prisma.TransactionClie
  */
 export async function loadLockedBioRegistrationBinding(tx: Prisma.TransactionClient, scope: BioRegistrationScope,
   requiredStatus: "discovered" | "provisioned", now: Date): Promise<BioRegistrationBinding> {
+  await assertFixtureRegistrationsActive(tx, [scope.fixtureId]);
   const fixtures = () => tx.fixture.findFirst({ where: { id: scope.fixtureId, siteId: scope.siteId, gatewayId: scope.gatewayId },
     include: { meshNode: true, floor: true } });
   const proofs = () => tx.discoveredMeshNode.findUnique({ where: { id: scope.fixtureId },

@@ -70,6 +70,8 @@ import { BioRegistrationRevalidationService } from "../registration/bio-registra
 import { bioSensorCatalogTopics, bioSensorPreparationTopics } from "@led-control/shared";
 import { BioSensorProfilesService } from "../automation/bio-sensor-profiles.service";
 import { BioSensorPreparationService } from "../automation/bio-sensor-preparation.service";
+import { FixtureRegistrationRemovalsService } from "../fixtures/fixture-registration-removals.service";
+import { fixtureRegistrationRemovalTopics, type FixtureRegistrationRemovalAck } from "@led-control/shared";
 
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
@@ -81,6 +83,7 @@ function isDurableFixtureObservationTopic(topic: string) {
   return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence") ||
     Boolean(scope && topic === bioSensorModeTopics.result(scope.siteId, scope.gatewayId)) ||
     Boolean(scope && topic === bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId)) ||
+    scope?.channel === "events/registration-removal" ||
     Boolean(scope && topic === mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId));
 }
 
@@ -175,7 +178,8 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly sensorModeOperations?: SensorModeOperationsService,
     @Optional() private readonly bioRegistrationRevalidations?: BioRegistrationRevalidationService,
     @Optional() private readonly bioSensorProfiles?: BioSensorProfilesService,
-    @Optional() private readonly bioSensorPreparations?: BioSensorPreparationService
+    @Optional() private readonly bioSensorPreparations?: BioSensorPreparationService,
+    @Optional() private readonly registrationRemovals?: FixtureRegistrationRemovalsService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
     this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
@@ -222,6 +226,7 @@ export class MqttService implements OnModuleInit {
         "sites/+/gateways/+/events/automation/execution",
         "sites/+/gateways/+/events/automation/vehicle-sensor-capability"
       ], { qos: 1 });
+      client.subscribe(["sites/+/gateways/+/events/registration-removal"], { qos: 1 });
     };
     this.messageListener = (topic, payload, packet) => this.acceptInboundMessage(topic, payload, packet);
     this.closeListener = () => this.abortPendingInboundReservations();
@@ -751,6 +756,11 @@ export class MqttService implements OnModuleInit {
 
   private async ingestFixtureObservationPacket(topic: string, payload: Buffer, receivedAt: Date) {
     const scope = parseGatewayTopic(topic);
+    if (scope?.channel === "events/registration-removal") {
+      if (!this.registrationRemovals) throw new Error("registration removal consumer unavailable");
+      const acknowledgement = await this.registrationRemovals.ingest(topic, JSON.parse(payload.toString()), receivedAt);
+      return { scope, acknowledgement };
+    }
     if (scope && topic === bioRegistrationRevalidationTopics.result(scope.siteId, scope.gatewayId)) {
       if (!this.bioRegistrationRevalidations) throw new Error("BIO registration result consumer unavailable");
       const acknowledgement = await this.bioRegistrationRevalidations.ingest(topic, JSON.parse(payload.toString()), receivedAt);
@@ -773,9 +783,10 @@ export class MqttService implements OnModuleInit {
   private publishFixtureStateAcknowledgement(
     siteId: string,
     gatewayId: string,
-    acknowledgement: ApplicationStateIngestedAckV2 | BioRegistrationRevalidationAck
+    acknowledgement: ApplicationStateIngestedAckV2 | BioRegistrationRevalidationAck | FixtureRegistrationRemovalAck
   ) {
     return this.publishTopic(
+      "operationId" in acknowledgement ? fixtureRegistrationRemovalTopics.ack(siteId, gatewayId) :
       "purpose" in acknowledgement && acknowledgement.purpose === "bio_registration_revalidation"
         ? bioRegistrationRevalidationTopics.ack(siteId, gatewayId) : mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
       acknowledgement,
@@ -1402,7 +1413,8 @@ export class MqttService implements OnModuleInit {
             lastHeartbeatEventId: heartbeat.eventId,
             lastHeartbeatSequence: sequence,
             lastHeartbeatOccurredAt: occurredAt,
-            firmwareVersion: heartbeat.firmwareVersion
+            firmwareVersion: heartbeat.firmwareVersion,
+            fixtureRegistrationRemovalVersion: heartbeat.fixtureRegistrationRemovalVersion ?? 0
           }
         });
         if (updated.count !== 1) throw new Error("gateway heartbeat scope or sequence rejected");
@@ -1794,7 +1806,7 @@ export class MqttService implements OnModuleInit {
       ));
       const membershipsConverged = desiredSet.size === appliedSet.size &&
         [...desiredSet].every((member) => appliedSet.has(member));
-      const isReady = desiredSet.size > 0 && membershipsConverged && !failedOperation;
+      const isReady = membershipsConverged && !failedOperation;
       const retirementSucceeded =
         group.status === "retiring" &&
         group.targetType === "fixture_group" &&

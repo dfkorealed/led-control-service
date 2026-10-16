@@ -398,10 +398,10 @@ describe("SitesService", () => {
       })
     }));
     expect(prisma.fixture.findMany.mock.calls[0][0]).toEqual(expect.objectContaining({
-      where: { floor: { siteId: "site-1", status: "active" } }
+      where: expect.objectContaining({ floor: { siteId: "site-1", status: "active" }, retiredAt: null })
     }));
     expect(prisma.fixture.findMany.mock.calls[1][0]).toEqual(expect.objectContaining({
-      where: { floor: { siteId: "site-1", status: "active" } }
+      where: expect.objectContaining({ floor: { siteId: "site-1", status: "active" }, retiredAt: null })
     }));
   });
 

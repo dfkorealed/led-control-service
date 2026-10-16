@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
@@ -373,6 +373,7 @@ export class EditorLeaseService {
   }
 
   private async lockLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
     const rows = await tx.$queryRaw<Omit<LockedLeaseAuthorityRow, "dbNow">[]>(Prisma.sql`
       SELECT
         "id",
@@ -389,6 +390,10 @@ export class EditorLeaseService {
     `);
     const row = rows[0];
     if (!row) return null;
+    if (await tx.fixtureRegistrationRemovalOperation.findFirst({ where: { floorId,
+      status: { notIn: ["completed", "rejected"] } }, select: { operationId: true } })) {
+      throw new ConflictException("fixture registration removal owns floor");
+    }
     const nowRows = await tx.$queryRaw<Array<{ dbNow: Date }>>(Prisma.sql`SELECT clock_timestamp() AS "dbNow"`);
     return { ...row, dbNow: nowRows[0]!.dbNow };
   }

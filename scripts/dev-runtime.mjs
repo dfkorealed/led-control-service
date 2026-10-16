@@ -322,6 +322,7 @@ function checksumOf(content) {
 const API_READ_SUFFIXES = [
   "events/bio-sensor-catalog-ack", "events/bio-sensor-preparation-result",
   "events/bio-registration-revalidation-result",
+  "events/registration-removal",
   "events/bio-sensor-mode-result",
   "acks/acceptance", "acks/device-status", "state/fixtures", "state/fixture-presence", "state/heartbeat",
   "events/provisioning/scan-found", "events/provisioning/scan-found-v2", "events/provisioning/scan-completed", "events/provisioning/scan-failed",
@@ -334,6 +335,7 @@ const API_READ_SUFFIXES = [
 const API_WRITE_SUFFIXES = [
   "commands/bio-sensor-catalog", "commands/bio-sensor-preparation", "events/bio-sensor-preparation-result-ack",
   "commands/bio-registration-revalidation", "acks/bio-registration-revalidation-result",
+  "commands/registration-removal", "commands/registration-removal-ack",
   "commands/bio-sensor-mode",
   "commands/status-check", "commands/identify", "commands/fixture-presence-check",
   "commands/provisioning/scan-start", "commands/provisioning/scan-stop", "commands/provisioning/identify-device",

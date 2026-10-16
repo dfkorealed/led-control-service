@@ -7,6 +7,9 @@ import { PrismaService } from "../prisma/prisma.service";
 import { FloorEditorService } from "./floor-editor.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
+
+const fixtureWriteIndex = (tx: any) => tx.$executeRaw.mock.calls.findIndex(([query]: any[]) => typeof query.sql === "string" && query.sql.includes('UPDATE "Fixture"'));
 
 describe("FloorEditorService", () => {
   const ids = {
@@ -96,7 +99,7 @@ describe("FloorEditorService", () => {
       include: {
         floorPlan: true,
         cadScene: true,
-        fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
+        fixtures: { where: activeFixtureRegistrationWhere, orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] },
         lightSlots: { orderBy: { id: "asc" } }
       }
@@ -446,7 +449,7 @@ describe("FloorEditorService atomic revisions", () => {
       data: { mapRevision: { increment: 1 } }
     });
     expect(tx.fixture.update).not.toHaveBeenCalled();
-    expect(tx.$executeRaw.mock.calls[0][0].values).toContain(JSON.stringify([{ id: fixtureId, data: { x: 130, y: 250, size: 24 } }]));
+    expect(tx.$executeRaw.mock.calls[fixtureWriteIndex(tx)][0].values).toContain(JSON.stringify([{ id: fixtureId, data: { x: 130, y: 250, size: 24 } }]));
     expect(tx.floorMapRevision.create).toHaveBeenCalledWith({ data: expect.objectContaining({ floorId, revision: 4 }) });
     expect(tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -509,7 +512,7 @@ describe("FloorEditorService atomic revisions", () => {
       data: { assignedFixtureId: null }
     });
     expect(floorLightSlot.updateMany.mock.invocationCallOrder[0])
-      .toBeLessThan(tx.$executeRaw.mock.invocationCallOrder[0]);
+      .toBeLessThan(tx.$executeRaw.mock.invocationCallOrder[tx.$executeRaw.mock.calls.findIndex(([query]: any[]) => query.sql?.includes('UPDATE "FloorLightSlot"'))]);
     expect(floorLightSlot.findMany).toHaveBeenLastCalledWith({
       where: { floorId, assignedFixtureId: { not: null } },
       select: {
@@ -636,7 +639,7 @@ describe("FloorEditorService atomic revisions", () => {
       expect.any(Date)
     );
     expect(energyCheckpoint.closeRatedWattInterval.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.$executeRaw.mock.invocationCallOrder[0]
+      tx.$executeRaw.mock.invocationCallOrder[fixtureWriteIndex(tx)]
     );
   });
 
@@ -645,7 +648,7 @@ describe("FloorEditorService atomic revisions", () => {
     await service.saveEditorState(user, floorId, { ...saveInput,
       fixtureUpdates: [{ id: fixtureId, ratedWatt: "40.00", positionVerified: false }] });
     expect(energyCheckpoint.closeRatedWattInterval).not.toHaveBeenCalled();
-    expect(tx.$executeRaw.mock.calls[0][0].values).toContain(JSON.stringify([
+    expect(tx.$executeRaw.mock.calls[fixtureWriteIndex(tx)][0].values).toContain(JSON.stringify([
       { id: fixtureId, data: { positionVerifiedAt: null } }
     ]));
   });
@@ -1142,8 +1145,8 @@ describe("FloorEditorService atomic revisions", () => {
 
     expect(result.skippedFixtureIds).toEqual([missingFixtureId]);
     expect(tx.fixture.update).not.toHaveBeenCalled();
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
-    expect(tx.$executeRaw.mock.calls[0][0].values).toContain(JSON.stringify([{
+    expect(tx.$executeRaw.mock.calls.filter(([query]: any[]) => typeof query.sql === "string" && query.sql.includes("UPDATE"))).toHaveLength(2);
+    expect(tx.$executeRaw.mock.calls[fixtureWriteIndex(tx)][0].values).toContain(JSON.stringify([{
       id: fixtureId, data: { name: "Old L01", ratedWatt: "30.00", x: 10, y: 20, size: 18,
         placementStatus: "placed", positionVerifiedAt: null }
     }]));

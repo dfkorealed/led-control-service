@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 
 const ids = {
   site: "00000000-0000-4000-8000-000000000001",
@@ -96,7 +97,7 @@ describe("SiteSettingsService", () => {
           select: expect.objectContaining({
             _count: {
               select: {
-                fixtures: true,
+                fixtures: { where: activeFixtureRegistrationWhere },
                 fixtureGroups: { where: { lifecycleStatus: "active" } }
               }
             }

@@ -4,6 +4,7 @@ import { bioSensorModeCommandSchema, bioSensorModeRequestSchema, bioSensorModeRe
 import { Prisma, type SensorModeOperation } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
@@ -30,7 +31,7 @@ export class SensorModeOperationsService {
             existing.requeryOfCommandId !== (input.requeryOfCommandId ?? null)) throw new ConflictException("sensor mode request identity conflict");
         return view(existing);
       }
-      const fixture = await tx.fixture.findFirst({ where: { id: input.fixtureId, siteId: input.siteId }, include: { meshNode: true } });
+      const fixture = await tx.fixture.findFirst({ where: { id: input.fixtureId, siteId: input.siteId, ...activeFixtureRegistrationWhere }, include: { meshNode: true } });
       const node = fixture?.meshNode;
       if (!fixture || !node || node.vehicleSensorProtocol !== "bio_usb_pulse" || !node.deviceUuid?.startsWith("bio:")) {
         throw new BadRequestException("confirmed BIO fixture required");
@@ -90,7 +91,7 @@ export class SensorModeOperationsService {
       const identity = await lockAutomationProtocolIdentity(tx, result);
       if (!identity) throw new BadRequestException("sensor mode assignment unverified");
       await lockFixture(tx, result.fixtureId);
-      const fixture = await tx.fixture.findFirst({ where: { id: result.fixtureId, siteId: result.siteId, gatewayId: result.gatewayId }, include: { meshNode: true } });
+      const fixture = await tx.fixture.findFirst({ where: { id: result.fixtureId, siteId: result.siteId, gatewayId: result.gatewayId, ...activeFixtureRegistrationWhere }, include: { meshNode: true } });
       const currentIdentity = identity.assignmentVersion === result.assignmentVersion && fixture?.meshNodeId === result.nodeId &&
         fixture.meshNode?.deviceUuid !== null && fixture.meshNode?.deviceUuid !== undefined &&
         sensorModeDeviceIdentityHash(fixture.meshNode.deviceUuid) === result.deviceIdentityHash &&

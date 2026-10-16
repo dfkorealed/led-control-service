@@ -8,6 +8,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { isMonitoringGatewayOnline, type MonitoringPolicy } from "../monitoring-incidents/monitoring-conditions";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationSql } from "../fixtures/fixture-registration-query";
 import { recordMonitoringActivity } from "../monitoring-activity/monitoring-activity.projection";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import { finalizeResolvedMonitoringRefresh } from "./monitoring-refresh-state";
@@ -47,11 +48,13 @@ export class MonitoringRefreshIngestionService {
     if (topic !== mqttTopicsV2.fixtureUnreachable(event.siteId, event.gatewayId)) throw new Error("monitoring refresh topic scope rejected");
     const now = new Date(receivedAt);
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
       const { site, gateway } = await lockParents(tx, event);
       const [fixture] = await tx.$queryRaw<Array<{ id: string; floorId: string; name: string; status: string; lastSeenAt: Date | null; lastUnreachableAt: Date | null }>>(Prisma.sql`
         SELECT f."id", f."floorId", f."name", f."status", f."lastSeenAt", f."lastUnreachableAt" FROM "Fixture" f
         INNER JOIN "MeshNode" mn ON mn."id" = f."meshNodeId"
         WHERE f."id" = ${event.fixtureId} AND f."siteId" = ${event.siteId} AND mn."gatewayId" = ${event.gatewayId}
+          AND ${activeFixtureRegistrationSql()}
         FOR UPDATE OF f
       `);
       const context = await lockRefreshObservation(tx, event, fixture?.floorId);

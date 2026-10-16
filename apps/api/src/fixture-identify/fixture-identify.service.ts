@@ -12,6 +12,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { RedisProvider } from "../redis/redis.provider";
 import { identifyCoordinationDeadline as bounded } from "./fixture-identify-deadline";
 import { assertNoActiveBioSourceTarget } from "../automation/bio-source-target-policy";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 
 export const identifyCompareDelete = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`;
 const prefix = "fixture-identify:v1";
@@ -52,7 +53,7 @@ export class FixtureIdentifyService implements OnModuleInit, OnModuleDestroy {
       if (request.action === "start" && floor.editorLeaseExpiresAt.getTime() < now.getTime() + FIXTURE_IDENTIFY_TTL_MS) {
         throw new ConflictException("floor editor lease requires renewal");
       }
-      const fixture = await tx.fixture.findFirst({ where: { id: fixtureId, floorId, siteId: site.id }, include: {
+      const fixture = await tx.fixture.findFirst({ where: { id: fixtureId, floorId, siteId: site.id, ...activeFixtureRegistrationWhere }, include: {
         meshNode: { include: { gateway: { include: {
           inventory: true,
           certificates: { where: { purpose: "mqtt", status: "active", revokedAt: null, notBefore: { lte: now }, notAfter: { gt: now } } }

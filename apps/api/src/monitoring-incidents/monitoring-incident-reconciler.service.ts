@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { Prisma, type MonitoringIncidentType } from "@prisma/client";
 import { isMonitoringConditionActive, type MonitoringPolicy } from "./monitoring-conditions";
 import { utcTimestampSql } from "../prisma/utc-timestamp-sql";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 
 @Injectable()
 export class MonitoringIncidentReconcilerService {
@@ -13,7 +14,7 @@ export class MonitoringIncidentReconcilerService {
       ORDER BY "id" FOR UPDATE
     `);
     const gateways = await tx.gateway.findMany({ where: { siteId: site.id }, select: { id: true, lastHeartbeatAt: true } });
-    const fixtures = await tx.fixture.findMany({ where: { siteId: site.id }, select: {
+    const fixtures = await tx.fixture.findMany({ where: { siteId: site.id, ...activeFixtureRegistrationWhere }, select: {
       id: true, gatewayId: true, lastSeenAt: true, lastUnreachableAt: true, reportedStatusReason: true, healthFaultCodes: true, healthLastSeenAt: true
     } });
     const byGatewayId = new Map(gateways.map((gateway) => [gateway.id, gateway]));

@@ -66,6 +66,7 @@ function createHarness(options: {
   };
   let storedCommand: Record<string, unknown> | null = options.existingCommand ?? null;
   const tx: any = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
     temporaryControlLease: { findFirst: jest.fn().mockResolvedValue(null) },
     vehicleEventSource: { findFirst: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn().mockResolvedValue([]),

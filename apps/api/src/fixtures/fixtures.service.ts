@@ -7,6 +7,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationWhere, assertFixtureRegistrationsActive } from "./fixture-registration-removal-policy";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "./fixture-health";
 import { isMonitoringGatewayOnline, monitoringFixtureState } from "../monitoring-incidents/monitoring-conditions";
 
@@ -72,7 +73,7 @@ export class FixturesService {
     });
     if (!policy) throw new NotFoundException("floor not found");
     const rows = await this.prisma.fixture.findMany({
-      where: { siteId, floorId },
+      where: { siteId, floorId, ...activeFixtureRegistrationWhere },
       orderBy: { id: "asc" },
       take: limit + 1,
       ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
@@ -156,7 +157,7 @@ export class FixturesService {
     }
 
     const rows = await this.prisma.fixture.findMany({
-      where: { siteId, floorId },
+      where: { siteId, floorId, ...activeFixtureRegistrationWhere },
       orderBy: { id: "asc" },
       take: limit + 1,
       ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
@@ -205,7 +206,9 @@ export class FixturesService {
     if (!parsed.success) throw new BadRequestException("invalid fixture metadata request");
 
     const fixture = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
       await this.siteAccess.assertManageInTransaction(tx, user, siteId);
+      await assertFixtureRegistrationsActive(tx, [fixtureId]);
       const rows = await tx.$queryRaw<LockedFixtureMetadata[]>(Prisma.sql`
         SELECT
           "id",

@@ -125,6 +125,7 @@ export class MapDocumentMutationService {
 
   private async authorize<T>(tx: Prisma.TransactionClient, floorId: string, siteId: string, user: AuthenticatedUser,
     input: SaveEditorStateInput, hash: string, addedDecodedBytes = 0) {
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
     const site = await this.access.assertManageInTransaction(tx, user, siteId);
     const [floor] = await tx.$queryRaw<Array<{ siteId: string; status: string; mapRevision: number; editorLeaseHolderId: string | null;
       editorLeaseFence: number; editorLeaseTokenHash: string | null; editorLeaseExpiresAt: Date | null }>>(Prisma.sql`

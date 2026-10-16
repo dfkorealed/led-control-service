@@ -27,6 +27,7 @@ import { EDITOR_TRANSACTION_OPTIONS } from "../floor-editor/floor-editor.service
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { assertActiveFloorStatus } from "../floor-editor/floor-lifecycle";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { CadSceneEvidenceService, type CadSceneEvidenceTile } from "./cad-scene-evidence.service";
 import { MapDocumentRevisionData } from "../floor-editor/map-document-revision-data";
 
@@ -96,7 +97,7 @@ export class FloorMapService {
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
         },
         fixtures: {
-          where: { placementStatus: "placed" },
+          where: { placementStatus: "placed", ...activeFixtureRegistrationWhere },
           orderBy: { id: "asc" },
           select: {
             id: true,

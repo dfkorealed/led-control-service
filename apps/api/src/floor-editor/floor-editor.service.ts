@@ -16,6 +16,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { buildFloorEditorSnapshot, buildMapDocumentSnapshot, hashFloorEditorSnapshot, MapDocumentSnapshot } from "./floor-editor-snapshot";
 import { MapDocumentMutationService } from "./map-document-mutation.service";
@@ -146,7 +147,7 @@ export class FloorEditorService {
       include: {
         floorPlan: true,
         cadScene: true,
-        fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
+        fixtures: { where: activeFixtureRegistrationWhere, orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] },
         lightSlots: { orderBy: { id: "asc" } }
       }
@@ -173,6 +174,7 @@ export class FloorEditorService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
         const changedAt = await this.assertLockedRevision(
           tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence
@@ -248,7 +250,7 @@ export class FloorEditorService {
     // Fixtures registered after this revision keep their identity, coordinates
     // and device state. A smaller restored map invalidates only their placement;
     // persist that transition before building the snapshot in this transaction.
-    await tx.fixture.updateMany({ where: { floorId, id: { notIn: [...existing] }, placementStatus: "placed",
+    await tx.fixture.updateMany({ where: { floorId, ...activeFixtureRegistrationWhere, id: { notIn: [...existing] }, placementStatus: "placed",
       OR: [{ x: { lt: 0 } }, { y: { lt: 0 } }, { x: { gt: document.width } }, { y: { gt: document.height } }] },
       data: { placementStatus: "unplaced", positionVerifiedAt: null } });
     const floor = await this.loadSnapshotFloor(tx, floorId), snapshot = this.buildSnapshot(floor);
@@ -315,6 +317,7 @@ export class FloorEditorService {
     }
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
         if (await this.mapData?.currentRef(floorId, tx)) throw new ConflictException("map document changed during restore");
         const source = await tx.floorMapRevision.findUnique({
@@ -388,6 +391,7 @@ export class FloorEditorService {
     lightSlots?: any[];
     cadScene?: any;
   }, document: MapDocumentRef | null = null) {
+    const operatingFixtureIds = new Set(floor.fixtures.map(fixture => fixture.id));
     return {
       floor: {
         id: floor.id,
@@ -432,7 +436,7 @@ export class FloorEditorService {
         x: slot.x,
         y: slot.y,
         rotation: slot.rotation,
-        assignedFixtureId: slot.assignedFixtureId
+        assignedFixtureId: operatingFixtureIds.has(slot.assignedFixtureId) ? slot.assignedFixtureId : null
       })),
       objects: (document ? [] : [...floor.mapObjects]).sort((left, right) => this.compareEditorObjects(left, right)).map((object) => ({
         id: object.id,
@@ -540,7 +544,7 @@ export class FloorEditorService {
     ])];
     const fixtures = fixtureIds.length === 0
       ? []
-      : await tx.fixture.findMany({ where: { floorId, id: { in: fixtureIds } }, select: { id: true } });
+      : await tx.fixture.findMany({ where: { floorId, id: { in: fixtureIds }, ...activeFixtureRegistrationWhere }, select: { id: true } });
     if (fixtures.length !== fixtureIds.length) {
       throw new BadRequestException("fixture updates must belong to the requested floor");
     }
@@ -799,7 +803,7 @@ export class FloorEditorService {
   ) {
     if (patches.length === 0) return;
     const fixtures = await tx.fixture.findMany({
-      where: { floorId, id: { in: patches.map(({ id }) => id) } },
+      where: { floorId, id: { in: patches.map(({ id }) => id) }, ...activeFixtureRegistrationWhere },
       select: {
         id: true, name: true, floorId: true, energyTrackingStartedAt: true,
         x: true, y: true, ratedWatt: true, placementStatus: true, positionVerifiedAt: true,
@@ -863,7 +867,7 @@ export class FloorEditorService {
       include: {
         floorPlan: true,
         cadScene: true,
-        fixtures: { orderBy: { id: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
+        fixtures: { where: activeFixtureRegistrationWhere, orderBy: { id: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: { id: "asc" } },
         lightSlots: { orderBy: { id: "asc" } }
       }
@@ -959,7 +963,7 @@ export class FloorEditorService {
   private async existingFixtureIds(tx: Prisma.TransactionClient, floorId: string, fixtureIds: string[]) {
     if (fixtureIds.length === 0) return new Set<string>();
     const fixtures = await tx.fixture.findMany({
-      where: { floorId, id: { in: fixtureIds } },
+      where: { floorId, id: { in: fixtureIds }, ...activeFixtureRegistrationWhere },
       select: { id: true }
     });
     return new Set(fixtures.map((fixture) => fixture.id));

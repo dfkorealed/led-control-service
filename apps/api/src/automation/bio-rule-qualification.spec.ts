@@ -29,6 +29,7 @@ function context(fixtures = [fixture(sourceId), fixture(targetId)], existing?: R
   eligibility = readyEligibility) {
   let rule: any = existing;
   const tx = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
     fixture: { findMany: jest.fn(async ({ where }) => fixtures.filter(f =>
       where.id.in.includes(f.id) && (!where.siteId || where.siteId === f.siteId))) },
     gateway: { findUnique: jest.fn(async () => ({ siteId })) },

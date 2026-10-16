@@ -77,6 +77,7 @@ interface SnapshotFloor {
 }
 
 export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnapshot {
+  const operatingFixtureIds = new Set(floor.fixtures.map(fixture => fixture.id));
   return parseFloorEditorSnapshot({
     version: 2,
     floorPlan: floor.floorPlan
@@ -139,7 +140,7 @@ export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnaps
         x: slot.x,
         y: slot.y,
         rotation: slot.rotation,
-        assignedFixtureId: slot.assignedFixtureId
+        assignedFixtureId: slot.assignedFixtureId && operatingFixtureIds.has(slot.assignedFixtureId) ? slot.assignedFixtureId : null
       }))
   });
 }

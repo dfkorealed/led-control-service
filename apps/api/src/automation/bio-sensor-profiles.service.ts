@@ -230,7 +230,12 @@ export class BioSensorProfilesService {
     });
   }
 
-  private advance(tx: Prisma.TransactionClient) {
+  private async advance(tx: Prisma.TransactionClient) {
+    // Catalog revisions are global. Do not invalidate an immutable cleanup ACK
+    // target while a removal or its rollback still owns the registration.
+    if (await tx.fixtureRegistrationRemovalOperation.findFirst({ where: { status: { notIn: ["completed", "rejected"] } }, select: { operationId: true } })) {
+      throw new ConflictException("registration removal owns catalog convergence");
+    }
     return tx.bioSensorCatalogState.update({ where: { id: 1 }, data: { revision: { increment: 1 } } });
   }
 }

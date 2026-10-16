@@ -6,6 +6,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationSql } from "../fixtures/fixture-registration-query";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 
 const MAX_FIXTURE_GROUPS_PER_FIXTURE = 15;
@@ -317,6 +318,7 @@ export class FixtureGroupsService {
       FROM "Fixture" fixture
       LEFT JOIN "MeshNode" mesh_node ON mesh_node."id" = fixture."meshNodeId"
       WHERE fixture."id" IN (${Prisma.join(fixtureIds)})
+        AND ${activeFixtureRegistrationSql("fixture")}
       ORDER BY fixture."id"
       FOR UPDATE OF fixture
     `);
@@ -436,6 +438,7 @@ export class FixtureGroupsService {
       INNER JOIN "Fixture" fixture ON fixture."id" = membership."fixtureId"
       INNER JOIN "MeshNode" mesh_node ON mesh_node."id" = fixture."meshNodeId"
       WHERE membership."groupId" = ${fixtureGroupId}
+        AND ${activeFixtureRegistrationSql("fixture")}
       ORDER BY fixture."id"
       FOR UPDATE OF fixture
     `);

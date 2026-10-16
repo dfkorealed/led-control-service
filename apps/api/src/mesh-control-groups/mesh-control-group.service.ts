@@ -7,6 +7,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { MeshGroupSubscriptionSyncPayload } from "@led-control/shared";
 import { MeshControlGroupStatus, Prisma } from "@prisma/client";
+import { activeFixtureRegistrationWhere, assertFixtureRegistrationsActive } from "../fixtures/fixture-registration-removal-policy";
 
 const MIN_MESH_GROUP_ADDRESS = 0xc000;
 const MAX_MESH_GROUP_ADDRESS = 0xfeff;
@@ -81,7 +82,8 @@ export class MeshControlGroupService {
     if (!group) return null;
 
     const desiredMembers = await tx.meshControlGroupMember.findMany({
-      where: { groupId: group.id, gatewayId: group.gatewayId, desired: true },
+      where: { groupId: group.id, gatewayId: group.gatewayId, desired: true,
+        meshNode: { retiredAt: null, fixture: { is: activeFixtureRegistrationWhere } } },
       orderBy: [{ meshNodeId: "asc" }],
       select: {
         meshNodeId: true,
@@ -316,6 +318,7 @@ export class MeshControlGroupService {
   }
 
   async getReadyDestination(tx: Prisma.TransactionClient, input: ReadyDestinationInput) {
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
     await this.assertDestinationTargetBoundary(tx, input);
 
     const group = await tx.meshControlGroup.findFirst({
@@ -340,6 +343,8 @@ export class MeshControlGroupService {
     if (!group || group.status !== MeshControlGroupStatus.ready) {
       throw new BadRequestException("mesh control group is not ready");
     }
+    const fixtures = await tx.fixture.findMany({ where: { meshNode: { controlGroupMemberships: { some: { groupId: group.id, desired: true } } } }, select: { id: true } });
+    await assertFixtureRegistrationsActive(tx, fixtures.map(fixture => fixture.id));
 
     return {
       groupId: group.id,

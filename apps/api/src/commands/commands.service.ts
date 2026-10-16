@@ -18,6 +18,7 @@ import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-gro
 import { PrismaService } from "../prisma/prisma.service";
 import { CommandDispatchService } from "./command-dispatch.service";
 import { commandHistoryGetDbClockRequested, commandHistoryGetReadBoundary } from "./command-history-rollout";
+import { assertFixtureRegistrationsActive } from "../fixtures/fixture-registration-removal-policy";
 
 type DeliveryMode = "unicast" | "parallel_unicast" | "mesh_group";
 
@@ -329,14 +330,16 @@ export class CommandsService {
         select: fixtureControlSelect
       });
       if (fixtures.length !== requestedIds.length) return [];
+      await assertFixtureRegistrationsActive(tx, requestedIds);
       return this.toMappings(fixtures as FixtureRow[]);
     }
 
     if (target.type === "floor") {
       const floor = await tx.floor.findFirst({
         where: { id: target.floorId, siteId },
-        select: { id: true, fixtures: { select: fixtureControlSelect } }
+        select: { id: true, fixtures: { where: { retiredAt: null }, select: fixtureControlSelect } }
       });
+      if (floor) await assertFixtureRegistrationsActive(tx, floor.fixtures.map(fixture => fixture.id));
       return floor ? this.toMappings(floor.fixtures as FixtureRow[]) : [];
     }
 
@@ -354,6 +357,7 @@ export class CommandsService {
         }
       }
     });
+    if (group) await assertFixtureRegistrationsActive(tx, group.groupFixtures.map(item => item.fixtureId));
     return group
       ? this.toMappings(group.groupFixtures.map((item) => item.fixture) as FixtureRow[])
       : [];

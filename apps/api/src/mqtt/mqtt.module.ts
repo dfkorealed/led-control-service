@@ -35,11 +35,14 @@ import { CommandPublishQuiesceService } from "./command-publish-quiesce.service"
 import { BioRegistrationRevalidationService } from "../registration/bio-registration-revalidation.service";
 import { BioRegistrationRevalidationPublisherService } from "./bio-registration-revalidation-publisher.service";
 import { BioSensorCatalogOutboxService } from "../automation/bio-sensor-catalog-outbox.service";
+import { FixtureRegistrationRemovalRuntimeModule } from "../fixtures/fixture-registration-removal-runtime.module";
+import { FixtureRegistrationRemovalPublisherService } from "./fixture-registration-removal-publisher.service";
 
 @Module({
-  imports: [PrismaModule, AccessModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
+  imports: [PrismaModule, AccessModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule, FixtureRegistrationRemovalRuntimeModule],
   providers: [
     MqttService,
+    FixtureRegistrationRemovalPublisherService,
     BioSensorCatalogOutboxService,
     SensorModeOperationsService,
     BioRegistrationRevalidationService,

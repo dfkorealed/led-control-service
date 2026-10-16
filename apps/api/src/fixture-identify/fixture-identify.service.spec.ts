@@ -79,7 +79,7 @@ it("rejects unregistered, wrong-floor, and inactive-certificate targets", async 
   const h = setup();
   h.tx.fixture.findFirst.mockResolvedValueOnce(null as never);
   await expect(h.request()).rejects.toThrow("fixture not found");
-  expect(h.tx.fixture.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: fixtureId, floorId, siteId } }));
+  expect(h.tx.fixture.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: fixtureId, floorId, siteId, retiredAt: null }) }));
   h.fixture.meshNode.gateway.certificates = [{ inventoryId: "different-inventory" }];
   await expect(h.request()).rejects.toThrow("fixture_not_registered");
   h.fixture.meshNode.gateway.certificates = [];

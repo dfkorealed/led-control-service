@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { activeFixtureRegistrationSql } from "../fixtures/fixture-registration-query";
 
 export type EditorPatch = { id: string; data: Record<string, unknown> };
 
@@ -32,6 +33,7 @@ export async function persistEditorPatches(
       SET ${Prisma.join(assignments)}, "updatedAt" = ${changedAt}
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb) AS p(id text, data jsonb)
       WHERE f."id" = p.id AND f."floorId" = ${floorId}
+        ${table === "Fixture" ? Prisma.sql`AND ${activeFixtureRegistrationSql()}` : Prisma.empty}
     `);
   }
 }

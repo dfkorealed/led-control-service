@@ -47,6 +47,8 @@ describe("EditorLeaseService", () => {
         update
       },
       $transaction: jest.fn().mockImplementation(async (callback: (tx: any) => Promise<unknown>) => callback({
+        $executeRaw: jest.fn().mockResolvedValue(1),
+        fixtureRegistrationRemovalOperation: { findFirst: jest.fn().mockResolvedValue(null) },
         floor: {
           findUnique: floorFindUnique,
           update

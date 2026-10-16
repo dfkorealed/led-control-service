@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { activeFixtureRegistrationSql } from "../fixtures/fixture-registration-query";
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import {
@@ -120,6 +121,7 @@ export class FixtureStateIngestionService {
       return resultFrom(state, existing.ingestionStatus === "rejected_future_timestamp" ? "rejected_future_timestamp" : "duplicate");
     }
 
+    await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
     const [site] = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT "id"
       FROM "Site"
@@ -156,6 +158,7 @@ export class FixtureStateIngestionService {
       INNER JOIN "MeshNode" mn ON mn."id" = f."meshNodeId"
       INNER JOIN "EnergyFixtureIdentity" energy_fixture ON energy_fixture."fixtureId" = f."id"
       WHERE f."id" = ${state.fixtureId}
+        AND ${activeFixtureRegistrationSql()}
         AND fl."siteId" = ${state.siteId}
         AND mn."gatewayId" = ${gatewayId}
         AND mn."gatewayId" = ${state.gatewayId}
@@ -311,7 +314,8 @@ export async function closeFixtureEnergyForRatedWattChange(
   tx: Prisma.TransactionClient,
   fixtureId: string,
   nextRatedWatt: Prisma.Decimal,
-  closedAt: Date
+  closedAt: Date,
+  retiring = false
 ) {
   const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
     SELECT
@@ -338,7 +342,7 @@ export async function closeFixtureEnergyForRatedWattChange(
     FOR UPDATE OF f
   `);
   if (!fixture) throw new Error("fixture energy checkpoint scope rejected");
-  if (new Prisma.Decimal(fixture.ratedWatt).eq(nextRatedWatt)) return false;
+  if (!retiring && new Prisma.Decimal(fixture.ratedWatt).eq(nextRatedWatt)) return false;
 
   const snapshot = toSnapshot(fixture);
   const storedCursor = await tx.fixtureEnergyStateCursor.findUnique({ where: { fixtureId } });
@@ -383,7 +387,7 @@ export async function closeSiteEnergyForSettingsChange(
     FROM "Fixture" f
     LEFT JOIN "EnergyFixtureIdentity" energy_fixture ON energy_fixture."fixtureId" = f."id"
     LEFT JOIN "FixtureEnergyStateCursor" cursor ON cursor."fixtureId" = f."id"
-    WHERE f."siteId" = ${input.siteId}
+    WHERE f."siteId" = ${input.siteId} AND f."retiredAt" IS NULL
     ORDER BY f."id"
     FOR UPDATE OF f
   `);
@@ -423,6 +427,14 @@ export async function closeSiteEnergyForSettingsChange(
 
 @Injectable()
 export class FixtureEnergyCheckpointService {
+  async closeRetirementInterval(tx: Prisma.TransactionClient, fixtureId: string, closedAt: Date) {
+    const fixture = await tx.fixture.findUniqueOrThrow({ where: { id: fixtureId }, select: { ratedWatt: true, firstStateOccurredAt: true } });
+    // No physical observation means there is no energy interval to close. In
+    // particular, do not invent zero-cost usage for an unconfigured tariff.
+    if (!fixture.firstStateOccurredAt) return false;
+    return closeFixtureEnergyForRatedWattChange(tx, fixtureId, fixture.ratedWatt, closedAt, true);
+  }
+
   closeRatedWattInterval(
     tx: Prisma.TransactionClient,
     fixtureId: string,

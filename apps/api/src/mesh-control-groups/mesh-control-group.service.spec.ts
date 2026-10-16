@@ -861,6 +861,8 @@ describe("MeshControlGroupService", () => {
 
   it("returns only ready destinations and rejects missing or unready targets", async () => {
     const tx: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      fixture: { findMany: jest.fn().mockResolvedValue([]) },
       floor: {
         findFirst: jest.fn()
           .mockResolvedValueOnce({ id: floorId })

@@ -55,7 +55,7 @@ function exclusionHarness(options: { version?: number; bio?: boolean; timeZone?:
     createdById: admin.id, updatedById: admin.id, createdAt: new Date("2026-10-01Z"), updatedAt: new Date("2026-10-01Z"),
     gateway: { automationConfiguration: { desiredRevision: 4, appliedRevision: 3, syncStatus: "PENDING" } }, executions: [] };
   let peers: any[] = [];
-  const tx = { $queryRaw: async () => [{ assignmentVersion: 1 }],
+  const tx = { $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: async () => [{ assignmentVersion: 1 }],
     gatewayAutomationProtocolSupport: { findFirst: async () => ({ maxSnapshotVersion: options.version ?? 3, temporaryControlVersion: 1, bioConfigurationReadback: options.readback ?? true, durableFixtureLease: options.lease ?? true }) },
     fixture: { findMany: async () => [FIXTURE_1, FIXTURE_2].map(id => ({ id, meshNode: { vehicleSensorProtocol: options.bio === false ? "bluez_stateful" : "bio_usb_pulse", gatewayId: GATEWAY_ID } })) },
     site: { findUnique: async () => ({ timeZone: options.timeZone ?? "Asia/Seoul" }) },
@@ -168,7 +168,7 @@ describe("TargetSnapshotService", () => {
   const service = new TargetSnapshotService();
 
   it("resolves an exact, sorted distinct fixture snapshot", async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       fixture: {
         findMany: jest.fn().mockResolvedValue([
           { id: FIXTURE_2, siteId: SITE_ID, meshNodeId: "node-2", gatewayId: GATEWAY_ID },
@@ -187,7 +187,7 @@ describe("TargetSnapshotService", () => {
   });
 
   it("rejects a selected fixture that is not registered to a gateway", async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       fixture: {
         findMany: jest.fn().mockResolvedValue([
           { id: FIXTURE_1, siteId: SITE_ID, meshNodeId: null, gatewayId: null }
@@ -206,6 +206,7 @@ describe("TargetSnapshotService", () => {
       "floor",
       { type: "floor" as const, floorId: "00000000-0000-4000-8000-000000000008" },
       {
+        $executeRaw: jest.fn().mockResolvedValue(1),
         floor: {
           findFirst: jest.fn().mockResolvedValue({
             fixtures: [
@@ -220,6 +221,7 @@ describe("TargetSnapshotService", () => {
       "group",
       { type: "group" as const, groupId: "00000000-0000-4000-8000-000000000009" },
       {
+        $executeRaw: jest.fn().mockResolvedValue(1),
         fixtureGroup: {
           findFirst: jest.fn().mockResolvedValue({
             groupFixtures: [
@@ -235,7 +237,7 @@ describe("TargetSnapshotService", () => {
   });
 
   it("rejects a target snapshot spanning more than one gateway", async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       fixture: {
         findMany: jest.fn().mockResolvedValue([
           { id: FIXTURE_1, siteId: SITE_ID, meshNodeId: "node-1", gatewayId: GATEWAY_ID },
@@ -256,7 +258,7 @@ describe("TargetSnapshotService", () => {
   });
 
   it("rejects a group containing a fixture from another site", async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       fixtureGroup: {
         findFirst: jest.fn().mockResolvedValue({
           groupFixtures: [{
@@ -278,7 +280,7 @@ describe("TargetSnapshotService", () => {
   });
 
   it("rejects a gateway whose owner Site differs from the fixture snapshot Site", async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       fixture: {
         findMany: jest.fn().mockResolvedValue([
           { id: FIXTURE_1, siteId: SITE_ID, meshNodeId: "node-1", gatewayId: GATEWAY_ID }
@@ -299,7 +301,7 @@ describe("TargetSnapshotService", () => {
 
 it.each(["fixture", "fixtures", "floor", "group"] as const)("rejects a schedule whose expanded %s target contains an active BIO source", async type => {
   const fixture = { id: FIXTURE_1, siteId: SITE_ID, meshNodeId: "node", gatewayId: GATEWAY_ID };
-  const tx = { site: { findUnique: jest.fn().mockResolvedValue({ timeZone: "Asia/Seoul" }) },
+  const tx = { $executeRaw: jest.fn().mockResolvedValue(1), site: { findUnique: jest.fn().mockResolvedValue({ timeZone: "Asia/Seoul" }) },
     fixture: { findMany: jest.fn().mockResolvedValue([fixture]) },
     gateway: { findUnique: jest.fn().mockResolvedValue({ siteId: SITE_ID }) },
     floor: { findFirst: jest.fn().mockResolvedValue({ fixtures: [fixture] }) },
@@ -322,7 +324,7 @@ describe("SchedulesService", () => {
       localStartTime: "09:00", localEndTime: "10:00", recurrenceKind: "daily", weeklyDays: [],
       monthlyDay: null, yearlyMonth: null, yearlyDay: null, dimmingEnabled: true, brightnessPercent: 60,
       fixtures: [{ fixtureId: FIXTURE_1 }] };
-    const tx = { site: { findUnique: async () => ({ timeZone: "Asia/Seoul" }) },
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1), site: { findUnique: async () => ({ timeZone: "Asia/Seoul" }) },
       vehicleEventSource: { findFirst: jest.fn().mockResolvedValue({ fixtureId: FIXTURE_1 }) },
       lightingSchedule: { findFirst: async () => existing, findMany: async () => [], update: jest.fn() } };
     const service = new SchedulesService({ $transaction: (fn: any) => fn(tx) } as never,
@@ -333,7 +335,7 @@ describe("SchedulesService", () => {
   });
   it("lists one deterministic bounded page and returns total plus next cursor", async () => {
     const createdAt = new Date("2026-08-30T01:02:03.456Z");
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       lightingSchedule: {
         count: jest.fn().mockResolvedValueOnce(37).mockResolvedValueOnce(10).mockResolvedValueOnce(20).mockResolvedValueOnce(7),
         findMany: jest.fn().mockResolvedValue([])
@@ -376,7 +378,7 @@ describe("SchedulesService", () => {
   });
 
   it("applies literal name, status, and Gateway sync filters to both page and filtered count", async () => {
-    const tx = { lightingSchedule: { count: jest.fn()
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1), lightingSchedule: { count: jest.fn()
       .mockResolvedValueOnce(5).mockResolvedValueOnce(1).mockResolvedValueOnce(2)
       .mockResolvedValueOnce(2).mockResolvedValueOnce(1), findMany: jest.fn().mockResolvedValue([]) } };
     const service = new SchedulesService(
@@ -397,7 +399,7 @@ describe("SchedulesService", () => {
 
   it("rejects an enabled exact overlap with the stable schedule_overlap code", async () => {
     const transactionCalls: string[] = [];
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       vehicleEventSource: { findFirst: jest.fn().mockResolvedValue(null) },
       $queryRaw: jest.fn().mockImplementation(() => {
         transactionCalls.push("automation-lock");
@@ -479,7 +481,7 @@ describe("SchedulesService", () => {
       brightnessPercent: 80,
       fixtures: [{ fixtureId: FIXTURE_1 }]
     };
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([{ lock_automation_membership_mutation: null }]),
       site: { findUnique: jest.fn().mockResolvedValue({ id: SITE_ID, timeZone: "Asia/Seoul" }) },
       lightingSchedule: {
@@ -516,7 +518,7 @@ describe("SchedulesService", () => {
 
   it("locks automation before Site reauthorization on delete", async () => {
     const transactionCalls: string[] = [];
-    const tx = {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1),
       lightingSchedule: { findFirst: jest.fn().mockResolvedValue(null) }
     };
     const service = new SchedulesService(

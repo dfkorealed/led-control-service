@@ -1,6 +1,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { FloorMapService } from "./floor-map.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 
 describe("FloorMapService", () => {
   const siteId = "00000000-0000-4000-8000-000000000002";
@@ -131,7 +132,7 @@ describe("FloorMapService", () => {
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
         },
         fixtures: {
-          where: { placementStatus: "placed" },
+          where: { placementStatus: "placed", ...activeFixtureRegistrationWhere },
           orderBy: { id: "asc" },
           select: {
             id: true,

@@ -10,6 +10,7 @@ import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-
 import { SensorModePublisherService } from "./sensor-mode-publisher.service";
 import { BioRegistrationRevalidationPublisherService } from "./bio-registration-revalidation-publisher.service";
 import { BioSensorCatalogOutboxService } from "../automation/bio-sensor-catalog-outbox.service";
+import { FixtureRegistrationRemovalPublisherService } from "./fixture-registration-removal-publisher.service";
 
 @Injectable()
 export class MqttShutdownCoordinator implements OnModuleDestroy {
@@ -26,7 +27,8 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
     @Optional() private readonly recoveryOutbox?: RecoveryOutboxPublisherService,
     @Optional() private readonly sensorModeOutbox?: SensorModePublisherService,
     @Optional() private readonly bioRegistrationOutbox?: BioRegistrationRevalidationPublisherService,
-    @Optional() private readonly bioSensorCatalogOutbox?: BioSensorCatalogOutboxService
+    @Optional() private readonly bioSensorCatalogOutbox?: BioSensorCatalogOutboxService,
+    @Optional() private readonly registrationRemovals?: FixtureRegistrationRemovalPublisherService
   ) {}
 
   onModuleDestroy() {
@@ -40,6 +42,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
       const inboundDrain = this.mqtt.stopInboundAndDrain();
       this.shutdownPromise = Promise.all([
         commandDrain,
+        this.registrationRemovals?.stopAndDrain(),
         this.sensorModeOutbox?.stopAndDrain(),
         this.bioRegistrationOutbox?.stopAndDrain(),
         this.bioSensorCatalogOutbox?.stopAndDrain(),

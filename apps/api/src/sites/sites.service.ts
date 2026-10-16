@@ -3,6 +3,7 @@ import { isGatewayHeartbeatFresh } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "../fixtures/fixture-health";
 import { vehicleEventSourceView } from "./vehicle-event-source-view";
 import { loadBioSensorEligibility } from "../automation/bio-sensor-eligibility";
@@ -116,7 +117,7 @@ export class SitesService {
 
     const fixtures = includeFixtures
       ? await this.prisma.fixture.findMany({
-          where: { floor: { siteId: site.id, status: "active" } },
+          where: { floor: { siteId: site.id, status: "active" }, ...activeFixtureRegistrationWhere },
           orderBy: { name: "asc" },
           include: {
             meshNode: { include: { gateway: true } },
@@ -135,7 +136,7 @@ export class SitesService {
       fixtureStaleAfterSeconds: site.fixtureStaleAfterSeconds
     };
     const summaryFixtures = includeFixtures ? fixtures : await this.prisma.fixture.findMany({
-      where: { floor: { siteId: site.id, status: "active" } },
+      where: { floor: { siteId: site.id, status: "active" }, ...activeFixtureRegistrationWhere },
       select: {
         floorId: true, brightness: true, reportedStatus: true, reportedStatusReason: true,
         lastSeenAt: true, lastUnreachableAt: true, healthFaultCodes: true, healthLastSeenAt: true,

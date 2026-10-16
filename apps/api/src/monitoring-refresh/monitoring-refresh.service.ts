@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { recordMonitoringActivity } from "../monitoring-activity/monitoring-activity.projection";
 import { MonitoringRefreshInput } from "./monitoring-refresh.dto";
 
@@ -49,6 +50,7 @@ export class MonitoringRefreshService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
         await this.siteAccess.assertReadInTransaction(tx, user, siteId);
         // Serialize active-request reuse and cooldown decisions per floor. Without
         // this lock, two different client request IDs could both observe no active job.
@@ -135,7 +137,7 @@ export class MonitoringRefreshService {
         }
 
         const selectedFixtures = await tx.fixture.findMany({
-          where: { floorId, siteId, meshNode: { isNot: null } },
+          where: { floorId, siteId, ...activeFixtureRegistrationWhere, meshNode: { is: { retiredAt: null } } },
           select: { id: true, meshNode: { select: { gatewayId: true } } },
           orderBy: { id: "asc" },
           take: MAX_FIXTURES + 1

@@ -44,6 +44,7 @@ topic read sites/+/gateways/+/events/provisioning-failed
 topic read sites/+/gateways/+/events/identify-result
 topic read sites/+/gateways/+/events/bio-sensor-mode-result
 topic read sites/+/gateways/+/events/bio-registration-revalidation-result
+topic read sites/+/gateways/+/events/registration-removal
 topic read sites/+/gateways/+/events/fixture-presence-check-completed
 topic read sites/+/gateways/+/events/fixture-unreachable
 topic read sites/+/gateways/+/events/mesh-group/resync-request
@@ -59,6 +60,8 @@ topic read sites/+/gateways/+/events/drain/response
 topic write sites/+/gateways/+/commands/status-check
 topic write sites/+/gateways/+/commands/bio-sensor-mode
 topic write sites/+/gateways/+/commands/bio-registration-revalidation
+topic write sites/+/gateways/+/commands/registration-removal
+topic write sites/+/gateways/+/commands/registration-removal-ack
 topic write sites/+/gateways/+/acks/bio-registration-revalidation-result
 topic write sites/+/gateways/+/commands/identify
 topic write sites/+/gateways/+/commands/fixture-presence-check
@@ -102,6 +105,7 @@ pattern write sites/+/gateways/%u/state/#
 pattern write sites/+/gateways/%u/events/bio-sensor-catalog-ack
 pattern write sites/+/gateways/%u/events/bio-sensor-preparation-result
 pattern write sites/+/gateways/%u/events/bio-registration-revalidation-result
+pattern write sites/+/gateways/%u/events/registration-removal
 pattern write sites/+/gateways/%u/events/bio-sensor-mode-result
 pattern write sites/+/gateways/%u/events/provisioning/scan-found
 pattern write sites/+/gateways/%u/events/provisioning/scan-found-v2

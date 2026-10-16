@@ -462,7 +462,7 @@ describe("FixtureStateIngestionService", () => {
 
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(tx.$queryRaw.mock.calls[0][0].sql).toMatch(
-      /WHERE f\."siteId" = \?\s+ORDER BY f\."id"\s+FOR UPDATE OF f/
+      /WHERE f\."siteId" = \? AND f\."retiredAt" IS NULL\s+ORDER BY f\."id"\s+FOR UPDATE OF f/
     );
     expect(tx.$executeRaw).toHaveBeenCalledTimes(3);
     for (const [query] of tx.$executeRaw.mock.calls as Array<[{ sql: string }]>) {

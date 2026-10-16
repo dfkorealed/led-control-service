@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { activeFixtureRegistrationSql } from "../fixtures/fixture-registration-query";
 
 export type BioSensorBlockedReason = "profile_unverified" | "fingerprint_unverified" | "mode_unverified" |
   "link_unverified" | "catalog_pending" | "operating_policy_required" | "gateway_protocol_unverified" | "binding_changed" | "unsupported";
@@ -39,13 +40,13 @@ export async function loadBioSensorEligibility(tx: Query, fixtureIds: string[], 
             AND command."payload"->>'meshAddress'=node."meshAddress" AND COALESCE(command."payload"->>'operation','provision')='provision'
             AND command."payload"->>'siteId'=fixture."siteId" AND command."payload"->>'gatewayId'=fixture."gatewayId"
             AND command."topic"='sites/'||fixture."siteId"||'/gateways/'||fixture."gatewayId"||'/commands/provisioning/provision-device')),
-        false) AS "preparationCandidate",
+        false) AND ${activeFixtureRegistrationSql("fixture")} AS "preparationCandidate",
       preparation."result"->>'profileKey' AS "profileKey", preparation."result"->>'observedAt' AS "observedAt",
-      bio_sensor_blocked_reasons(fixture."id", (${now}::timestamptz AT TIME ZONE 'UTC'),
+      CASE WHEN NOT (${activeFixtureRegistrationSql("fixture")}) THEN ARRAY['binding_changed']::text[] ELSE bio_sensor_blocked_reasons(fixture."id", (${now}::timestamptz AT TIME ZONE 'UTC'),
         ${proposed?.readiness ?? null}::text, ${proposed?.verifiedFingerprintId ?? null}::text,
         (${proposed ? new Date(proposed.verifiedAt) : null}::timestamptz AT TIME ZONE 'UTC'),
         ${proposed ? BigInt(proposed.capabilityRevision) : null}::bigint,
-        (${proposed?.sensorModeVerifiedAt ? new Date(proposed.sensorModeVerifiedAt) : null}::timestamptz AT TIME ZONE 'UTC')) AS "blockedReasons"
+        (${proposed?.sensorModeVerifiedAt ? new Date(proposed.sensorModeVerifiedAt) : null}::timestamptz AT TIME ZONE 'UTC')) END AS "blockedReasons"
     FROM "Fixture" fixture LEFT JOIN "MeshNode" node ON node."id"=fixture."meshNodeId" LEFT JOIN LATERAL (
       SELECT * FROM "BioSensorPreparationOperation" operation WHERE operation."fixtureId"=fixture."id"
       ORDER BY operation."requestedAt" DESC, operation."commandId" DESC LIMIT 1

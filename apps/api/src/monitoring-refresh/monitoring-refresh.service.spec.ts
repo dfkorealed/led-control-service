@@ -55,6 +55,7 @@ function fixtures(count: number, assignedGatewayId = gatewayId) {
 function harness() {
   let createdRefresh = refresh();
   const tx: any = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
     $queryRaw: jest.fn().mockResolvedValue([{ id: floorId }]),
     floor: { findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId, status: "active" }),
       findMany: jest.fn().mockResolvedValue([{ id: floorId }]) },
@@ -110,7 +111,7 @@ describe("MonitoringRefreshService", () => {
 
     expect(result).toMatchObject({ status: "pending", totalFixtures: 65 });
     expect(tx.fixture.findMany).toHaveBeenCalledWith({
-      where: { floorId, siteId, meshNode: { isNot: null } },
+      where: expect.objectContaining({ floorId, siteId, retiredAt: null, meshNode: { is: { retiredAt: null } } }),
       select: { id: true, meshNode: { select: { gatewayId: true } } },
       orderBy: { id: "asc" },
       take: 1001

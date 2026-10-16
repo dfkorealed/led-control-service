@@ -6,10 +6,12 @@ import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestio
 import { PrismaModule } from "../prisma/prisma.module";
 import { FixturesController } from "./fixtures.controller";
 import { FixturesService } from "./fixtures.service";
+import { FixtureRegistrationRemovalRuntimeModule } from "./fixture-registration-removal-runtime.module";
+import { FixtureRegistrationRemovalsController } from "./fixture-registration-removals.controller";
 
 @Module({
-  imports: [PrismaModule, AuthModule, AccessModule],
-  controllers: [FixturesController],
+  imports: [PrismaModule, AuthModule, AccessModule, FixtureRegistrationRemovalRuntimeModule],
+  controllers: [FixturesController, FixtureRegistrationRemovalsController],
   providers: [FixturesService, FixtureEnergyCheckpointService, EnergyDimensionHistoryService]
 })
 export class FixturesModule {}

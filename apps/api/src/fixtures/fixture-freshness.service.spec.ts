@@ -9,6 +9,7 @@ describe("FixtureFreshnessService", () => {
       { id: "lenient", gatewayOfflineAfterSeconds: 120, fixtureStaleAfterSeconds: 240 }
     ];
     const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn(async (query: Prisma.Sql) => query.sql.includes("WITH candidates") ? [{ changed: 1n }] : [{ id: "locked" }]),
       site: { findUnique: jest.fn(({ where }) => Promise.resolve(sites.find((site) => site.id === where.id))) }
     };

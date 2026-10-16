@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { FIXTURE_OPERATIONAL_FRESHNESS_MS, gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { MonitoringIncidentReconcilerService } from "../monitoring-incidents/monitoring-incident-reconciler.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationSql } from "./fixture-registration-query";
 import { utcTimestampSql } from "../prisma/utc-timestamp-sql";
 
 @Injectable()
@@ -35,6 +36,7 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
     const totals = { gatewayOffline: 0, fixtureStale: 0 };
     for (const { id: siteId } of sites) {
       const counts = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT "lock_automation_membership_mutation"()`;
         const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
           SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE
         `);
@@ -69,6 +71,7 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
               SELECT f."id", f."floorId", f."name", f."status"
               FROM "Fixture" f
               WHERE f."siteId" = ${siteId}
+                AND ${activeFixtureRegistrationSql()}
                 AND f."reportedStatusReason" IS DISTINCT FROM 'provisioning_waiting_state'
                 AND (f."status" <> 'offline'::"FixtureStatus" OR f."statusReason" IS DISTINCT FROM ${statusReason})
                 AND EXISTS (

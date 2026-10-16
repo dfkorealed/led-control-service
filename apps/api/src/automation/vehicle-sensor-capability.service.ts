@@ -13,6 +13,7 @@ import {
 } from "@led-control/shared";
 import { Prisma, type BioPulseReadiness, type VehicleSensorProtocol } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { activeFixtureRegistrationSql } from "../fixtures/fixture-registration-query";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import { AutomationClock } from "./automation-clock";
 import { canonicalPayloadHash } from "./automation-payload-hash";
@@ -352,6 +353,7 @@ export class VehicleSensorCapabilityService {
       ${activeClaimJoin}
       LEFT JOIN "Fixture" AS fixture ON fixture."meshNodeId" = node."id"
       WHERE (node."id" = ${report.meshNodeId} OR fixture."id" = ${report.meshNodeId})
+        AND node."retiredAt" IS NULL AND (fixture.id IS NULL OR (${activeFixtureRegistrationSql("fixture")}))
         AND node."gatewayId" = ${report.gatewayId}
         AND gateway."siteId" = ${report.siteId}
       ${lockTargets}

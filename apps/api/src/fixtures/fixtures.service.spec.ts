@@ -58,7 +58,7 @@ describe("FixturesService", () => {
 
     expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "read");
     expect(prisma.fixture.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { siteId: "site-1", floorId: "floor-1" }, orderBy: { id: "asc" }, take: 2 })
+      expect.objectContaining({ where: expect.objectContaining({ siteId: "site-1", floorId: "floor-1", retiredAt: null }), orderBy: { id: "asc" }, take: 2 })
     );
     expect(result).toMatchObject({
       items: [
@@ -257,6 +257,7 @@ describe("FixturesService", () => {
       energyTrackingStartedAt: trackingStartedAt
     };
     const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([fixture]),
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
       fixture: {
@@ -325,6 +326,7 @@ describe("FixturesService", () => {
       energyTrackingStartedAt: trackingStartedAt
     };
     const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([fixture]),
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
       fixture: { update: jest.fn().mockResolvedValue({ ...fixture, name: "New" }) }
@@ -381,6 +383,7 @@ describe("FixturesService", () => {
 
   it("does not reveal a fixture outside the requested site and floor", async () => {
     const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([]),
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
       fixture: { update: jest.fn() }
@@ -401,6 +404,7 @@ describe("FixturesService", () => {
 
   it("rejects a stale fixture metadata update after locking the fixture", async () => {
     const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([{
         id: "fixture-1", siteId: "site-1", floorId: "floor-1", floorName: "B1",
         name: "Current", ratedWatt: "40.00", updatedAt: new Date("2026-09-12T00:01:00.000Z"),

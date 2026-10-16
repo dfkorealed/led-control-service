@@ -4,6 +4,7 @@ import { authorizeBioRegistrationGateway } from "../registration/bio-registratio
 import { lockRegistrationDeviceUuids } from "../registration/registration-domain-locks";
 import { sensorModeDeviceIdentityHash } from "../commands/sensor-mode-operations.service";
 import { canonicalPayloadHash } from "./automation-payload-hash";
+import { assertFixtureRegistrationsActive } from "../fixtures/fixture-registration-removal-policy";
 
 /** Existing membership mutation lock serializes reassignment/qualification; the
  * independent singleton protects catalog versions, never automation revisions. */
@@ -24,6 +25,7 @@ export async function lockBioSensorGateway(tx: Prisma.TransactionClient, scope: 
 }
 
 export async function loadBioSensorBinding(tx: Prisma.TransactionClient, scope: { siteId: string; fixtureId: string }, now: Date) {
+  await assertFixtureRegistrationsActive(tx, [scope.fixtureId]);
   const initial = await tx.fixture.findFirst({ where: { id: scope.fixtureId, siteId: scope.siteId }, include: { meshNode: true } });
   if (!initial?.meshNode?.deviceUuid || !initial.gatewayId) throw new ConflictException("registered BIO fixture required");
   await tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id"=${initial.floorId} FOR UPDATE`;
