@@ -6,6 +6,7 @@
     "outDir": "dist/esm"
   },
   "include": [
+    "src/fixture-registration-removal-contracts.ts",
     "src/temporary-control-contracts.ts",
     "src/holiday-calendar-contracts.ts",
     "src/bio-sensor-profile-contracts.ts",

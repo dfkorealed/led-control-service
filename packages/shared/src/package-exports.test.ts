@@ -290,6 +290,27 @@ const mapRequireSmoke = mapImportSmoke.replace('import assert from "node:assert/
   .replaceAll("await import(", "require(");
 
 describe("shared package exports", () => {
+  it("includes the registration removal export entry in the ESM compilation inputs", async () => {
+    const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
+      exports: Record<string, Record<string, string>>;
+    };
+    const config = JSON.parse(await readFile(join(packageRoot, "tsconfig.esm.json"), "utf8")) as { include: string[] };
+    const conditions = manifest.exports["./fixture-registration-removal-contracts"];
+    for (const target of new Set([conditions.browser, conditions.import])) {
+      expect(target).toMatch(/^\.\/dist\/esm\/.+\.js$/);
+      const source = target.replace("./dist/esm/", "src/").replace(/\.js$/, ".ts");
+      expect(config.include, `${target} requires ${source}`).toContain(source);
+    }
+  });
+  it("emits registration removal ESM artifacts and loads the CommonJS subpath", async () => {
+    await expect(access(join(packageRoot, "dist/esm/fixture-registration-removal-contracts.js"))).resolves.toBeUndefined();
+    await expect(access(join(packageRoot, "dist/esm/fixture-registration-removal-contracts.d.ts"))).resolves.toBeUndefined();
+    const smoke = `
+      const contract = require("@led-control/shared/fixture-registration-removal-contracts");
+      if (!contract.fixtureRegistrationRemovalRequestSchema || typeof contract.fixtureRegistrationRemovalBindingIdentity !== "function") throw new Error("registration removal exports missing");
+    `;
+    await expect(execFile(process.execPath, ["--eval", smoke], { cwd: packageRoot })).resolves.toMatchObject({ stderr: "" });
+  });
   it("loads the BIO profile schema through browser ESM and CommonJS with identical strict validation", async () => {
     const smoke = `
       const { bioSensorProfileV1Schema: schema } = await import("@led-control/shared/bio-sensor-profile-contracts");
