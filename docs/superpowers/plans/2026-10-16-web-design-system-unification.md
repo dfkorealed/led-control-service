@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 순차 subagent-driven 방식으로 Task1을 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
+상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1 구현·독립 검토와 보완 재검토를 완료하고 Task2를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 기존 전체 unit5FAIL과 추가 관측 browser3FAIL은 해결·무관으로 단정하지 않는다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
 
 ## Global Constraints
 
@@ -104,9 +104,9 @@ export function mountFoundationFixture(
 ): Promise<{ close(): Promise<void> }>;
 ```
 
-- [ ] **Step 0 준비: dependency 생성.** baseline unit과 모든 leaf 검증 전에 저장소 루트 `pnpm workspace:prepare`를 선행하고 성공을 확인한다. 준비 실패를 test skip이나 이전 dist 재사용으로 통과시키지 않는다.
-- [ ] **Step 0a: runner·fixture 작성.** config는 workers1/serviceWorkers block, 소유127.0.0.1:15341/strictPort/reusefalse이며 command는 `pnpm --filter @led-control/web exec vite --host 127.0.0.1 --port 15341 --strictPort`다. testMatch는 `design-system-{foundation,roles,coverage}.spec.ts`, `ui-eight-layout-regressions.spec.ts`, `account-security.spec.ts`, `calm-operations-auth-operator.spec.ts`다. 자체 production build/ephemeral server를 쓰는 `ui-overlays.spec.ts`는 여기서 제외하고 기존 ui-cascade config로 실행한다.
-- [ ] **Step 0b: 네트워크 방어 RED→GREEN.** 기존 `installMockApiBoundary(context,baseURL)`의 context fallback을 재사용해 기존 page.route LIFO 도메인mock이 우선하도록 한다. context에서 미등록API404·외부POST abort를 관찰하고 보통 시나리오에서는 실패시킨다. 아래 방어test만 예상sentinel을 수집해 일치하면 PASS한다. WebSocket/sendBeacon 차단과 unsupported theme setup 실패도 확인한다.
+- [x] **Step 0 준비: dependency 생성.** baseline unit과 모든 leaf 검증 전에 저장소 루트 `pnpm workspace:prepare`를 선행하고 성공을 확인한다. 준비 실패를 test skip이나 이전 dist 재사용으로 통과시키지 않는다.
+- [x] **Step 0a: runner·fixture 작성.** config는 workers1/serviceWorkers block, 소유127.0.0.1:15341/strictPort/reusefalse이며 command는 `pnpm --filter @led-control/web exec vite --host 127.0.0.1 --port 15341 --strictPort`다. testMatch는 `design-system-{foundation,roles,coverage}.spec.ts`, `ui-eight-layout-regressions.spec.ts`, `account-security.spec.ts`, `calm-operations-auth-operator.spec.ts`다. 자체 production build/ephemeral server를 쓰는 `ui-overlays.spec.ts`는 여기서 제외하고 기존 ui-cascade config로 실행한다.
+- [x] **Step 0b: 네트워크 방어 RED→GREEN.** 기존 `installMockApiBoundary(context,baseURL)`의 context fallback을 재사용해 기존 page.route LIFO 도메인mock이 우선하도록 한다. context에서 미등록API404·외부POST abort를 관찰하고 보통 시나리오에서는 실패시킨다. 아래 방어test만 예상sentinel을 수집해 일치하면 PASS한다. WebSocket/sendBeacon 차단과 unsupported theme setup 실패도 확인한다.
 
 ```ts
 test("fixture blocks unknown API and external POST", async ({ page }) => {
@@ -121,9 +121,9 @@ test("fixture blocks unknown API and external POST", async ({ page }) => {
 });
 ```
 
-- [ ] **Step 0c: fresh baseline.** 제품 적용 전에 전체 Web unit과 기존 선정 browser를 소유 runner에서 실행하고 원6unit/6locator 각각의 source·assertion·재현조건·로그를 baseline.md에 기록한다. 기존 source 누락이면 전제 오류로 중단한다. `pnpm --filter @led-control/web test`·browser 실제 명령을 저장하며 이전32PASS를 fresh 결과로 쓰지 않는다. fixture 방어 test는 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-foundation.spec.ts --grep fixture`로 실행하고 방어 제거 시 FAIL/적용 시PASS를 확인한다.
+- [x] **Step 0c: fresh baseline.** 제품 적용 전에 전체 Web unit과 기존 선정 browser를 소유 runner에서 실행하고 원6unit/6locator 각각의 source·assertion·재현조건·로그를 baseline.md에 기록한다. 기존 source 누락이면 전제 오류로 중단한다. `pnpm --filter @led-control/web test`·browser 실제 명령을 저장하며 이전32PASS를 fresh 결과로 쓰지 않는다. fixture 방어 test는 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-foundation.spec.ts --grep fixture`로 실행하고 방어 제거 시 FAIL/적용 시PASS를 확인한다.
 
-- [ ] **Step 1: 실패 검증 작성.** `functional-layout.test.tsx`에 regular/customer 동등·compact16·none무padding, PageStack20/CardGrid18, ref/rest forwarding을 검증한다. `titleRole`별 page/section/card와 h3+section 조합, 미전달 legacy 매핑을 단언한다. source 문자열만 검사하지 말고 렌더된 구조·컴파일 검증용 fixture를 제공한다.
+- [x] **Step 1: 실패 검증 작성.** `functional-layout.test.tsx`에 regular/customer 동등·compact16·none무padding, PageStack20/CardGrid18, ref/rest forwarding을 검증한다. `titleRole`별 page/section/card와 h3+section 조합, 미전달 legacy 매핑을 단언한다. source 문자열만 검사하지 말고 렌더된 구조·컴파일 검증용 fixture를 제공한다.
 
 ```tsx
 it("keeps heading semantics ref and explicit role", () => {
@@ -147,11 +147,11 @@ test("functional computed spacing and actual control size", async ({ page }) => 
 ```
 
 `mountFoundationFixture`는 기존 ui-overlays의 `write:false` Vite production memory 패턴으로 실제 FunctionalLayout/Card/PageHeader/Button과 canonical styles.css를 build한다. 소유127.0.0.1 ephemeral server에만 결과를 제공하고 그 origin의 context boundary를 등록한 뒤 page.goto한다. 자기 origin 밖 네트워크는 차단한다. 일반 앱의15341 fallback과 다른 origin이며 해당 boundary를 분리해 교차 허용하지 않는다. close는 등록 route·memory server를 정리한다. 제품 test route와 디스크 제품 산출물은 추가하지 않는다.
-- [ ] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec vitest run src/components/ui/functional-layout.test.tsx` → 아직 API가 없어 FAIL. 구현 뒤 의미실패를 보려면 regular mapping과 section title mapping을 각각 국소 변조한 테스트 copy에서20/16·20/28 단언 FAIL을 확인한다. import 오류만을 역할 RED 근거로 쓰지 않는다.
-- [ ] **Step 3: 최소 구현.** 위 API를 구현·index.ts export하고 기존 미전달 소비는 변경하지 않는다. 일반 Button에 min-width44를 추가하고 기존 더 큰 너비와 landing의 등록geometry를 보존한다. Button sizes/variant·IconButton 회귀를 포함한다. 고객용 이름을 일반 역할로 재사용하되 토큰값은 바꾸지 않는다. foundation computed fixture는 기존 ui-cascade의 memory production 패턴을 사용하며 제품 test route를 추가하지 않는다.
-- [ ] **Step 4: GREEN 검증.** 위 focused 명령과 `pnpm --filter @led-control/web exec vitest run src/components/ui/ui-primitives.test.tsx` PASS. Task1 foundation browser에서 generated CSS/computed20/18/20·16 및26·24/20/16을 확인하고 Task6에서 전체 소비자를 확인한다. 일반 control은 높이뿐 아니라 폭도44px 이상이며 clip·가림을 제외한 실제44×44 hit가 있는지 검사한다. inline/brand는 등록된 정확한 소비 예외만 판정한다.
-- [ ] **Step 5: 정본 전환.** 승인된 계획 실행의 최초 기반 작업으로 ui-spacing 현행 규칙을 guide 참조로 정리하고 역사 기록을 분리 표시한다. 이전 승인/실패 수치·앵커 이력은 보존하고 coverage와 규범 효력을 분리한다.
-- [ ] **Step 6: 독립 검토·소유 commit.** 이 Task Files의 실제 변경 파일만 선택 stage하고 diff·`git diff --check` 확인 후 `git commit -m "refactor(web): define functional layout and title contracts"`. AGENTS/status의 타 소유 변경은 제외한다. token/policy 무변경과 legacy API 보존을 제출한다.
+- [x] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec vitest run src/components/ui/functional-layout.test.tsx` → 아직 API가 없어 FAIL. 구현 뒤 의미실패를 보려면 regular mapping과 section title mapping을 각각 국소 변조한 테스트 copy에서20/16·20/28 단언 FAIL을 확인한다. import 오류만을 역할 RED 근거로 쓰지 않는다.
+- [x] **Step 3: 최소 구현.** 위 API를 구현·index.ts export하고 기존 미전달 소비는 변경하지 않는다. 일반 Button에 min-width44를 추가하고 기존 더 큰 너비와 landing의 등록geometry를 보존한다. Button sizes/variant·IconButton 회귀를 포함한다. 고객용 이름을 일반 역할로 재사용하되 토큰값은 바꾸지 않는다. foundation computed fixture는 기존 ui-cascade의 memory production 패턴을 사용하며 제품 test route를 추가하지 않는다.
+- [x] **Step 4: GREEN 검증.** 위 focused 명령과 `pnpm --filter @led-control/web exec vitest run src/components/ui/ui-primitives.test.tsx` PASS. Task1 foundation browser에서 generated CSS/computed20/18/20·16 및26·24/20/16을 확인하고 Task6에서 전체 소비자를 확인한다. 일반 control은 높이뿐 아니라 폭도44px 이상이며 clip·가림을 제외한 실제44×44 hit가 있는지 검사한다. inline/brand는 등록된 정확한 소비 예외만 판정한다.
+- [x] **Step 5: 정본 전환.** 승인된 계획 실행의 최초 기반 작업으로 ui-spacing 현행 규칙을 guide 참조로 정리하고 역사 기록을 분리 표시한다. 이전 승인/실패 수치·앵커 이력은 보존하고 coverage와 규범 효력을 분리한다.
+- [x] **Step 6: 독립 검토·소유 commit.** 이 Task Files의 실제 변경 파일만 선택 stage하고 diff·`git diff --check` 확인 후 `git commit -m "refactor(web): define functional layout and title contracts"`. AGENTS/status의 타 소유 변경은 제외한다. token/policy 무변경과 legacy API 보존을 제출한다.
 
 ## Task 2: 공통 상태·overlay와 인증·운영자·공유 보안
 
