@@ -13,6 +13,112 @@ import installer
 from installer import choose_identity, validate_path, validate_install
 
 
+class AppleRuntimeTests(unittest.TestCase):
+    # Break caught: Apple's launcher reports a protected symlink as executable.
+    # Only kernel metadata/ACL reads are virtualized; check_installed stays real.
+    executable = '/Library/Developer/CommandLineTools/usr/bin/python3'
+    framework = '/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions'
+    stdlib = framework + '/3.9/lib/python3.9'
+    final = framework + '/3.9/bin/python3.9'
+
+    def setUp(self):
+        self.links = {self.executable: '../../Library/Frameworks/Python3.framework/Versions/Current/bin/python3',
+                      self.framework + '/Current': '3.9', self.framework + '/3.9/bin/python3': 'python3.9'}
+        self.overrides, self.acls = {}, set()
+        self.config = dict(version=1, producerUid=502, producerGid=503, apiUid=501,
+                           primary=dict(startedAt='2026-10-15T00:00:00.000Z', address='::1', port=5432,
+                                        pid=123, processStartedAt='Thu Oct 15 09:00:00 2026',
+                                        dataDirectory='/private/pg', executable='/opt/bin/postgres'),
+                           sourceCommit='a' * 40, fileHashes={name: 'b' * 64 for name in installer.FILES})
+
+    def metadata(self, path, **_kwargs):
+        path = str(path)
+        if path in self.overrides:
+            mode, uid = self.overrides[path]
+            return SimpleNamespace(st_mode=mode, st_uid=uid, st_gid=503)
+        if path in self.links:
+            return SimpleNamespace(st_mode=stat.S_IFLNK | 0o755, st_uid=0, st_gid=0)
+        if path == str(installer.PREFIX / 'runtime'):
+            return SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=502, st_gid=503)
+        if path == str(installer.PREFIX / 'state'):
+            return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=502, st_gid=503)
+        files = {self.final, '/usr/bin/python3', str(installer.PREFIX / 'config.json')}
+        files.update(str(installer.PREFIX / name) for name in installer.FILES)
+        return SimpleNamespace(st_mode=(stat.S_IFREG if path in files else stat.S_IFDIR) | 0o755,
+                               st_uid=0, st_gid=0)
+
+    def command(self, argv):
+        if argv[0] == '/usr/bin/python3':
+            return json.dumps([self.executable, self.stdlib])
+        self.assertEqual(argv[:2], ('/bin/ls', '-lde'))
+        return '-rwxr-xr-x' + ('+\n 0: user:501 allow write\n' if argv[-1] in self.acls else '\n')
+
+    def check(self):
+        with patch.object(installer.os, 'lstat', side_effect=self.metadata), \
+                patch.object(Path, 'lstat', autospec=True, side_effect=lambda path: self.metadata(path)), \
+                patch.object(installer.os, 'readlink', side_effect=lambda path: self.links[str(path)]), \
+                patch.object(installer, 'file_hashes', return_value=self.config['fileHashes']):
+            installer.check_installed(self.config, private_state=False, run=self.command)
+
+    def test_accepts_apple_relative_and_intermediate_root_owned_symlinks(self):
+        try:
+            self.check()
+        except ValueError as error:
+            self.fail('protected Apple runtime was rejected: ' + str(error))
+
+    def test_accepts_a_protected_absolute_link_target(self):
+        self.links[self.executable] = self.final
+        self.check()
+
+    def test_rejects_foreign_owner_and_writable_link_ancestor_or_target(self):
+        for path, kind in [(self.executable, stat.S_IFLNK), ('/Library/Developer', stat.S_IFDIR),
+                           (self.framework + '/Current', stat.S_IFLNK),
+                           (self.framework + '/3.9', stat.S_IFDIR), (self.final, stat.S_IFREG), ('/', stat.S_IFDIR)]:
+            for mode, uid in [(kind | 0o755, 501), (kind | 0o775, 0), (kind | 0o757, 0)]:
+                with self.subTest(path=path, mode=mode, uid=uid):
+                    self.overrides = {path: (mode, uid)}
+                    with self.assertRaises(ValueError):
+                        self.check()
+
+    def test_rejects_acl_on_original_or_resolved_chain(self):
+        for path in [self.executable, '/Library/Developer', self.framework + '/Current',
+                     self.framework + '/3.9', self.final]:
+            with self.subTest(path=path):
+                self.acls = {path}
+                with self.assertRaises(ValueError):
+                    self.check()
+
+    def test_rejects_cycle_relative_input_and_excessive_link_expansion(self):
+        for target in [self.executable, '/System/next', '/' + 'x' * 4096]:
+            with self.subTest(target=target):
+                self.links[self.executable] = target
+                if target == '/System/next':
+                    for index in range(42):
+                        self.links['/System/next' if index == 0 else '/System/link' + str(index)] = '/System/link' + str(index + 1)
+                with self.assertRaises(ValueError):
+                    self.check()
+        self.executable = 'relative/python3'
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_rejects_nonregular_or_nonexecutable_final_target(self):
+        for mode in [stat.S_IFDIR | 0o755, stat.S_IFIFO | 0o755, stat.S_IFREG | 0o644]:
+            with self.subTest(mode=mode):
+                self.overrides = {self.final: (mode, 0)}
+                with self.assertRaises(ValueError):
+                    self.check()
+
+    def test_rejects_a_nondirectory_intermediate_component(self):
+        self.overrides = {self.framework + '/3.9': (stat.S_IFREG | 0o755, 0)}
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_stdlib_still_rejects_symlinks(self):
+        self.links[self.stdlib] = '/System/safe-lib'
+        with self.assertRaises(ValueError):
+            self.check()
+
+
 class InstallerTests(unittest.TestCase):
     def test_selects_lowest_unused_ids_and_refuses_same_uid_nobody_or_unowned_name(self):
         self.assertEqual(choose_identity({'api': 501, 'other': 503}, {'staff': 20, 'busy': 501}, 501), (502, 502))

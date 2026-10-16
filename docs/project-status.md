@@ -8,6 +8,18 @@
 - 현재 삭제 API/UI는 없다. 물리 CASCADE에 따른 제어·전력 원장 소실과 Gateway mapping만 지울 때 이미 캡처한 명령의 실행 위험을 확인했다. 제안은 내구 삭제 확인 뒤 운영 퇴역, 과거 FK/주소와 등록 세대 fence 보존이다. 설계 체크리스트의 조사만 완료이며 서면 검토/실행 계획/제품 구현·검증은 미완료다.
 - 읽기 전용 조사와 문서 작성만 했다. 실제 삭제/RF/SSH·사용자 DB/migration·서비스 재시작·배포는 실행하지 않는다. MAIN의 사용자 AGENTS/기존 상태판 변경은 보존한다.
 
+## 2026-10-16 전체 조명 등록 연결·센서 준비 복구 진행
+
+- 사용자가 실제 복구·센서 준비 진행과 모든 조명의 공통 지원을 승인했으며 별도 브랜치 후 병합, 불필요 UI 변경 금지를 요청했다. 기존 `codex/event-source-create-fix-20261015`를 MAIN70b76d93까지 동기화해 사용한다. 상세 체크리스트는 기존 `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`의 10/16 후속이다.
+- API의 전체 등록6개 조명 상태/서버 실행과 Web 공통 경로를 독립 읽기로 확인했다. 실제 복구는 기존 UI의 검증된 등록 연결/준비 절차로 대상별 순차 수행한다. 특정 ID/이름 예외, 임의 DB 상태 수정/기존 규칙 활성화/다른 작업 통합은 하지 않는다.
+- 현재 [x]전체6개 상태 확인, [x]Web 공통 경로 확인(UI 수정 없음), [x]Clock 한정 수리/검토·f14e5ece 로컬 병합, [ ]실제 등록 복구·센서 준비, [ ]최종 문서 통합이다. 기존 supervisor 동일 SHA 복사본으로 API/Web/MQTT를 복구해 readiness5개 up·정적 env/인증/ACL 해시 불변·migration0을 확인했다. 초기 관측은6대와 Gateway offline이었고, Pi의 이전 서버 IP·USB 경로 잔류를 확인해 exact image/config/3root 보존 복구안을 준비했다. 이후 외부의 새 healthy 실행체 관측과 구분한다. ClockAttestor Apple runtime symlink 수리는 semantic RED→관련65PASS·독립ReadyYES로 소유2파일 f14e5ece에 커밋했다. 후속 읽기에서 외부 설치가34a72c68로 바뀌고 label/소켓이 생긴 것을 확인했으나 healthy/approved는 미확인이다. 외부 OS를 덮어쓰거나 primary 차이를 임의 보정하지 않는다. Gateway 실제 V10 lease/전환/pending은 정확한 키로 재검사한다. 새 RF/등록 apply/SET0이다. 복구 plan의 원본 running 관문이 외부 stop을 발견해 거절됐고, 다른 작업이 같은3root·같은image의 새 task3-connection-4c6d 실행체를 만들어 healthy인 것을 확인했다. 본 작업의 원격 stop/create/start는0이다. 이 컨테이너를 자동 재선정하거나 조작하지 않고, 같은 Gateway의 작업 순서 조율을 위한 공유 허가를 사용자에게 받았고 두 담당 채팅에 현재 연결·소유 범위만 전달했다. 총괄은 시각·공휴일·MQTT 권한·정본 소켓 API 연결을 계속 소유하고, 두 번째 시간 표본 거절로 승인 미완료·공동 서비스 재시작 승인 대기임을 확인했다. 사용자가 동일 DB/환경/인증서를 유지하는 서비스 일시 중단/분리 기동과 시각 표본 승인 절차를 명시 승인해 총괄에 전달했다. 총괄의 서비스 전환/시각 사용 가능 확인 및 장비 담당의 작업 창 반환 뒤 실제6개 준비를 진행한다.
+
+## 2026-10-16 Web 공통 디자인 가이드 통합 — 상세 수치표·구현 계획 검토 단계
+
+- 사용자는 남은 간격·디자인 정합성 6건을 넘어 고객·운영자·인증·공개 랜딩/기능/요금 페이지와 공통 상태·overlay까지 포함한 통합 방향을 승인했다. 일반 기능 UI는 section20/grid18/panel20·16/page26·24/section title20/card title16px와 실제 조작 영역 최소44px를 공유하고, 공개 브랜드·인증 구성·지도/editor 작업 공간은 이름 있는 목적별 variant로 구분한다. 기존 기능·안전·권한·배포 경계와 이전8개 UI 수리를 보존한다.
+- [공통 가이드](ui-design-system.md)와 [적용 설계서](superpowers/specs/2026-10-15-web-design-system-unification-design.md)의 초안 보존 커밋은 `70b76d93`이다. 사용자 2026-10-16 요청에 따라 통일 대상/유지값/목적별 예외의 상세 수치표와 [6단계 구현 계획](superpowers/plans/2026-10-16-web-design-system-unification.md)을 작성했다. 일반 문서 main은 고객·운영자 공통 PC28/24·mobile14/18px 목표이며 인증·공개·workspace 목적 frame은 구분한다. 메인 self-review로 검증 기반 선행·정확한 API/파일·실제 assertion·회귀/수명 보존·전체 coverage를 대조했다. 상세 수치·계획과 실행 방식은 사용자 검토 대기이며 제품 실행 승인이 아니다. 계획·실행 방식 승인 후 최초 기반 작업에서 `docs/ui-spacing.md`의 현행 참조·역사 분리와 함께 규범 효력을 전환한다.
+- 계획 준비 체크리스트: [x] 기존 설계·전체 화면/entry 조사, [x] 전체 범위·방향 승인, [x] 기존 가이드·설계 초안 작성/자체 검토, [x] 현재 색상·타이포·컴포넌트 정확값 조사, [x] 상세 수치표·구현 계획 작성, [x] 메인 계획 self-review·문서 검증, [ ] 사용자 수치표·계획 검토 및 실행 방식 확정, [ ] 실행 Task1~6, [ ] 모바일/PC·상태별 회귀 및 최종 검토. 색상28역할×3scope84값·문서 링크8개·계획의 기존/선행 생성 경로89개를 대조했다. 문서와 이 상태 항목만 변경 대상으로 삼고 기존 사용자 AGENTS·병행 상태 기록은 보존한다. 제품 테스트·브라우저 검증은 이번 문서 작성 단계에서 다시 실행하지 않았으며, 이전 unit6FAIL/구형 브라우저 locator6FAIL을 해결 또는 무관으로 판단하지 않는다. API/DB/실장비/운영 설정·서비스 재시작·배포0이다.
+
 ## 2026-10-15 이벤트 기준 조명·추가 실패 소프트웨어 수리 병합 — 실제 등록 복구 승인 대기
 
 - 사용자 기준 B1-L004/실행 B1-L006 및 일반 실패 안내를 별도 `codex/event-source-create-fix-20261015`(base c3f11789)에서 조사한다. 체크리스트는 `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`다. 기존 자기 감지 구현 브랜치와 MAIN 사용자 변경은 보존한다.

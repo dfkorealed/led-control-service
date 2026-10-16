@@ -22,6 +22,32 @@
 
 - 설계 승인·구현·소프트웨어 검증·실장비 HIL을 구분한다. 신규 계약/schema 변경은 구현과 함께 DB 문서와 영향받는 모니터링/제어/통계 현황을 갱신한다.
 
+## 2026-10-16 전체 등록 조명 공통 복구 및 시계 검증 호환성
+
+### 구현 완료
+
+- 기존 현장 관리의 전체 조명 목록과 등록 연결/센서 준비 경로가 ID·이름·종류·기존/신규 등록에 따라 제외하지 않는 공통 경로임을 확인했다. 방습등1·2를 포함한 실제 등록6개 모두 같은 화면에서 현재 사유를 확인했다. 새 UI나 선택 자격 예외를 추가하지 않았다.
+- macOS Apple Python launcher가 반환하는 보호된 runtime 실행 링크를 처리하도록 ClockAttestor installer를 보완했다. 링크와 원/대상·중간·상위 경로의 root 소유·쓰기 권한·ACL·종류·순환/길이를 검사하며 일반 설치 파일·표준 라이브러리의 symlink 거절은 유지한다. semantic RED 후 시계 관련65PASS, 독립 검토 C/I/M0을 확인했고 `f14e5ece`로 로컬 병합했다.
+
+### 미구현
+
+- 현재 전체6개의 실제 등록 복구/센서 준비 완료와 이벤트 동작 HIL은 아직 확인하지 않았다. 공통 UI 경로 접근을 실제 RF 성공으로 기록하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 조사 시 Gateway의 이전 서버 IP·USB 번호 잔류를 확인했다. 복구 plan은 원본이 외부 작업에서 중지된 것을 발견해 실행을 거절했고, 이후 같은 image/영속root의 새 healthy 실행체를 확인했다. 본 작업의 원격 stop/create/start는0이며 새 실행체를 임의 조작하지 않는다. 실제 조명 준비는 해당 작업과 순서를 조율한 뒤 확인해야 한다.
+- 시계 서비스 설치는 별도 작업에서 변경된 것을 관측했다. 이 소프트웨어 수정과 현재 설치본의 healthy/approved 상태·primary 검증을 구분하며, 보호 검사나 조명 준비 자격을 임의로 완화하지 않는다.
+
+### 관련 파일
+
+- `scripts/clock-attestor/installer.py`, `scripts/clock-attestor/test_installer.py`.
+- 기존 `apps/web/src/features/settings/site/BioSensorSettingsPanel.tsx`, `apps/web/src/features/control/automation/BioSensorPreparationPanel.tsx`, `components/BioRegistrationConnectionCheck.tsx`는 이번에 변경하지 않았다.
+- `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`의 10/16 후속과 `docs/project-status.md`.
+
+### 갱신 규칙
+
+- 조명별 실제 등록/준비 결과와 서버/Gateway 연결·시각 검증 선행 조건을 구분한다. 실제6대 성공·새 장비 성공은 각 실제 검증이 있을 때만 기록한다. 불필요 UI·특정 조명 ID 예외를 추가하지 않는다.
+
 ## 2026-10-15 이벤트에서 센서 등록 연결 복구 위치 안내
 
 ### 구현 완료
