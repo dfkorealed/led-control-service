@@ -1,7 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "./support/design-system-fixture";
 import type { Locator, Page, TestInfo } from "@playwright/test";
-import { installMockApiBoundary } from "./support/mock-api-boundary";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 import { installFirstScreenStatisticsFixtures } from "./support/first-screen-statistics";
 
@@ -19,16 +18,32 @@ async function setup(page: Page, baseURL: string | undefined, width: number, hei
   await page.setViewportSize({ width, height });
   requests.set(page, []);
   page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/")) requests.get(page)!.push({ method: request.method(), url: request.url() }); });
-  await page.addInitScript(() => {
-    // No live push channel is needed for a memory layout fixture.
-    window.WebSocket = class { constructor() { throw new Error("layout fixture denies WebSocket"); } } as unknown as typeof WebSocket;
-    navigator.sendBeacon = () => false;
-  });
+  // The shared test fixture owns the context fallback and live-channel guards;
+  // reinstalling silent guards here would hide its unexpected-request sentinels.
   await page.addInitScript(value => localStorage.setItem("led-control.customer-theme.v1", value), theme);
-  await installMockApiBoundary(page.context(), baseURL);
   const api = await installSettingsApiRoutes(page, "admin", { readyMapDocument: true, fixtures: [layoutFixture], ...options });
   await page.route("**/api/sites/*/temporary-controls?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   return api;
+}
+
+for (const channel of ["API", "WebSocket", "sendBeacon"] as const) {
+  test(`fixture safety: ordinary ${channel} violations fail after layout setup`, async ({ page, baseURL }) => {
+    await setup(page, baseURL, 320, 600);
+    // Remove only the page's domain mock so this deliberately unconfigured
+    // read reaches the context fallback installed by the real layout setup.
+    if (channel === "API") await page.unroute("**/api/**");
+    await page.goto("/");
+    const blocked = await page.evaluate(async channel => {
+      if (channel === "API") return await fetch("/api/not-configured").then(response => response.status) === 404;
+      if (channel === "sendBeacon") return navigator.sendBeacon("https://blocked.invalid/", "fixture probe") === false;
+      try { new WebSocket("wss://blocked.invalid/"); return false; } catch { return true; }
+    }, channel);
+    expect(blocked, `${channel} must be blocked before any teardown assertion`).toBe(true);
+    // Set the expectation only after setup, navigation and blocking succeeded.
+    // A silent competing guard makes teardown pass and therefore this test FAIL
+    // with an unexpected pass; an ordinary sentinel failure is the required result.
+    test.fail(true, "The ordinary fixture teardown must reject the unconfigured channel");
+  });
 }
 
 async function evidence(page: Page, info: TestInfo, name: string, target: Locator) {
