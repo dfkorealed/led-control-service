@@ -10,6 +10,7 @@ import {
   type SiteSettingsResponse
 } from "../../../api/site-settings";
 import { SiteOperationsView } from "./SiteOperationsView";
+import { SessionStatusProvider } from "../../../components/ui";
 
 const siteApi = vi.hoisted(() => ({
   getSiteSettings: vi.fn(),
@@ -393,6 +394,20 @@ describe("SiteOperationsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "다음 200개 불러오기" }));
     expect(await screen.findByRole("form", { name: "B2-L02 조명 정보 수정" })).toBeVisible();
     expect(siteApi.getFloorFixtureSettings).toHaveBeenCalledWith("site-1", "floor-1", "fixture-1");
+  });
+
+  it("does not expose registration removal without explicit admin capability", async () => {
+    renderView();
+    await screen.findByRole("form", { name: "B2-L01 조명 정보 수정" });
+    expect(screen.queryByRole("button", { name: "B2-L01 등록 삭제" })).not.toBeInTheDocument();
+  });
+
+  it("exposes a named registration removal icon for an authorized admin", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}>
+      <SessionStatusProvider><SiteOperationsView siteId="site-1" ownerUserId="admin-1" canRemoveRegistration removalPrincipal="admin-1:org" /></SessionStatusProvider>
+    </QueryClientProvider>);
+    expect(await screen.findByRole("button", { name: "B2-L01 등록 삭제" })).toBeVisible();
   });
 
   it("rejects blank, malformed, and out-of-range rated watt values before calling the API", async () => {

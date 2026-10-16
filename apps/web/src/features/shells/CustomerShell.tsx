@@ -389,7 +389,8 @@ function CustomerShellContent({ user }: { user: AuthUser }) {
               <Route
                 path="site"
                 element={capabilities.manage
-                  ? <SiteOperationsView siteId={selectedSiteId} ownerUserId={user.id} canPrepare={capabilities.commission} />
+                  ? <SiteOperationsView siteId={selectedSiteId} ownerUserId={user.id} canPrepare={capabilities.commission}
+                    canRemoveRegistration={isAdmin && capabilities.manage} removalPrincipal={principalKey(user)} />
                   : <Navigate to={`/settings${location.search}`} replace />}
               />
               <Route

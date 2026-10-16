@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { FixtureGroupMetadata } from "@led-control/shared";
-import { Archive, CheckCircle2, CircleAlert, Clock3, Lightbulb, Network, Plus, RotateCcw, Save } from "lucide-react";
+import { Archive, CheckCircle2, CircleAlert, Clock3, Lightbulb, Network, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { ApiError } from "../../../api/client";
 import { deleteFixtureGroup, fixtureGroupQueryKey, listFixtureGroups } from "../../../api/fixture-groups";
 import {
@@ -20,7 +20,8 @@ import {
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
-import { LoadingState, Button, Card, DataGrid, FeedbackState, Heading, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn  } from "../../../components/ui";
+import { LoadingState, Button, Card, DataGrid, FeedbackState, Heading, IconTooltipButton, ModalDialog, PageHeader, SelectBox, StatusBadge, StatusDetailButton, TextField, type DataGridColumn  } from "../../../components/ui";
+import { FixtureRegistrationRemovalFlow, type FixtureRemovalTarget } from "./FixtureRegistrationRemovalFlow";
 import { BioSensorSettingsPanel } from "./BioSensorSettingsPanel";
 import { SiteInformationEditDialog } from "./SiteInformationEditDialog";
 import { FloorEditDialog } from "./FloorEditDialog";
@@ -34,7 +35,9 @@ interface RetryableError {
 const TARIFF_RATE_RANGE = { min: 0, max: 99_999_999.99 } as const;
 const RATED_WATT_RANGE = { min: 0.01, max: 999_999.99 } as const;
 
-export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: { siteId?: string; ownerUserId?: string; canPrepare?: boolean }) {
+export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false, canRemoveRegistration = false, removalPrincipal }: {
+  siteId?: string; ownerUserId?: string; canPrepare?: boolean; canRemoveRegistration?: boolean; removalPrincipal?: string;
+}) {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
     queryKey: siteSettingsQueryKey(siteId ?? "unselected"),
@@ -42,6 +45,7 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
     enabled: Boolean(siteId)
   });
   const [selectedFloorId, setSelectedFloorId] = useState("");
+  const [removalTarget, setRemovalTarget] = useState<(FixtureRemovalTarget & { principal: string }) | null>(null);
   const [floorToArchive, setFloorToArchive] = useState<SiteSettingsFloor | null>(null);
   const [floorActionError, setFloorActionError] = useState<RetryableError | null>(null);
   const [floorEditor, setFloorEditor] = useState<{ id: string; trigger: HTMLElement } | null>(null);
@@ -172,8 +176,13 @@ export function SiteOperationsView({ siteId, ownerUserId, canPrepare = false }: 
           floors={activeFloors}
           selectedFloorId={selectedFloorId}
           onSelectedFloorIdChange={setSelectedFloorId}
+          onRemove={canRemoveRegistration && removalPrincipal ? target => setRemovalTarget({ ...target, principal: removalPrincipal }) : undefined}
         />
       </> : null}
+
+      {canRemoveRegistration && removalPrincipal ? <FixtureRegistrationRemovalFlow key={`${removalPrincipal}:${siteId}`} siteId={siteId}
+        principal={removalPrincipal} target={removalTarget?.siteId === siteId && removalTarget.principal === removalPrincipal ? removalTarget : null}
+        onClose={() => setRemovalTarget(null)} /> : null}
 
       {floorToArchive ? (
         <ModalDialog
@@ -382,11 +391,12 @@ function floorColumns(onEdit: (editor: { id: string; trigger: HTMLElement }) => 
   ];
 }
 
-function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChange }: {
+function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChange, onRemove }: {
   siteId: string;
   floors: SiteSettingsFloor[];
   selectedFloorId: string;
   onSelectedFloorIdChange: (floorId: string) => void;
+  onRemove?: (target: FixtureRemovalTarget) => void;
 }) {
   const fixturesQuery = useInfiniteQuery({
     queryKey: floorFixtureSettingsQueryKey(siteId, selectedFloorId),
@@ -420,7 +430,7 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
       {fixturesQuery.error && fixtures.length === 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void fixturesQuery.refetch()}>조명 목록 다시 시도</Button>} /> : null}
       {!fixturesQuery.isPending && !fixturesQuery.error && selectedFloorId && fixtures.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="이 층에 등록된 조명이 없습니다." /> : null}
       {fixtures.length > 0 ? <div className="grid min-w-0 gap-3" aria-label="조명 목록">
-        {fixtures.map((fixture) => <FixtureRow key={fixture.id} siteId={siteId} floorId={selectedFloorId} fixture={fixture} />)}
+        {fixtures.map((fixture) => <FixtureRow key={fixture.id} siteId={siteId} floorId={selectedFloorId} fixture={fixture} onRemove={onRemove} />)}
       </div> : null}
       {fixturesQuery.hasNextPage ? <div className="flex flex-wrap items-center justify-between gap-3">
         <span>{fixtures.length}개 불러옴</span>
@@ -430,7 +440,9 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
   );
 }
 
-function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: string; fixture: FixtureSettingsItem }) {
+function FixtureRow({ siteId, floorId, fixture, onRemove }: {
+  siteId: string; floorId: string; fixture: FixtureSettingsItem; onRemove?: (target: FixtureRemovalTarget) => void;
+}) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(fixture.name);
   const [ratedWatt, setRatedWatt] = useState(String(fixture.ratedWatt));
@@ -492,7 +504,10 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
 
   return (
     <Card className="grid min-w-0 gap-4 p-5">
-      <div className="flex min-w-0 items-center justify-between gap-3"><strong className="min-w-0 wrap-anywhere">{fixture.name}</strong></div>
+      <div className="flex min-w-0 items-center justify-between gap-3"><strong className="min-w-0 wrap-anywhere">{fixture.name}</strong>
+        {onRemove ? <IconTooltipButton icon={Trash2} label={`${fixture.name} 등록 삭제`} tooltip="등록 삭제"
+          onClick={event => onRemove({ siteId, floorId, fixture, trigger: event.currentTarget })} /> : null}
+      </div>
       {identities.length > 0 ? <dl className="flex flex-wrap gap-4 text-caption text-content-secondary">
         {identities.map(([label, value]) => <div className="flex min-w-0 max-w-full gap-2" key={label}><dt className="shrink-0">{label}</dt><dd className="m-0 min-w-0 wrap-anywhere font-bold text-content-primary">{value}</dd></div>)}
       </dl> : null}
