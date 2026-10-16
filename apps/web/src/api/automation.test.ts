@@ -9,7 +9,6 @@ import {
   listVehicleEventRules,
   listSchedules,
   scheduleMutationErrorMessage,
-  vehicleEventMutationErrorMessage,
   scheduleQueryKey,
   vehicleEventRuleQueryKey,
   vehicleEventMutationErrorMessage,

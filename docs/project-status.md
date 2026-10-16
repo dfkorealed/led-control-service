@@ -9,6 +9,7 @@
 - focused shared60/API53/Gateway107(저수준 포함 최종355)/Web145·PC1440/모바일390 저장2건, API/Gateway 타입·API/Gateway/Web build를 검증했다. 지원 상실의 stale capability rollback과0%/표현불가 시간·부분원장 오류를 보완했다. 사용자 단독 지시로 작성자 자가리뷰만 했으며 다른 채팅 공유/agent0이다. 기존 무관 전체suite 실패를 숨기지 않되 이번에는 관련 검증만 수행했다.
 - 현재 코드 병합 준비이며 운영 DB 두 migration·새 API/Web/Gateway 영구 반영은 미실행이다. 실제 운영 image는 기존 버전이다. 배포 전 별도 사용자 승인·백업·버전 일치·명시 native capability·정확 revision/ACK 확인이 필요하다. 활성 native 원장이 남은 구형 Gateway 다운그레이드는 금지하고 부분 설정은 자동 SET 재전송하지 않는다.
 - 상세 범위/한계는 `docs/menus/control.md`, `docs/menus/settings.md`, `docs/database-schema.md`와 `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`다. 아래10월15일 자기 제어 미구현/장비 상태는 당시 이력이며 이 항목으로 갱신한다. 병행 미커밋 기록을 임의 stage/삭제하지 않는다.
+- 최신 MAIN `a6260156`을 기능 브랜치에 역통합했다. 코드 자동 병합 뒤 중복 import의 Web 타입 오류를 수정해 Web155PASS·타입/build0·PC/모바일 native저장2PASS를 재확인했다. API/Gateway 제품코드는 통합 전후 동일하다. 현재 MAIN의 API는 `nest start --watch`, 웹은Vite로 MAIN 경로를 사용한다. 새DB 열이 없는 상태의 MAIN 병합은 watcher/웹에 부분 반영될 수 있어 아직 실행하지 않았다. 새DB2migration·API/Web·Gateway를 일치시켜 반영할 별도 사용자 승인이 필요하다. MAIN AGENTS/상태판dirty2는 변경하지 않았다.
 
 ## 2026-10-15 BIO 자기 감지 제어 설계 검토
 
