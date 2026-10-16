@@ -87,12 +87,31 @@ export class GroupStateStore {
     return group ? group.members.map((member) => ({ ...member })) : [];
   }
 
+  retireAddress(meshAddress: string) {
+    return this.exclusive(async () => {
+      await this.initialize();
+      if (!this.available) throw new GroupStateError("MESH_GROUP_NOT_READY", "group state unavailable during retirement");
+      const groups = this.state.groups.map(group => ({ ...group,
+        members: group.members.filter(member => member.meshAddress !== meshAddress) }));
+      if (groups.every((group, index) => group.members.length === this.state.groups[index].members.length)) return;
+      const next: StoredGroupState = { version: 1, revision: this.state.revision + 1, groups };
+      this.available = false;
+      await this.write(`${this.path}.manifest`, { version: 1, revision: next.revision });
+      await this.write(this.path, next);
+      this.state = next; this.available = true;
+    });
+  }
+
   async readReadySnapshots(): Promise<DurableGroupState[]> {
     await this.initialize();
     if (!this.available) return [];
     return this.state.groups
       .filter((group) => group.status === "ready")
       .map((group) => ({ ...group, members: group.members.map((member) => ({ ...member })) }));
+  }
+
+  registrationRemovalBlocker(): string | null {
+    return !this.available || this.state.groups.some(group => group.status === "configuring") ? "GROUP_SYNC_IN_PROGRESS" : null;
   }
 
   private async restore(): Promise<{ reason: GroupStateRestoreReason }> {

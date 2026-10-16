@@ -48,7 +48,8 @@ type BioClientPort = Pick<BioDongleClient,
   Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo" | "readConfiguration" | "restoreConfiguration" | "sensorSourceSnapshot">>;
 type BioMappingPort = Pick<BioDeviceMappingStore,
   "findByDeviceUuidIncludingReserved" | "reserve" | "confirm" | "findByFixtureId" |
-  "findByLogicalAddress" | "listConfirmed">;
+  "findByLogicalAddress" | "listConfirmed"> & Partial<Pick<BioDeviceMappingStore,
+  "isRegistrationCurrent" | "assertProvisioningAdmissible">>;
 type DurableProvisioningCommand = ProvisionDevicePayload & { commandId: string };
 
 /**
@@ -78,6 +79,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   private readonly discoveryQueue = new SerialTaskQueue();
   private readonly lightingObservationListeners = new Set<(observation: BleMeshLightingObservation) => void>();
   private readonly fixturePresenceListeners = new Set<(presence: BleMeshFixturePresence) => Promise<void> | void>();
+  private readonly activeWrites = new Map<string, number>();
+  private readonly uncertainFixtures = new Set<string>();
 
   constructor(
     private readonly client: BioClientPort,
@@ -93,6 +96,22 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   setBioSourceTargetGuard(guard: BioSourceTargetGuard) { this.sourceTargetGuard = guard; }
   setBioTemporaryLeaseGuard(guard: (fixtureId: string) => boolean) { this.temporaryLeaseGuard = guard; }
+
+  registrationRemovalBlocker(fixtureId: string): string | null {
+    return this.uncertainFixtures.has(fixtureId) ? "CONTROL_UNCERTAIN"
+      : this.activeWrites.has(fixtureId) ? "CONTROL_IN_PROGRESS" : null;
+  }
+
+  forgetRegistration(fixtureId: string, deviceUuid: string) {
+    this.discoveredByUuid.delete(deviceUuid);
+    for (const members of this.virtualGroups.values()) members.delete(fixtureId);
+  }
+
+  private registrationControl(mapping: BioDeviceMapping, control: BioOperationControl = {}): BioOperationControl {
+    if (!this.mappings.isRegistrationCurrent) return control;
+    const before = control.registrationCurrent;
+    return { ...control, registrationCurrent: () => before?.() !== false && this.mappings.isRegistrationCurrent!(mapping) };
+  }
 
   /** Explicit owner-only port. Product wiring gives this port to the temporary
    * runtime; ordinary control cannot bypass a lease by adding public flags. */
@@ -143,7 +162,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       throw new Error("bio_mapping_not_confirmed");
     }
     if (this.sourceTargetGuard?.([mapping.fixtureId])) throw new Error("bio_source_target_forbidden");
-    return this.guardedWriteControl(mapping.fixtureId);
+    return this.registrationControl(mapping, this.guardedWriteControl(mapping.fixtureId));
   }
 
   async sensorModeOperation(command: { fixtureId: string; nodeId: string; meshAddress: string; deviceIdentityHash: string; operation: "ensure_sensor" | "query" }, control: BioOperationControl) {
@@ -188,6 +207,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     const client = this.requireReadOnlyClient();
     const fencedControl: BioOperationControl = {
       ...control,
+      registrationCurrent: this.registrationControl(mapping, control).registrationCurrent,
       beforeWrite: async () => {
         await assertMapping();
         await control.beforeWrite?.();
@@ -238,6 +258,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   async identify(command: IdentifyDevicePayload) {
     requireBioUuid(command.deviceUuid);
+    await this.mappings.assertProvisioningAdmissible?.(command);
     const control = await this.identifyWriteControl(command.deviceUuid);
     await this.client.startIdentify(command.deviceUuid, ...(control ? [control] : []));
   }
@@ -258,6 +279,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
    */
   async recoverIdentifySafety(command: IdentifyDevicePayload): Promise<void> {
     requireBioUuid(command.deviceUuid);
+    await this.mappings.assertProvisioningAdmissible?.(command);
     const control = await this.identifyWriteControl(command.deviceUuid);
     await this.refreshDiscovery();
     const device = this.discoveredByUuid.get(command.deviceUuid);
@@ -267,6 +289,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   async provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload> {
     const durable = requireDurableCommand(command);
+    await this.mappings.assertProvisioningAdmissible?.(durable);
     const logicalAddress = parseBioMeshAddress(command.meshAddress);
     requireBioUuid(command.deviceUuid);
     const existing = await this.mappings.findByDeviceUuidIncludingReserved(command.deviceUuid);
@@ -307,6 +330,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   async recoverProvisioning(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload> {
     const durable = requireDurableCommand(command);
+    await this.mappings.assertProvisioningAdmissible?.(durable);
     const logicalAddress = parseBioMeshAddress(command.meshAddress);
     requireBioUuid(command.deviceUuid);
     const mapping = await this.mappings.findByDeviceUuidIncludingReserved(command.deviceUuid);
@@ -334,10 +358,11 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     throwIfExpired(control);
     if (!mapping) throw new Error("fixture_not_registered");
+    Object.assign(control, this.registrationControl(mapping, control));
     await this.requireDiscovered(mapping, control);
     throwIfExpired(control);
     if (action === "start") await this.client.startIdentify(mapping.deviceUuid, control);
-    else await this.client.stopIdentify(mapping.deviceUuid, writeControl);
+    else await this.client.stopIdentify(mapping.deviceUuid, control);
     return action === "start" ? 2 : 0;
   }
 
@@ -347,6 +372,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   /** Reads configuration, never infers sensor optical output or power from high brightness. */
   async readBioState(fixtureId: string, control: BioOperationControl = {}) {
+    control = { ...control };
     if (!this.client.readConfiguration) throw new BioUsbError("NOT_READY", "BIO configuration read unavailable");
     const verified = await this.bioConfigurationTarget(fixtureId, control);
     return { target: verified, configuration: await this.client.readConfiguration(verified, control) };
@@ -378,6 +404,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     throwIfExpired(control);
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     if (!mapping || mapping.status !== "confirmed") throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO target not confirmed");
+    Object.assign(control, this.registrationControl(mapping, control));
     await this.requireDiscovered(mapping, control);
     const device = this.requireExactDiscoveredMapping(mapping);
     throwIfExpired(control);
@@ -396,13 +423,22 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     if (!mapping) return failed(fixtureId, undefined, "fixture_not_registered");
     let device: BioDiscoveredDevice | undefined;
-    const writes = trackCommandWrites(writeControl);
+    const writes = trackCommandWrites(writeControl || this.mappings.isRegistrationCurrent ? {
+      mayStartWrite: () => writeControl?.mayStartWrite?.() !== false,
+      onWriteStarted: () => writeControl?.onWriteStarted?.()
+    } : undefined);
+    let counted = false;
+    const trackedControl: BioOperationControl = this.registrationControl(mapping, { signal, deadlineAt,
+      ...writes.control, ...(writes.control ? { onWriteStarted: () => {
+        if (!counted) { counted = true; this.activeWrites.set(fixtureId, (this.activeWrites.get(fixtureId) ?? 0) + 1); }
+        writes.control?.onWriteStarted();
+      } } : {}) });
     try {
       device = await this.requireDiscovered(mapping, { signal, deadlineAt });
       if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out", device.rssi);
       const outputTarget = target(device, mapping.logicalAddress);
-      const observed = signal || deadlineAt !== undefined || writeControl
-        ? await this.client.setOutput(outputTarget, brightness, { signal, deadlineAt, ...writes.control })
+      const observed = signal || deadlineAt !== undefined || writeControl || this.mappings.isRegistrationCurrent
+        ? await this.client.setOutput(outputTarget, brightness, trackedControl)
         : await this.client.setOutput(outputTarget, brightness);
       if (expired(signal, deadlineAt)) {
         return failed(fixtureId, undefined, "command_expired", "timed_out", device.rssi);
@@ -417,6 +453,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         hopCount: null
       };
     } catch (error) {
+      if (writes.hasStarted()) this.uncertainFixtures.add(fixtureId);
       if (error instanceof CommandWriteVetoError) {
         // The brightness phase may already have changed the lamp. Only the
         // command owner can prove write-zero and durably abort; retain unknown.
@@ -432,6 +469,11 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         ...(observation.rawBrightness === undefined ? {} : { rawBrightness: observation.rawBrightness }),
         ...(observation.mode ? { mode: observation.mode } : {})
       };
+    } finally {
+      if (counted) {
+        const remaining = (this.activeWrites.get(fixtureId) ?? 1) - 1;
+        if (remaining > 0) this.activeWrites.set(fixtureId, remaining); else this.activeWrites.delete(fixtureId);
+      }
     }
   }
 
@@ -487,7 +529,10 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       // virtualGroups의 Fixture ID와 command의 Fixture ID를 다시 대조하므로 이 단계는
       // 불필요한 ID 변환 없이 confirmed 하드웨어 주소만 local membership으로 바꾼다.
       if (!mapping) {
-        operations.push({ ...operation, status: "failed", error: "bio_mapping_not_confirmed" });
+        // BIO memberships are local only. An absent retired member is already
+        // removed, but an old desired add must never regain registration.
+        operations.push(operation.action === "delete" ? { ...operation, status: "ready" }
+          : { ...operation, status: "failed", error: "bio_mapping_not_confirmed" });
         continue;
       }
       if (operation.action === "add") current.add(mapping.fixtureId);
@@ -590,7 +635,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       try {
         const device = this.requireExactDiscoveredMapping(mapping);
         const verifiedTarget = target(device, mapping.logicalAddress);
-        const control = { signal };
+        const control = this.registrationControl(mapping, { signal });
         const client = this.requireReadOnlyClient();
         uncodedFailure = "BIO_RESYNC_BRIGHTNESS_READ_FAILED";
         const brightness = await client.readBrightness(verifiedTarget, control);
@@ -599,6 +644,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         uncodedFailure = "BIO_RESYNC_IDENTITY_CHECK_FAILED";
         assertExactReadbackIdentity(mapping, device, brightness);
         assertExactReadbackIdentity(mapping, device, mode);
+        if (control.registrationCurrent?.() === false) throw new Error("BIO_REGISTRATION_RETIRED");
         const presence: BleMeshFixturePresence = {
           fixtureId: mapping.fixtureId,
           controlMode: mode.mode,

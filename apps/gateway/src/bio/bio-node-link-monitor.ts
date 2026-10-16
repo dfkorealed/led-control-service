@@ -61,6 +61,7 @@ export class BioNodeLinkMonitor {
     else { this.health.clear(); this.commissions.clear(); this.due.clear(); }
     this.notify(fixtureId);
   }
+  retire(fixtureId: string) { this.invalidate(fixtureId); this.restorationIdentities.delete(fixtureId); }
   snapshot(fixtureId: string): BioNodeLinkProof | null {
     const value = this.health.get(fixtureId), state = this.options.client.sensorSourceSnapshot();
     if (!value) return null;
@@ -107,7 +108,8 @@ export class BioNodeLinkMonitor {
       if (!mapping || !matchesPreparationMapping(mapping, identity) || mapping.nativeUuid !== binding.nativeUuid
         || mapping.logicalAddress !== binding.logicalAddress || !current()) return false;
       const guard = async () => { if (!current() || !isDeepStrictEqual(mapping, await this.options.mappings.findByFixtureId(binding.sourceFixtureId)) || !current()) throw new Error("BIO_RELEASE_IDENTITY_CHANGED"); };
-      const control = { signal: this.abort.signal, deadlineAt: Date.now() + 10000, beforeWrite: guard, mayStartWrite: current };
+      const control = { signal: this.abort.signal, deadlineAt: Date.now() + 10000, beforeWrite: guard, mayStartWrite: current,
+        registrationCurrent: () => this.options.mappings.isRegistrationCurrent(mapping) };
       await guard(); const observations = await this.options.client.scanObservations(control); await guard();
       const exact = observations.filter(d => d.nativeUuid === binding.nativeUuid);
       if (!exact.length || exact.some(d => d.logicalAddress !== binding.logicalAddress || d.networkId !== binding.networkId)
@@ -143,7 +145,8 @@ export class BioNodeLinkMonitor {
       await guard();
       const observed = await client.readDeviceInfo({ kind: "unicast", nativeUuid: commission.mapping.nativeUuid,
         logicalAddress: commission.mapping.logicalAddress, networkId: commission.networkId },
-      { signal: this.abort.signal, deadlineAt: Date.now() + approved.linkPolicy.maxAgeMs, beforeWrite: guard, mayStartWrite: current });
+      { signal: this.abort.signal, deadlineAt: Date.now() + approved.linkPolicy.maxAgeMs, beforeWrite: guard, mayStartWrite: current,
+        registrationCurrent: () => mappings.isRegistrationCurrent(commission.mapping) });
       await guard();
       if (observed.mode !== "sensor" || observed.deviceUuid !== commission.mapping.deviceUuid
         || observed.logicalAddress !== commission.mapping.logicalAddress || observed.networkId !== commission.networkId) throw new Error("BIO_LINK_MISMATCH");

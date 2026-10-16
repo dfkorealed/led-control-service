@@ -252,6 +252,8 @@ describe("Gateway command clock MQTT runtime", () => {
 
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/registration-removal`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/temporary-control/command`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-catalog`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-sensor-preparation`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/bio-registration-revalidation`,
@@ -2146,21 +2148,29 @@ describe("startGatewayRuntime", () => {
   it("subscribes existing topics and adds registration revalidation command/ACK to a resumed session", () => {
     const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
     const client = { subscribe };
+    const scope = { siteId: scopedSiteId, gatewayId: scopedGatewayId };
+    const scoped = (topic: string) => topic.replace("sites/site-27/gateways/gateway-27/", `sites/${scope.siteId}/gateways/${scope.gatewayId}/`);
 
-    subscribeGatewayCommands(client as never, assignment, false);
-    subscribeGatewayCommands(client as never, assignment, true);
+    subscribeGatewayCommands(client as never, scope, false);
+    subscribeGatewayCommands(client as never, scope, true);
 
     expect(subscribe).toHaveBeenCalledTimes(2);
     expect(subscribe).toHaveBeenLastCalledWith([
+      "sites/site-27/gateways/gateway-27/commands/registration-removal",
+      "sites/site-27/gateways/gateway-27/commands/registration-removal-ack",
+      "sites/site-27/gateways/gateway-27/temporary-control/command",
+      "sites/site-27/gateways/gateway-27/temporary-control/ingested",
       "sites/site-27/gateways/gateway-27/commands/bio-sensor-catalog",
       "sites/site-27/gateways/gateway-27/commands/bio-sensor-preparation",
       "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
       "sites/site-27/gateways/gateway-27/commands/bio-sensor-mode",
       "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
       "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"
-    ], { qos: 1 }, expect.any(Function));
+    ].map(scoped), { qos: 1 }, expect.any(Function));
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/commands/registration-removal",
+        "sites/site-27/gateways/gateway-27/temporary-control/command",
         "sites/site-27/gateways/gateway-27/commands/bio-sensor-catalog",
         "sites/site-27/gateways/gateway-27/commands/bio-sensor-preparation",
         "sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation",
@@ -2174,6 +2184,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/commands/registration-removal-ack",
+        "sites/site-27/gateways/gateway-27/temporary-control/ingested",
         "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
         "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
@@ -2186,7 +2198,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/acks/automation/config-applied-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/vehicle-sensor-capability-ingested"
-      ],
+      ].map(scoped),
       { qos: 1 },
       expect.any(Function)
     );
@@ -2195,11 +2207,15 @@ describe("startGatewayRuntime", () => {
   it("subscribes only acknowledgement topics while command intake is quiesced", async () => {
     const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
     const client = { subscribe };
+    const scope = { siteId: scopedSiteId, gatewayId: scopedGatewayId };
+    const scoped = (topic: string) => topic.replace("sites/site-27/gateways/gateway-27/", `sites/${scope.siteId}/gateways/${scope.gatewayId}/`);
 
-    await subscribeGatewayAcknowledgements(client as never, assignment, false);
+    await subscribeGatewayAcknowledgements(client as never, scope, false);
 
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/commands/registration-removal-ack",
+        "sites/site-27/gateways/gateway-27/temporary-control/ingested",
         "sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack",
         "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result",
         "sites/site-27/gateways/gateway-27/events/clock/response",
@@ -2212,7 +2228,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/acks/automation/config-applied-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/vehicle-sensor-capability-ingested"
-      ],
+      ].map(scoped),
       { qos: 1 },
       expect.any(Function)
     );
@@ -2220,10 +2236,12 @@ describe("startGatewayRuntime", () => {
 
   it("keeps the new ACK subscribed on a resumed quiesced session and removes only its command intake", async () => {
     const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
-    await subscribeGatewayAcknowledgements({ subscribe } as never, assignment, true);
-    expect(subscribe).toHaveBeenCalledWith(["sites/site-27/gateways/gateway-27/events/bio-sensor-preparation-result-ack", "sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result"], { qos: 1 }, expect.any(Function));
-    expect(gatewayCommandTopics("site-27", "gateway-27")).toContain("sites/site-27/gateways/gateway-27/commands/bio-registration-revalidation");
-    expect(gatewayCommandTopics("site-27", "gateway-27")).not.toContain("sites/site-27/gateways/gateway-27/acks/bio-registration-revalidation-result");
+    const scope = { siteId: scopedSiteId, gatewayId: scopedGatewayId };
+    const base = `sites/${scope.siteId}/gateways/${scope.gatewayId}`;
+    await subscribeGatewayAcknowledgements({ subscribe } as never, scope, true);
+    expect(subscribe).toHaveBeenCalledWith([`${base}/commands/registration-removal-ack`, `${base}/temporary-control/ingested`, `${base}/events/bio-sensor-preparation-result-ack`, `${base}/acks/bio-registration-revalidation-result`], { qos: 1 }, expect.any(Function));
+    expect(gatewayCommandTopics(scope.siteId, scope.gatewayId)).toContain(`${base}/commands/bio-registration-revalidation`);
+    expect(gatewayCommandTopics(scope.siteId, scope.gatewayId)).not.toContain(`${base}/acks/bio-registration-revalidation-result`);
   });
 
   it("does not publish fixture-state for a command result without fixture observation", () => {

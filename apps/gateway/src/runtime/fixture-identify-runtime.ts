@@ -22,6 +22,10 @@ export class FixtureIdentifyRuntime {
 
   constructor(private readonly options: Options) {}
 
+  registrationRemovalBlocker(fixtureId: string): string | null {
+    return this.active?.fixtureId === fixtureId || this.pending > 0 ? "IDENTIFY_IN_PROGRESS" : null;
+  }
+
   handle(input: unknown): Promise<FixtureIdentifyResult> {
     const command = fixtureIdentifyCommandSchema.parse(input);
     if (command.siteId !== this.options.siteId || command.gatewayId !== this.options.gatewayId) {

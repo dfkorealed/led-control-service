@@ -1,7 +1,10 @@
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioUsbError } from "./bio-usb-error";
-import { bioSensorFingerprintV1Schema, type BioSensorFingerprintV1 } from "@led-control/shared";
+import { bioSensorFingerprintV1Schema, fixtureRegistrationRemovalCommandSchema,
+  fixtureRegistrationRemovalBindingIdentity, type FixtureRegistrationRemovalCommand, type BioSensorFingerprintV1 } from "@led-control/shared";
+import { isDeepStrictEqual } from "node:util";
+import { registrationRemovalHash } from "../state/fixture-registration-removal-journal";
 
 export interface BioDeviceMapping {
   fingerprint?: BioSensorFingerprintV1;
@@ -32,8 +35,9 @@ export interface BioDeviceMappingInput {
 }
 
 interface StoredMappings {
-  version: 2;
+  version: 2 | 3;
   mappings: BioDeviceMapping[];
+  retirements?: Array<{ command: FixtureRegistrationRemovalCommand }>;
 }
 
 type BioMappingKeys = Pick<BioDeviceMappingInput,
@@ -60,6 +64,11 @@ type BioMappingKeys = Pick<BioDeviceMappingInput,
 export class BioDeviceMappingStore {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly changeListeners = new Set<() => void>();
+  private readonly retiredFixtures = new Set<string>();
+  private readonly retiredNodes = new Set<string>();
+  private readonly retiredCommands = new Set<string>();
+  private readonly admissionFences = new Map<string, FixtureRegistrationRemovalCommand>();
+  private unavailable = false;
 
   constructor(
     private readonly path: string,
@@ -79,10 +88,100 @@ export class BioDeviceMappingStore {
     }
   }
 
+  /** Synchronous last-instruction guard; USB transport generations are unrelated. */
+  isRegistrationCurrent(mapping: BioDeviceMapping): boolean {
+    return !this.unavailable && !this.retiredFixtures.has(mapping.fixtureId) && !this.retiredNodes.has(mapping.nodeId)
+      && (!mapping.commandId || !this.retiredCommands.has(mapping.commandId))
+      && ![...this.admissionFences.values()].some(command => command.fixtureId === mapping.fixtureId || command.nodeId === mapping.nodeId);
+  }
+
+  isFixtureRetired(fixtureId: string): boolean {
+    return this.unavailable || this.retiredFixtures.has(fixtureId)
+      || [...this.admissionFences.values()].some(command => command.fixtureId === fixtureId);
+  }
+
+  fenceRegistration(command: FixtureRegistrationRemovalCommand): void {
+    const previous = this.admissionFences.get(command.operationId);
+    if (previous) {
+      if (!isDeepStrictEqual(previous, command)) throw new Error("BIO removal operation conflict");
+      return;
+    }
+    this.admissionFences.set(command.operationId, structuredClone(command));
+    this.notifyChange();
+  }
+
+  releaseRegistrationFence(operationId: string): void {
+    if (this.admissionFences.delete(operationId)) this.notifyChange();
+  }
+
+  async assertProvisioningAdmissible(command: { nodeId: string; deviceUuid: string; commandId?: string }) {
+    return this.exclusive(async () => {
+      await this.read();
+      if (this.unavailable || this.retiredFixtures.has(command.nodeId) || this.retiredNodes.has(command.nodeId)
+        || (command.commandId && this.retiredCommands.has(command.commandId))
+        || [...this.admissionFences.values()].some(row => row.deviceUuid === command.deviceUuid || row.nodeId === command.nodeId)) {
+        throw new Error("BIO_REGISTRATION_RETIRED");
+      }
+    });
+  }
+
+  async retirement(command: FixtureRegistrationRemovalCommand) {
+    return this.exclusive(async () => {
+      const state = await this.read();
+      const previous = state.retirements?.find(row => row.command.operationId === command.operationId);
+      if (previous && !isDeepStrictEqual(previous.command, command)) throw new Error("BIO removal operation conflict");
+      return previous ? structuredClone(previous) : null;
+    });
+  }
+
+  retireRegistration(input: FixtureRegistrationRemovalCommand, assertSafe: () => Promise<void> = async () => undefined) {
+    return this.exclusive(async () => {
+      const command = fixtureRegistrationRemovalCommandSchema.parse(input);
+      if (registrationRemovalHash(fixtureRegistrationRemovalBindingIdentity(command)) !== command.bindingHash) throw new Error("BIO_REMOVAL_BINDING_MISMATCH");
+      const state = await this.read();
+      const previous = state.retirements?.find(row => row.command.operationId === command.operationId);
+      if (previous) {
+        if (!isDeepStrictEqual(previous.command, command)) throw new Error("BIO removal operation conflict");
+        // Repeat the durability barrier after a rename-visible/uncertain commit.
+        await writeJsonAtomic(this.path, state);
+        return;
+      }
+      const mapping = state.mappings.find(row => row.fixtureId === command.fixtureId);
+      if (!mapping || !matchesRemovalMapping(mapping, command) || [...this.admissionFences.values()].some(row =>
+        row.operationId !== command.operationId && (row.fixtureId === command.fixtureId || row.deviceUuid === command.deviceUuid))) {
+        throw new Error("BIO_REMOVAL_BINDING_MISMATCH");
+      }
+      // Fence captured/queued targets before awaiting any persistence. On write
+      // uncertainty the fence remains until exact recovery, never timeout expiry.
+      this.fenceRegistration(command);
+      await assertSafe();
+      const next: StoredMappings = { version: 3, mappings: state.mappings.filter(row => row !== mapping),
+        retirements: [...state.retirements ?? [], { command }] };
+      if (next.retirements!.length > 10_000 || Buffer.byteLength(JSON.stringify(next, null, 2)) > 16 * 1024 * 1024) throw new Error("BIO_RETIREMENT_CAPACITY");
+      if (await readJsonFile(`${this.path}.retirement-manifest`) === null) {
+        await writeJsonAtomic(`${this.path}.retirement-manifest`, { version: 1, firstRemoval: command });
+      }
+      await writeJsonAtomic(this.path, next);
+      this.rememberRetirement(command);
+      this.releaseRegistrationFence(command.operationId);
+      this.notifyChange();
+    });
+  }
+
+  private rememberRetirement(command: FixtureRegistrationRemovalCommand) {
+    this.retiredFixtures.add(command.fixtureId); this.retiredNodes.add(command.nodeId);
+    this.retiredCommands.add(command.originalProvisionCommandId);
+  }
+
   reserve(input: BioDeviceMappingInput) {
     return this.exclusive(async () => {
       const mapping = normalizeInput(input);
       const state = await this.read();
+      if (!this.isRegistrationCurrent({ ...mapping, status: "reserved", updatedAt: this.now().toISOString() })
+        || [...this.admissionFences.values()].some(command => command.deviceUuid === mapping.deviceUuid)
+        || state.retirements?.some(row => Number.parseInt(row.command.meshAddress, 16) === mapping.logicalAddress)) {
+        throw new Error("BIO_REGISTRATION_RETIRED");
+      }
       const repeated = state.mappings.find((row) => row.commandId === mapping.commandId);
       if (repeated) {
         if (sameReservation(repeated, mapping)) return { ...repeated };
@@ -113,6 +212,7 @@ export class BioDeviceMappingStore {
       const state = await this.read();
       const mapping = state.mappings.find((row) => row.deviceUuid === `bio:${nativeUuid}`);
       if (!mapping) throw new Error("BIO device mapping reservation not found");
+      if (!this.isRegistrationCurrent(mapping)) throw new Error("BIO_REGISTRATION_RETIRED");
       if (mapping.logicalAddress !== logicalAddress) throw new Error("BIO device returned an address different from reserved address");
       if (mapping.status === "confirmed") return { ...mapping };
 
@@ -140,9 +240,11 @@ export class BioDeviceMappingStore {
    */
   async findByDeviceUuidIncludingReserved(deviceUuid: string) {
     const nativeUuid = parseBioDeviceUuid(deviceUuid);
-    const state = await this.read();
-    const mapping = state.mappings.find((row) => row.deviceUuid === `bio:${nativeUuid}`);
-    return mapping ? { ...mapping } : null;
+    return this.exclusive(async () => {
+      const state = await this.read();
+      const mapping = state.mappings.find((row) => row.deviceUuid === `bio:${nativeUuid}`);
+      return mapping ? { ...mapping } : null;
+    });
   }
 
   async findByNativeUuid(nativeUuid: string) {
@@ -156,20 +258,24 @@ export class BioDeviceMappingStore {
   }
 
   async listConfirmed() {
-    const state = await this.read();
-    return state.mappings
-      .filter((mapping): mapping is BioDeviceMapping & { status: "confirmed" } => mapping.status === "confirmed")
-      .map((mapping) => ({ ...mapping }));
+    return this.exclusive(async () => {
+      const state = await this.read();
+      return state.mappings
+        .filter((mapping): mapping is BioDeviceMapping & { status: "confirmed" } => mapping.status === "confirmed" && this.isRegistrationCurrent(mapping))
+        .map((mapping) => ({ ...mapping }));
+    });
   }
 
   async validate() {
-    await this.read();
+    await this.exclusive(() => this.read());
   }
 
   private async findConfirmed(predicate: (mapping: BioDeviceMapping) => boolean) {
-    const state = await this.read();
-    const mapping = state.mappings.find((row) => row.status === "confirmed" && predicate(row));
-    return mapping ? { ...mapping } : null;
+    return this.exclusive(async () => {
+      const state = await this.read();
+      const mapping = state.mappings.find((row) => row.status === "confirmed" && this.isRegistrationCurrent(row) && predicate(row));
+      return mapping ? { ...mapping } : null;
+    });
   }
 
   private exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -182,16 +288,33 @@ export class BioDeviceMappingStore {
   }
 
   private async read(): Promise<StoredMappings> {
+    try { return await this.readState(); }
+    catch (error) { this.unavailable = true; throw error; }
+  }
+
+  // Reads share the mutation queue: none may observe the manifest-first
+  // transition between the V2 mapping file and its atomic V3 retirement commit.
+  private async readState(): Promise<StoredMappings> {
     let value: unknown;
+    let firstRemoval: FixtureRegistrationRemovalCommand | undefined;
     try {
-      value = await readJsonFile(this.path);
+      value = await readJsonFile(this.path, { maxBytes: 16 * 1024 * 1024 });
+      const manifest = await readJsonFile(`${this.path}.retirement-manifest`);
+      if (manifest !== null) {
+        if (!manifest || typeof manifest !== "object" || Object.keys(manifest).sort().join() !== "firstRemoval,version"
+          || !("version" in manifest) || manifest.version !== 1 || !("firstRemoval" in manifest) || value === null) throw invalidMappingFile();
+        firstRemoval = fixtureRegistrationRemovalCommandSchema.parse(manifest.firstRemoval);
+        if (registrationRemovalHash(fixtureRegistrationRemovalBindingIdentity(firstRemoval)) !== firstRemoval.bindingHash) throw invalidMappingFile();
+      }
+      if (value && typeof value === "object" && "version" in value && value.version === 3 && manifest === null) throw invalidMappingFile();
     } catch (error) {
+      this.unavailable = true;
       throw invalidMappingFile(error);
     }
     if (value === null) return { version: 2, mappings: [] };
     if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidMappingFile();
     const row = value as Record<string, unknown>;
-    if ((row.version !== 1 && row.version !== 2) || !Array.isArray(row.mappings)) throw invalidMappingFile();
+    if ((row.version !== 1 && row.version !== 2 && row.version !== 3) || !Array.isArray(row.mappings)) throw invalidMappingFile();
     const version = row.version;
 
     // [확인됨] v1 reserved는 old address를 기록하지 않아 old/new scan matrix를 만들 수 없다.
@@ -202,7 +325,7 @@ export class BioDeviceMappingStore {
 
     let mappings: BioDeviceMapping[];
     try {
-      mappings = row.mappings.map((mapping) => parseMapping(mapping, version));
+      mappings = row.mappings.map((mapping) => parseMapping(mapping, version === 3 ? 2 : version));
       for (let index = 0; index < mappings.length; index += 1) {
         if (mappings.slice(0, index).some((previous) => sharesKey(previous, mappings[index]))) {
           throw new Error("duplicate BIO mapping");
@@ -211,8 +334,37 @@ export class BioDeviceMappingStore {
     } catch (error) {
       throw invalidMappingFile(error);
     }
-    return { version: 2, mappings };
+    if (version !== 3) {
+      if (firstRemoval) {
+        // A crash can leave only the first manifest durable. Its exact original
+        // registration stays fenced until the deletion journal reconciles it.
+        if (!mappings.some(mapping => matchesRemovalMapping(mapping, firstRemoval!))) throw invalidMappingFile();
+        this.fenceRegistration(firstRemoval);
+      }
+      return { version: 2, mappings };
+    }
+    if (!Array.isArray(row.retirements) || row.retirements.length === 0 || row.retirements.length > 10_000) throw invalidMappingFile();
+    const retirements = row.retirements.map(value => {
+      if (!value || typeof value !== "object" || Object.keys(value).join() !== "command") throw invalidMappingFile();
+      return { command: fixtureRegistrationRemovalCommandSchema.parse(value.command) };
+    });
+    const operations = new Set<string>();
+    for (const { command } of retirements) {
+      if (registrationRemovalHash(fixtureRegistrationRemovalBindingIdentity(command)) !== command.bindingHash) throw invalidMappingFile();
+      if (operations.has(command.operationId) || mappings.some(mapping => mapping.fixtureId === command.fixtureId
+        || mapping.nodeId === command.nodeId || mapping.commandId === command.originalProvisionCommandId
+        || mapping.logicalAddress === Number.parseInt(command.meshAddress, 16))) throw invalidMappingFile();
+      operations.add(command.operationId); this.rememberRetirement(command);
+    }
+    if (!firstRemoval || !retirements.some(row => isDeepStrictEqual(row.command, firstRemoval))) throw invalidMappingFile();
+    return { version: 3, mappings, retirements };
   }
+}
+
+function matchesRemovalMapping(mapping: BioDeviceMapping, command: FixtureRegistrationRemovalCommand) {
+  return mapping.status === "confirmed" && mapping.fixtureId === command.fixtureId && mapping.nodeId === command.nodeId
+    && mapping.deviceUuid === command.deviceUuid && mapping.nativeUuid === command.deviceUuid.slice(4)
+    && mapping.logicalAddress === Number.parseInt(command.meshAddress, 16) && mapping.commandId === command.originalProvisionCommandId;
 }
 
 function normalizeInput(value: BioDeviceMappingInput): BioDeviceMappingInput {

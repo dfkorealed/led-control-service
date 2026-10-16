@@ -73,7 +73,9 @@ describe("createProductionAdapters", () => {
     const beforeWrite = vi.fn(async () => {}); const control = { beforeWrite, mayStartWrite: () => true };
     const observed = await adapters.bioTargetConfiguration!.readBioState("fixture-b", control);
     await adapters.bioTargetConfiguration!.restoreBioState("fixture-b", observed.target, configuration, control);
-    expect(read).toHaveBeenCalledWith({ kind: "unicast", nativeUuid: "001122334455", logicalAddress: 256, networkId: 2 }, control);
+    expect(read).toHaveBeenCalledWith({ kind: "unicast", nativeUuid: "001122334455", logicalAddress: 256, networkId: 2 },
+      expect.objectContaining({ ...control, registrationCurrent: expect.any(Function) }));
+    expect(read.mock.calls[0][1]?.registrationCurrent?.()).toBe(true);
     expect(restore.mock.calls[0][2]?.beforeWrite).toBe(beforeWrite);
     expect(restore.mock.calls[0][2]?.mayStartWrite?.()).toBe(true);
     expect(adapters.vehicleSensorCloudSupported).toBe(false); await adapters.stop();

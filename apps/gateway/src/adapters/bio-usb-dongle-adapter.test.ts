@@ -11,6 +11,11 @@ import { createHash } from "node:crypto";
 import { BioDongleClient } from "../bio/bio-dongle-client";
 import { encodeCrcFrame } from "../bio/bio-frame-codec";
 import type { BleMeshFixturePresence } from "../gateway";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { BioDeviceMappingStore } from "../bio/bio-device-mapping-store";
+import { removalCommand } from "../../test/registration-removal-fixtures";
 
 const scanCommand: ProvisioningScanStartPayload = {
   sessionId: "11111111-1111-4111-8111-111111111111",
@@ -43,6 +48,42 @@ const discovered = {
 };
 
 describe("BioUsbDongleAdapter", () => {
+  it("converges local membership deletion for an already-retired address without permitting a stale add", async () => {
+    const f = createFixture(); f.mappings.findByLogicalAddress.mockResolvedValue(null);
+    const add = groupCommand([confirmedMapping()]);
+    const remove = { ...add, desiredMembers: [], expectedOperations: add.expectedOperations.map(row => ({ ...row, action: "delete" as const })) };
+    expect((await f.adapter.syncGroupSubscriptions(remove)).operations[0].status).toBe("ready");
+    expect((await f.adapter.syncGroupSubscriptions(add)).operations[0].status).toBe("failed");
+    expect(f.client.setOutput).not.toHaveBeenCalled();
+  });
+  it.each(["SET", "poll"] as const)("fences a captured %s target at the native write boundary after durable retirement", async kind => {
+    const root = await mkdtemp(join(tmpdir(), "bio-captured-removal-"));
+    const f = createPhysicalControlFixture({ configurationReports: true });
+    try {
+      const mappings = new BioDeviceMappingStore(join(root, "mappings.json"));
+      const mapping = reservedMapping(); await mappings.reserve(mapping); await mappings.confirm(mapping.deviceUuid, mapping.logicalAddress);
+      const adapter = new BioUsbDongleAdapter(f.client, mappings);
+      await f.client.probe(); await adapter.scan(scanCommand);
+      const command = removalCommand({ fixtureId: mapping.fixtureId, nodeId: mapping.nodeId, deviceUuid: mapping.deviceUuid,
+        meshAddress: "0x0101", originalProvisionCommandId: mapping.commandId });
+      if (kind === "SET") {
+        const setOutput = f.client.setOutput.bind(f.client);
+        f.client.setOutput = async (target, brightness, control) => {
+          await mappings.retireRegistration(command);
+          return setOutput(target, brightness, control);
+        };
+        expect(await adapter.applyUnicast(mapping.fixtureId, 60)).toMatchObject({ acknowledged: false });
+        expect(f.bodies.filter(body => body.startsWith("cd") || body.startsWith("cc"))).toEqual([]);
+      } else {
+        const read = f.client.readBrightness.bind(f.client);
+        f.client.readBrightness = async (target, control) => { await mappings.retireRegistration(command); return read(target, control); };
+        let observed = 0; adapter.onFixturePresence(() => { observed++; });
+        await adapter.resyncFixtureStates();
+        expect(f.bodies.filter(body => body === "4e13" || body === "4e12")).toEqual([]);
+        expect(observed).toBe(0);
+      }
+    } finally { await f.client.close(); await rm(root, { recursive: true, force: true }); }
+  });
   it("allows the explicit temporary owner port and retains source protection and durable stage callbacks", async () => {
     const f = createPhysicalControlFixture({ configurationReports: true });
     try {

@@ -8,6 +8,7 @@ import {
   type ProvisioningDeviceTerminalV2
 } from "@led-control/shared";
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
+import { resultIsUncertain } from "../commands/registration-removal-safety";
 
 const MAX_RECORDS = 1_000;
 const RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -91,6 +92,18 @@ export class ProvisioningDeviceJournal {
   initialize() {
     return this.exclusive(async () => {
       await this.load();
+    });
+  }
+
+  registrationRemovalBlocker(deviceUuid: string, nodeId?: string): Promise<string | null> {
+    return this.exclusive(async () => {
+      const state = await this.load();
+      for (const row of Object.values(state.records)) {
+        if (row.command.deviceUuid !== deviceUuid || (nodeId !== undefined && row.command.nodeId !== nodeId)) continue;
+        if (row.state === "accepted") return "PROVISIONING_IN_PROGRESS";
+        if (resultIsUncertain(row.terminal?.payload)) return "PROVISIONING_UNCERTAIN";
+      }
+      return null;
     });
   }
 
@@ -259,6 +272,9 @@ export class ProvisioningDeviceJournal {
     const now = this.now().getTime();
     let changed = false;
     for (const [commandId, record] of Object.entries(state.records)) {
+      // BIO's original registration evidence remains attributable after service
+      // retirement. Capacity fails closed instead of allowing old RF replay.
+      if (record.command.deviceUuid.startsWith("bio:") || resultIsUncertain(record.terminal?.payload)) continue;
       if (record.state === "terminal" && !pending.has(commandId) && record.acknowledgedAt &&
         now - new Date(record.acknowledgedAt).getTime() > this.retentionMs) {
         delete state.records[commandId];

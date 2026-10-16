@@ -5,6 +5,16 @@ import { describe, expect, it } from "vitest";
 import { CommandJournal, CommandJournalAutomationCapacityError } from "./command-journal";
 
 describe("CommandJournal", () => {
+  it("retains uncertain registration control past TTL and capacity so removal cannot forget it", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "removal-uncertainty-")), "journal.json");
+    let now = new Date("2026-10-16T00:00:00.000Z");
+    const journal = new CommandJournal(path, { now: () => now, ttlMs: 1, maxRecords: 1 });
+    await journal.accept("control", { fixtureId: "fixture" });
+    await journal.complete("control", { results: [{ fixtureId: "fixture", status: "timed_out" }] });
+    now = new Date("2026-10-17T00:00:00.000Z"); await journal.accept("other", {});
+    expect(await journal.registrationRemovalBlocker("fixture", "node")).toBe("CONTROL_UNCERTAIN");
+    expect(await journal.get("control")).not.toBeNull();
+  });
   it("retains registration revalidation across expiry and capacity until its own durable handoff", async () => {
     const path = join(await mkdtemp(join(tmpdir(), "command-revalidation-")), "journal.json");
     let now = new Date("2026-10-06T00:00:00Z");

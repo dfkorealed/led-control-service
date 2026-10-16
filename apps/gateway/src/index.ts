@@ -66,6 +66,10 @@ import { bioSensorModeCommandSchema, bioSensorModeTopics } from "@led-control/sh
 import { handleBioSensorMode, recoverBioSensorModes } from "./commands/bio-sensor-mode-handler";
 import { bioRegistrationRevalidationCommandSchema, bioRegistrationRevalidationAckSchema, bioRegistrationRevalidationTopics } from "@led-control/shared";
 import { handleBioRegistrationRevalidation, recoverBioRegistrationRevalidations } from "./commands/bio-registration-revalidation-handler";
+import { fixtureRegistrationRemovalTopics, type AutomationSnapshot } from "@led-control/shared";
+import { FixtureRegistrationRemovalHandler } from "./commands/fixture-registration-removal-handler";
+import { FixtureRegistrationRemovalJournal } from "./state/fixture-registration-removal-journal";
+import { automationRegistrationRemovalBlocker, snapshotFixtureIds } from "./commands/registration-removal-safety";
 import { BioCapabilityDeliveryController } from "./bio/bio-capability-delivery";
 import { bioSensorCatalogTopics, bioSensorPreparationTopics } from "@led-control/shared";
 import { createBioSensorRuntime } from "./bio/bio-sensor-runtime";
@@ -79,6 +83,13 @@ import type { TemporaryControlCommand, TemporaryFixtureSnapshot } from "@led-con
 import { bioSensorPreparationCommandV1Schema } from "@led-control/shared";
 import type { BioSnapshotLifecycle } from "./bio/bio-pulse-authority-provider";
 import type { GatewayAdapters } from "./adapters/adapter-factory";
+
+export function gatewayRegistrationRemovalVersion(adapters: Pick<GatewayAdapters, "dimming" | "bioSensorHardware">): 1 | undefined {
+  const mappings = adapters.bioSensorHardware?.mappings;
+  return adapters.dimming instanceof BioUsbDongleAdapter && mappings &&
+    [mappings.retireRegistration, mappings.retirement, mappings.fenceRegistration, mappings.releaseRegistrationFence,
+      mappings.isRegistrationCurrent, mappings.assertProvisioningAdmissible].every(method => typeof method === "function") ? 1 : undefined;
+}
 
 /** No report is invented at boot: absent canonical identity proofs leave the
  * journal empty. This owner cannot inject profiles, health or sensor-mode evidence. */
@@ -327,6 +338,7 @@ export function createGatewayAutomationServices(options: {
   bioProductPulse?: ScheduleRuntimeOptions["bioProductPulse"];
   bioNormalAssignmentVersion?: number;
   bioSnapshotLifecycle?: BioSnapshotLifecycle;
+  registrationAdmission?: (snapshot: AutomationSnapshot) => Promise<void>;
 }) {
   const scheduleRuntime = new ScheduleRuntime({
     store: options.stateStore,
@@ -354,6 +366,7 @@ export function createGatewayAutomationServices(options: {
     onActivated: () => scheduleRuntime.commitActivation(),
     onActivationFailed: () => scheduleRuntime.rollbackActivation(),
     bioSnapshotLifecycle: options.bioSnapshotLifecycle,
+    registrationAdmission: options.registrationAdmission,
     ...(options.bioSnapshotLifecycle ? { recoverDegradedBioSnapshot: snapshot => scheduleRuntime.recompute(snapshot, true) } : {}),
     ...(options.bioProductPulse ? { bioSnapshotPreflight: snapshot => scheduleRuntime.preflightBioSnapshot(snapshot) } : {}),
     ...(options.wallClock ? { now: options.wallClock } : {})
@@ -850,6 +863,14 @@ async function main() {
     process.env.GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH ?? "/var/lib/led-control/provisioning-device-journal.json"
   );
   await provisioningDeviceJournal.initialize();
+  const removalJournal = new FixtureRegistrationRemovalJournal(process.env.GATEWAY_REGISTRATION_REMOVAL_JOURNAL_PATH
+    ?? `${process.env.GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH ?? "/var/lib/led-control/provisioning-device-journal.json"}.registration-removals`);
+  await removalJournal.initialize();
+  const removalMappings = gatewayRegistrationRemovalVersion(adapters) === 1 ? adapters.bioSensorHardware?.mappings : undefined;
+  // Restore accepted/uncertain fences before any startup recovery can write.
+  for (const row of await removalJournal.records()) {
+    if (!row.terminal || row.terminal.status === "reconcile_required") removalMappings?.fenceRegistration(row.command);
+  }
   const stateEventOutbox = new StateEventOutbox(
     process.env.GATEWAY_STATE_EVENT_OUTBOX_PATH ?? "/var/lib/led-control/state-event-outbox.json",
     { siteId, gatewayId }
@@ -992,6 +1013,9 @@ async function main() {
     bioCapabilityReporting, { siteId, gatewayId, assignmentVersion: assignment.configVersion },
     process.env.GATEWAY_BIO_SENSOR_STATE_PATH ?? "/var/lib/led-control/bio-sensor", () => clockTrust.isTrusted(new Date())) : undefined;
   const automationServices = createGatewayAutomationServices({
+    registrationAdmission: removalMappings ? async snapshot => {
+      if (snapshotFixtureIds(snapshot).some(id => removalMappings.isFixtureRetired(id))) throw new Error("BIO_REGISTRATION_RETIRED");
+    } : undefined,
     bioSnapshotLifecycle: bioSensors?.authority,
     configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
@@ -1069,6 +1093,39 @@ async function main() {
       occurredAt: new Date().toISOString()
     }))
   );
+  const registrationRemoval = new FixtureRegistrationRemovalHandler({ journal: removalJournal, port: removalMappings,
+    scope: { siteId, gatewayId, gatewaySerial, assignmentVersion: assignment.configVersion },
+    clockTrusted: () => clockTrust.isTrusted(new Date()),
+    blockedReason: async command => {
+      if (automationRuntime.registrationRemovalBlocked) return "AUTOMATION_SYNC_IN_PROGRESS";
+      if (sensorModeHandlers.size || registrationRevalidationHandlers.size) return "SENSOR_OPERATION_IN_PROGRESS";
+      if (scheduleRuntime.pendingObservationFixtureIds().includes(command.fixtureId)) return "CONTROL_UNCERTAIN";
+      const local = (adapter instanceof BioUsbDongleAdapter ? adapter.registrationRemovalBlocker(command.fixtureId) : null)
+        ?? fixtureIdentify.registrationRemovalBlocker(command.fixtureId) ?? groupStateStore.registrationRemovalBlocker()
+        ?? automationRegistrationRemovalBlocker(command.fixtureId, automationRuntime.currentSnapshot, automationStateStore.read());
+      if (local) return local;
+      for (const journal of [commandJournal, sensorModeJournal, registrationRevalidationJournal]) {
+        const reason = await journal.registrationRemovalBlocker(command.fixtureId, command.nodeId); if (reason) return reason;
+      }
+      return await provisioningDeviceJournal.registrationRemovalBlocker(command.deviceUuid, command.nodeId)
+        ?? await bioSensors?.registrationRemovalBlocker(command.fixtureId, command.nodeId) ?? null;
+    },
+    afterRetire: async command => {
+      if (adapter instanceof BioUsbDongleAdapter) adapter.forgetRegistration(command.fixtureId, command.deviceUuid);
+      bioSensors?.monitor.retire(command.fixtureId);
+      bioCapabilityReporting?.invalidateCommissionProofs();
+      // Removes an obsolete queued poll only; this emits no presence/observation.
+      targetedLightingResync.markObserved(command.fixtureId);
+      await groupStateStore.retireAddress(command.meshAddress);
+      await automationStateStore.updateDurable(state => {
+        for (const key of ["currentByFixture", "baseBrightnessByFixture", "lastDesiredByFixture", "unverifiedDesiredByFixture",
+          "transitionsByFixture", "manualAutomationSuppressions", "bioNormalConfigurations", "bioTargetsByFixture", "bioPulseInbox"] as const) {
+          delete state[key][command.fixtureId];
+        }
+        return state;
+      });
+    }, onError: error => { void reportGatewayError(error, "registration_removal_retry"); } });
+  await registrationRemoval.recover();
   if (automationRuntime.currentRevision !== null) {
     await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
   }
@@ -1490,7 +1547,8 @@ async function main() {
       occurredAt,
       gatewaySerial,
       firmwareVersion: gatewayFirmwareVersion,
-      configVersion: assignment.configVersion
+      configVersion: assignment.configVersion,
+      ...(removalMappings ? { fixtureRegistrationRemovalVersion: 1 } : {})
     });
     await publish(mqttRuntime.client, mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
     await health.heartbeatPublished();
@@ -1518,6 +1576,10 @@ async function main() {
     publishHeartbeat,
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
+      [fixtureRegistrationRemovalTopics.command(siteId, gatewayId)]: (payload, _source, _packet, control) =>
+        registrationRemoval.handle(JSON.parse(payload.toString()), () => control?.acknowledgeDurable()).then(() => undefined),
+      [fixtureRegistrationRemovalTopics.ack(siteId, gatewayId)]: payload =>
+        registrationRemoval.acknowledge(JSON.parse(payload.toString())).then(() => undefined),
       [mqttTopics.temporaryControlCommand(siteId, gatewayId)]: async (payload, _source, _packet, control) => {
         if (!temporaryServices) throw new Error("temporary_control_unavailable");
         await temporaryServices.mqtt.handleCommand(payload); control?.acknowledgeDurable();
@@ -1659,6 +1721,7 @@ async function main() {
         ]),
         connectOperationalServices: async () => {
           await health.mqttConnected();
+          registrationRemoval.connect((topic, event) => publish(mqttRuntime.client, topic, event));
           await provisioningScanRecovery.connect(
             (topic, event) => publish(mqttRuntime.client, topic, event),
             (error) => reportGatewayError(error, "provisioning_scan_terminal_retry")
@@ -1684,6 +1747,7 @@ async function main() {
       });
     },
     onClose: () => {
+      registrationRemoval.disconnect();
       commandClock.disconnect();
       provisioningScanRecovery.disconnect();
       provisioningDeviceReplay.disconnect();
@@ -1699,6 +1763,7 @@ async function main() {
       return health.unhealthy("mqtt_disconnected");
     },
     onBeforeStop: async () => {
+      await registrationRemoval.stopAndDrain();
       await temporaryServices?.mqtt.stopAndDrain();
       await bioSensors?.stopAndDrain();
       registrationRevalidationAbort.abort();
@@ -1774,6 +1839,7 @@ async function main() {
 
 export function gatewayDeferredPubackTopics(siteId: string, gatewayId: string) {
   return [
+    fixtureRegistrationRemovalTopics.command(siteId, gatewayId),
     mqttTopics.temporaryControlCommand(siteId, gatewayId),
     bioSensorCatalogTopics.command(siteId, gatewayId),
     bioSensorPreparationTopics.command(siteId, gatewayId),
@@ -2146,7 +2212,9 @@ export function subscribeGatewayCommands(
   // An older persistent broker session cannot already contain this new topic.
   // Re-subscribing only this addition is idempotent and preserves V1 session behavior.
   if (sessionPresent && !force) return subscribeGatewayTopics(client,
-    [mqttTopics.temporaryControlCommand(assignment.siteId, assignment.gatewayId),
+    [fixtureRegistrationRemovalTopics.command(assignment.siteId, assignment.gatewayId),
+      fixtureRegistrationRemovalTopics.ack(assignment.siteId, assignment.gatewayId),
+      mqttTopics.temporaryControlCommand(assignment.siteId, assignment.gatewayId),
       mqttTopics.temporaryControlIngested(assignment.siteId, assignment.gatewayId),
       bioSensorCatalogTopics.command(assignment.siteId, assignment.gatewayId),
       bioSensorPreparationTopics.command(assignment.siteId, assignment.gatewayId),
@@ -2172,7 +2240,7 @@ export function subscribeGatewayAcknowledgements(
   force = false
 ) {
   if (sessionPresent && !force) return subscribeGatewayTopics(client,
-    [mqttTopics.temporaryControlIngested(assignment.siteId, assignment.gatewayId), bioSensorPreparationTopics.ack(assignment.siteId, assignment.gatewayId), bioRegistrationRevalidationTopics.ack(assignment.siteId, assignment.gatewayId)], false, false);
+    [fixtureRegistrationRemovalTopics.ack(assignment.siteId, assignment.gatewayId), mqttTopics.temporaryControlIngested(assignment.siteId, assignment.gatewayId), bioSensorPreparationTopics.ack(assignment.siteId, assignment.gatewayId), bioRegistrationRevalidationTopics.ack(assignment.siteId, assignment.gatewayId)], false, false);
   return subscribeGatewayTopics(
     client,
     gatewayAcknowledgementTopics(assignment.siteId, assignment.gatewayId),
@@ -2183,6 +2251,7 @@ export function subscribeGatewayAcknowledgements(
 
 export function gatewayCommandTopics(siteId: string, gatewayId: string) {
   return [
+    fixtureRegistrationRemovalTopics.command(siteId, gatewayId),
     mqttTopics.temporaryControlCommand(siteId, gatewayId),
     bioSensorCatalogTopics.command(siteId, gatewayId),
     bioSensorPreparationTopics.command(siteId, gatewayId),
@@ -2202,6 +2271,7 @@ export function gatewayCommandTopics(siteId: string, gatewayId: string) {
 
 function gatewayAcknowledgementTopics(siteId: string, gatewayId: string) {
   return [
+    fixtureRegistrationRemovalTopics.ack(siteId, gatewayId),
     mqttTopics.temporaryControlIngested(siteId, gatewayId),
     bioSensorPreparationTopics.ack(siteId, gatewayId),
     bioRegistrationRevalidationTopics.ack(siteId, gatewayId),

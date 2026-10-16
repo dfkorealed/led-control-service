@@ -28,6 +28,8 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "re
   reconnectReadyTimeoutMs?: number;
 };
 export interface BioOperationControl extends Partial<CommandWriteControl> {
+  /** Captured registration lifetime, checked for GET as well as SET at native submission. */
+  registrationCurrent?: () => boolean;
   /** Durable intent before each configuration SET; GET never invokes this hook. */
   beforeMutation?: (stage: "high_brightness" | "mode") => Promise<void>;
   /** Trusted local product guard, inside the owned operation immediately before RF. */
@@ -562,7 +564,8 @@ export class BioDongleClient {
       // Cleanup may outlive the identify deadline, but never its source guard.
       // Newly protected A must receive neither force-on nor sensor-mode writes.
       await this.restoreSensorMode(device, {
-        mayStartWrite: control.mayStartWrite, onWriteStarted: control.onWriteStarted
+        mayStartWrite: control.mayStartWrite, onWriteStarted: control.onWriteStarted,
+        registrationCurrent: control.registrationCurrent
       });
     } catch (cause) {
       throw new BioUsbError(
@@ -843,10 +846,12 @@ export class BioDongleClient {
     // Get remains usable after Set proof loss, including the read-back of a
     // Set that already ran. It neither consumes the Set permit nor increments
     // Set drain counts. Other callers' write callbacks retain their old meaning.
-    const transportControl = control.mayStartWrite &&
-      (operation.kind === "readHighBrightness" || operation.kind === "readControlMode")
-      ? { signal: control.signal, deadlineAt: control.deadlineAt }
-      : control;
+    const readOnly = operation.kind === "readHighBrightness" || operation.kind === "readControlMode";
+    const transportControl = readOnly
+      ? { signal: control.signal, deadlineAt: control.deadlineAt,
+        ...(control.registrationCurrent ? { mayStartWrite: control.registrationCurrent } : {}) }
+      : control.registrationCurrent ? { ...control,
+        mayStartWrite: () => control.mayStartWrite?.() !== false && control.registrationCurrent!() } : control;
     const response = decodeBioResponse(await this.transport.request(request, transportControl));
     if (response.kind !== "outer-ack") throw new BioUsbError("MALFORMED_FRAME", "BIO outer ACK was not validated");
     if (!response.accepted) throw Object.assign(new Error("BIO dongle rejected the command"), { code: "BIO_DONGLE_REJECTED" });

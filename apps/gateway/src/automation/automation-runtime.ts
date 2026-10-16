@@ -56,6 +56,7 @@ interface AutomationRuntimeOptions {
   bioSnapshotPreflight?: (snapshot: AutomationSnapshotV2 | AutomationSnapshotV3) => Promise<void>;
   bioSnapshotLifecycle?: BioSnapshotLifecycle;
   recoverDegradedBioSnapshot?: (snapshot: AutomationSnapshotV2 | AutomationSnapshotV3) => Promise<DesiredLightingState>;
+  registrationAdmission?: (snapshot: AutomationSnapshot) => Promise<void>;
 }
 
 export class AutomationRuntime {
@@ -66,6 +67,7 @@ export class AutomationRuntime {
   private initialized = false;
   private degradedRecovery = false;
   private activating = false;
+  private configurationRequests = 0;
 
   constructor(private readonly options: AutomationRuntimeOptions) {
     this.now = options.now ?? (() => new Date());
@@ -74,6 +76,8 @@ export class AutomationRuntime {
   get currentRevision() {
     return this.degradedRecovery ? null : this.snapshot?.revision ?? null;
   }
+
+  get registrationRemovalBlocked() { return this.configurationRequests > 0 || this.activating || this.degradedRecovery; }
 
   get gatewayId() {
     return this.options.scope.gatewayId;
@@ -119,6 +123,7 @@ export class AutomationRuntime {
   }
 
   hotReload(value: unknown): Promise<AutomationConfigApplied> {
+    this.configurationRequests++;
     return this.queue.run(async () => {
       const snapshot = this.parse(value);
       const current = this.snapshot;
@@ -171,7 +176,7 @@ export class AutomationRuntime {
       this.initialized = true;
       this.degradedRecovery = false;
       return this.applied(snapshot);
-    });
+    }).finally(() => { this.configurationRequests--; });
   }
 
   private parse(value: unknown) {
@@ -194,6 +199,9 @@ export class AutomationRuntime {
   }
 
   private async preflight(snapshot: AutomationSnapshot): Promise<void> {
+    try { await this.options.registrationAdmission?.(snapshot); }
+    catch (cause) { throw new AutomationRuntimeError("snapshot_invalid", "snapshot_retired_registration",
+      snapshot.revision, snapshot.payloadHash, { cause }); }
     if ((snapshot.schemaVersion !== 2 && snapshot.schemaVersion !== 3) || !snapshot.vehicleEventRules.some(rule => rule.sensorProtocol === "bio-usb-pulse" && rule.status === "enabled")) return;
     try { await this.options.bioSnapshotPreflight!(snapshot); }
     catch (cause) { throw new AutomationRuntimeError("bio_pulse_control_unavailable", "bio_pulse_control_unavailable",

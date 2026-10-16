@@ -68,7 +68,8 @@ export class BioSensorPreparationHandler {
       const guard = async () => {
         if (!current() || !isDeepStrictEqual(mapping, await mappings.findByFixtureId(command.fixtureId)) || !current()) throw new Error("changed");
       };
-      const control = { signal: controller.signal, deadlineAt: Date.parse(command.expiresAt), beforeWrite: guard, mayStartWrite: current };
+      const control = { signal: controller.signal, deadlineAt: Date.parse(command.expiresAt), beforeWrite: guard, mayStartWrite: current,
+        registrationCurrent: () => mappings.isRegistrationCurrent(mapping) };
       const observations = await client.scanObservations(control); await guard();
       const exact = observations.filter(d => d.nativeUuid === mapping.nativeUuid && d.logicalAddress === mapping.logicalAddress);
       const device = exact[0];

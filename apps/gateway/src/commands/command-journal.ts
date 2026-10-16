@@ -3,6 +3,7 @@ import { writeJsonAtomic } from "../mesh/mesh-store-file";
 import { bioSensorPreparationAckV1Schema, bioSensorPreparationCommandV1Schema, bioSensorPreparationReportV1Schema, matchesBioSensorPreparationAckV1, matchesBioSensorPreparationReportV1 } from "@led-control/shared";
 import { bioEnvelopeHash } from "../bio/bio-sensor-profile-catalog";
 import { isDeepStrictEqual } from "node:util";
+import { referencesRegistration, resultIsUncertain } from "./registration-removal-safety";
 
 function isPreparation(value: unknown): boolean {
   return !!value && typeof value === "object" && "kind" in value && value.kind === "bio_sensor_preparation";
@@ -271,6 +272,15 @@ export class CommandJournal {
     return Object.values((await this.readData()).records).filter((record) => isSensorModeWrapper(record.command) && !record.sensorModeHandedOff);
   }
 
+  async registrationRemovalBlocker(fixtureId: string, nodeId: string): Promise<string | null> {
+    for (const record of Object.values((await this.readData()).records)) {
+      if (!referencesRegistration(record.command, fixtureId, nodeId)) continue;
+      if (record.state === "accepted" || record.automationHandoff === "pending" || record.automationAbort === "pending") return "CONTROL_IN_PROGRESS";
+      if (resultIsUncertain(record.result)) return "CONTROL_UNCERTAIN";
+    }
+    return null;
+  }
+
   async markSensorModeHandedOff(commandId: string) {
     await this.enqueue(async () => {
       const data = await this.readData();
@@ -343,6 +353,8 @@ export class CommandJournal {
   }
 
   private retainModeOperation(record: JournalRecord) {
+    // A retention deadline is not proof that an uncertain physical write settled.
+    if (resultIsUncertain(record.result)) return true;
     // Preparation's exact result/ACK is a commission audit, not a TTL RF permit.
     // Keep both accepted/uncertain and acknowledged results; capacity fails closed.
     if (isPreparation(record.command)) return true;

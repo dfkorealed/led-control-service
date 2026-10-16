@@ -32,6 +32,18 @@ afterEach(async () => {
 });
 
 describe("ProvisioningDeviceJournal", () => {
+  it("preserves original BIO provisioning evidence after application ACK and normal retention", async () => {
+    const path = await journalPath(); let now = new Date("2026-10-16T00:00:00.000Z");
+    const bio = { ...command, deviceUuid: "bio:001122334455" };
+    const journal = new ProvisioningDeviceJournal(path, { now: () => now, retentionMs: 1 });
+    await handleDurableProvisioningDevice({ journal, command: bio, execute: async () => ({ firmwareVersion: "1", rssi: null, hopCount: null }), nextEnvelope: async () => envelope });
+    const [terminal] = await journal.pendingTerminals();
+    await journal.acknowledgeTerminal({ siteId: bio.siteId, gatewayId: bio.gatewayId, commandId: bio.commandId,
+      sessionId: bio.sessionId, nodeId: bio.nodeId, deviceUuid: bio.deviceUuid, meshAddress: "0x0101",
+      eventId: terminal.payload.eventId, sequence: terminal.payload.sequence, ingestedAt: now.toISOString() });
+    now = new Date("2026-10-17T00:00:00.000Z"); await journal.pendingTerminals();
+    expect((await new ProvisioningDeviceJournal(path).accept(bio)).kind).toBe("terminal");
+  });
   it("records identify completion only when the adapter confirms sensor-mode restore", async () => {
     const { meshAddress: _meshAddress, ...common } = command;
     const identify: ProvisioningDeviceCommandV2 = { ...common, operation: "identify" };

@@ -23,6 +23,7 @@ export async function createBioSensorRuntime(hardware: NonNullable<GatewayAdapte
     onInvalidate: id => monitor.invalidate(id) });
   monitor.start();
   return { catalog, monitor, authority, preparation,
+    registrationRemovalBlocker: (fixtureId: string, nodeId: string) => journal.registrationRemovalBlocker(fixtureId, nodeId),
     disconnect() { preparation.disconnect(); monitor.invalidate(); delivery.invalidateCommissionProofs(); },
     async stopAndDrain() { await preparation.stopAndDrain(); await monitor.stopAndDrain(); authority.stop(); }
   };
