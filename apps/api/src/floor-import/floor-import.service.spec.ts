@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, NotFoundExc
 import { randomUUID } from "node:crypto";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { FloorImportService } from "./floor-import.service";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { PROVIDED_SAMPLE_DWG_SHA256 } from "./lighting-detector-registry";
 
 const user = {
@@ -629,9 +630,12 @@ describe("FloorImportService", () => {
     expect(tx.floorImportCandidate.updateMany).not.toHaveBeenCalled();
     expect(tx.floorMapObject.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
     expect(tx.fixture.updateMany).toHaveBeenCalledWith({
-      where: { floorId },
+      where: { floorId, ...activeFixtureRegistrationWhere },
       data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 }
     });
+    expect(tx.floor.findUnique).toHaveBeenCalledWith(expect.objectContaining({ include: expect.objectContaining({
+      fixtures: { where: activeFixtureRegistrationWhere, orderBy: { id: "asc" } }
+    }) }));
     expect(tx.floorLightSlot.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
     expect(tx.floorCadScene.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
     expect(tx.floorLightSlot.createMany).not.toHaveBeenCalled();

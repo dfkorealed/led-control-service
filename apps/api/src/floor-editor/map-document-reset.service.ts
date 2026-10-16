@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { MapDocumentStore } from "./map-document-store";
 import { pruneLockedFloorMapRevisions } from "./floor-map-revision-retention";
 import { hashEditorLeaseToken } from "./editor-lease-token";
@@ -94,12 +95,12 @@ export class MapDocumentResetService {
         await tx.floorLightSlot.deleteMany({ where: { floorId } });
         await tx.floorCadScene.deleteMany({ where: { floorId } });
         await tx.floorMapObject.deleteMany({ where: { floorId } });
-        const fixtures = input.mode === "elements_and_placement" ? await tx.fixture.updateMany({ where: { floorId },
+        const fixtures = input.mode === "elements_and_placement" ? await tx.fixture.updateMany({ where: { floorId, ...activeFixtureRegistrationWhere },
           data: { x: 0, y: 0, placementStatus: "unplaced", positionVerifiedAt: null } }) : { count: 0 };
         const plan = { imageUrl: "", sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
           width, height, gridSize };
         await tx.floorPlan.upsert({ where: { floorId }, create: { floorId, ...plan }, update: { ...plan, version: { increment: 1 } } });
-        const rows = await tx.fixture.findMany({ where: { floorId }, orderBy: { id: "asc" },
+        const rows = await tx.fixture.findMany({ where: { floorId, ...activeFixtureRegistrationWhere }, orderBy: { id: "asc" },
           select: { id: true, name: true, ratedWatt: true, x: true, y: true, size: true, placementStatus: true, positionVerifiedAt: true } });
         const snapshot = buildMapDocumentSnapshot({ document: prepared, lightSlots: [],
           fixtures: rows.map(row => ({ ...row, ratedWatt: row.ratedWatt.toString(), positionVerifiedAt: row.positionVerifiedAt?.toISOString() ?? null })) });
@@ -200,13 +201,13 @@ export class MapDocumentResetService {
         const imports = await tx.floorImportJob.deleteMany({ where: { floorId } });
         // Attempt cleanup tombstones intentionally survive job deletion: a late
         // PUT must still be discoverable. No S3 delete occurs in this transaction.
-        const fixtures = await tx.fixture.updateMany({ where: { floorId },
+        const fixtures = await tx.fixture.updateMany({ where: { floorId, ...activeFixtureRegistrationWhere },
           data: { x: 0, y: 0, placementStatus: "unplaced", positionVerifiedAt: null } });
         const plan = { imageUrl: "", sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
           width: EMPTY_MAP.width, height: EMPTY_MAP.height, gridSize: EMPTY_MAP.gridSize };
         await tx.floorPlan.upsert({ where: { floorId }, create: { floorId, ...plan }, update: { ...plan, version: { increment: 1 } } });
 
-        const rows = await tx.fixture.findMany({ where: { floorId }, orderBy: { id: "asc" },
+        const rows = await tx.fixture.findMany({ where: { floorId, ...activeFixtureRegistrationWhere }, orderBy: { id: "asc" },
           select: { id: true, name: true, ratedWatt: true, x: true, y: true, size: true, placementStatus: true, positionVerifiedAt: true } });
         const snapshot = buildMapDocumentSnapshot({ document: prepared, lightSlots: [],
           fixtures: rows.map(row => ({ ...row, ratedWatt: row.ratedWatt.toString(), positionVerifiedAt: null })) });

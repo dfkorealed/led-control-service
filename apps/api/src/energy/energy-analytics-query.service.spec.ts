@@ -102,6 +102,85 @@ describe("EnergyAnalyticsQueryService comparisons", () => {
   });
 });
 
+describe("EnergyAnalyticsQueryService retired registration boundaries", () => {
+  afterEach(() => jest.useRealTimers());
+
+  it.each([false, true])("caps known and unknown live projections at retirement (cursor=%s)", async withCursor => {
+    const retiredAt = new Date("2026-09-10T00:01:00.000Z");
+    const row = { ...fixture(), retiredAt };
+    if (!withCursor) row.energyStateCursor = null as never;
+    const { service } = createService({ fixtures: [row] });
+    jest.useFakeTimers().setSystemTime(retiredAt);
+    const before = await service.getSiteSeries(user, SITE_ID, { granularity: "day", from: "2026-09-10", to: "2026-09-11" });
+    expect(before.points[0]).toMatchObject({ estimatedKwh: 0.0008, estimatedCost: 0.13, knownSeconds: 60 });
+    jest.setSystemTime(new Date("2026-09-11T01:00:00.000Z"));
+    const after = await service.getSiteSeries(user, SITE_ID, { granularity: "day", from: "2026-09-10", to: "2026-09-11" });
+    expect(after.points).toEqual(before.points);
+    expect(after.points[1]).toMatchObject({ estimatedKwh: null, knownSeconds: 0, unknownSeconds: 0 });
+  });
+
+  it("keeps retired history but excludes it from current baseline and forecast readiness", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-10T00:00:00.000Z"));
+    const retired = { ...fixture({ aggregates: [aggregate("2026-09-01", 5, 100, 0)] }),
+      id: "old-registration", retiredAt: new Date("2026-09-02T00:00:00.000Z") };
+    const active = fixture({ aggregates: dailyAggregates("2026-09-01", 9, 1.2) });
+    const { service } = createService({ fixtures: [retired, active] });
+    const summary = await service.getSiteSummary(user, SITE_ID);
+    expect(summary.monthToDate.estimatedKwh).toBe(15.8);
+    expect(summary.baseline24Hours).toMatchObject({ fixtureCount: 1, estimatedKwh: 72 });
+    expect(summary.monthForecast).toMatchObject({ reason: "available", estimatedKwh: 36 });
+    const comparison = await service.getComparison(user, SITE_ID, "current_month");
+    expect(comparison.summary).toMatchObject({ baselineKwh: 72, estimatedKwh: 36, forecastReason: "available" });
+  });
+
+  it("reports no current fixtures for a retired-only site without removing historical totals", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-10T00:00:00.000Z"));
+    const row = { ...fixture({ aggregates: [aggregate("2026-09-01", 2, 86_400, 0)] }),
+      retiredAt: new Date("2026-09-02T00:00:00.000Z") };
+    const { service } = createService({ fixtures: [row] });
+    const result = await service.getSiteSummary(user, SITE_ID);
+    expect(result.monthToDate.estimatedKwh).toBe(2);
+    expect(result.baseline24Hours).toMatchObject({ fixtureCount: 0, estimatedKwh: 0, estimatedCost: 0 });
+    expect(result.monthForecast.reason).toBe("no_registered_fixture");
+  });
+
+  it("uses only the current cohort for today's forecast point while preserving retired observed points", async () => {
+    const now = new Date("2026-09-10T12:00:00.000Z");
+    jest.useFakeTimers().setSystemTime(now);
+    const active = fixture({ aggregates: [
+      ...dailyAggregates("2026-09-01", 9, 1.2), aggregate("2026-09-10", 0.6, 43_200, 0)
+    ] });
+    active.lastStateOccurredAt = now;
+    active.energyStateCursor.aggregatedThrough = now;
+    active.energyStateCursor.observedStateOccurredAt = now;
+    const retiredAt = new Date("2026-09-10T09:00:00.000Z");
+    const retired = { ...fixture({ aggregates: [aggregate("2026-09-09", 0.5, 3_600, 0),
+      aggregate("2026-09-10", 0.5, 3_600, 0)] }), id: "retired", retiredAt };
+    retired.energyStateCursor.aggregatedThrough = retiredAt;
+    const { service } = createService({ fixtures: [active, retired] });
+
+    const result = await service.getComparison(user, SITE_ID, "current_month");
+
+    expect(result.summary).toMatchObject({ estimatedKwh: 36, baselineKwh: 72 });
+    expect(result.points[8]).toMatchObject({ phase: "observed", estimatedKwh: 1.7 });
+    expect(result.points[9]).toMatchObject({ phase: "forecast", estimatedKwh: 1.2 });
+  });
+
+  it("bounds historical baselines and expected coverage at a mid-day retirement", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-09-10T00:00:00.000Z"));
+    const row = { ...fixture({ startedAt: "2025-01-01T00:00:00.000Z", aggregates: [
+      ...dailyAggregates("2026-09-05", 2, 2), aggregate("2026-09-07", 1, 43_200, 0)
+    ] }), retiredAt: new Date("2026-09-07T12:00:00.000Z") };
+    const { service } = createService({ fixtures: [row] });
+    const result = await service.getCustomComparison(user, SITE_ID, { from: "2026-09-07", to: "2026-09-08" });
+    expect(result.summary).toMatchObject({ baselineKwh: 1.2, estimatedKwh: 1 });
+    expect(result.points.map(point => point.baselineKwh)).toEqual([1.2, 0]);
+    expect(result.priorComparisons[0]).toMatchObject({ currentCoverageRate: 1, comparisonCoverageRate: 1, changeRatePercent: -75 });
+    const preset = await service.getComparison(user, SITE_ID, "last_7_days");
+    expect(preset.summary.baselineKwh).toBe(10.8);
+  });
+});
+
 describe("EnergyAnalyticsQueryService custom completed comparisons", () => {
   afterEach(() => jest.useRealTimers());
 
@@ -235,6 +314,7 @@ function fixture(input: { aggregates?: ReturnType<typeof aggregate>[]; startedAt
   const generatedAt = new Date("2026-09-10T00:00:00.000Z");
   return {
     id: "fixture-1",
+    retiredAt: null,
     ratedWatt: new Prisma.Decimal(100),
     energyTrackingStartedAt: startedAt,
     firstStateOccurredAt: startedAt,

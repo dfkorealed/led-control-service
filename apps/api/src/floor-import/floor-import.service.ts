@@ -31,6 +31,7 @@ import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { type AuthenticatedUser } from "../auth/auth.types";
+import { activeFixtureRegistrationWhere } from "../fixtures/fixture-registration-removal-policy";
 import { EDITOR_TRANSACTION_OPTIONS } from "../floor-editor/floor-editor.service";
 import { buildFloorEditorSnapshot, buildMapDocumentSnapshot, hashFloorEditorSnapshot } from "../floor-editor/floor-editor-snapshot";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
@@ -579,7 +580,7 @@ export class FloorImportService {
 
         const deletedObjects = await tx.floorMapObject.deleteMany({ where: { floorId } });
         const unplacedFixtures = await tx.fixture.updateMany({
-          where: { floorId },
+          where: { floorId, ...activeFixtureRegistrationWhere },
           data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 }
         });
         const deletedSlots = await tx.floorLightSlot.deleteMany({ where: { floorId } });
@@ -661,7 +662,7 @@ export class FloorImportService {
           include: {
             floorPlan: true,
             cadScene: { select: { id: true, width: true, height: true } },
-            fixtures: { orderBy: { id: "asc" } },
+            fixtures: { where: activeFixtureRegistrationWhere, orderBy: { id: "asc" } },
             mapObjects: { orderBy: { id: "asc" } },
             lightSlots: { orderBy: { id: "asc" } }
           }
@@ -912,14 +913,14 @@ export class FloorImportService {
       await this.assertGeometryOnlyRegionDigests(tx, jobId);
       await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "applying", stage: "applying" } });
       const deletedObjects = await tx.floorMapObject.deleteMany({ where: { floorId } });
-      const unplacedFixtures = await tx.fixture.updateMany({ where: { floorId }, data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 } });
+      const unplacedFixtures = await tx.fixture.updateMany({ where: { floorId, ...activeFixtureRegistrationWhere }, data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 } });
       const deletedSlots = await tx.floorLightSlot.deleteMany({ where: { floorId } });
       const plan = { imageUrl: "" as const, sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
         width: ref.width, height: ref.height, gridSize: ref.gridSize };
       await tx.floorPlan.upsert({ where: { floorId }, create: { floorId, ...plan }, update: { ...plan, version: { increment: 1 } } });
       await tx.floorCadScene.deleteMany({ where: { floorId } });
       const snapshotFloor = await tx.floor.findUniqueOrThrow({ where: { id: floorId }, include: {
-        floorPlan: true, fixtures: { orderBy: { id: "asc" } }, mapObjects: true, lightSlots: { orderBy: { id: "asc" } } } });
+        floorPlan: true, fixtures: { where: activeFixtureRegistrationWhere, orderBy: { id: "asc" } }, mapObjects: true, lightSlots: { orderBy: { id: "asc" } } } });
       const legacy = buildFloorEditorSnapshot(snapshotFloor);
       const snapshot = buildMapDocumentSnapshot({ document: ref, fixtures: legacy.fixtures, lightSlots: "lightSlots" in legacy ? legacy.lightSlots ?? [] : [] });
       const changeSummary = { floorImportJobId: jobId, acceptedCandidates: 0, deletedObjectCount: deletedObjects.count,

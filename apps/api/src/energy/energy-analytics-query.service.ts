@@ -64,6 +64,7 @@ interface EnergyCursorRow {
 
 interface EnergyFixtureRow {
   id: string;
+  retiredAt: Date | null;
   ratedWatt: Prisma.Decimal;
   energyTrackingStartedAt: Date;
   firstStateOccurredAt: Date | null;
@@ -124,8 +125,11 @@ export class EnergyAnalyticsQueryService {
     const monthTotalSeconds = (monthEndUtc.getTime() - monthStartUtc.getTime()) / 1_000;
     const remainingSeconds = Math.max(0, (monthEndUtc.getTime() - generatedAt.getTime()) / 1_000);
     const tariff = new Prisma.Decimal(site.tariffKwhRate);
-    const baselineKwh = totalRatedWatt(fixtures).mul(monthTotalSeconds).div(3_600_000);
-    const forecast = calculateForecast(fixtures, values, monthStart, monthStartUtc, generatedAt, remainingSeconds);
+    // Historical totals retain every registration; only the present-day
+    // theoretical baseline and forecast readiness/rates use the live cohort.
+    const currentFixtures = fixtures.filter(fixture => fixture.retiredAt === null);
+    const baselineKwh = totalRatedWatt(currentFixtures).mul(monthTotalSeconds).div(3_600_000);
+    const forecast = calculateForecast(currentFixtures, values, monthStart, monthStartUtc, generatedAt, remainingSeconds);
     const forecastAvailable = forecast.reason === "available";
 
     return {
@@ -145,7 +149,7 @@ export class EnergyAnalyticsQueryService {
       baseline24Hours: {
         estimatedKwh: roundKwh(baselineKwh),
         estimatedCost: roundCost(baselineKwh.mul(tariff)),
-        fixtureCount: fixtures.length,
+        fixtureCount: currentFixtures.length,
         daysInMonth: new Date(Date.UTC(monthStart.year, monthStart.month, 0)).getUTCDate()
       },
       estimatedSavings: {
@@ -223,12 +227,13 @@ export class EnergyAnalyticsQueryService {
     ));
     const values = this.buildFixtureValues(fixtures, queryStart, projectionThrough, site.timeZone, site.tariffKwhRate);
     const tariff = new Prisma.Decimal(site.tariffKwhRate);
-    const baselineKwh = baselineForRange(fixtures, ranges.display, site.timeZone);
+    const baselineFixtures = preset === "current_month" ? fixtures.filter(fixture => fixture.retiredAt === null) : fixtures;
+    const baselineKwh = baselineForRange(baselineFixtures, ranges.display, site.timeZone);
     const monthStart = parseCalendarDate(ranges.display.from);
     const monthEndExclusive = addCalendarMonths(monthStart, 1);
     const forecast = preset === "current_month"
       ? calculateForecast(
-        fixtures,
+        baselineFixtures,
         values,
         monthStart,
         startOfLocalDate(monthStart, site.timeZone),
@@ -259,7 +264,7 @@ export class EnergyAnalyticsQueryService {
       points: buildComparisonPoints({
         preset,
         ranges,
-        fixtures,
+        fixtures: baselineFixtures,
         values,
         forecast,
         generatedAt,
@@ -331,6 +336,7 @@ export class EnergyAnalyticsQueryService {
       where: { floor: { siteId } },
       select: {
         id: true,
+        retiredAt: true,
         ratedWatt: true,
         energyTrackingStartedAt: true,
         firstStateOccurredAt: true,
@@ -375,7 +381,9 @@ export class EnergyAnalyticsQueryService {
         snapshot,
         checkpoint,
         queryStartedAt,
-        generatedAt,
+        // Retirement closes ingestion but its cursor still contains the last
+        // observed state. Never reopen that state in a read-only projection.
+        generatedAt: fixture.retiredAt && fixture.retiredAt < generatedAt ? fixture.retiredAt : generatedAt,
         timeZone,
         tariffKwhRate: new Prisma.Decimal(tariffKwhRate)
       });
@@ -408,7 +416,8 @@ function buildCustomPriorComparisons(
     // seconds after enrollment were observed. Keep observed kWh but suppress the rate.
     const cohortCoveredFrom = (candidate: ComparisonDateRange) => {
       const startsAt = startOfLocalDate(parseCalendarDate(candidate.from), timeZone);
-      return fixtures.every((fixture) => fixture.energyTrackingStartedAt <= startsAt);
+      return fixtures.every((fixture) => (fixture.retiredAt !== null && fixture.retiredAt <= startsAt) ||
+        fixture.energyTrackingStartedAt <= startsAt);
     };
     const complete = (value: DailyValue, expected: number) =>
       expected > 0 && value.knownSeconds === expected && value.unknownSeconds === 0;
@@ -433,7 +442,8 @@ function buildCustomPriorComparisons(
 function expectedFixtureSeconds(fixtures: EnergyFixtureRow[], range: ComparisonDateRange, timeZone: string): number {
   const from = startOfLocalDate(parseCalendarDate(range.from), timeZone).getTime();
   const to = startOfLocalDate(addCalendarDays(parseCalendarDate(range.to), 1), timeZone).getTime();
-  return fixtures.reduce((sum, fixture) => sum + Math.max(0, (to - Math.max(from, fixture.energyTrackingStartedAt.getTime())) / 1_000), 0);
+  return fixtures.reduce((sum, fixture) => sum + Math.max(0,
+    (Math.min(to, fixture.retiredAt?.getTime() ?? to) - Math.max(from, fixture.energyTrackingStartedAt.getTime())) / 1_000), 0);
 }
 
 function buildComparisonPoints(input: {
@@ -525,7 +535,10 @@ function forecastPoint(
   const totalRate = [...forecast.fixtureRates.values()].reduce((sum, rate) => sum.add(rate), new Prisma.Decimal(0));
   let estimated = new Prisma.Decimal(0);
   if (input.generatedAt >= dayStart && input.generatedAt < dayEnd) {
-    estimated = summarizeRange(input.values, { from: key, to: key }).estimatedKwh;
+    // Observed points retain retired history, but today's forecast must use
+    // the same live cohort as its readiness, rates and monthly forecast total.
+    const currentValues = new Map([...input.values].filter(([fixtureId]) => forecast.fixtureRates.has(fixtureId)));
+    estimated = summarizeRange(currentValues, { from: key, to: key }).estimatedKwh;
     estimated = estimated.add(totalRate.mul((dayEnd.getTime() - input.generatedAt.getTime()) / 1_000));
   } else {
     estimated = totalRate.mul((dayEnd.getTime() - dayStart.getTime()) / 1_000);
@@ -614,8 +627,12 @@ function baselineForCalendarDates(
   to: CalendarDate,
   timeZone: string
 ) {
-  const seconds = (startOfLocalDate(addCalendarDays(to, 1), timeZone).getTime() - startOfLocalDate(from, timeZone).getTime()) / 1_000;
-  return totalRatedWatt(fixtures).mul(seconds).div(3_600_000);
+  const startsAt = startOfLocalDate(from, timeZone).getTime();
+  const endsAt = startOfLocalDate(addCalendarDays(to, 1), timeZone).getTime();
+  return fixtures.reduce((sum, fixture) => {
+    const seconds = Math.max(0, Math.min(endsAt, fixture.retiredAt?.getTime() ?? endsAt) - startsAt) / 1_000;
+    return sum.add(new Prisma.Decimal(fixture.ratedWatt).mul(seconds).div(3_600_000));
+  }, new Prisma.Decimal(0));
 }
 
 function totalRatedWatt(fixtures: EnergyFixtureRow[]) {
