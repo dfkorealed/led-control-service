@@ -115,10 +115,11 @@ export interface ScheduleListResponse {
   nextCursor: string | null;
 }
 
-export type CreateVehicleEventRuleInput = Omit<VehicleEventRuleSnapshotV1, "id">;
+export type CreateVehicleEventRuleInput = Omit<VehicleEventRuleSnapshotV1, "id"> & { selfControlEnabled?: boolean };
 export type UpdateVehicleEventRuleInput = Partial<CreateVehicleEventRuleInput>;
 
 export interface VehicleEventRuleResponse extends VehicleEventRuleSnapshotV1 {
+  selfControlEnabled?: boolean;
   sensorProtocol?: VehicleSensorProtocol;
   gatewayId: string;
   sources: Array<{ fixtureId: string }>;
@@ -328,6 +329,9 @@ export function vehicleEventMutationErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return "이벤트 규칙 변경을 완료하지 못했습니다. 연결 상태를 확인해 주세요.";
   if (error.status === 401) return "로그인 세션이 만료되었습니다.";
   const code = errorCode(error.body);
+  if (code === "bio_self_control_unsupported") return "Gateway가 자기 조명 제어를 지원하지 않습니다. Gateway 적용 버전을 확인해 주세요.";
+  if (code === "bio_self_hold_not_representable") return "자기 조명 유지시간은 127초까지 1초 단위, 그 이상은 1분 단위로 설정해 주세요.";
+  if (code === "bio_self_brightness_invalid") return "자기 조명의 감지 밝기는 1% 이상으로 설정해 주세요.";
   if (code === "single_gateway_required") return "같은 Gateway에 연결된 조명만 선택해 주세요.";
   if (error.status === 409 && code === "bio_source_target_forbidden") return "감지 센서로 사용 중인 조명은 실행 대상으로 지정할 수 없습니다.";
   if (error.status === 400 && code === "bio_target_activation_conflict") return "다른 활성 이벤트와 실행 조명이 겹칩니다. 다른 이벤트를 비활성화하거나 실행 대상을 바꿔 주세요.";

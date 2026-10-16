@@ -57,6 +57,8 @@ for (const width of [1440, 390]) test(`direct settings and automatic activation 
   await page.getByRole("menuitem", { name: "수정", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "이벤트 수정" });
   await expect(dialog.getByRole("button", { name: /센서 사용 설정|준비 상태 확인|요청 결과 확인/ })).toHaveCount(0);
+  await expect(dialog.getByRole("textbox", { name: "유지 시간" })).toHaveValue("10");
+  await dialog.getByRole("textbox", { name: "유지 시간" }).fill("1");
   await dialog.getByRole("button", { name: "감지 센서 변경" }).click();
   await expect(dialog.getByRole("button", { name: /B1-L001.*선택 불가/ })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "1개 조명 선택 완료" })).toBeEnabled();
@@ -64,7 +66,7 @@ for (const width of [1440, 390]) test(`direct settings and automatic activation 
   await expect(dialog.getByRole("button", { name: "실행할 조명 변경" })).toBeEnabled();
   await dialog.getByRole("button", { name: "저장", exact: true }).click(); await expect(dialog).toBeHidden();
   expect(field.requests).toHaveLength(1); expect(field.requests[0]).toMatchObject({ operation: "ensure_sensor", fixtureId: source });
-  expect(field.patches[0]).toMatchObject({ sourceFixtureIds: [source], status: "disabled", holdSeconds: 10 });
+  expect(field.patches[0]).toMatchObject({ sourceFixtureIds: [source], status: "disabled", holdSeconds: 1 });
   await page.getByRole("button", { name: "센서 자동 제어 활성화", exact: true }).click();
   await expect(page.getByRole("button", { name: "센서 자동 제어 비활성화", exact: true })).toBeEnabled();
   expect(field.requests).toHaveLength(1); expect(field.patches.at(-1)).toEqual({ status: "enabled" });

@@ -39,13 +39,14 @@ async function harness() {
     observedLogicalAddressBeforeAssignment: 5, commandId: "registration", firmware: "legacy", protocol: "crc16" });
   await mappings.confirm("bio:001122334455", 256);
   let generation = 1, mono = 10, fail = false, mode = "sensor"; const writes: string[] = [];
-  const changes = new Set<() => void>(); const events = new Set<(v: { kind: string }) => void>();
+  type Connection = { generation: number; ready: boolean; protocolReady: boolean; transportConnected: boolean };
+  const changes = new Set<(state: Connection) => void>(); const events = new Set<(v: { kind: string }) => void>();
   const device = { nativeUuid: "001122334455", deviceUuid: "bio:001122334455", logicalAddress: 256, networkId: 0, firmwareVersion: "legacy", rssi: -40, fingerprint };
   const pulses = new Set<(value: BioSensorPulseCandidate) => void>();
   const client = {
     onSensorPulseCandidate: (listener: (value: BioSensorPulseCandidate) => void) => { pulses.add(listener); return () => { pulses.delete(listener); }; },
     sensorSourceSnapshot: () => ({ generation, ready: true, protocolReady: true, transportConnected: true }),
-    onSensorSourceState: (fn: () => void) => { changes.add(fn); return () => { changes.delete(fn); }; },
+    onSensorSourceState: (fn: (state: Connection) => void) => { changes.add(fn); return () => { changes.delete(fn); }; },
     onEvent: (fn: (v: { kind: string }) => void) => { events.add(fn); return () => { events.delete(fn); }; },
     scanObservations: async () => { writes.push("SCAN"); return [structuredClone(device)]; },
     restoreSensorMode: async () => { writes.push("SET_MODE"); mode = "sensor"; },
@@ -59,7 +60,7 @@ async function harness() {
     catalogRevision: 1, requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString() });
   return { dir, catalog, mappings, client, handler, command, device, writes, changes, events, pulses,
     advance: (n: number) => { mono += n; }, monotonic: () => mono, fail: () => { fail = true; },
-    mode: (v: string) => { mode = v; }, reconnect: () => { generation++; for (const fn of changes) fn(); } };
+    mode: (v: string) => { mode = v; }, reconnect: () => { generation++; for (const fn of changes) fn(client.sensorSourceSnapshot()); } };
 }
 it("starts OFF/empty, durably applies exact scope and rejects catalog rollback/conflict", async () => {
   const f = await harness(); expect(f.catalog.snapshot()).toBeNull(); const value = catalogValue();
@@ -144,6 +145,29 @@ it("keeps F1 pin, queued receipt and full hold restoration across F2 commissioni
   f.advance(11000); await f.accept(); await f.scheduleRuntime.tick();
   expect(f.configuration()).toEqual({ configuredHighBrightnessPercent: 30, bioMode: "sensor" });
   expect(f.targetWrites).toHaveLength(2);
+});
+
+it.each(['accepted', 'reconnect', 'timeout'] as const)("waits safely when configuration overtakes the durable commission ACK (%s)", async condition => {
+  const f = await liveControllerHarness();
+  f.delivery.invalidateCommissionProofs();
+  f.advance(100); await f.monitor.probe(fixtureId); await f.delivery.recordLiveProof(f.monitor.snapshot(fixtureId)!);
+  const row = (await f.delivery.pending()).filter(row => row.proof.command.fixtureId === fixtureId).at(-1)!;
+  const { payloadHash: _oldHash, ...body } = f.automationRuntime.currentSnapshot!;
+  const snapshot = automationSnapshot(5, { ...body, revision: 5 } as never);
+  let outcome = 'pending';
+  const applying = f.automationRuntime.hotReload(snapshot).then(() => { outcome = 'applied'; }, () => { outcome = 'rejected'; });
+  await new Promise<void>(resolve => setImmediate(resolve));
+  expect(outcome).toBe('pending');
+  expect(f.targetWrites).toHaveLength(0);
+  if (condition === 'accepted') {
+    await f.delivery.acknowledge({ schemaVersion: 2, ...scope, meshNodeId: row.delivery.report.meshNodeId,
+      eventId: row.delivery.report.eventId, capabilityRevision: row.delivery.report.capabilityRevision,
+      deliveryPayloadHash: row.deliveryPayloadHash, status: 'applied', errorCode: null, ingestedAt: new Date().toISOString() });
+  } else if (condition === 'reconnect') f.reconnect();
+  await applying;
+  expect(outcome).toBe(condition === 'accepted' ? 'applied' : 'rejected');
+  expect(f.automationRuntime.currentRevision).toBe(condition === 'accepted' ? 5 : 4);
+  expect(f.targetWrites).toHaveLength(0);
 });
 
 it("restores a revoked-profile activation by fresh identity only and keeps mismatched identity pending", async () => {

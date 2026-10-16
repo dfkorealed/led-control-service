@@ -23,7 +23,21 @@ function validForm(overrides: Partial<VehicleEventFormValues> = {}): VehicleEven
 }
 
 describe("vehicle event form", () => {
-  it.each([["9", false], ["10", true], ["60", true], ["1800", true], ["1801", false]] as const)("validates BIO hold %s without changing BlueZ bounds", (holdSeconds, valid) => {
+  it("defaults new rules to self control while keeping a legacy edited rule off", () => {
+    expect(createEmptyVehicleEventForm()).toMatchObject({ selfControlEnabled: true });
+    expect(vehicleEventRuleToFormValues({ name: "old", status: "disabled", sourceFixtureIds: [sourceFixtureId], targetFixtureIds: [targetFixtureId], action: { dimmingEnabled: true, brightnessPercent: 70 }, holdSeconds: 60 }))
+      .toMatchObject({ selfControlEnabled: false });
+  });
+  it("submits a one-second BIO self-only rule without adding the source to force targets", () => {
+    const values = validForm({ selfControlEnabled: true, targetFixtureIds: [], holdSeconds: "1" } as Partial<VehicleEventFormValues>);
+    expect(validateVehicleEventForm(values, "bio-usb-pulse")).toEqual({});
+    expect(vehicleEventFormToInput(values, "disabled", "bio-usb-pulse")).toMatchObject({ selfControlEnabled: true, sourceFixtureIds: [sourceFixtureId], targetFixtureIds: [], holdSeconds: 1 });
+  });
+  it("requires targets when self control is off and refuses inexact native intervals", () => {
+    expect(validateVehicleEventForm(validForm({ selfControlEnabled: false, targetFixtureIds: [] } as Partial<VehicleEventFormValues>), "bio-usb-pulse")).toHaveProperty("targetFixtureIds");
+    expect(validateVehicleEventForm(validForm({ selfControlEnabled: true, holdSeconds: "128" } as Partial<VehicleEventFormValues>), "bio-usb-pulse")).toHaveProperty("holdSeconds");
+  });
+  it.each([["0", false], ["1", true], ["2", true], ["9", true], ["1.5", false], ["10", true], ["60", true], ["1800", true], ["1801", false]] as const)("validates BIO hold %s without changing BlueZ bounds", (holdSeconds, valid) => {
     expect(Boolean(validateVehicleEventForm(validForm({ holdSeconds }), "bio-usb-pulse").holdSeconds)).toBe(!valid);
     expect(validateVehicleEventForm(validForm({ holdSeconds: "5" }), "bluez-stateful")).toEqual({});
   });
@@ -34,7 +48,8 @@ describe("vehicle event form", () => {
     expect(vehicleEventRuleToFormValues(input).holdSeconds).toBe("10");
     expect(input).not.toHaveProperty("sensorProtocol");
     expect(input).not.toHaveProperty("readiness");
-    expect(() => vehicleEventFormToInput(validForm({ holdSeconds: "9" }), "disabled", "bio-usb-pulse")).toThrow();
+    expect(() => vehicleEventFormToInput(validForm({ holdSeconds: "0" }), "disabled", "bio-usb-pulse")).toThrow();
+    expect(() => vehicleEventFormToInput(validForm({ holdSeconds: "1" }), "disabled", "bluez-stateful")).toThrow();
   });
   it("requires source sensors, target lights, valid brightness, and a bounded hold", () => {
     expect(validateVehicleEventForm(validForm({ sourceFixtureIds: [], targetFixtureIds: [] }))).toMatchObject({

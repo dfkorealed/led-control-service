@@ -2312,6 +2312,7 @@ model GatewayAutomationProtocolSupport {
   temporaryControlVersion Int?
   bioConfigurationReadback Boolean @default(false)
   durableFixtureLease Boolean @default(false)
+  bioNativeSelfControlVersion Int?
   payloadHash          String
   declaredAt           DateTime
   receivedAt           DateTime @default(now())
@@ -2573,6 +2574,7 @@ model VehicleEventRule {
   dimmingEnabled    Boolean
   brightnessPercent Int
   holdSeconds       Int                   @default(60)
+  selfControlEnabled Boolean               @default(false)
   desiredRevision   Int                   @default(0)
   appliedRevision   Int                   @default(0)
   sourceCount       Int                   @default(0)

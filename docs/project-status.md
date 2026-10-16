@@ -14,6 +14,43 @@
 - 현재 삭제 API/UI는 없다. 물리 CASCADE에 따른 제어·전력 원장 소실과 Gateway mapping만 지울 때 이미 캡처한 명령의 실행 위험을 확인했다. 제안은 내구 삭제 확인 뒤 운영 퇴역, 과거 FK/주소와 등록 세대 fence 보존이다. 설계 체크리스트의 조사만 완료이며 서면 검토/실행 계획/제품 구현·검증은 미완료다.
 - 읽기 전용 조사와 문서 작성만 했다. 실제 삭제/RF/SSH·사용자 DB/migration·서비스 재시작·배포는 실행하지 않는다. MAIN의 사용자 AGENTS/기존 상태판 변경은 보존한다.
 
+## 2026-10-16 BIO 자기 제어 적용 실패 수리 — 메인·장비 반영 및 활성47 APPLIED 완료
+
+- 실제 L006 규칙 desired43/applied42는 `bio_self_firmware_unsupported`로 거절됐다. 기존 등록 mapping의 fingerprint 누락을 미지원으로 잘못 해석한 resolver가 원인이며 native 원장/SET은 없다. 최신 독립 commissioning 권위를 사용하되 매핑/펌웨어/건강/소유권 검증은 유지한다.
+- 별도 `codex/fix-native-legacy-fingerprint-20261016`, [체크리스트](superpowers/plans/2026-10-16-bio-native-legacy-fingerprint-fix.md): [x] 원인/legacy회귀 수리·메인c0e39904 병합·암호화백업/동일launch 배포, [x] 후속ACK/config 경합의 실제시각·RED→5files105PASS·타입/build0·단독검토, [x] c7a062a5병합/정식ARM64새백업·배포, [x] 실제100%/5초 규칙활성47APPLIED·서버/장비exacthash확인. main병합뒤관련28/28도통과했다. 방습등시험·DB/인증/기본밝기변경은0이다.
+- 첫배포 후 서버의연결증거만료가자동44disabled/APPLIED를만들었다(해당시각사용자PATCH0). 정상UI준비후45활성은서버ready2184의ACK를Gateway가내구저장하기전에config가도착하여 `bio_pulse_control_unavailable`로거절됐다. native원장/SET0이며, 정확한livecommission의ACK만최대2초기다리고전체identity/연결fence를재검증한다. 활성규칙성공은아직미확인이다.
+- 위문장은당시중간상태다.45는정상config재조회로APPLIED에수렴했고, 후속배포전정상UI비활성46도첫identity확인거절후원설정전체일치/원장삭제/APPLIED에수렴했다. 그확인전에는배포guard가중단해lifecycle변경0이었다. 원장/보호를강제삭제하거나unknown SET를재전송하지않았다.
+- 최종11:11KST: Gateway sourcec7a062a5/image98d107f0·USBowner1·freshhealth·24보호identity/mapping불변·launch/security/인증/주소보존이다. 새3root CMS백업67,384,074bytes/off-device검증·oldcontainer보존후반영했고API/Web/broker재시작0이다. 실제UI활성/self/100%/5초/적용됨, desired=applied47/errornull/nativeversion1·선언28/exacthash61b29a0e…를확인했다. native원장은applied/intentnull이고독립전체GET가high100/standby10/hold5/standby5/phase0/sensor와일치한다. 등록/기본밝기digest는전후불변이다. B1기존4등online,방습등2대는offline으로표시되며별도시험/설정0이다. 실제움직임/광출력시간시험은이번범위에서하지않았다.
+
+## 2026-10-16 BIO 자기 감지 제어 — 운영 반영 완료·사용자 UI 시험 준비
+
+- 후속운영결과: 새전체DB백업검증→DB2migration139→141/원127개데이터테이블행·기존원장불변→MAIN9169fe1c ff-only병합/사용자AGENTS·기존메모9행보존→동일env/인증의API/Web/broker재개5up→ARM64검증image5df95b0c/원3root CMS백업·독립검증→새Gateway전환을완료했다. Config의image/이미지소유label외설정·USB/ID/기본밝기/인증을보존했다. canonical release CI/artifact/state98/98·실제CMSflow/cleanup exit0이다. broker도기존coupled구조때문에1회정상재기동했으며ACL/인증서/권한변경0이다.
+- 실제새Gateway source9169fe1c에서6/6observed·freshhealth/USBowner1·보호identity/assignment/mapping24항목불변, assignment1/선언26/native1·V3revision40 APPLIED·서버/장비payloadhash일치를확인했다. 실제UI에서B1-L006/self체크/다른대상0/1초입력/저장가능을확인했고저장/활성화/움직임시험은하지않았다. L002/L004기존등록재확인차단은유지하며지원조건을우회하지않는다. 사용자직접제품규칙시험은남아있다. 아래구현/승인대기는당시이력이다.
+
+- 후속 사용자 승인으로 DB 백업·migration2개·MAIN 병합·API/Web 재기동·Gateway 영구 배포를 진행한다. 기존ID/기본밝기/인증·병행 미커밋 기록·원 컨테이너/백업을 보존하며 규칙 활성화/움직임 시험은 하지 않는다. 실행 체크리스트는 기존 계획 Task7에 추가했다. 아직 운영 변경은 시작 전이다.
+
+- 별도 `codex/bio-self-sensing-control-20261015`에서 shared/API/DB·Gateway 내구 native owner·공통 UI를 구현했다. 기존/신규에 같은 설정, 새 규칙self=true/기존false, 자기 조명만 실행, 감지 밝기1~100%·유지시간1~127초/이후60초 배수(최대1,800초)를 제공한다. 무감지 밝기·phase·대기 구간은 조명의 원 설정을 보존한다.
+- 승인된 B1-L006만1초 SET/독립 전체 GET·사용자의 밝아짐→낮은 밝기 복귀·정확한 전체 원복을 확인했다. 방습등 SET0이다. 광출력 경과시간/재감지 연장 실측은 하지 않았다. 주소 별칭2개·단일USB grant 교정과 새 암호화 백업 후 같은 immutable 버전/설정·영속3root·ID/등록/기본밝기/인증을 보존해 재개했다. 불필요한 scan/조회 실패는SET0으로 종료하고 원 기록을 보존했다.
+- focused shared60/API53/Gateway107(저수준 포함 최종355)/Web145·PC1440/모바일390 저장2건, API/Gateway 타입·API/Gateway/Web build를 검증했다. 지원 상실의 stale capability rollback과0%/표현불가 시간·부분원장 오류를 보완했다. 사용자 단독 지시로 작성자 자가리뷰만 했으며 다른 채팅 공유/agent0이다. 기존 무관 전체suite 실패를 숨기지 않되 이번에는 관련 검증만 수행했다.
+- 현재 코드 병합 준비이며 운영 DB 두 migration·새 API/Web/Gateway 영구 반영은 미실행이다. 실제 운영 image는 기존 버전이다. 배포 전 별도 사용자 승인·백업·버전 일치·명시 native capability·정확 revision/ACK 확인이 필요하다. 활성 native 원장이 남은 구형 Gateway 다운그레이드는 금지하고 부분 설정은 자동 SET 재전송하지 않는다.
+- 상세 범위/한계는 `docs/menus/control.md`, `docs/menus/settings.md`, `docs/database-schema.md`와 `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`다. 아래10월15일 자기 제어 미구현/장비 상태는 당시 이력이며 이 항목으로 갱신한다. 병행 미커밋 기록을 임의 stage/삭제하지 않는다.
+- 최신 MAIN `a6260156`을 기능 브랜치에 역통합했다. 코드 자동 병합 뒤 중복 import의 Web 타입 오류를 수정해 Web155PASS·타입/build0·PC/모바일 native저장2PASS를 재확인했다. API/Gateway 제품코드는 통합 전후 동일하다. 현재 MAIN의 API는 `nest start --watch`, 웹은Vite로 MAIN 경로를 사용한다. 새DB 열이 없는 상태의 MAIN 병합은 watcher/웹에 부분 반영될 수 있어 아직 실행하지 않았다. 새DB2migration·API/Web·Gateway를 일치시켜 반영할 별도 사용자 승인이 필요하다. MAIN AGENTS/상태판dirty2는 변경하지 않았다.
+
+## 2026-10-15 BIO 자기 감지 제어 설계 검토
+
+- 후속 저수준 SDK 구현: 별도 `codex/bio-self-sensing-control-20261015`에서 standby/hold SET·정확한1초 인코딩·필수 intent callback·원 설정/세대/소유권 보존·독립 재조회·검증형 복구를 구현했다. 새codec5/변환7/client7 및 추가guard3 RED→관련4파일287PASS·Gateway타입/build exit0이다. 원phase/대기구간은 보존하고 phase1/높은밝기0/표현불가 새시간은 거절한다. 원interval0/장시간raw는 복구에서 보존한다. 실제 규칙/프로파일/내구저장소/UI 연결·메인병합·운영 반영은 아직이다.
+- 사용자의 별도 브랜치→검증 후 메인 병합 지시를 유지한다. 10월16일 사용자 요청으로 다음 실장비 시험에서 방습등1·2를 제외하고 기존 B1-L006을 우선 대상으로 변경했다. 연결 복구 후 원 설정을 새로 읽고100%/대기30%/1초/sensor를 최소 확인한 뒤 정확한 원 설정으로 복구한다. 현재는 조명6대offline·Gateway MQTT/USB 준비false, PC주소172.30.1.2와 서버 별칭172.30.1.17 불일치, 컨테이너USB001/004와 실제001/005 불일치, 로컬4000 API 접속불가를 읽기 전용으로 확인했다. 연결 복구/일시 중단/설정 쓰기는 아직 실행하지 않았으며 새 범위 승인과 시작 안내 뒤 진행한다. 이전 읽기 전용 승인을 새SET 권한으로 재사용하지 않는다.
+
+- 후속 읽기 전용 승인으로 방습등1·2/기존 B1-L006의6GET씩18실응답을 확보했다. 방습등1·2는 high30%/standby10%/hold5초/standby구간5초/delayMode0/force-on, 기존1대는 high100%/force-off·나머지 동일이다. firmware5.5.8.12889/센서 유형도 같다. 같은 Gateway/image/config와 진단 전후3root metadata/hash를 보존하고 새health5true/USB owner1/6online·등록/설정digest 불변·revision39 APPLIED·명령/outbox/lease0으로 복귀했다. 영구배포·설정SET·DB migration/API·브로커 재시작0이다.1초 쓰기/자기 감지 출력/단계별 복귀는 미검증이다.
+- 진단 guard의 Mounts 순서/기존 startup literal 차단을 실제 증거와 RED→한정 검사로 보완했다. 첫 진단은 설정조회RF0/정상close이며 첫 재개Malformed 종료 후 같은 컨테이너의 명시적 복구1회로 정상화했다. 다음 진단18응답 후 즉시USB postflight 미확정은 추가 쓰기 없는 fresh 조회로 복귀 확정했다. 관련codec/client205PASS·진단 guard3PASS·identity2PASS, 원 실패/기록/백업은 보존한다. 다른 채팅 공유0이며 전체 기능 완료로 기록하지 않는다.
+
+- 사용자는 방습등1·2를 포함해 감지한 조명 자신의 밝기/유지시간 설정을 요청했고, 최소1초·기존/신규 공통 지원으로 보정해 진행을 승인했다. 별도 `codex/bio-self-sensing-control-20261015`에서 서면 설계를 작성했다. 기존 자기 제어 제외 정책을 단순 해제하지 않고 sensor 모드 유지·장비 자체 설정 경로를 제안한다.
+- 검토 문서는 `docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`다. 유지시간/기본 밝기의 명령·단위·독립 조회와1초 지원 근거를 먼저 확인하며, 미확인 장비에 명령을 추측하지 않는다. 동일 설정 UI 제공과 모든 장비의 물리 지원 완료는 구분한다.
+- 사용자가 서면 설계를 확정하고 계획 작성 후 진행을 요청했다. `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`를 작성·자가검토했고 같은 세션 직접 실행을 시작한다. Task1 장비 명령 근거→Task2 최소1초→Task3 codec/client→Task4 계약/서버→Task5 Gateway→Task6 UI/한정검증 순서다. 미확인 명령은 추측하지 않고 자기 제어 관문에서 보류한다. 실제 DB/장비/서비스 반영0이며 기존 ID/규칙/설정과 메인의 사용자/병행 UI 미커밋 변경을 보존한다.
+- 최초 코드 단계에서 Task1 정적 근거 판정·Task2 최소1초 코드/forward CHECK migration/임시DB/격리UI와 Task3의읽기 전용6GET을 구현했다. 이후 저수준SET/복구 구현은 위 후속 항목을 따른다. Task4–6·메인 병합/운영 반영은 아직이다. APK1.1.314 SHA일치·TimeInterval bit0단위/상위7bit횟수와DPID20/22/23/24를 확인했지만 APK1.2.0 캡처 및 현재 장비 호환으로 확대하지 않는다. 실제1단계/2단계와 기본 복귀 동작은 장비 조회/검증 후 결정한다.
+- 검증은 RED shared3/API DTO3/Web4/DB1 및 신규조회13→shared57·API3파일46·Web2파일33·Gateway3파일244·PC1440/모바일390의1초저장/활성화 mock2PASS, API/Gateway타입·Web타입 포함build exit0이다. 오래된 worktree Prisma client의 타입오류는 main과 realpath/inode가 다른 자체 생성물을 확인한 뒤 해당worktree만 generate해 해소했으며 실제DB migration/운영client 변경0이다. 기존API partial PATCH fixture의 누락 날짜/flat fields, 새GET으로기존unknown이아닌DPID14의거절fixture는현재unknown15로수정했다. 전체suite/HIL 성공이아니다.
+- 사용자에게 실제 장비 검증 전임을 알렸고, 방습등1·2와 기존1대의읽기 전용 조회 및 필요 시최대6~8분 제어중단/기존운전복귀의새승인을요청했다. 승인 전 실제USB/장비/RF/서비스작업은0이다. 자기 제어제한을단순해제하거나새SET을추측해완료하지않는다.
+
 ## 2026-10-16 전체 조명 등록 연결·센서 준비 복구 진행
 
 - 사용자가 실제 복구·센서 준비 진행과 모든 조명의 공통 지원을 승인했으며 별도 브랜치 후 병합, 불필요 UI 변경 금지를 요청했다. 기존 `codex/event-source-create-fix-20261015`를 MAIN70b76d93까지 동기화해 사용한다. 상세 체크리스트는 기존 `docs/superpowers/plans/2026-10-15-event-source-create-fix.md`의 10/16 후속이다.

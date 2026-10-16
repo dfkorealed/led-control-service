@@ -32,7 +32,7 @@ function rehash(value: Omit<AutomationSnapshotV2, "payloadHash">): AutomationSna
     ? Object.fromEntries(Object.entries(input).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, canonical(v)])) : input;
   return { ...value, payloadHash: `sha256:${createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex")}` };
 }
-async function fixture(qualified = true, extraTarget = false) {
+async function fixture(qualified = true, extraTarget = false, nativeSelf?: import("./schedule-runtime").ScheduleRuntimeOptions["nativeSelf"]) {
   const path = await mkdtemp(join(tmpdir(), "product-bio-")); dirs.push(path);
   let ms = 1000; let healthy = true; let authorityPresent = qualified; let activeRevision = 4;
   let listener: ((value: BioSensorPulseCandidate) => void) | undefined;
@@ -77,7 +77,7 @@ async function fixture(qualified = true, extraTarget = false) {
     await writeJsonAtomic(path, state);
   }, undefined, { gapJournal: new AutomationTelemetryGapJournal(join(path, "gap")) });
   const createServices = (stateStore = store) => createAutomationServices({ scope: { siteId: a, gatewayId: b }, adapterKind: "bio-usb",
-    stateStore, bioNormalAssignmentVersion: 1,
+    stateStore, bioNormalAssignmentVersion: 1, ...(nativeSelf ? { nativeSelf } : {}),
     configStore: { load: async () => saved, apply: async snapshot => { saved = snapshot as AutomationSnapshotV2; }, restore: async snapshot => { saved = snapshot as AutomationSnapshotV2 | null; } },
     clockTrust: { isTrusted: async () => true }, wallClock: () => new Date(Date.UTC(2026, 9, 2) + ms), monotonicClock: () => ms,
     execute: async actions => actions.map(action => {
@@ -110,6 +110,24 @@ async function fixture(qualified = true, extraTarget = false) {
 }
 
 describe("production BIO local bootstrap/lifecycle (software qualification only)", () => {
+  it("applies self-only native configuration before ACK without creating a pulse force-output activation", async () => {
+    let native = false;
+    const f = await fixture(true, false, { initialize: async () => {}, reconcile: async snapshot => {
+      native = !!(snapshot?.schemaVersion === 3 && snapshot.vehicleEventRules.some(rule => rule.status === "enabled" && rule.selfControlEnabled));
+    }, rollback: async () => { native = false; }, protectedFixtureIds: () => native ? [a] : [] });
+    try {
+      const { payloadHash: _hash, ...base } = f.snapshot();
+      const snapshot = rehash({ ...base, schemaVersion: 3, holidayDatasets: [], vehicleEventRules: base.vehicleEventRules.map(rule => ({ ...rule, selfControlEnabled: true, targetFixtureIds: [] })) } as never);
+      const ack = await f.automationRuntime.hotReload(snapshot);
+      expect(ack.status).toBe("applied"); expect(native).toBe(true);
+      f.pulse(); await new Promise(resolve => setTimeout(resolve, 20));
+      expect(f.store.read().vehicleRules).toEqual({}); expect(f.store.read().bioActivationsByRule).toEqual({});
+      expect(f.writes).toEqual([]); expect(f.genericWrites).toEqual([]);
+      const { payloadHash: _nativeHash, ...nativeBody } = snapshot;
+      await f.automationRuntime.hotReload(rehash({ ...nativeBody, schemaVersion: 3, revision: 5, vehicleEventRules: [] } as never));
+      expect(native).toBe(false);
+    } finally { await f.connection.stopAndDrain(); f.source.stop(); }
+  });
   it.each([false, true])("skip proof never erases prior uncertainty and clears before a live renewed capture (prior uncertain=%s)", async uncertain => {
     const f = await fixture(true, true);
     const runtime = new BioTemporaryControlRuntime({ store: f.store, now: f.now, clockTrust: { isTrusted: async () => true },

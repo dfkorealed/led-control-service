@@ -535,7 +535,8 @@ export function VehicleEventControlPanel({
         sources={dashboard?.site.id === siteId ? dashboard.floors.flatMap(floor => floor.fixtures)
           .filter(fixture => row.sourceFixtureIds.includes(fixture.id)) : []} /> : null}
     </> },
-    { id: "targets", header: "제어 조명", minWidth: 80, align: "right", sortValue: row => row.targetCount, renderCell: row => `${row.targetCount}개` },
+    { id: "targets", header: "제어 조명", minWidth: 80, align: "right", sortValue: row => row.targetCount + (row.selfControlEnabled ? 1 : 0),
+      renderCell: row => row.selfControlEnabled ? `자기 조명${row.targetCount > 0 ? ` + ${row.targetCount}개` : ""}` : `${row.targetCount}개` },
     { id: "brightness", header: "밝기", minWidth: 100, align: "right", sortValue: row => row.action.dimmingEnabled ? row.action.brightnessPercent : 100, renderCell: row => row.action.dimmingEnabled ? `${row.action.brightnessPercent}%` : "디밍 OFF · 100%" },
     { id: "hold", header: "유지", minWidth: 70, align: "right", sortValue: row => row.holdSeconds, renderCell: row => `${row.holdSeconds}초` },
     { id: "sync", header: "Gateway 동기화", minWidth: 110, align: "center", sortValue: row => ({ APPLIED: "적용됨", PENDING: "적용 대기", REJECTED: "적용 실패" })[row.syncStatus], renderCell: row => <SyncBadge status={row.syncStatus} /> },

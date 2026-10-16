@@ -65,6 +65,11 @@ export interface VehicleEventRuleSnapshotV2 extends VehicleEventRuleSnapshotV1 {
   sensorProtocol: VehicleSensorProtocol;
 }
 
+/** Omitted for old rules/wire peers; only V3 may explicitly configure native self control. */
+export interface VehicleEventRuleSnapshotV3 extends VehicleEventRuleSnapshotV2 {
+  selfControlEnabled?: boolean;
+}
+
 export interface AutomationSnapshotV1 {
   schemaVersion: 1;
   siteId: string;
@@ -135,11 +140,11 @@ export interface AutomationConfigAppliedReceiptV2 extends AutomationConfigApplie
 
 export type LightingScheduleSnapshotV3 = LightingScheduleSnapshotV1 & { excludeWeekends: boolean; excludeHolidays: boolean };
 export type LightingScheduleSnapshot = LightingScheduleSnapshotV1 | LightingScheduleSnapshotV3;
-export type AutomationSnapshotV3 = Omit<AutomationSnapshotV2, "schemaVersion" | "schedules"> & {
-  schemaVersion: 3; schedules: LightingScheduleSnapshotV3[]; holidayDatasets: HolidayDatasetSnapshot[];
+export type AutomationSnapshotV3 = Omit<AutomationSnapshotV2, "schemaVersion" | "schedules" | "vehicleEventRules"> & {
+  schemaVersion: 3; schedules: LightingScheduleSnapshotV3[]; holidayDatasets: HolidayDatasetSnapshot[]; vehicleEventRules: VehicleEventRuleSnapshotV3[];
 };
 export type AutomationCurrentConfigRequestV3 = Omit<AutomationCurrentConfigRequestV2, "schemaVersion" | "maxSnapshotVersion"> & {
-  schemaVersion: 3; maxSnapshotVersion: 3; temporaryControlVersion: 1; bioConfigurationReadback: true; durableFixtureLease: true;
+  schemaVersion: 3; maxSnapshotVersion: 3; temporaryControlVersion: 1; bioConfigurationReadback: true; durableFixtureLease: true; bioNativeSelfControlVersion?: 1;
 };
 export type AutomationConfigAppliedV3 = Omit<AutomationConfigAppliedV2, "schemaVersion"> & { schemaVersion: 3 };
 export type AutomationConfigAppliedDeliveryV3 = Omit<AutomationConfigAppliedDeliveryV2, "schemaVersion" | "acknowledgement"> & {
@@ -350,13 +355,28 @@ export const vehicleEventRuleSnapshotV2Schema = z.object({
   sourceFixtureIds: fixtureIdsSchema,
   targetFixtureIds: fixtureIdsSchema,
   action: automationActionV1Schema,
-  holdSeconds: z.number().int().min(5).max(1_800),
+  holdSeconds: z.number().int().min(1).max(1_800),
   sensorProtocol: z.enum(["bluez-stateful", "bio-usb-pulse"])
 }).strict().superRefine((rule, context) => {
-  // BlueZ stateful rules retain the V1 five-second floor; BIO pulses need at least ten seconds.
-  if (rule.sensorProtocol === "bio-usb-pulse" && rule.holdSeconds < 10) {
-    addIssue(context, "holdSeconds", "BIO pulse holdSeconds must be at least 10");
+  // BIO supports a one-second service hold; preserve the legacy stateful floor.
+  // Short pulse holds may expire between detections; do not silently lengthen them.
+  if (rule.sensorProtocol === "bluez-stateful" && rule.holdSeconds < 5) {
+    addIssue(context, "holdSeconds", "BlueZ stateful holdSeconds must be at least 5");
   }
+});
+
+export const vehicleEventRuleSnapshotV3Schema = vehicleEventRuleSnapshotV2Schema.innerType().extend({
+  selfControlEnabled: z.boolean().optional(),
+  targetFixtureIds: z.array(identifierSchema)
+}).strict().superRefine((rule, context) => {
+  if (new Set(rule.targetFixtureIds).size !== rule.targetFixtureIds.length) addIssue(context, "targetFixtureIds", "fixture IDs must be distinct");
+  if (!rule.selfControlEnabled && rule.targetFixtureIds.length === 0) addIssue(context, "targetFixtureIds", "at least one output required");
+  if (rule.sensorProtocol === "bluez-stateful" && rule.holdSeconds < 5) addIssue(context, "holdSeconds", "BlueZ hold must be at least 5 seconds");
+  if (rule.selfControlEnabled && (rule.sensorProtocol !== "bio-usb-pulse" || rule.sourceFixtureIds.length !== 1 || rule.targetFixtureIds.some(id => rule.sourceFixtureIds.includes(id)))) {
+    addIssue(context, "selfControlEnabled", "native self control requires one distinct BIO source");
+  }
+  if (rule.selfControlEnabled && rule.holdSeconds > 127 && rule.holdSeconds % 60 !== 0) addIssue(context, "holdSeconds", "native interval must be represented exactly");
+  if (rule.selfControlEnabled && rule.action.dimmingEnabled && rule.action.brightnessPercent < 1) addIssue(context, "action", "native detection brightness must be positive");
 });
 
 export const automationSnapshotV1Schema = z.object({
@@ -385,6 +405,7 @@ export const automationSnapshotV2Schema = z.object({
 
 export const automationSnapshotV3Schema = automationSnapshotV2Schema.extend({
   schemaVersion: z.literal(3), revision: z.number().int().nonnegative().safe(),
+  vehicleEventRules: z.array(vehicleEventRuleSnapshotV3Schema),
   // Both public browser entrypoints can initialize first; resolve the cross-module
   // dataset schema at parse time rather than during ESM module evaluation.
   schedules: z.array(lightingScheduleSnapshotV3Schema), holidayDatasets: z.array(z.lazy(() => holidayDatasetSnapshotSchema))
@@ -445,7 +466,7 @@ export const automationCurrentConfigRequestV2Schema = automationCurrentConfigReq
 
 export const automationCurrentConfigRequestV3Schema = automationCurrentConfigRequestV2Schema.extend({
   schemaVersion: z.literal(3), maxSnapshotVersion: z.literal(3), temporaryControlVersion: z.literal(1),
-  bioConfigurationReadback: z.literal(true), durableFixtureLease: z.literal(true)
+  bioConfigurationReadback: z.literal(true), durableFixtureLease: z.literal(true), bioNativeSelfControlVersion: z.literal(1).optional()
 }).strict();
 export const automationConfigAppliedV3Schema = z.object({ schemaVersion: z.literal(3), ...automationConfigAppliedFields,
   revision: z.number().int().nonnegative().safe() }).strict().superRefine(validateAutomationConfigApplied);

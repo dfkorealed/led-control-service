@@ -1,5 +1,41 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-16 / 구형 등록의 누락 필드와 실제 미지원 장비를 구분한다
+
+- 구형 confirmed BIO mapping에는 firmware 문자열만 있고 fingerprint가 없다. 최신 독립 commissioning은 실제 fingerprint를 검증했지만 native resolver가 선택적 옛 필드만 검사하여 L006 규칙43을 `bio_self_firmware_unsupported`로 잘못 거절했다. 이 시도는 native 원장 생성/SET 전이었다.
+- 지원 판정은 현재 독립 권위의 strict fingerprint를 소비하고 기존 문자열/선택적 fingerprint/물리 identity를 교차 검증한다. 지원 family·GET/내구intent·USB/lease guard를 완화하거나 old mapping을 추정값으로 갱신하지 않는다. 회귀는 반드시 fingerprint가 빠진 실제 구형 구조도 사용한다.
+
+## 2026-10-16 / 서버 ready와 게이트웨이의 내구 ACK 수신은 서로 다른 시점이다
+
+- L006 준비의ready2184가서버에먼저저장되고UI활성45가즉시전송됐다. Gateway의ACK처리는fsync를포함하는별도비동기작업이어서새config가정당한독립권위형성보다앞서거절됐다. 서버완료/브로커publish를Gateway내구ACK완료로해석하면안된다.
+- 이미정확히commission된정상연결의초기ACK만bounded/event-driven으로기다린뒤전체source검증을다시한다. timeout·다른commission·연결변경을허용하거나SET/부분원장을자동재전송하지않는다. 기존자격의revision변경fence는첫await전부터그대로유지해야한다.
+
+## 2026-10-16 / 운영 전환은 프로세스·데이터의 실제 관문으로 확인한다
+
+- 기존pnpm supervisor에SIGTERM을보내도shell wrapper만종료되고Nestwatch/Vite가orphan으로남았다. 포트0·원process identity종료를확인하기전migration/merge를진행하지않는다. 이번관문은DB쓰기전거절했고정확한args/PID를대조해leaf에SIGTERM을보내해소했다. 강제kill/이름기반전체종료는하지않는다.
+- 전체행보존hash SQL의 `row_to_json(x)`는기존테이블의numeric `x`열에가려질수있다. composite `x.*`를명시하고비교실패시DDL전에멈춘다. 이번실패는migrationintent저장전이었으며원127개테이블hash와기존migration이력불변을실제반영전후검증했다.
+- 기존운영launch는EXPECTED_* env가아닌서명assignment에scope를저장할수있다. 기존env를변조하거나검증을생략하지않고새image의network-none/RO제품신원검사에현재신뢰scope/serial을명시해실제assignment·device/MQTT인증서를대조한다.
+- 사용자가DB/서비스/Gateway전환을승인한뒤에도이벤트활성화/물리동작시험까지자동확장하지않는다. 명시native지원선언·서버/장비동일revision/hash/ACK와실제UI입력가능을준비완료로기록하고사용자감지시험과구분한다.
+
+## 2026-10-16 / 자기 감지 설정은 별도 내구 소유자로 관리한다
+
+- 자기 조명을 일반 force target에 넣으면 센서 모드가 깨진다. 장비 native 설정/원 설정/물리 신원을 별도 내구 원장에 저장하고 독립 전체 GET 일치 뒤 ACK한다. 부분 쓰기는 일반 snapshot rollback으로 지우지 않는다.
+- Capability 선언 저장과 snapshot 생성이 같은 transaction일 때 지원 상실을 throw하면 이전 지원 권한까지 복원된다. native 지원 상실은 REJECTED를 commit하고 전송/자동 소유권 해제를 하지 않는다.
+- PC 주소 변경과 USB 재열거는 별개다. 승인된 최소 alias/단일USB grant만 교정하고 같은 immutable image·설정·암호화 백업을 보존한다. 등록된 unicast 신원 확인에 불필요한 broadcast scan을 선행하면 약한 RF에서 직후 GET을 방해할 수 있다. 현재 매핑과 각 응답의 UUID/주소/network를 대조하며 timeout에서 무조건 재전송하지 않는다.
+- 1초 SET/readback과 사용자의 밝아짐→낮은 밝기 복귀는 확인했으나 광출력 경과시간·재감지 연장을 측정했다고 확대하지 않는다. 방습등 SET0과 전체 원복을 별도로 기록한다.
+
+## 2026-10-15 / 읽기 전용 BIO 진단도 기존 초기화와 운전 복귀를 검증한다
+
+- GET 전용 USB 필터에도 기존 transport의 두 zero-trailer startup literal이 필요하다. 일반 CRC 예외를 확대하지 않고 검증된 두 literal의 정확한 값·순서·1회만 허용하며, 이후에는 대상3대의6GET/고정 검색만 허용한다. 이번 첫 필터는 초기화까지 막아 RF 설정조회0으로 실패했으며 원 실패를 보존했다.
+- Docker의 Mounts 배열 순서는 stop 전후 바뀔 수 있다. 중복 destination을 거절하고 destination으로 정렬한 뒤 모든 필드를 대조한다. 경로·RW·보안 설정 차이를 순서 차이처럼 허용하지 않는다.
+- 원 runtime의 정상TERM·진단 close·USB owner0·영속3root 불변 후 같은 ID/image로 재개한다. 즉시 start 결과나 이전 lifetime의 신선한 health 파일만으로 복귀를 확정하지 않고, 새 lifetime 이후 health와 실제 USB owner1·서버 heartbeat·등록/설정digest를 확인한다. 이번 진단은18응답을 읽었지만 즉시 postflight가 미확정으로 끝나 후속 fresh 읽기로 복귀를 확정했다.
+- 현재 설정 조회는 물리1초 SET·감지 출력·단계별 복귀의 검증이 아니다. 공통 fingerprint/GET 성공만으로 새 쓰기 지원을 승격하거나 기존 source 보호를 해제하지 않는다.
+
+## 2026-10-15 / 서비스 초 단위와 장비의 시간 표현을 구분한다
+
+- BIO 앱의 `TimeInterval`은 하위1bit가 초/분이고 상위7bit가 횟수다.1~127초는 초 단위로 표현되지만 그 이상에서 앱의 `setValue`는 분으로 나누어 버릴 수 있다. 서비스가1초 단위를 허용한다고 장비가1~1,800초의 모든 정수를 정확히 표현하는 것은 아니다.
+- 새 설정 쓰기는 정확한 표현 가능 여부를 검증하고 반올림/절삭하지 않는다. 원 설정은0·장시간·원raw도 보존하여 UI의 새 범위가 복구 정보를 잃게 하지 않는다. 과거APK의정적직렬화와현재장비의실제응답/복귀동작은별도근거다.
+
 ## 2026-10-15 / 전송 전 거절을 불확정 물리 결과로 취급하지 않는다
 
 - **발생한 문제**: 수동 밝기의 센서 역할/시간제 소유권 충돌은 Command·MQTT 생성 전에 거절되지만 Web이 모든409를 재전송 금지·전체 제어 잠금으로 저장했다. 명령 이력이 생성되지 않아 사용자가 확인할 명령조차 없었다.

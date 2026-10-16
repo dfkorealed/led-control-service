@@ -13,6 +13,10 @@ import { pulseProfiles, type BioPulseCatalogPort } from "./bio-sensor-profile-ca
 
 export type BioPulseInput = Extract<VehicleSensorInput, { type: "pulse" }>;
 export interface BioPulseAuthorityProvider {
+  /** Read-only handoff: wait only for an already commissioned source's durable
+   * capability receipt. Does not probe, commission or mutate lamp settings. */
+  waitForAuthority?(sourceFixtureId: string, connection: { epoch: string; generation: number },
+    request: { snapshotRevision: number; requireHealthy: boolean }): Promise<void>;
   preflightRelease?(binding: BioSourceBinding, refresh?: boolean): Promise<boolean>;
   releaseIdentityCurrent?(binding: BioSourceBinding): boolean;
   /** Trusted independent evidence. Every authority/health/profile/decoder revision change
@@ -137,12 +141,22 @@ export class BioSensorPulseSource implements BioPulseSourcePort {
     const request = structuredClone(raw);
     const requireHealthy = options.requireHealthy;
     if (!requireHealthy && !("nativeUuid" in request)) return null;
-    const revision = this.revision;
-    const fixtureRevision = this.fixtureRevisions.get(request.sourceFixtureId) ?? 0;
+    let revision = this.revision;
+    let fixtureRevision = this.fixtureRevisions.get(request.sourceFixtureId) ?? 0;
     const generation = this.options.client.sensorSourceSnapshot().generation;
     let nativeUuid: string | undefined;
     try {
-      const initial = this.readAuthority(request.sourceFixtureId, generation, requireHealthy, request.snapshotRevision);
+      let initial = this.readAuthority(request.sourceFixtureId, generation, requireHealthy, request.snapshotRevision);
+      if (!initial && requireHealthy && this.authority?.waitForAuthority) {
+        await this.authority.waitForAuthority(request.sourceFixtureId, { epoch: this.epoch, generation },
+          { snapshotRevision: request.snapshotRevision, requireHealthy });
+        if (this.stopped || generation !== this.options.client.sensorSourceSnapshot().generation) return null;
+        // An initial accepted ACK legitimately creates authority. Start the full
+        // double-read fences only after that handoff. Already-qualified calls
+        // keep the original fences, including changes across the first await.
+        revision = this.revision; fixtureRevision = this.fixtureRevisions.get(request.sourceFixtureId) ?? 0;
+        initial = this.readAuthority(request.sourceFixtureId, generation, requireHealthy, request.snapshotRevision);
+      }
       if (!initial || initial.binding.snapshotRevision !== request.snapshotRevision
         || ("nativeUuid" in request && !isDeepStrictEqual(parseBioSourceBinding(request), initial.binding))) return null;
       nativeUuid = initial.binding.nativeUuid;

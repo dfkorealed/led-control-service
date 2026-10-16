@@ -137,7 +137,10 @@ export function vehicleEventSummary(values: VehicleEventFormValues, dashboard: D
   const source = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isSelectableVehicleEventSource);
   const target = fixtureIdsSummary(values.targetFixtureIds, dashboard);
   const brightness = values.dimmingEnabled ? values.brightnessPercent : "100";
-  return `${source.count > 0 ? source.title : "감지 센서 선택 필요"} 감지 → ${target.count > 0 ? target.title : "실행 조명 선택 필요"} · 밝기 ${brightness}% · ${durationLabel(values.holdSeconds)} 유지`;
+  const nativeSelf = values.selfControlEnabled && dashboard.floors.some(floor => floor.fixtures.some(fixture =>
+    values.sourceFixtureIds.includes(fixture.id) && fixture.vehicleEventSource?.sensorProtocol === "bio-usb-pulse"));
+  const output = nativeSelf ? `감지한 조명${target.count > 0 ? ` + ${target.title}` : ""}` : target.count > 0 ? target.title : "실행 조명 선택 필요";
+  return `${source.count > 0 ? source.title : "감지 센서 선택 필요"} 감지 → ${output} · 밝기 ${brightness}% · ${durationLabel(values.holdSeconds)} 유지`;
 }
 
 export function fixtureIdsSummary(

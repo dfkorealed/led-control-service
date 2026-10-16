@@ -1,5 +1,72 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-16 BIO 자기 감지 제어 — 운영 반영·UI 시험 준비
+
+### 구현 완료
+
+- 구형 등록의 mapping에 상세 fingerprint가 없더라도 현재 독립 commissioning/서버확인/정상연결 권위의 fingerprint로 자기 제어를 판정한다. 기존 firmware 문자열 및 선택적 저장 fingerprint와 물리 UUID/주소는 계속 대조한다. 추정 정보로 mapping을 덮거나 미검증 펌웨어를 허용하지 않는다. 실제L006 실패43을 재현한 RED→관련회귀·타입/build를확인하고메인/장비에반영했다.
+- 첫센서준비의서버ready와Gateway확인응답저장사이메시지경합은정확한staged/livecommission의ACK를최대2초기다린다. timeout/연결변경이면거절하며기존double-read/USB/identity검증을유지한다. 준비나SET의자동재전송은없다. 실제45실패의시각근거와105PASS회귀·메인관련28PASS를확보했다.
+- 최종c7a062a5를새CMS백업후동일launch/ID/기본밝기/인증으로배포했다. 실제UI의B1-L006/self/100%/5초규칙이47APPLIED/errornull·서버/Gateway동일hash이며native원장applied/intentnull·전체독립GET high100/standby10/hold5/standby5/phase0/sensor와일치한다. UI시험이가능하며이번수리에서움직임/광출력시간·방습등시험은하지않았다.
+- 공통 Checkbox `감지한 조명도 제어`로 자기 조명만 제어하거나 다른 조명을 추가한다. 새 규칙은true, 기존 규칙은false이며 기존/신규 등록에 같은 처리 경로를 쓴다. 자기 조명을 일반 force 출력 대상으로 추가하지 않는다.
+- 자기 제어 감지 밝기1~100%, 유지시간1~127초까지 초 단위·이후60초 단위(최대1,800초)를 UI/API/shared/DB/codec에서 검증한다. 다른 조명 서비스 타이머의1초 단위와 구별한다. 감지 후 낮은 밝기·대기 구간·phase는 조명에 저장된 원 설정을 보존한다.
+- 명시적인 V3 native 지원 선언이 있어야 활성화한다. 지원 상실은 기존 소유권을 보존한 REJECTED로 저장한다. Gateway는 현재 매핑·USB 세대·펌웨어·권한/lease를 확인하고 원 설정/단계를 SET 전에 내구 저장한다. 독립 GET 일치 뒤만 ACK하며 비활성화 시 전체 원 설정을 복구한다. 부분 적용/재시작은 재전송하지 않고 보호한다.
+- 승인된 B1-L006 시험에서 임시100%/대기30%/1초의 독립 GET과 사용자의 감지 중 밝아짐·퇴장 후 낮은 밝기 복귀를 확인했다. 전체 원 설정100%/대기10%/5초/force-off 등으로 복구하고 같은 운전 버전·영속3root/등록/설정digest 보존을 확인했다. 방습등1·2 SET0이다.
+- focused shared60/API53/Gateway107/Web145, API/Gateway 타입·Gateway/Web build, PC1440/모바일390 격리 브라우저 자기 조명만1초 저장2건을 확인했다. 전체 suite나 운영 UI 성공으로 확대하지 않는다.
+- 후속 승인으로 DB 백업·두migration139→141·원127개테이블 원컬럼/행 보존·MAIN9169fe1c 병합·동일인증의서비스재기동·정식ARM64 Gateway배포를 완료했다. canonical release CI/state98/98·artifact검증·Gateway전체3root CMS백업/독립검증을 통과했다. 새 image5df95b0c는동일launch/USB/UID999/cap0/인증/ID/기본밝기를보존한다.
+- 실제 새Gateway에서6/6연결관측·freshhealth/USBowner1·assignment1/선언26/nativeversion1·V3revision40APPLIED·서버/장비snapshothash일치를확인했다. 실제로그인UI에서B1-L006의self체크/다른조명0/1초입력과저장버튼가능을확인했다. 입력만했으며저장/활성화하지않았다.
+
+### 미구현
+
+- 제품 UI의 저장·수정·활성화와실제Gateway설정적용은47APPLIED까지확인했다. 해당제품규칙의실제움직임·광출력정확한1초/재감지연장은이번수리에서시험하지않았으며저수준B1-L006의과거관측과구분한다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 지원군은 device1/fw5.5.8.12889/sensor2/infrared1/ambient0/hardware3다. 같은 군의 기존/신규 등록에 공통 적용하되 미검증 펌웨어를 임의 지원하지 않는다. 모든 모델의 실물 검증을 뜻하지 않는다.
+- 활성 native 원장이 남은 상태의 구형 Gateway 다운그레이드는 금지한다. 부분 적용·외부 설정 변경은 실제 설정/물리 신원 확인이 필요하다. 목록은 적용 실패를 표시하고 상세 원인은 보존된 코드/운영 진단에서 확인한다.
+- B1-L002/B1-L004는기존등록연결재확인/호환준비미완료로감지선택이차단된다. 온라인표시와감지자격은다르며ID를새로만들거나조건을강제로해제하지않았다. B1-L006/B1-L001과방습등1·2는같은UI선택경로를사용한다. 이번준비에서방습등별도설정시험은하지않았다.
+
+### 관련 파일
+
+- `apps/gateway/src/automation/bio-self-sensor-runtime.ts`, `bio-self-sensor-errors.ts`, `apps/gateway/src/bio/bio-self-sensor-port.ts` 및 해당 회귀.
+- `packages/shared/src/automation-contracts.ts`, API automation service/DTO·Prisma schema, `20261016100000_bio_native_self_control/migration.sql`.
+- Web `VehicleEventDialog.tsx`, `VehicleEventControlPanel.tsx`, `vehicle-event-form.ts`, `control-map-target-selection.spec.ts`; `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`.
+
+### 갱신 규칙
+
+- 아래10월15일 기록은 당시 이력이다. 코드/격리 검증/임시 장비 시험과 영구 배포를 구분하고 운영 반영 후 실제 revision/ACK를 별도로 기록한다.
+
+## 2026-10-15 BIO 자기 감지 제어 진행 중
+
+### 구현 완료
+
+- 별도 브랜치의 기존 BIO 이벤트 유지시간을 1~1,800초 정수로 확장했다. 기본60초·기존 저장값·BlueZ5초 하한을 보존하며 POST/PATCH/effective 검증·V2/V3 snapshot·화면 입력을 일치시킨다. 1~10초에는 신호 간격보다 짧아 소등/재점등할 수 있다는 안내를 표시한다.
+- `20261015160000_bio_event_hold_one_second`는 CHECK만 교체하는 순방향 migration이다. 자기 소유 임시 PostgreSQL에서 기존 행/밝기 보존과 BIO1초 허용·BlueZ1초/범위 밖 거절을 확인했다. 운영 DB에는 미적용이다.
+- Gateway에 자기 센서 설정의 읽기 전용 조회를 추가했다. 6개GET을 한 직렬화 구간에서 읽고 UUID/주소/네트워크/항목별 응답을 확인한다. 다른 네트워크 응답·누락/timeout을 값으로 채우지 않으며 자기 설정 SET이나 센서 readiness 승격은 하지 않는다.
+- 승인 후 방습등1·2와 기존 B1-L006의 실제6항목씩18응답을 확인했다. 세 대의 센서 유형/펌웨어가 같고 유지시간5초·대기 밝기10%·대기구간5초·delayMode0이다. 방습등1·2의 high는30%/force-on, 기존1대는100%/force-off다. 현재 설정 확인일 뿐 실제 감지 출력이나1초 쓰기의 성공은 아니다. 기존 Gateway를 같은 버전/설정으로 재개했고6대online·새health/USB owner1·등록/설정digest 보존을 확인했다.
+- 별도 브랜치에 저수준 자기 설정 적용/복구 client를 구현했다. 원 설정6GET→필수 내구 intent callback→변경 항목 SET/독립GET→전체6GET을 하나의 큐에서 처리한다. standby/hold/high를 검증한 뒤 마지막에 sensor 모드로 전환하며 force-on/off를 일반 자기 제어로 사용하지 않는다. 실패 시 자동 재전송/자동 복구는 하지 않고 관측값을 보존한다. 복구는 현재 전체 설정이 호출자가 보존한 적용값과 같을 때만 원 설정을 쓰며0초·장시간 원raw를 그대로 복구한다.
+
+### 미구현
+
+- 저수준 설정 쓰기/복구 코드는 구현했지만 제품 규칙의 공통 자기 제어 필드/서버 저장·Gateway 내구 복구·`감지한 조명도 제어` UI 연결은 아직 미구현이다. intent callback의 실제 내구 저장소 연결과 firmware 자격 확인도 후속이다. 단계별 기본 밝기 복귀 의미와 실제1초 설정은 추가 확인이 필요하다.
+- 메인 병합·운영 DB migration·새 기능의 영구 서비스/Gateway 반영·실제1초/감지/복귀 검증은 수행하지 않았다. 승인된 일시 조회·기존 운전 복귀와 새 기능 배포는 구분한다. 기존/신규 조명 공통 지원은 목표이지 현재 모든 제품의 검증 완료가 아니다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 정적 근거 APK1.1.314의 TimeInterval은1~127초를 초 단위로, 그 이상을 분 단위로 표현한다. 장비 자체 설정의128초 같은 값을 임의 반올림하지 않는다. 기존 센서 프로파일은 새 자기 제어의 물리 지원 근거를 대신하지 않는다.
+- 현재3대의 설정 응답은 확인했지만 장비의1단계/2단계 출력 전환과 실제1초 적용은 미검증이다. 조회 성공만으로 자기 제어 금지를 해제하거나 source를 force-on/off 대상으로 보내지 않는다.
+- 저수준 적용은 확인된 phase0을 보존하고 알 수 없는 phase1 전환을 추측하지 않는다. 높은 밝기0% 및 복구할 수 없는 원 상태는 거절한다. SET 앞의 원 설정이 속한 USB 세대가 바뀌거나 intent 저장이 실패하면 쓰기를 멈춘다. 이 코드는 아직 실제 규칙/준비/protocol 선언에 연결하지 않았으며 센서 자격을 자동 승격하지 않는다.
+
+### 관련 파일
+
+- `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`, 같은 이름의 설계 문서(`docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`).
+- `packages/shared/src/automation-contracts.ts`, `apps/api/src/automation/dto/vehicle-event-rule.dto.ts`, `apps/api/prisma/migrations/20261015160000_bio_event_hold_one_second/migration.sql`, `docs/database-schema.md`.
+- `apps/gateway/src/bio/bio-command-codec.ts`, `apps/gateway/src/bio/bio-dongle-client.ts`, `apps/web/src/features/control/automation/vehicle-event-form.ts`, `apps/web/src/features/control/automation/VehicleEventDialog.tsx` 및 해당 회귀.
+- `apps/gateway/src/bio/bio-self-sensor-configuration.ts`, 같은 이름의 test, `apps/gateway/test/fixtures/bio-self-sensor-configuration.json`, `apps/gateway/src/bio/bio-usb-error.ts`.
+
+### 갱신 규칙
+
+- 브랜치 코드·임시DB·격리 브라우저와 실제 서비스/장비 적용을 구분한다. 자기 조명 지원은 모드 보존·정확 시간 단위·독립 조회·복구 근거를 확인한 뒤 완료로 갱신한다.
+
 ## 2026-10-16 전체 등록 조명 공통 복구 및 시계 검증 호환성
 
 ### 구현 완료

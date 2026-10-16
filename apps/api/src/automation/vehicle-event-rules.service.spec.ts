@@ -35,6 +35,44 @@ function ruleInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe("VehicleEventRulesService", () => {
+  it("rejects an off brightness before persisting a native self-control draft", async () => {
+    const service = new VehicleEventRulesService({ $transaction: (f: (tx: unknown) => unknown) => f({ $queryRaw: async () => [] }) } as never,
+      { assert: async () => ({}), assertManageInTransaction: async () => ({}) } as never,
+      { resolveVehicleSources: async () => ({ fixtureIds: [SOURCE_ID], sensorProtocol: "bio_usb_pulse" }),
+        assertSingleGateway: async () => GATEWAY_ID } as never, { lockMutation: async () => {} } as never);
+    await expect(service.create(SITE_ID, admin, ruleInput({ status: "disabled", selfControlEnabled: true,
+      targetFixtureIds: [], action: { dimmingEnabled: true, brightnessPercent: 0 } })))
+      .rejects.toMatchObject({ response: { code: "bio_self_brightness_invalid" } });
+  });
+  it("saves a self-only BIO draft without inserting its source into force-output targets", async () => {
+    let stored: any;
+    const sources: any[] = [], targets: any[] = [];
+    const tx = { vehicleEventRule: {
+      create: async ({ data }: any) => { stored = data; },
+      findFirst: async () => ({ ...stored, sources, targets, gateway: { automationConfiguration: null },
+        createdAt: new Date("2026-10-16Z"), updatedAt: new Date("2026-10-16Z") }) },
+      vehicleEventSource: { createMany: async ({ data }: any) => { sources.push(...data); } },
+      vehicleEventTarget: { createMany: async ({ data }: any) => { targets.push(...data); } },
+      $queryRaw: async () => [] };
+    const service = new VehicleEventRulesService({ $transaction: (f: (tx: unknown) => unknown) => f(tx) } as never,
+      { assert: async () => ({}), assertManageInTransaction: async () => ({}) } as never,
+      { resolveVehicleSources: async () => ({ fixtureIds: [SOURCE_ID], sensorProtocol: "bio_usb_pulse" }),
+        resolve: async () => { throw Error("empty targets must not be expanded"); }, assertSingleGateway: async () => GATEWAY_ID } as never,
+      { lockMutation: async () => {}, incrementDesiredRevision: async () => ({}) } as never);
+    expect(await service.create(SITE_ID, admin, ruleInput({ status: "disabled", selfControlEnabled: true, targetFixtureIds: [], holdSeconds: 1 })))
+      .toMatchObject({ selfControlEnabled: true, sourceFixtureIds: [SOURCE_ID], targetFixtureIds: [], holdSeconds: 1 });
+    expect(stored.selfControlEnabled).toBe(true); expect(targets).toEqual([]);
+  });
+  it("rejects native activation on an old V3 Gateway before saving a rule", async () => {
+    const tx = { $queryRaw: async () => [{ assignmentVersion: 1 }], gatewayAutomationProtocolSupport: { findFirst: async () => ({
+      maxSnapshotVersion: 3, temporaryControlVersion: 1, bioConfigurationReadback: true, durableFixtureLease: true }) } };
+    const service = new VehicleEventRulesService({ $transaction: (f: (tx: unknown) => unknown) => f(tx) } as never,
+      { assert: async () => ({}), assertManageInTransaction: async () => ({}) } as never,
+      { resolveVehicleSources: async () => ({ fixtureIds: [SOURCE_ID], sensorProtocol: "bio_usb_pulse" }), assertSingleGateway: async () => GATEWAY_ID } as never,
+      { lockMutation: async () => {} } as never);
+    await expect(service.create(SITE_ID, admin, ruleInput({ selfControlEnabled: true, targetFixtureIds: [] })))
+      .rejects.toMatchObject({ response: { code: "bio_self_control_unsupported" } });
+  });
   it("returns filtered vehicle-rule counts and site-wide Gateway sync counts in one read transaction", async () => {
     const tx = { vehicleEventRule: { fields: ruleFields, count: jest.fn().mockResolvedValueOnce(4).mockResolvedValueOnce(1)
       .mockResolvedValueOnce(1).mockResolvedValueOnce(2).mockResolvedValueOnce(1),
@@ -100,7 +138,7 @@ describe("VehicleEventRulesService", () => {
       {} as never
     );
 
-    await expect(service.create(SITE_ID, admin, ruleInput({ holdSeconds: 4 })))
+    await expect(service.create(SITE_ID, admin, ruleInput({ holdSeconds: 0 })))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(siteAccess.assert).toHaveBeenCalledWith(admin, SITE_ID, "manage");
     expect(prisma.$transaction).not.toHaveBeenCalled();

@@ -14,6 +14,8 @@ const capturedControls = fixture.requests.filter((vector) => vector.operation.ki
 
 const target = { kind: "unicast", logicalAddress: 0x1234, networkId: 0 } as const;
 const verifiedTarget = { ...target, nativeUuid: "001122334455" } as const;
+const selfOriginal = { highBrightnessPercent:30, standbyBrightnessPercent:10, holdSeconds:5, standbySeconds:5,
+  delayMode:0 as const, bioMode:"force-on" as const, rawHoldInterval:10, rawStandbyInterval:10 };
 const flush = async () => { for (let index = 0; index < 40; index++) await Promise.resolve(); };
 
 it("isolates source-state observers and never exposes a mutable transport snapshot", async () => {
@@ -45,6 +47,38 @@ class Device extends EventEmitter implements BioByteConnection {
     return () => { this.off("error", listener); };
   }
   receive(hex: string) { this.emit("data", Buffer.from(hex, "hex")); }
+}
+
+/** RF-only double. Product queue, decoder, read ownership and matching stay real. */
+class SelfSensorDevice extends Device {
+  values = new Map([[0x12,3],[0x13,140],[0x14,81],[0x16,0],[0x17,10],[0x18,10]]);
+  refuseHold = false;
+  corruptFinalHigh = false;
+  async write(bytes: Uint8Array) {
+    await super.write(bytes);
+    const wire=Buffer.from(bytes);
+    if(wire.toString("hex")==="55aa82000000") { void Promise.resolve().then(()=>this.receive("55aa030c02050320682f0000000300001147"));return; }
+    if(wire[0]===0x47)return;
+    if(wire[2]===0x0a){void Promise.resolve().then(()=>this.receive("55aa0b0d0001000000000000010c000320c50e"));return;}
+    const body=wire.subarray(19,-2);
+    if(body[0]===0xcd||body[0]===0xcc){
+      if(!(body[1]===0x17&&this.refuseHold))this.values.set(body[1],body[2]);
+      if(body[1]===0x12&&this.corruptFinalHigh)this.values.set(0x13,140);
+    }
+    void Promise.resolve().then(()=>{
+      this.receive("55aa1101002055");
+      if(body[0]===0x4e){
+        const value=this.values.get(body[1]);
+        if(value===undefined)throw Error("unexpected GET in RF double");
+        this.receive(encodeCrcFrame(0x12,Buffer.from(`d300112233445583ff123401fe00004f${body[1].toString(16)}${value.toString(16).padStart(2,"0")}`,"hex")).toString("hex"));
+      }
+    });
+  }
+}
+function selfHarness() {
+ const device=new SelfSensorDevice();
+ const client=new BioDongleClient({connectionFactory:()=>device});
+ return {client,device};
 }
 function harness(initialSequence = 75, options: { timeoutMs?: number; scanDurationMs?: number; observationTimeoutMs?: number; retirementTimeoutMs?: number } = {}) {
   const device = new Device();
@@ -169,6 +203,160 @@ async function ready(h: ReturnType<typeof harness>) {
 describe("BIO evidence-gated dongle client", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it("owns original GET, durable intents, parameter SET and independent final GET as one queue segment", async () => {
+    const h=selfHarness();await h.client.probe();
+    const intents: Array<{original:unknown;desired:unknown;stage:string}>=[];
+    try{
+      const applying=h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},
+        {beforeSelfSensorMutation:async intent=>{intents.push(structuredClone(intent));}});
+      const competing=h.client.setControlMode(target,"force-on");
+      const result=await applying;
+      await competing;
+      expect(result).toEqual({...selfOriginal,highBrightnessPercent:100,standbyBrightnessPercent:0,
+        holdSeconds:1,rawHoldInterval:2,bioMode:"sensor"});
+      const reads=["4e13","4e14","4e16","4e17","4e18","4e12"];
+      expect(commandBodies(h.device)).toEqual([...reads,"cd1400","4e14","cd1702","4e17","cd13ff","4e13","cc1200","4e12",...reads,"cc1203"]);
+      expect(intents.map(x=>x.stage)).toEqual(["standby_brightness","hold_interval","high_brightness","mode"]);
+      expect(intents.every(x=>JSON.stringify(x.original)===JSON.stringify(selfOriginal))).toBe(true);
+    }finally{await h.client.close();}
+  });
+
+  it.each([{raw:0,seconds:0,wire:"cd1700"},{raw:241,seconds:7200,wire:"cd17f1"}])("restores exact old duration $seconds without UI clamping", async ({raw,seconds,wire}) => {
+    const h=selfHarness();h.device.values.set(0x17,raw);await h.client.probe();
+    const old={...selfOriginal,holdSeconds:seconds,rawHoldInterval:raw};
+    const control={beforeSelfSensorMutation:async()=>{}};
+    try{
+      const applied=await h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},control);
+      expect(await h.client.restoreSelfSensorConfiguration(verifiedTarget,old,applied,control)).toEqual(old);
+      expect(commandBodies(h.device).filter(x=>x.startsWith("cd")||x.startsWith("cc"))).toEqual([
+        "cd1400","cd1702","cd13ff","cc1200","cd1451",wire,"cd138c","cc1203"
+      ]);
+    }finally{await h.client.close();}
+  });
+
+  it("refuses restoration if another owner changed even one setting", async () => {
+    const h=selfHarness();await h.client.probe();const control={beforeSelfSensorMutation:async()=>{}};
+    try{
+      const applied=await h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},control);
+      h.device.values.set(0x17,4);const before=commandBodies(h.device).filter(x=>x.startsWith("cd")||x.startsWith("cc")).length;
+      await expect(h.client.restoreSelfSensorConfiguration(verifiedTarget,selfOriginal,applied,control)).rejects.toMatchObject({code:"BIO_SELF_CONFIGURATION_OWNERSHIP_CHANGED"});
+      expect(commandBodies(h.device).filter(x=>x.startsWith("cd")||x.startsWith("cc"))).toHaveLength(before);
+    }finally{await h.client.close();}
+  });
+
+  it("requires durable intent before the first setting write", async () => {
+    const h=selfHarness();await h.client.probe();
+    try{
+      await expect(h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},
+        {beforeSelfSensorMutation:async()=>{throw Error("storage failed");}})).rejects.toThrow("storage failed");
+      expect(commandBodies(h.device).every(x=>x.startsWith("4e"))).toBe(true);
+    }finally{await h.client.close();}
+  });
+
+  it("keeps all configuration GETs usable after the one SET permit is consumed", async () => {
+    const h=selfHarness();h.device.values.set(0x12,0);await h.client.probe();let permit=true,writes=0;
+    try{
+      const result=await h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:30,standbyBrightnessPercent:0,holdSeconds:5},
+        {beforeSelfSensorMutation:async()=>{},mayStartWrite:()=>permit,onWriteStarted:()=>{permit=false;writes++;}});
+      expect(result).toMatchObject({standbyBrightnessPercent:0,bioMode:"sensor"});
+      expect(writes).toBe(1);
+      expect(commandBodies(h.device).filter(x=>x.startsWith("cd")||x.startsWith("cc"))).toEqual(["cd1400"]);
+    }finally{await h.client.close();}
+  });
+
+  it("does not write using an original read from a retired USB generation", async () => {
+    const h=selfHarness();await h.client.probe();
+    try{
+      await expect(h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},
+        {beforeSelfSensorMutation:async()=>{h.device.emit("error",new Error("disconnect while persisting"));}}))
+        .rejects.toMatchObject({code:"BIO_SELF_CONFIGURATION_GENERATION_CHANGED"});
+      expect(commandBodies(h.device).every(x=>x.startsWith("4e"))).toBe(true);
+    }finally{await h.client.close();}
+  });
+
+  it("does not force-switch an already matching sensor configuration", async () => {
+    const h=selfHarness();h.device.values.set(0x12,0);await h.client.probe();
+    try{
+      const result=await h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:30,standbyBrightnessPercent:10,holdSeconds:5},
+        {beforeSelfSensorMutation:async()=>{throw Error("no intent needed when no SET is made");}});
+      expect(result).toEqual({...selfOriginal,bioMode:"sensor"});
+      expect(commandBodies(h.device).every(x=>x.startsWith("4e"))).toBe(true);
+    }finally{await h.client.close();}
+  });
+
+  it("rejects an unrepresentable 128-second new setting before device I/O", async () => {
+    const h=selfHarness();
+    await expect(h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:128},
+      {beforeSelfSensorMutation:async()=>{}})).rejects.toMatchObject({code:"BIO_SELF_CONFIGURATION_UNSUPPORTED"});
+    expect(h.device.writes).toEqual([]);
+    await h.client.close();
+  });
+
+  it("preserves mismatched observations and never retries or force-switches on failed hold readback", async () => {
+    const h=selfHarness();h.device.refuseHold=true;await h.client.probe();
+    try{
+      await expect(h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},
+        {beforeSelfSensorMutation:async()=>{}})).rejects.toMatchObject({code:"BIO_SELF_CONFIGURATION_STATE_MISMATCH",
+          observedConfiguration:{holdSeconds:5,rawHoldInterval:10}});
+      expect(commandBodies(h.device).filter(x=>x==="cd1702")).toHaveLength(1);
+      expect(commandBodies(h.device).filter(x=>x.startsWith("cc"))).toEqual([]);
+    }finally{await h.client.close();}
+  });
+
+  it("does not activate sensor mode when final parameter readback is incomplete", async () => {
+    const h=selfHarness();await h.client.probe();const controller=new AbortController();
+    try{
+      await expect(h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},
+        {signal:controller.signal,beforeSelfSensorMutation:async intent=>{if(intent.stage==="high_brightness")controller.abort();}})).rejects.toThrow();
+      expect(commandBodies(h.device).filter(x=>x.startsWith("cd")||x.startsWith("cc"))).toEqual(["cd1400","cd1702"]);
+    }finally{await h.client.close();}
+  });
+
+  it("rejects missing durable intent and invalid phase/duration before any SET", async () => {
+    const h=selfHarness();await h.client.probe();
+    try{
+      await expect(h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},{} as never)).rejects.toMatchObject({code:"BIO_SELF_DURABLE_INTENT_REQUIRED"});
+      h.device.values.set(0x16,1);
+      await expect(h.client.configureSelfSensor(verifiedTarget,{highBrightnessPercent:100,standbyBrightnessPercent:0,holdSeconds:1},
+        {beforeSelfSensorMutation:async()=>{}})).rejects.toMatchObject({code:"BIO_SELF_CONFIGURATION_UNSUPPORTED"});
+      expect(commandBodies(h.device).every(x=>x.startsWith("4e"))).toBe(true);
+    }finally{await h.client.close();}
+  });
+
+  it("reads self-sensor configuration without interleaving a queued SET or accepting a foreign-network reply", async () => {
+    const h = harness(); await ready(h);
+    const reading = h.client.readSelfSensorConfiguration(verifiedTarget); void reading.catch(() => {});
+    await flush();
+    const competing = h.client.setControlMode(target, "force-on"); void competing.catch(() => {});
+    const reports = [["4e13", "13ff"], ["4e14", "1400"], ["4e16", "1601"],
+      ["4e17", "1702"], ["4e18", "18f1"], ["4e12", "1200"]] as const;
+    for (const [body, report] of reports) {
+      await flush();
+      expect(commandBodies(h.device).at(-1)).toBe(body);
+      if (body === "4e13") h.device.receive(encodeCrcFrame(0x12,
+        Buffer.from("d300112233445583ff123401fe00014f131a", "hex")).toString("hex"));
+      h.device.receive("55aa1101002055");
+      h.device.receive(encodeCrcFrame(0x12,
+        Buffer.from(`d300112233445583ff123401fe00004f${report}`, "hex")).toString("hex"));
+    }
+    await expect(reading).resolves.toEqual({ highBrightnessPercent: 100, standbyBrightnessPercent: 0,
+      holdSeconds: 1, standbySeconds: 7200, delayMode: 1, bioMode: "sensor",
+      rawHoldInterval: 2, rawStandbyInterval: 241 });
+    await flush();
+    expect(commandBodies(h.device)).toEqual([...reports.map(([body]) => body), "cc1203"]);
+    h.device.receive("55aa1101002055"); await competing; await h.client.close();
+  });
+
+  it("does not fill missing self-sensor settings or issue SET when a read-back times out", async () => {
+    const h = harness(75, { observationTimeoutMs: 10 }); await ready(h);
+    const reading = h.client.readSelfSensorConfiguration(verifiedTarget); void reading.catch(() => {});
+    await flush(); h.device.receive("55aa1101002055");
+    await vi.advanceTimersByTimeAsync(11);
+    await expect(reading).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(commandBodies(h.device)).toEqual(["4e13"]);
+    await h.client.close();
+  });
 
   it("does not let an asynchronous production source lookup block coalesced ACK/readback", async () => {
     const h = harness(); await ready(h);

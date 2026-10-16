@@ -22,6 +22,29 @@
 
 - 설계 승인·구현·소프트웨어 검증·실장비 HIL을 구분한다. 신규 계약/schema 변경은 구현과 함께 DB 문서와 영향받는 모니터링/제어/통계 현황을 갱신한다.
 
+## 2026-10-16 기존·신규 등록의 자기 제어 호환
+
+### 구현 완료
+
+- 등록 UI/ID/밝기는 보존한다. 자기 제어는 기존·신규 모두 현재 confirmed 매핑과 공통 fingerprint를 대조하는 동일 resolver를 쓴다. 이름이나 A/B ID로 분기하거나 새 등록마다 개발자 연결 설정을 요구하지 않는다.
+- 승인된 DB2migration·API/Web·ARM64 Gateway를반영했고기존등록/매핑/기본밝기/인증을보존했다. 새Gateway가6개등록조명을관측하고명시nativeversion1과revision40APPLIED를확인했다. 기존확정등록자격에공통UI를적용한다.
+
+### 미구현
+
+- 다른펌웨어군의물리지원과새UI규칙의사용자감지시험은아직이다. 방습등1·2별도설정시험은하지않았다. B1-L002/B1-L004의기존등록재확인은이번배포에서우회/자동수정하지않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 등록/온라인만으로 지원을 추정하지 않는다. 지원군 device1/fw5.5.8.12889/sensor2/infrared1/ambient0/hardware3 외에는 근거 확인 전 거절한다.
+
+### 관련 파일
+
+- `apps/gateway/src/bio/bio-self-sensor-port.ts`, `apps/gateway/src/automation/bio-self-sensor-runtime.ts`, `docs/menus/control.md`.
+
+### 갱신 규칙
+
+- 공통 지원 경로와 개별 실물 시험을 구분하고 지원군 확대에는 명령/독립 조회/복구 근거를 기록한다.
+
 ## 2026-10-16 전체 등록 조명 공통 복구 및 시계 검증 호환성
 
 ### 구현 완료

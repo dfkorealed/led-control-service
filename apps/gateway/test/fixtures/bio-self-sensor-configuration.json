@@ -1,0 +1,20 @@
+{
+  "source": {
+    "apkVersion": "1.1.314",
+    "apkSha256": "1fb69b7f6241ab757908fb4a6e8d8359d1127be75c84f5cbbf26740e415ef83e",
+    "settingEvidence": "RemoteCommand.setStandbyBright/DPID20 and setDelayTime/DPID23, default opcode0x4c; existing no-debug/no-inner-answer CD convention; 2026-10-16 B1-L006 native SET and independent full GET, followed by exact restore",
+    "readEvidence": "2026-10-15 approved read-only inspection, three fixtures / eighteen matched reports; UUID, address, RSSI and sequence normalized",
+    "hardwareFingerprint": "1/5.5.8.12889/2/1/0/3",
+    "oneSecondSetVerified": true,
+    "opticalTransitionsVerified": true,
+    "opticalEvidence": "2026-10-16 user observed brightening during movement and return to lower brightness after exit. One-second setting read back as raw02; optical elapsed time and retrigger extension not measured. Waterproof fixtures received no SET."
+  },
+  "normalizedReports": [
+    { "payloadHex": "d300112233445583ff123401fe00004f138c", "kind": "high-brightness-report", "brightnessPercent": 30 },
+    { "payloadHex": "d300112233445583ff123401fe00004f1451", "kind": "standby-brightness-report", "brightnessPercent": 10 },
+    { "payloadHex": "d300112233445583ff123401fe00004f1600", "kind": "delay-mode-report", "delayMode": 0 },
+    { "payloadHex": "d300112233445583ff123401fe00004f170a", "kind": "hold-interval-report", "rawInterval": 10, "seconds": 5 },
+    { "payloadHex": "d300112233445583ff123401fe00004f180a", "kind": "standby-interval-report", "rawInterval": 10, "seconds": 5 },
+    { "payloadHex": "d300112233445583ff123401fe00004f1203", "kind": "control-mode-report", "mode": "force-on" }
+  ]
+}

@@ -86,6 +86,10 @@ export class VehicleEventRuntime {
     const monotonicNow = this.monotonicClock();
     const events: VehicleLifecycleEvent[] = [];
     const rules = snapshot.vehicleEventRules.filter((rule) =>
+      // Native source-only rules are controlled by the lamp itself. Creating a
+      // service pulse activation with zero force-output targets would conflict
+      // with the existing target ownership/release invariants.
+      rule.targetFixtureIds.length > 0 &&
       rule.status === "enabled" && rule.sourceFixtureIds.includes(input.sourceFixtureId) &&
       (((snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) && "sensorProtocol" in rule && rule.sensorProtocol === "bio-usb-pulse") === (input.type === "pulse")) &&
       // Queued packets whose entire hold elapsed cannot briefly turn a target on.

@@ -111,6 +111,7 @@ export function VehicleEventDialog({
     ? selectedSources.some(fixture => fixture.vehicleEventSource?.sensorProtocol === "bio-usb-pulse")
     : rule?.sensorProtocol === "bio-usb-pulse";
   const sourceProtocol = isBio ? "bio-usb-pulse" : "bluez-stateful";
+  const selfControlEnabled = isBio && values.selfControlEnabled === true;
   const bioSourceBlocked = isBio && (selectedSources.length !== 1 || !selectedSources.every(isSelectableVehicleEventSource));
   const targetEligible = (fixture: Dashboard["floors"][number]["fixtures"][number]) => fixture.vehicleEventSource?.targetEligible !== false
     && !(isBio && values.sourceFixtureIds.includes(fixture.id));
@@ -279,15 +280,20 @@ export function VehicleEventDialog({
                 kind="sensor"
                 onOpen={() => setView("source")}
               />
+              {isBio ? <div className="grid gap-2">
+                <Checkbox label="감지한 조명도 제어" isSelected={selfControlEnabled} isDisabled={isPending}
+                  onChange={selected => change({ selfControlEnabled: selected })} />
+                <Text variant="caption" tone="secondary">감지한 조명 자신의 밝기와 유지시간을 설정합니다. 무감지 밝기는 조명에 저장된 값을 유지합니다.</Text>
+              </div> : null}
               <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
               <Heading as="h3" variant="card-title">02 실행 조명</Heading>
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
                 triggerRef={targetTriggerRef}
                 label="실행할 조명"
-                title={targetSummary.count > 0 ? targetSummary.title : "실행할 조명을 선택해 주세요."}
+                title={targetSummary.count > 0 ? targetSummary.title : selfControlEnabled ? "자기 조명만 제어합니다." : "실행할 조명을 선택해 주세요."}
                 description={sourceReadyForTarget
-                  ? (targetSummary.count > 0 ? targetSummary.description : "감지 시 함께 제어할 조명을 선택하세요.")
+                  ? (targetSummary.count > 0 ? targetSummary.description : selfControlEnabled ? "다른 조명도 함께 제어하려면 추가로 선택하세요. 선택하지 않아도 저장할 수 있습니다." : "감지 시 함께 제어할 조명을 선택하세요.")
                   : "감지 센서를 먼저 선택하면 같은 게이트웨이의 실행 조명을 고를 수 있습니다."}
                 empty={targetSummary.count === 0}
                 disabled={isPending || !sourceReadyForTarget}
@@ -311,7 +317,7 @@ export function VehicleEventDialog({
                   onChange={(brightnessPercent) => change({ brightnessPercent })}
                 />
                 <div className="grid grid-cols-[minmax(0,1fr)_8rem] items-end gap-3 max-compact:grid-cols-1">
-                  <Slider label="밝기 조절" minValue={0} maxValue={100} value={Number(values.dimmingEnabled ? values.brightnessPercent : "100") || 0} isDisabled={!values.dimmingEnabled} onChange={(value) => change({ brightnessPercent: String(value) })} />
+                  <Slider label="밝기 조절" minValue={selfControlEnabled ? 1 : 0} maxValue={100} value={Number(values.dimmingEnabled ? values.brightnessPercent : "100") || 0} isDisabled={!values.dimmingEnabled} onChange={(value) => change({ brightnessPercent: String(value) })} />
                   <TextField ref={brightnessInputRef} label="밝기" inputMode="numeric" isDisabled={!values.dimmingEnabled} isInvalid={Boolean(errors.brightnessPercent)} errorMessage={errors.brightnessPercent} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(value) => change({ brightnessPercent: value })} />
                 </div>
               </fieldset>
@@ -333,10 +339,10 @@ export function VehicleEventDialog({
                   }}
                 />
                 {customHoldOpen ? (
-                  <TextField ref={holdSecondsInputRef} label="유지 시간" description={`${isBio ? "10" : "5"}~1,800초, 기본 60초. 초 단위로 입력하세요.`} inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
+                  <TextField ref={holdSecondsInputRef} label="유지 시간" description={selfControlEnabled ? "1~127초, 그 이상은 60초 단위(최대 1,800초). 기본 60초." : `${isBio ? "1" : "5"}~1,800초, 기본 60초. 초 단위로 입력하세요.`} inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
                 ) : null}
                 {isBio ? <Text tone="secondary">센서 설정은 자동으로 처리합니다. {rule ? "저장 시 현재 활성 상태를 유지합니다." : "저장 후 목록의 전원 버튼으로 활성화하세요."}</Text> : null}
-                {isBio && Number(values.holdSeconds) === 10 ? <Text role="note" tone="warning">10초 설정에서는 움직임이 이어져도 감지 신호 간격이 길면 조명이 꺼졌다 다시 켜질 수 있습니다.</Text> : null}
+                {isBio && (!selfControlEnabled || values.targetFixtureIds.length > 0) && Number(values.holdSeconds) >= 1 && Number(values.holdSeconds) <= 10 ? <Text role="note" tone="warning">다른 조명 연동의 짧은 유지시간에서는 움직임이 이어져도 감지 신호 간격이 길면 조명이 꺼졌다 다시 켜질 수 있습니다.</Text> : null}
               </fieldset>
             </section>
 

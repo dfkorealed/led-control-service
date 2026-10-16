@@ -14,10 +14,12 @@ import {
 } from "./automation-config-store";
 import { AutomationStateCommitUncertainError } from "./automation-state-store";
 import type { BioSnapshotLifecycle } from "../bio/bio-pulse-authority-provider";
+import { isBioSelfSensorErrorCode, type BioSelfSensorErrorCode } from "./bio-self-sensor-errors";
 
 export type DesiredLightingState = Readonly<Record<string, number>>;
 
 export type AutomationRuntimeErrorCode =
+  | BioSelfSensorErrorCode
   | "snapshot_invalid"
   | "bio_pulse_control_unavailable"
   | "snapshot_scope_mismatch"
@@ -232,9 +234,11 @@ export class AutomationRuntime {
           false
         );
       }
+      const code = error instanceof Error && isBioSelfSensorErrorCode(error.message)
+        ? error.message : "snapshot_recompute_failed";
       throw new AutomationRuntimeError(
-        "snapshot_recompute_failed",
-        "snapshot_recompute_failed",
+        code,
+        code,
         snapshot.revision,
         snapshot.payloadHash,
         { cause: error }

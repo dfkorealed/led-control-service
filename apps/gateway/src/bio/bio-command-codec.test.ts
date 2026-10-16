@@ -21,6 +21,28 @@ function response(name: string): BioFrame {
 }
 
 describe("BIO installed 1.2.0 traced command codec", () => {
+  it.each([
+    [{ kind: "setStandbyBrightness", rawStandbyBrightness: 0 }, "cd1400"],
+    [{ kind: "setStandbyBrightness", rawStandbyBrightness: 81 }, "cd1451"],
+    [{ kind: "setHoldInterval", rawInterval: 2 }, "cd1702"],
+    [{ kind: "setHoldInterval", rawInterval: 254 }, "cd17fe"],
+    [{ kind: "setHoldInterval", rawInterval: 61 }, "cd173d"]
+  ])("encodes static APK self-sensor SET without changing control mode: %j", (operation, body) => {
+    const target = { kind: "unicast", networkId: 0, logicalAddress: 0x1234 };
+    const encoded = encodeBioCommand({ ...(operation as object), target } as BioOperation, 75);
+    expect(encoded.command).toBe(0x10);
+    expect(Buffer.from(encoded.payload).subarray(15).toString("hex")).toBe(body);
+    expect(Buffer.from(encoded.payload).readUInt16BE(11)).toBe(0x1234);
+  });
+  it.each([
+    {kind:"setStandbyBrightness",rawStandbyBrightness:127,target:{kind:"unicast",networkId:0,logicalAddress:0x1234}},
+    {kind:"setStandbyBrightness",rawStandbyBrightness:81,target:{kind:"broadcast",networkId:0}},
+    {kind:"setHoldInterval",rawInterval:2,target:{kind:"broadcast",networkId:0}},
+    {kind:"setHoldInterval",rawInterval:256,target:{kind:"unicast",networkId:0,logicalAddress:0x1234}},
+    {kind:"setHoldInterval",rawInterval:-1,target:{kind:"unicast",networkId:0,logicalAddress:0x1234}}
+  ] satisfies BioOperation[])("rejects invalid or broadcast self-sensor writes", operation=>{
+    expect(()=>encodeBioCommand(operation,75)).toThrow();
+  });
   it("records static APK address evidence without claiming hardware validation", () => {
     expect(fixture.staticEvidence).toEqual(expect.objectContaining({
       installedApkSha256: "38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d",
@@ -117,6 +139,37 @@ describe("BIO installed 1.2.0 traced command codec", () => {
     expect(() => encodeBioCommand(operation, 0x54)).toThrow();
   });
 
+  it.each([
+    ["readStandbyBrightness", "4e14"], ["readDelayMode", "4e16"],
+    ["readHoldInterval", "4e17"], ["readStandbyInterval", "4e18"]
+  ] as const)("encodes unicast-only self sensor GET %s from APK property IDs", (kind, body) => {
+    const target = { kind: "unicast" as const, networkId: 2, logicalAddress: 0x1234 };
+    expect(Buffer.from(encodeBioCommand({ kind, target }, 0x54).payload.subarray(15)).toString("hex")).toBe(body);
+    expect(() => encodeBioCommand({ kind, target: { kind: "broadcast", networkId: 2 } }, 0x54)).toThrow();
+  });
+
+  it.each([
+    ["1400", { kind: "standby-brightness-report", rawStandbyBrightness: 0, brightnessPercent: 0 }],
+    ["1601", { kind: "delay-mode-report", delayMode: 1 }],
+    ["1702", { kind: "hold-interval-report", rawInterval: 2, seconds: 1 }],
+    ["17fe", { kind: "hold-interval-report", rawInterval: 254, seconds: 127 }],
+    ["173d", { kind: "hold-interval-report", rawInterval: 61, seconds: 1800 }],
+    ["1800", { kind: "standby-interval-report", rawInterval: 0, seconds: 0 }],
+    ["18f1", { kind: "standby-interval-report", rawInterval: 241, seconds: 7200 }]
+  ] as const)("decodes self sensor setting %s without inventing optical output", (property, expected) => {
+    const frame = { protocol: "crc16" as const, command: 0x12,
+      payload: Buffer.from(`d300112233445583ff123401fe00004f${property}`, "hex") };
+    expect(decodeBioResponse(frame)).toMatchObject(expected);
+    expect(decodeBioReadback(frame, { nativeUuid: "001122334455", logicalAddress: 0x1234 })).toMatchObject(expected);
+    expect(() => decodeBioReadback(frame, { nativeUuid: "001122334499", logicalAddress: 0x1234 })).toThrow();
+  });
+
+  it("rejects malformed self-setting length and unknown delay mode", () => {
+    for (const body of ["4f170201", "4f17", "4f1602"]) expect(() => decodeBioResponse({
+      protocol: "crc16", command: 0x12, payload: Buffer.from(`d300112233445583ff123401fe0000${body}`, "hex")
+    })).toThrow();
+  });
+
   it("parses the normalized discovery identity, signed RSSI, header and firmware", () => {
     expect(decodeBioResponse(response("lamp-notification-seq-46"))).toEqual({
       kind: "discovery", deviceUuid: "bio:001122334455", logicalAddress: 0x1234, networkId: 0,
@@ -177,7 +230,7 @@ describe("BIO installed 1.2.0 traced command codec", () => {
     expect(() => decodeBioReadback({
       protocol: "crc16",
       command: 0x12,
-      payload: Buffer.from("d30011223344558396123401fe00004f14c6", "hex")
+      payload: Buffer.from("d30011223344558396123401fe00004f15c6", "hex")
     }, { nativeUuid: "001122334455", logicalAddress: 0x1234 }))
       .toThrowError(expect.objectContaining({ code: "MALFORMED_FRAME" }));
   });

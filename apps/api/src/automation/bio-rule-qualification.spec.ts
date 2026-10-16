@@ -82,7 +82,7 @@ describe("server-owned BIO rule qualification", () => {
     await expect(h.service.create(siteId, actor, input())).rejects.toMatchObject({ response: { code: "bio_source_target_forbidden" } });
     expect(h.tx.vehicleEventRule.create).not.toHaveBeenCalled();
   });
-  it.each([10, 60, 1800, undefined])("saves a ready BIO disabled draft with hold %s and pending sync", async holdSeconds => {
+  it.each([1, 2, 9, 10, 60, 1800, undefined])("saves a ready BIO disabled draft with hold %s and pending sync", async holdSeconds => {
     const { service, tx } = context();
     const result = await service.create(siteId, actor, input(holdSeconds === undefined ? {} : { holdSeconds }));
     expect(result).toMatchObject({ sensorProtocol: "bio-usb-pulse", status: "disabled", holdSeconds: holdSeconds ?? 60,
@@ -118,7 +118,7 @@ describe("server-owned BIO rule qualification", () => {
     expect(h.tx.vehicleEventRule.create).not.toHaveBeenCalled();
   });
 
-  it.each([9, 1801, 10.5])("rejects BIO hold %s", async holdSeconds => {
+  it.each([0, 1801, 1.5])("rejects BIO hold %s", async holdSeconds => {
     await expect(context().service.create(siteId, actor, input({ holdSeconds }))).rejects.toMatchObject({ status: 400 });
   });
 
@@ -143,9 +143,11 @@ describe("server-owned BIO rule qualification", () => {
 
   it("checks effective BIO hold during partial update", async () => {
     const existing = { ...input(), id: otherId, siteId, gatewayId, sensorProtocol: "bio_usb_pulse", holdSeconds: 60,
+      dimmingEnabled: true, brightnessPercent: 70, createdAt: now, updatedAt: now,
+      createdById: otherId, updatedById: otherId, desiredRevision: 9, appliedRevision: 9,
       sources: [{ fixtureId: sourceId }], targets: [{ fixtureId: targetId }] };
-    await expect(context(undefined, existing).service.update(siteId, otherId, actor, { holdSeconds: 9 }))
-      .rejects.toMatchObject({ status: 400 });
+    await expect(context(undefined, existing).service.update(siteId, otherId, actor, { holdSeconds: 1 }))
+      .resolves.toMatchObject({ holdSeconds: 1, sensorProtocol: "bio-usb-pulse" });
   });
 
   it("rejects a target from another Gateway", async () => {

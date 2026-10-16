@@ -33,6 +33,7 @@ import type { BioSourceHealth } from "./vehicle-event-runtime";
 import { isActiveBioSourceTarget } from "./bio-source-target-guard";
 import { BioPulseScheduler, type BioPulseTestProfile, type BioPulseControlCore } from "./bio-pulse-scheduler";
 import { BioProductPulseController, type BioProductPulseDependencies } from "./bio-product-pulse-controller";
+import type { BioSelfSensorRuntime } from "./bio-self-sensor-runtime";
 import {
   lifecycleTelemetryRecords,
   terminalTelemetryRecords
@@ -93,6 +94,7 @@ export interface ScheduleRuntimeOptions {
   bioPulseTestProfile?: BioPulseTestProfile;
   bioProductPulse?: BioProductPulseDependencies;
   bioNormalAssignmentVersion?: number;
+  nativeSelf?: Pick<BioSelfSensorRuntime, "initialize" | "reconcile" | "rollback" | "protectedFixtureIds">;
 }
 
 type SchedulerSnapshot = AutomationSnapshotV1 | AutomationSnapshotV2 | AutomationSnapshotV3;
@@ -168,6 +170,7 @@ export class ScheduleRuntime {
     return this.enqueue(async () => {
       if (this.initialized) return this.state();
       const state = await this.options.store.initialize();
+      await this.options.nativeSelf?.initialize();
       for (const fixtureId of Object.keys(state.unverifiedDesiredByFixture)) {
         this.pendingObservationFixtures.add(fixtureId);
       }
@@ -185,7 +188,8 @@ export class ScheduleRuntime {
   }
 
   isBioSourceTarget(fixtureIds: readonly string[]): boolean {
-    return isActiveBioSourceTarget(this.snapshot, fixtureIds);
+    const nativeOwners = new Set(this.options.nativeSelf?.protectedFixtureIds().map(id => id.toLowerCase()) ?? []);
+    return fixtureIds.some(id => nativeOwners.has(id.toLowerCase())) || isActiveBioSourceTarget(this.snapshot, fixtureIds);
   }
 
   pendingObservationFixtureIds() {
@@ -211,10 +215,13 @@ export class ScheduleRuntime {
         throw new Error("bio_pulse_control_unavailable");
       }
       if (this.activationCheckpoint) throw new Error("automation config activation is already pending");
+      if (snapshot.schemaVersion === 3 && snapshot.vehicleEventRules.some(rule => rule.status === "enabled" && rule.selfControlEnabled)
+        && !this.options.nativeSelf) throw new Error("bio_self_control_unavailable");
       const bioCheckpoint = this.bioProduct?.checkpoint();
       if (degradedBioRecovery) this.bioProduct?.recoverDegraded(snapshot);
       else await this.bioProduct?.prepare(snapshot);
       this.beginActivation(bioCheckpoint);
+      await this.options.nativeSelf?.reconcile(snapshot);
       const computed = await this.reconcile(snapshot);
       this.pendingActivationLifecycle = computed.lifecycleEvents;
       this.snapshot = snapshot;
@@ -290,6 +297,7 @@ export class ScheduleRuntime {
       const checkpoint = this.activationCheckpoint;
       if (!checkpoint) return;
       try {
+        await this.options.nativeSelf?.rollback(checkpoint.snapshot);
         await this.options.store.updateControlState(current => {
           const restored = structuredClone(checkpoint.state);
           // Temporary intake is a separate durable owner. Rolling back an

@@ -49,6 +49,14 @@ API `fixtures/fixture-registration-removal-policy.ts`는 `supportsFixtureRegistr
 자기 소유 PostgreSQL에서 metadata-first와 heartbeat-first의 수정 전 40P01 및 반대 순서 경합을 검증한다. 수정 후에는 두 일반 writer의 정상 처리/삭제 pending fencing, 완료·거절 원장과 command/energy의 실제 Site cascade, 기존 직접 삭제 방어를 검사한다. 별도 139→141 staged DB에는 실제 과거 Command/Dispatch/FixtureResult·EnergyUsage와 종료된 TemporaryControlSession/Target/Lease(lastGeneration=releaseTombstoneGeneration=2)를 미리 넣고 원본 컬럼 JSON·FK·counter/tombstone 보존을 대조한다. 이 사례는 DDL의 기존 이력 보존 증거이며 Task 3 최종 퇴역 서비스 검증이 아니다.
 
 경계: `GatewayRecommissionService.resetInstallation`은 Site를 유지하므로 Site-cascade 예외를 사용할 수 없다. 현재 원장과 퇴역 row를 남기는 재설치 정리 계약은 Task 3이 명시적으로 처리해야 하며 GUC로 우회해서는 안 된다. 기존 TemporaryControl 원장 자체의 Site/Gateway RESTRICT·최소 원장 삭제 금지도 이번에 약화하지 않았다. settled lease가 있는 전체 현장의 기존 삭제 제한은 별도 Task 3 정리 대상이고, 위 Site cascade 성공 사례의 과거 이력은 command/energy이며 lease를 포함한 전체 삭제 성공으로 확대하지 않는다. 운영 DB에는 두 migration 모두 적용하지 않았다.
+## 2026-10-16 BIO 자기 제어 — 로컬 운영 DB 반영
+
+- `20261015160000_bio_event_hold_one_second`는 BIO hold CHECK를1~1,800초로 낮추고 BlueZ5초 하한을 보존한다.
+- `20261016100000_bio_native_self_control`는 `VehicleEventRule.selfControlEnabled Boolean NOT NULL DEFAULT false`, `GatewayAutomationProtocolSupport.bioNativeSelfControlVersion Int?`(NULL/1)을 추가한다. 기존 규칙은 자동 전환하지 않는다.
+- self=true는 BIO source 정확히1개·일반 target0개 이상이며 source/target 중복과 활성 native 소유 중복을 금지한다. counter/실제 membership 일치를 보존한다. self=false의 source/target 최소1개는 그대로다.
+- Native CHECK는 hold1~127초/이후60초 배수·최대1,800초와 감지 밝기1~100%(dimming=false는100%로 정규화)를 강제한다. 공통 mutation lock을 먼저 잡고 DDL/검증 함수를 한 transaction에서 교체한다.
+- 자체 disposable PostgreSQL에서 기존false 보존/self-only 허용/잘못된 protocol·counter·시간·0% 거절과 전체migration신규적용을검증한뒤사용자승인으로두migration을실제139→141로반영했다. 원127개데이터테이블의원컬럼·모든행SHA와기존migration원장이동일하며기존규칙self=false/nativecapNULL을확인했다. 새Gateway배포뒤현재배정의명시nativeversion1 선언이새로기록됐다. 기존행을backfill한것이아니다.
+- 새전체DB백업은 `.local/db-backups/native-self-20261016-qsuMi4/database.dump`,7,995,166bytes/0600·parent0700·fsync/list검증·SHA256 `93e3d17b39dc42dff0003946b2bb70e3035f94bf001cb7026add5428ec7bbe3e`다. 백업·기존migration기록을삭제하지않았고restore/reset/seed/resolve0이다. MAIN Prisma client와API를같이반영했다. 활성native원장해소없이구버전으로rollback하지않는다.
 
 ## 2026-10-14 BIO 시간제 제어·휴일 저장 구조 — 2026-10-15 로컬 DB 반영
 
@@ -1914,9 +1922,10 @@ PK는 `(gatewayId, assignmentVersion, declarationRevision)`이다. API는 MQTT b
 | `name` | `String` | 예 | DB check `btrim(name) <> ''` |
 | `status` | `AutomationRuleStatus` | 예 | `enabled` |
 | `sensorProtocol` | `VehicleSensorProtocol` | 예 | `bluez_stateful`; source MeshNode protocol과 일치해야 함 |
+| `selfControlEnabled` | `Boolean` | 예 | 신규 migration 후 `false`; true는 BIO source1개/native 출력, 일반 target0개 허용 |
 | `dimmingEnabled` | `Boolean` | 예 | 감지 action 디밍 여부 |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
-| `holdSeconds` | `Int` | 예 | `60`, BlueZ DB check `5..1800`, BIO `10..1800` |
+| `holdSeconds` | `Int` | 예 | `60`, BlueZ DB check `5..1800`, BIO `1..1800` (신규 migration 적용 이후) |
 | `desiredRevision`, `appliedRevision` | `Int` | 예 | `0`; DB check `0 <= appliedRevision <= desiredRevision` |
 | `sourceCount`, `targetCount` | `Int` | 예 | `0`; 각각 DB check `>= 0`, child trigger 유지 | 현재 source/target row 수 |
 | `createdById`, `updatedById` | `String` | 예 | named FK -> `User.id`, delete restrict |
@@ -1932,7 +1941,7 @@ BIO migration은 공통 membership advisory lock과 source/rule/Fixture/MeshNode
 
 순방향 migration `20260930120000_bio_pulse_event_contract`는 새 열의 기본값으로 기존 rule/node를 BlueZ로 유지하고 기존 5초 hold, model evidence, membership을 수정하지 않는다. 기존 데이터와 새 node의 BIO readiness는 모두 OFF이며, profile·검증 시각·양수 BIO revision을 backfill하지 않는다. CHECK와 guard를 단일 transaction에서 교체한다. 운영 DB에는 실행하지 않았으며, 자체 생성한 임시 PostgreSQL에서 이전 migration 데이터의 업그레이드와 전체 migration 신규 적용을 검증한다. Rollback은 enum/열 삭제만으로 수행할 수 없다. BIO rule을 비활성화하고 source 참조 및 BIO metadata를 보존·정리한 뒤 기존 BlueZ 제약을 만족시키는 별도 승인된 역방향 migration이 필요하며, BIO를 BlueZ supported로 자동 변환해서는 안 된다. 이 DB 단계는 API V2 report 수용·Gateway V2 협상/ACK·durable sensor-mode GET operation·현장 HIL·제품 ON을 구현하거나 증명하지 않는다. BIO source 정확히 1개와 A/B target 보호의 서비스 경계는 후속 작업이다.
 
-`VehicleEventRule_membership_statement_lock`, `VehicleEventSource_membership_statement_lock`, `VehicleEventTarget_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/`ruleId` UPDATE에 맞춰 `sourceCount` 또는 `targetCount`를 원자 갱신하고 부모 이동 시 두 rule row를 ID 오름차순으로 잠근다. Counter가 만든 nested rule UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 rule의 counter와 deferred 검증을 건너뛴다. Direct DML의 deferred 검증은 두 counter가 각각 1 이상이고 실제 source/target row 수와 정확히 같은지 확인한다. 같은 parent row version을 쓰는 방식이 READ COMMITTED, REPEATABLE READ, SERIALIZABLE의 동시 마지막-child 삭제를 직렬화하거나 serialization failure로 종료한다.
+`VehicleEventRule_membership_statement_lock`, `VehicleEventSource_membership_statement_lock`, `VehicleEventTarget_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/`ruleId` UPDATE에 맞춰 `sourceCount` 또는 `targetCount`를 원자 갱신하고 부모 이동 시 두 rule row를 ID 오름차순으로 잠근다. Counter가 만든 nested rule UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 rule의 counter와 deferred 검증을 건너뛴다. Direct DML은 counter와 실제 source/target 수 일치를 검증한다. 일반 규칙은 각각1개 이상이며 `selfControlEnabled=true`일 때만 BIO source정확히1개/native출력·일반target0개 이상을 허용한다. 활성 native source소유 중복과source/target중복은 거절한다. 같은 parent row version을 쓰는 방식이 READ COMMITTED, REPEATABLE READ, SERIALIZABLE의 동시 마지막-child 삭제를 직렬화하거나 serialization failure로 종료한다.
 
 ### ManualOverride / ManualOverrideFixture
 
@@ -2507,7 +2516,7 @@ Migration: `20260925130000_landing_mail_oauth`, `20260925150000_landing_oauth_ge
 | `GatewayAutomationConfiguration` | PK `gatewayId`, Unique/FK `gatewayId + siteId`, ordered revisions, state-dependent check | Gateway별 단일 full snapshot 적용 상태와 PENDING/APPLIED/REJECTED coherence |
 | `LightingSchedule` | active/time/distinct local times/unique recurrence/brightness/revision checks, non-negative `targetCount`, Unique `id + siteId + gatewayId` | 반복 스케줄 범위, 암묵적 full-day 차단, child owner 기준, 실제 target 수 reconciliation 강제 |
 | `LightingScheduleFixture` | PK `scheduleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 스케줄 대상 snapshot 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
-| `VehicleEventRule` | brightness `0..100`, hold BlueZ `5..1800` / BIO `10..1800`, ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | protocol별 action 범위와 실제 source/target 수 reconciliation 강제 |
+| `VehicleEventRule` | brightness `0..100`(native self감지 `1..100`), hold BlueZ `5..1800` / BIO `1..1800`(native self는127초초과60초배수), ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | protocol별 action·native self 출력 자격과 실제 source/target 수 reconciliation 강제 |
 | `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger; source protocol/readiness guard + MVCC fence | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개와 source capability 강제 |
 | `ManualOverride` | Unique `commandId`, direct Command FK delete cascade, nullable requester/legacy `overrideUntil`, brightness/time checks, non-negative `targetCount` | command별 수동 기본 밝기 감사, timed history 호환, 사용자 삭제 뒤 이력 익명화, 실제 target 수 reconciliation 강제 |
 | `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 수동 대상 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
