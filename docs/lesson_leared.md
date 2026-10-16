@@ -9,6 +9,8 @@
 - 퇴역 row를 불변 이력으로 남기면 맵 clear/CAD apply의 넓은 UPDATE와 통계의 읽기 전용 live projection까지 점검해야 한다. 저장된 전력 cursor 종료만으로 조회 시 가상 적산이나 현재 기준 사용량에서 제외되는 것은 아니다. 이러한 consumer 결함은 별도 회귀로 보강한다.
 - 정상 저장뿐 아니라 clear/reset·legacy/common CAD·staged save/restore도 membership→Site→Floor 순서를 지킨다. statement DELETE는 0행에도 serializer를 잡으므로 빈 slot 목록도 실제 양방향 경쟁 테스트에 포함한다.
 - 과거 migration 하나를 검증하면서 그 migration만 제외하고 모든 미래 DDL을 먼저 배포하면 새 의존성 때문에 실패한다. 원 스키마 경계의 실제 열로 seed하고 대상 이후 migration은 나중에 적용한다. baseline은 해당 버전의 독립 generated client로 확인해 미래 열에 의한 가짜 실패와 구분한다.
+- readiness5개 up는 개별 파괴적 작업의 시간 검증 준비를 증명하지 않는다. 주입된 healthy clock뿐 아니라 실제 기본 clock source 부재의 HTTP 실패도 검사한다. 안전 관문을 해제하지 말고503과 정확한 한국어 안내로 설명하며 실제 브라우저 사전 조회/취소를 확인한다.
+- 장시간 Nest watch는 재빌드에서4GB heap 한도로 종료될 수 있다. 종료된 감시 프로세스와 API 생존/포트를 따로 확인하고, 적용 검증은 빌드된 API의 동일 환경 기동으로 수행한다. 이를 전역 watch 메모리 문제 자체를 수리한 것으로 표현하지 않는다.
 
 ## 2026-10-16 / 구형 등록의 누락 필드와 실제 미지원 장비를 구분한다
 

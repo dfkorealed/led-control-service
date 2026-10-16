@@ -107,7 +107,7 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - [x] 실제 임시 PostgreSQL·Nest HTTP·소프트웨어 Gateway에서 삭제/복구→조회/맵/제어 제외→동일 제품 새 등록과 이력 보존을 검증한다. 웹 flow는 별도 격리 API fixture Chromium으로 검증한다. 이 경계별 결과를 실제 browser→broker→장비 전체 HIL 성공으로 표현하지 않는다.
 - [x] 관련 앱 전체 테스트/빌드·타입과 source 변경 diff를 확인한다. 기존 알려진 실패와 신규 실패를 분리하며 전체 GREEN으로 축약하지 않는다.
 - [x] 설정/모니터링/제어/통계 현황, DB 구조, 반복 교훈과 상태판을 같은 실제 결과로 갱신하고 최종 독립 whole-branch review를 통과한다.
-- [ ] 메인 최신 변경을 보존해 병합하고 메인에서 한정 검증한다. 사용자 변경은 stage하지 않는다. 추가 승인된 로컬 DB 백업·본 기능 migration·개발 서버 재시작을 수행하고 데이터/인증 설정 보존을 확인한다. 실제 장비 배포와 삭제는 제외하고 후속 적용 관문을 안내한다.
+- [x] 메인 최신 변경을 보존해 병합하고 메인에서 한정 검증한다. 사용자 변경은 stage하지 않는다. 추가 승인된 로컬 DB 백업·본 기능 migration·개발 서버 재시작을 수행하고 데이터/인증 설정 보존을 확인한다. 실제 장비 배포와 삭제는 제외하고 후속 적용 관문을 안내한다.
 
 ## 실행 상태
 
@@ -123,3 +123,6 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - 최종 API 전체 검증은 제품 소스 `84ae1936` 고정 후 별도 코호트에서 진행한다. source 수정 중 시작한 전체 실행은 최종 freeze 증거로 사용하지 않는다. 추가 코드 변경은 없으며 문서와 승인된 로컬 적용만 남았다.
 - 최종 API 고정 전체 런은 자연 완주479.508초/3,668PASS·14FAIL·1,259SKIP(375파일)이다. 실패14 중7은 기존 공휴일 fixture 관련으로 MAIN 독립 재현했고, 나머지7은 `d049b368`의 테스트 builder `retiredAt:null` 한 줄 보완 후 EnergyService/Analytics36/36으로 해소했다. 제품/단언/expected 변경은0이다. 이후 전체를 재실행하지 않았으므로 전체 GREEN이나 재계산한 전체 통과 수를 주장하지 않는다. API 타입/빌드와 diff 검증은 통과했다.
 - 최종 계약 통합 독립 검토: MAIN `e4794fdf`→제품 `84ae1936`, Spec/quality PASS·C/I/M0·ReadyYES다. 기존 Gateway14·Web5·API 공휴일7과 legacy ACL 기대1 실패는 새 기능과 분리해 남긴다. 무관한 기존 실패 수리로 범위를 확장하지 않고 신규 기능 직접 검증/실제 PG/계약 승인과 baseline 비교를 근거로 사용자 요청의 로컬 병합을 진행한다.
+- 실제 로컬 적용 완료: 기존 프로세스 신원을 확인해 정상 종료하고 MAIN에 ff 병합했다. 사용자 AGENTS84줄·상태판13줄은 stage하지 않고 보존했다. `.local/fixture-removal-20261016-ops/backup-2026-10-16T03-10-41Z-02485604439d`의0600 custom archive8,336,869bytes/list/전체 읽기와 동일 snapshot을 검증했다. 실제 DB141→146·실패0, 기존127개 테이블의 원래 열 hash/행 수·기존 migration 메타데이터·환경/인증/ACL을 보존했다. 역사적20260918 checksum 차이는 검토된 정확한 쌍을 유지했으며 resolve/재실행하지 않았다.
+- 실제 브라우저 후속: 시간 증거 미설정의 일반Error가 preview500을 만들던 문제를 `008f2ca5`의 새접수/preview503 정규화로 보완했다(HTTP/실PG/DI/unit21·clock97PASS/type/build0). `5677908d`는 정확한503+code에만 한국어 안내를 제공한다(웹69PASS/Chromium12PASS/type/build/policy0). 독립7PASS·C/I/M0·ReadyYES, 실제 admin 사전GET503 안내/삭제disabled/취소 뒤6개 버튼 유지를 확인했다. 실제 POST/퇴역/새 삭제 원장0이다.
+- 실행 관문: 기존 Nest watch가 재빌드 중4GB heap 한도로 종료돼 최신 root API/Web을 다시 빌드하고 API는 compiled entry, Web은 기존0.0.0.0:5173 Vite로 기동했다. 최종 API4000/Web5173/MQTT8883 및 readiness5개 up·보호파일 불변을 확인했다. API source 수정 시 별도 재빌드/재기동이 필요하며 전역 pnpm dev/watch 설정은 바꾸지 않았다. 증거는 root `.local/fixture-removal-20261016-ops`에 남겼다. 실제 Pi 배포/clock 활성화/ACL 변경/장비 삭제·재등록 HIL은 실행하지 않았다.

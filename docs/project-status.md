@@ -5,11 +5,13 @@
 ## 2026-10-16 실제 조명 등록 삭제 구현 및 최종 적용
 
 - 사용자 지시로 서면 설계를 승인하고 실행 계획 작성 후 즉시 구현·별도 브랜치 후 MAIN 병합을 진행한다. 브랜치 `codex/fixture-registration-removal-20261015`, 계획 `docs/superpowers/plans/2026-10-16-fixture-registration-removal.md`다. 기존 MAIN a6260156 변경을 양쪽 문서 보존 merge로 통합했다.
-- 계획5개 작업은 공유 계약/DB→Gateway→API→Web→통합 검증이다. 현재 [x]계획/격리 준비, [x]Task1, [x]Task2, [x]Task3, [x]Task4, [ ]Task5다. Task1 `a960dbd8`/`549055d2`, Task2 `1cd8cac2`/`2cb424c7`, Task4 `9946de16`의 독립 승인을 확인했고 MAIN `e4794fdf`를 `7c4b49af`로 보존 통합했다.
+- 계획5개 작업은 공유 계약/DB→Gateway→API→Web→통합 검증이다. 현재 [x]계획/격리 준비, [x]Task1, [x]Task2, [x]Task3, [x]Task4, [x]Task5다. Task별 소유 커밋과 독립 검토를 마치고 `codex/mvp1-cloud-web`에 로컬 병합했다. 기존 native sensor 작업과 사용자 AGENTS/상태판 변경은 보존했다. 실제 장비 성공을 뜻하지 않는다.
 - API는 `db4aa219`/`d35e6180`/`5c0e5ce4`/`84ae1936`에서 거절 복구·기존 recommission·맵/CAD 퇴역 제외·통계 projection·맵 잠금 순서5건을 수리했다. 임시PG146·실제Nest HTTP/software Gateway, 43/40/72/60개 지정 회귀와 독립49+12PASS·C/I/M0·ReadyYES를 확인했다. 제품 소스를 고정하고 마지막 전체 API 검증 및 로컬 적용을 진행한다.
 - 통합 후 전체 Shared597/597, Web3,899PASS·기존ControlView5FAIL·3SKIP/Chromium10PASS/UI정책79PASS/타입·빌드0, Gateway2,098PASS·기존14FAIL/타입·빌드0을 확인했다. 새 실패와 기존 baseline을 구분하며 전체 GREEN으로 표현하지 않는다. API 최종 통합 회귀와 로컬 적용은 후속 관문이다.
 - 최종 API 고정 런은3,668PASS·14FAIL·1,259SKIP/479.508초 자연 완주다. 그중 통계 단위 fixture7건은 `d049b368`의 nullable 필드1줄 정합화 후 직접36/36으로 해소했고 제품 코드/단언은 바꾸지 않았다. 기존 공휴일7건은 별도 MAIN에서 동일 재현했으며 최종 전체 재실행은 하지 않았다. 전체 GREEN이 아니다. API타입/build0·최종 통합 독립 Spec/quality PASS·C/I/M0을 확인했고 로컬 백업/병합/migration/재기동만 남았다.
-- 추가 사용자 승인으로 검증 후 로컬 DB 백업·migration·개발 서버 재시작까지 허용했다. 실제 삭제·Pi 배포/장비 명령은 여전히 제외하며 실제 로컬 적용은 아직 실행하지 않았다. 아래 10/15 검토 대기는 후속 승인 전 기록이다.
+- 추가 승인된 로컬 적용을 완료했다. 검증된0600 custom backup8,336,869bytes 후 migration5개로141→146/실패0, 기존127개 테이블 원열 hash/행 수·기존 원장·환경/인증/ACL을 보존했다. 읽기 확인은 현장2·층3·전체 조명8·Gateway1, 퇴역/삭제 작업/결과/복구 원장0이었다. 실제 삭제·Pi 배포/RF는 제외했다.
+- 최종 실제 브라우저의 시간 증거 미설정 preview500은 `008f2ca5`/`5677908d`로503 및 한국어 원인 안내로 보완했다(API21+97·독립7·웹69·Chromium12PASS/type/build/policy0). actual admin의 사전 확인/삭제disabled/취소 뒤 현장6개 유지까지 확인했으며 실제 POST0이다. 실장비 삭제에는 시간 검증 준비·Gateway version1/3개 MQTT topic 인가·별도 HIL이 필요하다.
+- 마지막 로컬 상태: Nest watch의 재빌드 heap OOM 뒤 최신 root API/Web 빌드0으로 compiled API와 Vite를 기동했고 API4000/Web5173/MQTT8883/readiness5up·정적 보호파일 불변이다. API 자동 재빌드는 사용하지 않으며 API 수정 시 재빌드/재기동한다. 프로젝트 전역 pnpm dev/watch·PKI/ACL 설정은 바꾸지 않았다. 운영/백업 증거는 `.local/fixture-removal-20261016-ops`에 보존했다.
 
 ## 2026-10-15 실제 조명 등록 삭제 — 당시 설계 검토 이력
 
