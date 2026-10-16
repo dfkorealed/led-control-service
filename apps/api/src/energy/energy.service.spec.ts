@@ -401,6 +401,7 @@ function stateFixture(input: Record<string, any> = {}) {
   const startedAt = input.energyTrackingStartedAt ?? new Date("2026-08-01T00:00:00.000Z");
   return {
     id: input.id ?? "fixture-1",
+    retiredAt: null,
     ratedWatt: new Prisma.Decimal(input.ratedWatt ?? 40),
     energyTrackingStartedAt: startedAt,
     firstStateOccurredAt: input.firstStateOccurredAt ?? startedAt,
