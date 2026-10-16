@@ -9,6 +9,13 @@
     "dist"
   ],
   "exports": {
+    "./fixture-registration-removal-contracts": {
+      "types": "./dist/esm/fixture-registration-removal-contracts.d.ts",
+      "browser": "./dist/esm/fixture-registration-removal-contracts.js",
+      "require": "./dist/fixture-registration-removal-contracts.js",
+      "import": "./dist/esm/fixture-registration-removal-contracts.js",
+      "default": "./dist/fixture-registration-removal-contracts.js"
+    },
     "./temporary-control-contracts": {
       "types": "./dist/esm/temporary-control-contracts.d.ts",
       "browser": "./dist/esm/temporary-control-contracts.js",

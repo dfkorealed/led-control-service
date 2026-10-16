@@ -2,6 +2,36 @@
 
 작성일: 2026-10-04
 
+## 2026-10-16 조명 등록 삭제 Task 1 기반
+
+순방향 `20261016090000_fixture_registration_removal`은 기존 migration과 등록/명령/전력 이력을 다시 쓰지 않고 다음 구조를 추가한다. 운영 DB에는 적용하지 않았으며 Task 1은 shared/DB 기반만 제공한다. HTTP 접수·인가·publisher·terminal 소비·전력 종료·맵 복구·catalog/group exact ACK 수렴은 Task 3에서 연결한다.
+
+| 모델 | 추가 계약 |
+| --- | --- |
+| `Fixture` / `MeshNode` | nullable `retiredAt TIMESTAMP(3)`. 기존 행은 NULL(운영 등록), 퇴역은 offline과 다르며 이력 FK/주소를 유지한다. 퇴역 row는 되살리거나 telemetry로 변경하지 못한다. |
+| `Gateway` | `fixtureRegistrationRemovalVersion INTEGER NOT NULL DEFAULT 0`, CHECK 0/1. heartbeat의 optional 1을 명시적으로 확인하기 전에는 미지원이다. |
+| `FixtureRegistrationRemovalOperation` | `operationId` PK; `(siteId,requestedById,clientRequestId)` UNIQUE; nullable `resultEventId` UNIQUE; pending/gateway_confirmed/reconcile_required 상태에는 fixture별 작업 1개(partial unique). Fixture와 MeshNode 복합 FK는 RESTRICT이며 원장 UPDATE identity 변경/DELETE를 금지한다. |
+
+원장 필드와 타입:
+
+- 불변 String: `operationId,siteId,floorId,fixtureId,gatewayId,gatewaySerial,nodeId,meshNodeId,deviceUuid,meshAddress,originalProvisionCommandId,fixtureName,requestedById,clientRequestId,requestHash,bindingHash,commandHash`; `serialNumber`만 nullable String. `assignmentVersion`은 양수 Int.
+- **`nodeId`는 원 provisioning 후보 ID(기존 Gateway mapping ID), `meshNodeId`는 별도의 Cloud MeshNode PK**다. 같은 값으로 추정하지 않는다. `deviceUuid`는 canonical `bio:12hex`, 주소는 0이 아닌 0x0001–0x7fff다.
+- 불변 DateTime: `expectedUpdatedAt,requestedAt,expiresAt,createdAt`. command TTL은 1–30000ms. `updatedAt`은 Prisma 갱신 시각이다.
+- 불변 Json: `bindingSnapshot,payload`. snapshot은 shared `fixtureRegistrationRemovalBindingIdentity(command)`의 정확한 `{version,siteId,gatewayId,gatewaySerial,assignmentVersion,fixtureId,nodeId,deviceUuid,meshAddress,originalProvisionCommandId}`이며 `bindingHash`는 그 canonical JSON의 `sha256:hex`다. `commandHash`는 전체 command의 canonical JSON hash이며 자기 자신을 포함하지 않는다. `floorId,meshNodeId`는 별도 불변 컬럼으로 보존한다.
+- `cleanupSnapshot Json?`: 최초 NULL→값 기록 뒤 write-once. `{catalog:{assignmentVersion:number,revision:number,payloadHash:string}|null,groups:[{id:string,configurationVersion:number,desiredHash:string}]}`. catalog assignment는 작업과 같고 revision은 양수 safe integer, group version은 양수 Int, hash는 모두 `sha256:64hex`다. group ID 중복을 거부한다. 실제 delivery/applied ACK와의 대조는 Task 3 책임이다.
+- `status String`: `pending|gateway_confirmed|completed|rejected|reconcile_required`; `errorCode String?`. 정상 흐름은 pending→gateway_confirmed→completed. uncertain은 계속 운영 차단하며 같은 작업의 결과 확인만 허용한다. completed/rejected는 재개할 수 없다.
+- 결과: `result Json?,resultHash String?,resultEventId String?,gatewayConfirmedAt DateTime?,completedAt DateTime?`. terminal은 원 command 전체와 commandHash/eventId를 정확히 대조하고 최초 수락 결과/hash/event는 불변이다. `gateway_confirmed`와 `completed`는 removed terminal이 있어야 한다. reconcile에서 결과가 아직 없으면 같은 작업의 후착 terminal을 받을 수 있지만 이미 저장된 terminal을 덮어쓰지 않는다.
+- application ACK: `applicationAck Json?,applicationAckHash String?,ackPublishedAt DateTime?,ackAttempts Int(default0),ackNextAttemptAt DateTime(default UTC now),ackLockedBy String?,ackLeaseExpiresAt DateTime?`. 최초 ACK payload/hash는 write-once며 정확한 operation/event/command/result hash와 등록 identity를 결합한다. broker PUBACK와 구별한다.
+- command outbox: `publishedAt DateTime?,attempts Int(default0),nextAttemptAt DateTime(default UTC now),lockedBy String?,leaseExpiresAt DateTime?`. lease owner/expiry는 함께 null 또는 함께 값이고 attempts는 비음수다. 네트워크 I/O는 DB transaction 밖에서 수행해야 한다.
+
+DB 보호는 기존 `lock_automation_membership_mutation()`을 statement 전에 사용한다. `assert_fixture_registration_active(fixture_id)`는 퇴역/삭제 진행/불확정 등록을 거부한다. 새 구역·스케줄·이벤트·manual target, command/automation fixture result 예약, 센서 작업, temporary target, light slot 배정과 desired 내부 멤버십에 연결했다. 기존 결과 UPDATE는 이력 ACK 경로로 남기며 late ingestion 분류는 Task 3이 담당한다. 삭제 접수도 기존 구역/저장 규칙/소유 중인 temporary lease와 정확한 현재 binding/명시적 version1을 재검사한다. 상세 busy 제어·인증·맵 lease 조건은 Task 3에서 추가한다.
+
+API `fixtures/fixture-registration-removal-policy.ts`는 `supportsFixtureRegistrationRemoval`, `isFixtureRegistrationRemovalBlocking`, `activeFixtureRegistrationWhere`, `lockFixtureRegistrationRemovalDomain`, `assertFixtureRegistrationsActive`를 제공한다. 잠금 순서는 membership serializer→Site→Floor→Gateway→UUID advisory→MeshNode→Fixture이며 caller가 먼저 row lock을 잡으면 안 된다. outbox lease claim은 별도 짧은 transaction이다. 현재 read 경로에 active filter를 연결하는 작업은 Task 3이며 이 기반만으로 운영 조회 제외가 완성된 것은 아니다.
+
+최종 transaction은 removed 확인 후 MeshNode.retiredAt/운영 deviceUuid=NULL, Fixture.retiredAt, operation.completedAt/status를 함께 기록해야 한다. deferred commit trigger가 부분 퇴역을 거부한다. 원 주소/UUID snapshot/명령/전력 FK는 그대로이며 같은 UUID는 새 Cloud node/fixture ID로만 재등록한다. 기존 settled `TemporaryControlLease`가 있으면 원 counter/tombstone을 보존한 채 `ownerSessionId IS NULL`을 확인하고 `liveFixtureId=NULL`로 분리한 뒤 UUID를 해제해야 한다. unresolved lease는 우회하지 않는다. 원장이 붙은 registration의 물리 삭제 및 부모 cascade도 RESTRICT되므로 별도 현장 삭제 정책이 필요하다.
+
+검증은 자기 소유 disposable PostgreSQL의 기존139→신규140 migration staged upgrade와 focused 원장/동시성 회귀만 수행한다. 기존 운영 DB·Pi·PKI/ACL·서비스 재시작은 하지 않는다. 전체 API/하드웨어 기능 완료를 의미하지 않는다.
+
 ## 2026-10-14 BIO 시간제 제어·휴일 저장 구조 — 2026-10-15 로컬 DB 반영
 
 순방향 `20261014090000_bio_temporary_control_calendar`는 기존 등록/native/BIO 설정·이력·보존 ON/OFF 설정을 변경하지 않고 아래 저장 구조를 추가한다. `LightingSchedule.excludeWeekends/excludeHolidays`는 모두 `NOT NULL DEFAULT false`다. 자기 소유 PostgreSQL16의 SQL 검증 이후, 사용자 명시 승인으로 2026-10-15 로컬 PostgreSQL16.14의138→139번째 migration을 실제 적용했다. 원 migration 원장/checksum·과거 rolled-back 기록은 그대로이며 미완료0, public120→128/new8empty 및 새 기본값·11함수/8인덱스/25트리거를 확인했다. API 재개 전 기존119개 데이터 테이블의 원컬럼 행 수/전체 aggregate SHA는 모두 동일했다(신규5컬럼만 비교에서 제외).

@@ -492,6 +492,7 @@ export const fixturePresenceV2Schema = orderedGatewayEventSchema.extend({
 export const gatewayHeartbeatV2Schema = orderedGatewayEventSchema.extend({
   gatewaySerial: z.string().min(1),
   firmwareVersion: z.string().min(1),
+  fixtureRegistrationRemovalVersion: z.literal(1).optional(),
   configVersion: z.number().int().nonnegative().optional()
 });
 

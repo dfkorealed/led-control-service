@@ -25,6 +25,7 @@ export * from "./product-identity";
 export * from "./schemas";
 export * from "./vehicle-sensor-protocol";
 export * from "./fixture-identify-contracts";
+export * from "./fixture-registration-removal-contracts";
 export * from "./bio-sensor-mode-contracts";
 export * from "./bio-registration-revalidation-contracts";
 export * from "./bio-sensor-profile-contracts";

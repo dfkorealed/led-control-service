@@ -1258,6 +1258,8 @@ model FloorLightSlot {
 }
 
 model Fixture {
+  retiredAt                  DateTime?
+  registrationRemovals       FixtureRegistrationRemovalOperation[]
   placementStatus            FixturePlacementStatus             @default(unplaced)
   positionVerifiedAt         DateTime?
   id                         String                             @id @default(uuid())
@@ -1379,6 +1381,7 @@ model GroupFixture {
 }
 
 model Gateway {
+  fixtureRegistrationRemovalVersion Int                    @default(0)
   id                      String                          @id @default(uuid())
   siteId                  String
   name                    String
@@ -1553,6 +1556,8 @@ model GatewayRecommissionJob {
 }
 
 model MeshNode {
+  retiredAt                         DateTime?
+  registrationRemovals              FixtureRegistrationRemovalOperation[]
   id                                String                        @id @default(uuid())
   gatewayId                         String
   deviceUuid                        String?                       @unique
@@ -1606,6 +1611,63 @@ enum MeshControlGroupMemberSubscriptionStatus {
 enum MeshControlGroupMemberOperation {
   add
   delete
+}
+
+/// Immutable original registration plus independent command/result ACK outboxes.
+model FixtureRegistrationRemovalOperation {
+  operationId                String   @id @default(uuid())
+  siteId                     String
+  floorId                    String
+  fixtureId                  String
+  gatewayId                  String
+  gatewaySerial              String
+  assignmentVersion          Int
+  nodeId                     String
+  meshNodeId                 String
+  deviceUuid                 String
+  meshAddress                String
+  originalProvisionCommandId String
+  fixtureName                String
+  serialNumber               String?
+  requestedById              String
+  clientRequestId            String
+  expectedUpdatedAt          DateTime
+  requestHash                String
+  bindingSnapshot            Json
+  bindingHash                String
+  cleanupSnapshot            Json?
+  payload                    Json
+  commandHash                String
+  requestedAt                DateTime
+  expiresAt                  DateTime
+  status                     String   @default("pending")
+  errorCode                  String?
+  result                     Json?
+  resultHash                 String?
+  resultEventId              String?  @unique
+  gatewayConfirmedAt         DateTime?
+  completedAt                DateTime?
+  applicationAck             Json?
+  applicationAckHash         String?
+  ackPublishedAt             DateTime?
+  ackAttempts                Int      @default(0)
+  ackNextAttemptAt           DateTime @default(now())
+  ackLockedBy                String?
+  ackLeaseExpiresAt          DateTime?
+  publishedAt                DateTime?
+  attempts                   Int      @default(0)
+  nextAttemptAt              DateTime @default(now())
+  lockedBy                   String?
+  leaseExpiresAt             DateTime?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  fixture                    Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_fixture_fkey")
+  meshNode                   MeshNode @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Restrict, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_node_fkey")
+
+  @@unique([siteId, requestedById, clientRequestId], map: "FixtureRegistrationRemovalOperation_request_key")
+  @@index([status, nextAttemptAt, leaseExpiresAt], map: "FixtureRegistrationRemovalOperation_publish_idx")
+  @@index([ackPublishedAt, ackNextAttemptAt, ackLeaseExpiresAt], map: "FixtureRegistrationRemovalOperation_ack_idx")
+  @@index([fixtureId, status])
 }
 
 model MeshControlGroup {
