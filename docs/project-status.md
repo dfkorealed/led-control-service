@@ -1,6 +1,10 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-15
+기준일: 2026-10-16
+
+## 2026-10-16 Plus 준비중 표시 — 운영 배포 진행 중
+
+- 사용자가 기존 Plus 가격 수정의 운영 반영을 승인했다. 기존 공개 후보4130f74a와 source guard/정확 CI/private S3/OAC/CloudFront/Sydney/landing-only 절차를 재사용한다. 제품 diff는 Plus `준비중` 및 단위 숨김과 기존 검증의 최소 변경이며 Basic/기능/상담은 유지한다. 공식 MCP preflight에서 로그인 refresh 만료를 확인했으며 게시 쓰기는 실행하지 않았다. 인증 갱신과 fresh CI 이후 새 불변 r7을 게시하고 실제 요금제 화면/HTTP를 확인한다. [체크리스트](superpowers/plans/2026-10-11-web-deploy-mode.md)를 함께 갱신한다.
 
 ## 2026-10-15 Plus 요금 표시 — 소스 적용 완료·운영 미배포
 

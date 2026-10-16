@@ -207,3 +207,13 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 - 정확 source `2627a80d7717e51f83ee75f4a75a7aa2969dfc4d` [Public Landing Release38388627479](https://github.com/dfkorealed/led-control-service/actions/runs/38388627479) SUCCESS: unit37·Chromium12·실패/skip/flaky0·scoped blocked0. Artifact11806909424/zipSHA96a1d10c/sourceSHAe95b254f/artifactSHA2e0cc181을 검증하고 CI proof와 adapter fresh local build/source/artifact guard를 통과했다. 새 r6 불변10파일 게시 및 기존 stack UpdateStack은 성공했고 현재 UPDATE_IN_PROGRESS 전파 대기다. 운영 완료는 아직 주장하지 않는다.
 
 - r6 운영 완료: 기존 stack UPDATE_COMPLETE·CloudFront Deployed·invalidation I90YIJQJLOJ7NB4NPI9K0LMNDL Completed·소유 lock 삭제·engine exit0. 실제 두 HTTPS smoke exit0, 운영320/390/637/720/1440px 제목 여유32px 이상(637px37px), 상담320/637/1440px 외곽0·navy/Plus/닫기/Tab/Escape/초점 복귀, overview/footer 안내6개 삭제와 footer 예시 안내 유지·새JS 확인을 통과했다. 자동 운영JPEG3개와 메뉴3문서/상태/실행서를 갱신했다.
+
+
+## 2026-10-16 Plus 준비중 표시 운영 배포
+
+사용자 승인: 기존 수정의 운영 배포. 제품 소스4130f74a를 유지하며 기존 무료 플랜·Sydney·landing-only·private S3/OAC와 source/artifact/lock/immutable guard로 새 release20261016-landing-ui-r7을 게시한다. MAIN/관제/API/DB/Gateway 변경은 범위 밖이다.
+
+- [x] 기존 source diff와 실행서/대상을 확인한다. Plus `준비중`·단위 숨김, Basic99,000원 유지와 기존 가격 검증을 확인했고 공식 MCP preflight의 LoginRefreshRequired로 게시 쓰기0을 확인했다.
+- [ ] 인증을 갱신하고 정확 커밋의 Public Landing Release 성공·artifact ZIP digest·CI proof와 fresh local build 동일성을 확인한다.
+- [ ] 공식 MCP transport로 r7을 게시하고 기존 stack UPDATE_COMPLETE/CloudFront Deployed/invalidation Completed·소유 lock 삭제를 확인한다.
+- [ ] 실제 회사/CloudFront HTTPS와 모바일·데스크톱 Plus `준비중`/단위0·Basic금액·상담 열기를 확인하고 메뉴/상태/실행서를 완료한다.
