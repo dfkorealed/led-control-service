@@ -451,6 +451,7 @@ model Site {
   automationConfigurations   GatewayAutomationConfiguration[]
   temporaryControlSessions   TemporaryControlSession[]
   temporaryControlLeases     TemporaryControlLease[]
+  fixtureRegistrationRemovals FixtureRegistrationRemovalOperation[]
   lightingSchedules          LightingSchedule[]
   vehicleEventRules          VehicleEventRule[]
   manualOverrides            ManualOverride[]
@@ -1661,8 +1662,9 @@ model FixtureRegistrationRemovalOperation {
   leaseExpiresAt             DateTime?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
-  fixture                    Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_fixture_fkey")
-  meshNode                   MeshNode @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Restrict, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_node_fkey")
+  fixture                    Fixture  @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: NoAction, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_fixture_fkey")
+  meshNode                   MeshNode @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: NoAction, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_node_fkey")
+  site                       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "FixtureRegistrationRemovalOperation_site_fkey")
 
   @@unique([siteId, requestedById, clientRequestId], map: "FixtureRegistrationRemovalOperation_request_key")
   @@index([status, nextAttemptAt, leaseExpiresAt], map: "FixtureRegistrationRemovalOperation_publish_idx")

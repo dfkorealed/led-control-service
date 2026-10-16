@@ -10,7 +10,7 @@
 | --- | --- |
 | `Fixture` / `MeshNode` | nullable `retiredAt TIMESTAMP(3)`. 기존 행은 NULL(운영 등록), 퇴역은 offline과 다르며 이력 FK/주소를 유지한다. 퇴역 row는 되살리거나 telemetry로 변경하지 못한다. |
 | `Gateway` | `fixtureRegistrationRemovalVersion INTEGER NOT NULL DEFAULT 0`, CHECK 0/1. heartbeat의 optional 1을 명시적으로 확인하기 전에는 미지원이다. |
-| `FixtureRegistrationRemovalOperation` | `operationId` PK; `(siteId,requestedById,clientRequestId)` UNIQUE; nullable `resultEventId` UNIQUE; pending/gateway_confirmed/reconcile_required 상태에는 fixture별 작업 1개(partial unique). Fixture와 MeshNode 복합 FK는 RESTRICT이며 원장 UPDATE identity 변경/DELETE를 금지한다. |
+| `FixtureRegistrationRemovalOperation` | `operationId` PK; `(siteId,requestedById,clientRequestId)` UNIQUE; nullable `resultEventId` UNIQUE; pending/gateway_confirmed/reconcile_required 상태에는 fixture별 작업 1개(partial unique). 후속 migration에서 Fixture/MeshNode 복합 FK는 지연 NO ACTION, Site FK는 CASCADE다. Site가 존재하는 동안 원장 DELETE와 등록 물리 삭제를 금지한다. |
 
 원장 필드와 타입:
 
@@ -24,13 +24,23 @@
 - application ACK: `applicationAck Json?,applicationAckHash String?,ackPublishedAt DateTime?,ackAttempts Int(default0),ackNextAttemptAt DateTime(default UTC now),ackLockedBy String?,ackLeaseExpiresAt DateTime?`. 최초 ACK payload/hash는 write-once며 정확한 operation/event/command/result hash와 등록 identity를 결합한다. broker PUBACK와 구별한다.
 - command outbox: `publishedAt DateTime?,attempts Int(default0),nextAttemptAt DateTime(default UTC now),lockedBy String?,leaseExpiresAt DateTime?`. lease owner/expiry는 함께 null 또는 함께 값이고 attempts는 비음수다. 네트워크 I/O는 DB transaction 밖에서 수행해야 한다.
 
-DB 보호는 기존 `lock_automation_membership_mutation()`을 statement 전에 사용한다. `assert_fixture_registration_active(fixture_id)`는 퇴역/삭제 진행/불확정 등록을 거부한다. 새 구역·스케줄·이벤트·manual target, command/automation fixture result 예약, 센서 작업, temporary target, light slot 배정과 desired 내부 멤버십에 연결했다. 기존 결과 UPDATE는 이력 ACK 경로로 남기며 late ingestion 분류는 Task 3이 담당한다. 삭제 접수도 기존 구역/저장 규칙/소유 중인 temporary lease와 정확한 현재 binding/명시적 version1을 재검사한다. 상세 busy 제어·인증·맵 lease 조건은 Task 3에서 추가한다.
+DB 보호는 기존 `lock_automation_membership_mutation()`을 INSERT/DELETE 및 binding/배정/퇴역 UPDATE의 statement 전에 사용한다. 후속 migration은 일반 metadata/telemetry/heartbeat/ACK/원장 배달 상태 UPDATE에 새 전역 잠금을 요구하지 않는다. 기존 row guard는 그대로 유지한다. `assert_fixture_registration_active(fixture_id)`는 퇴역/삭제 진행/불확정 등록을 거부한다. 새 구역·스케줄·이벤트·manual target, command/automation fixture result 예약, 센서 작업, temporary target, light slot 배정과 desired 내부 멤버십에 연결했다. 기존 결과 UPDATE는 이력 ACK 경로로 남기며 late ingestion 분류는 Task 3이 담당한다. 삭제 접수도 기존 구역/저장 규칙/소유 중인 temporary lease와 정확한 현재 binding/명시적 version1을 재검사한다. 상세 busy 제어·인증·맵 lease 조건은 Task 3에서 추가한다.
 
 API `fixtures/fixture-registration-removal-policy.ts`는 `supportsFixtureRegistrationRemoval`, `isFixtureRegistrationRemovalBlocking`, `activeFixtureRegistrationWhere`, `lockFixtureRegistrationRemovalDomain`, `assertFixtureRegistrationsActive`를 제공한다. 잠금 순서는 membership serializer→Site→Floor→Gateway→UUID advisory→MeshNode→Fixture이며 caller가 먼저 row lock을 잡으면 안 된다. outbox lease claim은 별도 짧은 transaction이다. 현재 read 경로에 active filter를 연결하는 작업은 Task 3이며 이 기반만으로 운영 조회 제외가 완성된 것은 아니다.
 
-최종 transaction은 removed 확인 후 MeshNode.retiredAt/운영 deviceUuid=NULL, Fixture.retiredAt, operation.completedAt/status를 함께 기록해야 한다. deferred commit trigger가 부분 퇴역을 거부한다. 원 주소/UUID snapshot/명령/전력 FK는 그대로이며 같은 UUID는 새 Cloud node/fixture ID로만 재등록한다. 기존 settled `TemporaryControlLease`가 있으면 원 counter/tombstone을 보존한 채 `ownerSessionId IS NULL`을 확인하고 `liveFixtureId=NULL`로 분리한 뒤 UUID를 해제해야 한다. unresolved lease는 우회하지 않는다. 원장이 붙은 registration의 물리 삭제 및 부모 cascade도 RESTRICT되므로 별도 현장 삭제 정책이 필요하다.
+최종 transaction은 removed 확인 후 MeshNode.retiredAt/운영 deviceUuid=NULL, Fixture.retiredAt, operation.completedAt/status를 함께 기록해야 한다. deferred commit trigger가 부분 퇴역을 거부한다. 원 주소/UUID snapshot/명령/전력 FK는 그대로이며 같은 UUID는 새 Cloud node/fixture ID로만 재등록한다. 기존 settled `TemporaryControlLease`가 있으면 원 counter/tombstone을 보존한 채 `ownerSessionId IS NULL`을 확인하고 `liveFixtureId=NULL`로 분리한 뒤 UUID를 해제해야 한다. unresolved lease는 우회하지 않는다. Site가 남아 있는 일반 Fixture/MeshNode/Gateway 삭제는 원장을 우회하지 못한다.
 
 검증은 자기 소유 disposable PostgreSQL의 기존139→신규140 migration staged upgrade와 focused 원장/동시성 회귀만 수행한다. 기존 운영 DB·Pi·PKI/ACL·서비스 재시작은 하지 않는다. 전체 API/하드웨어 기능 완료를 의미하지 않는다.
+
+### Task 1 Review Fix Round 1
+
+`20261016100000_fixture_removal_lock_and_site_cascade`를 별도 순방향 migration으로 추가했다. 기존 140번째 SQL/checksum은 수정하지 않는다. 기존 metadata의 Site→Fixture FOR UPDATE→UPDATE, heartbeat의 Gateway FOR UPDATE→UPDATE와 삭제의 membership→Site/Floor/Gateway/Fixture 사이에서 일반 UPDATE가 membership을 뒤늦게 요구하던 역전을 제거했다. 새로 추가했던 모든 광범위 UPDATE statement lock을 좁혔으며, 새 admission과 binding/배정/퇴역 변경의 serializer 및 pending/retired·identity/result/ACK guard는 유지한다. 기존 raw lock을 먼저 잡는 INSERT/DELETE/구조 변경 생산자는 Task 3에서 canonical 순서에 맞춰야 한다.
+
+실제 Site DELETE에는 `AAA_fixture_registration_site_teardown` AFTER ROW trigger가 먼저 실행된다. 부모 Site 행의 실제 부재를 확인한 뒤 원장에 묶인 Fixture/MeshNode만 정리하며, 이때 Gateway와 immutable snapshot 귀속을 이용한다. 이후 기존 Site FK cascades와 새 원장 CASCADE가 완료되고 지연 FK가 최종 무결성을 검사한다. trigger 이름순 실행을 이용해 RI_* cascade 전에 귀속을 확보한다. 임의 session GUC·직접 원장 DELETE·직접 Fixture/MeshNode DELETE에는 예외가 열리지 않는다. 실패하면 전체 Site 삭제가 rollback된다.
+
+자기 소유 PostgreSQL에서 metadata-first와 heartbeat-first의 수정 전 40P01 및 반대 순서 경합을 검증한다. 수정 후에는 두 일반 writer의 정상 처리/삭제 pending fencing, 완료·거절 원장과 command/energy의 실제 Site cascade, 기존 직접 삭제 방어를 검사한다. 별도 139→141 staged DB에는 실제 과거 Command/Dispatch/FixtureResult·EnergyUsage와 종료된 TemporaryControlSession/Target/Lease(lastGeneration=releaseTombstoneGeneration=2)를 미리 넣고 원본 컬럼 JSON·FK·counter/tombstone 보존을 대조한다. 이 사례는 DDL의 기존 이력 보존 증거이며 Task 3 최종 퇴역 서비스 검증이 아니다.
+
+경계: `GatewayRecommissionService.resetInstallation`은 Site를 유지하므로 Site-cascade 예외를 사용할 수 없다. 현재 원장과 퇴역 row를 남기는 재설치 정리 계약은 Task 3이 명시적으로 처리해야 하며 GUC로 우회해서는 안 된다. 기존 TemporaryControl 원장 자체의 Site/Gateway RESTRICT·최소 원장 삭제 금지도 이번에 약화하지 않았다. settled lease가 있는 전체 현장의 기존 삭제 제한은 별도 Task 3 정리 대상이고, 위 Site cascade 성공 사례의 과거 이력은 command/energy이며 lease를 포함한 전체 삭제 성공으로 확대하지 않는다. 운영 DB에는 두 migration 모두 적용하지 않았다.
 
 ## 2026-10-14 BIO 시간제 제어·휴일 저장 구조 — 2026-10-15 로컬 DB 반영
 
