@@ -160,6 +160,60 @@ describe("durable registration removal handler", () => {
     expect((await handler.handle(command)).status).toBe("removed");
     expect(await new BioDeviceMappingStore(f.mappingPath).retirement(command)).not.toBeNull();
   });
+  it("keeps a manifest-only intent reconcilable while clock trust is lost, then removes the same expired command", async () => {
+    const f = await fixture(), command = removalCommand();
+    const captured = (await f.port.findByFixtureId(command.fixtureId))!;
+    await f.journal.accept(command); await f.journal.admit(command.operationId);
+    const manifest = { version: 1, firstRemoval: command };
+    await writeJsonAtomic(`${f.mappingPath}.retirement-manifest`, manifest);
+    const originalMapping = await readFile(f.mappingPath, "utf8");
+    let trusted = false, clockChecks = 0;
+    const restart = () => new FixtureRegistrationRemovalHandler({ ...f.options,
+      journal: new FixtureRegistrationRemovalJournal(f.journalPath), port: new BioDeviceMappingStore(f.mappingPath),
+      clockTrusted: async () => { clockChecks++; return trusted; },
+      now: () => new Date("2026-10-17T00:00:00.000Z") });
+    await restart().recover();
+    const first = (await f.journal.records())[0].terminal!;
+    expect(first).toMatchObject({ status: "reconcile_required", errorCode: "REMOVAL_RECONCILE_REQUIRED" });
+    expect(await readFile(f.mappingPath, "utf8")).toBe(originalMapping);
+    expect(JSON.parse(await readFile(`${f.mappingPath}.retirement-manifest`, "utf8"))).toEqual(manifest);
+    expect(f.cleanups()).toBe(0);
+    const mappings = new BioDeviceMappingStore(f.mappingPath);
+    expect(await mappings.findByFixtureId(command.fixtureId)).toBeNull();
+    expect(mappings.isRegistrationCurrent(captured)).toBe(false);
+    expect(await mappings.retirement(command)).toBeNull();
+    expect(await restart().handle(command)).toEqual(first);
+    await expect(restart().handle(removalCommand({ nodeId: "77777777-7777-4777-8777-777777777777" })))
+      .rejects.toThrow("REMOVAL_OPERATION_CONFLICT");
+    trusted = true;
+    const recovered = restart(), terminal = await recovered.handle(command);
+    expect(terminal).toMatchObject({ status: "removed", operationId: command.operationId, bindingHash: command.bindingHash });
+    expect(clockChecks).toBeGreaterThanOrEqual(4);
+    expect(f.cleanups()).toBe(1);
+    expect(await new BioDeviceMappingStore(f.mappingPath).retirement(command)).not.toBeNull();
+    expect(await recovered.acknowledge(removalAck(first))).toBe(false);
+    expect((await f.journal.records())[0]).toMatchObject({ admitted: true, previousTerminals: [first], terminal });
+  });
+  it("still rejects a first-seen command with an untrusted clock without creating a retirement intent", async () => {
+    const f = await fixture();
+    const handler = new FixtureRegistrationRemovalHandler({ ...f.options, clockTrusted: async () => false });
+    expect(await handler.handle(removalCommand())).toMatchObject({ status: "rejected", errorCode: "GATEWAY_CLOCK_UNTRUSTED" });
+    expect(await f.port.findByFixtureId(mappingInput.fixtureId)).not.toBeNull();
+    await expect(readFile(`${f.mappingPath}.retirement-manifest`)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(f.cleanups()).toBe(0);
+  });
+  it("preserves admission if clock trust disappears at the final pre-retirement check", async () => {
+    const f = await fixture(); let checks = 0;
+    const handler = new FixtureRegistrationRemovalHandler({ ...f.options, clockTrusted: async () => ++checks === 1 });
+    expect(await handler.handle(removalCommand())).toMatchObject({ status: "reconcile_required" });
+    expect((await f.journal.records())[0].admitted).toBe(true);
+    expect(await f.port.retirement(removalCommand())).toBeNull();
+    expect(f.cleanups()).toBe(0);
+    const recovered = new FixtureRegistrationRemovalHandler({ ...f.options,
+      journal: new FixtureRegistrationRemovalJournal(f.journalPath), port: new BioDeviceMappingStore(f.mappingPath),
+      now: () => new Date("2026-10-17T00:00:00.000Z") });
+    expect(await recovered.handle(removalCommand())).toMatchObject({ status: "removed" });
+  });
   it.each(["journal", "manifest"])("fails closed after %s file loss", async lost => {
     const f = await fixture(); await f.handler.handle(removalCommand());
     await rm(lost === "journal" ? f.journalPath : `${f.journalPath}.manifest`);

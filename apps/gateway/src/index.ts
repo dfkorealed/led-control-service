@@ -67,9 +67,10 @@ import { handleBioSensorMode, recoverBioSensorModes } from "./commands/bio-senso
 import { bioRegistrationRevalidationCommandSchema, bioRegistrationRevalidationAckSchema, bioRegistrationRevalidationTopics } from "@led-control/shared";
 import { handleBioRegistrationRevalidation, recoverBioRegistrationRevalidations } from "./commands/bio-registration-revalidation-handler";
 import { fixtureRegistrationRemovalTopics, type AutomationSnapshot } from "@led-control/shared";
-import { FixtureRegistrationRemovalHandler } from "./commands/fixture-registration-removal-handler";
+import { createGatewayRegistrationRemovalServices } from "./runtime/fixture-registration-removal-runtime";
+export { createGatewayRegistrationRemovalServices } from "./runtime/fixture-registration-removal-runtime";
 import { FixtureRegistrationRemovalJournal } from "./state/fixture-registration-removal-journal";
-import { automationRegistrationRemovalBlocker, snapshotFixtureIds } from "./commands/registration-removal-safety";
+import { snapshotFixtureIds } from "./commands/registration-removal-safety";
 import { BioCapabilityDeliveryController } from "./bio/bio-capability-delivery";
 import { bioSensorCatalogTopics, bioSensorPreparationTopics } from "@led-control/shared";
 import { createBioSensorRuntime } from "./bio/bio-sensor-runtime";
@@ -1093,38 +1094,18 @@ async function main() {
       occurredAt: new Date().toISOString()
     }))
   );
-  const registrationRemoval = new FixtureRegistrationRemovalHandler({ journal: removalJournal, port: removalMappings,
+  const registrationRemovalServices = createGatewayRegistrationRemovalServices({ journal: removalJournal, port: removalMappings,
     scope: { siteId, gatewayId, gatewaySerial, assignmentVersion: assignment.configVersion },
     clockTrusted: () => clockTrust.isTrusted(new Date()),
-    blockedReason: async command => {
-      if (automationRuntime.registrationRemovalBlocked) return "AUTOMATION_SYNC_IN_PROGRESS";
-      if (sensorModeHandlers.size || registrationRevalidationHandlers.size) return "SENSOR_OPERATION_IN_PROGRESS";
-      if (scheduleRuntime.pendingObservationFixtureIds().includes(command.fixtureId)) return "CONTROL_UNCERTAIN";
-      const local = (adapter instanceof BioUsbDongleAdapter ? adapter.registrationRemovalBlocker(command.fixtureId) : null)
-        ?? fixtureIdentify.registrationRemovalBlocker(command.fixtureId) ?? groupStateStore.registrationRemovalBlocker()
-        ?? automationRegistrationRemovalBlocker(command.fixtureId, automationRuntime.currentSnapshot, automationStateStore.read());
-      if (local) return local;
-      for (const journal of [commandJournal, sensorModeJournal, registrationRevalidationJournal]) {
-        const reason = await journal.registrationRemovalBlocker(command.fixtureId, command.nodeId); if (reason) return reason;
-      }
-      return await provisioningDeviceJournal.registrationRemovalBlocker(command.deviceUuid, command.nodeId)
-        ?? await bioSensors?.registrationRemovalBlocker(command.fixtureId, command.nodeId) ?? null;
-    },
-    afterRetire: async command => {
-      if (adapter instanceof BioUsbDongleAdapter) adapter.forgetRegistration(command.fixtureId, command.deviceUuid);
-      bioSensors?.monitor.retire(command.fixtureId);
-      bioCapabilityReporting?.invalidateCommissionProofs();
-      // Removes an obsolete queued poll only; this emits no presence/observation.
-      targetedLightingResync.markObserved(command.fixtureId);
-      await groupStateStore.retireAddress(command.meshAddress);
-      await automationStateStore.updateDurable(state => {
-        for (const key of ["currentByFixture", "baseBrightnessByFixture", "lastDesiredByFixture", "unverifiedDesiredByFixture",
-          "transitionsByFixture", "manualAutomationSuppressions", "bioNormalConfigurations", "bioTargetsByFixture", "bioPulseInbox"] as const) {
-          delete state[key][command.fixtureId];
-        }
-        return state;
-      });
-    }, onError: error => { void reportGatewayError(error, "registration_removal_retry"); } });
+    automationRuntime, scheduleRuntime,
+    sensorOperationsInProgress: () => sensorModeHandlers.size > 0 || registrationRevalidationHandlers.size > 0,
+    adapter: adapter instanceof BioUsbDongleAdapter ? adapter : undefined, fixtureIdentify,
+    groups: groupStateStore, state: automationStateStore,
+    commandJournals: [commandJournal, sensorModeJournal, registrationRevalidationJournal],
+    provisioningJournal: provisioningDeviceJournal, bioSensors, capabilities: bioCapabilityReporting,
+    resync: targetedLightingResync,
+    onError: error => { void reportGatewayError(error, "registration_removal_retry"); } });
+  const registrationRemoval = registrationRemovalServices.handler;
   await registrationRemoval.recover();
   if (automationRuntime.currentRevision !== null) {
     await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
@@ -1576,10 +1557,7 @@ async function main() {
     publishHeartbeat,
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
-      [fixtureRegistrationRemovalTopics.command(siteId, gatewayId)]: (payload, _source, _packet, control) =>
-        registrationRemoval.handle(JSON.parse(payload.toString()), () => control?.acknowledgeDurable()).then(() => undefined),
-      [fixtureRegistrationRemovalTopics.ack(siteId, gatewayId)]: payload =>
-        registrationRemoval.acknowledge(JSON.parse(payload.toString())).then(() => undefined),
+      ...registrationRemovalServices.topicHandlers,
       [mqttTopics.temporaryControlCommand(siteId, gatewayId)]: async (payload, _source, _packet, control) => {
         if (!temporaryServices) throw new Error("temporary_control_unavailable");
         await temporaryServices.mqtt.handleCommand(payload); control?.acknowledgeDurable();

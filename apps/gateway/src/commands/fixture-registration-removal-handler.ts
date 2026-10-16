@@ -10,7 +10,7 @@ export interface RegistrationRemovalPort {
   fenceRegistration(command: FixtureRegistrationRemovalCommand): void;
   releaseRegistrationFence(operationId: string): void;
 }
-interface Options {
+export interface RegistrationRemovalOptions {
   journal: FixtureRegistrationRemovalJournal; port?: RegistrationRemovalPort;
   scope: { siteId: string; gatewayId: string; gatewaySerial: string; assignmentVersion: number };
   clockTrusted(): Promise<boolean>; blockedReason(command: FixtureRegistrationRemovalCommand): Promise<string | null>;
@@ -31,7 +31,7 @@ export class FixtureRegistrationRemovalHandler {
   private stopped = false;
   private generation = 0;
   private retryDelay: number;
-  constructor(private readonly options: Options) {
+  constructor(private readonly options: RegistrationRemovalOptions) {
     this.retryDelay = options.retryMs ?? 1_000;
     if (!Number.isSafeInteger(this.retryDelay) || this.retryDelay < 1 || this.retryDelay > 30_000
       || (options.publishTimeoutMs !== undefined && (!Number.isSafeInteger(options.publishTimeoutMs) || options.publishTimeoutMs < 1))) throw new Error("REMOVAL_RETRY_CONFIG_INVALID");
@@ -60,7 +60,7 @@ export class FixtureRegistrationRemovalHandler {
       this.wake(); return record.terminal;
     }
     let status: FixtureRegistrationRemovalTerminal["status"] = "rejected", errorCode: string | null = null;
-    let mutationPossible = false;
+    let mutationPossible = false, admitted = record.admitted;
     try {
       if (!port) throw new RegistrationRemovalRefused("UNSUPPORTED_ADAPTER");
       if (registrationRemovalHash(fixtureRegistrationRemovalBindingIdentity(command)) !== command.bindingHash) throw new RegistrationRemovalRefused("REMOVAL_BINDING_HASH_MISMATCH");
@@ -78,7 +78,7 @@ export class FixtureRegistrationRemovalHandler {
           const reason = await this.options.blockedReason(command); if (reason) throw new RegistrationRemovalRefused(reason);
         };
         await check();
-        if (fresh) await journal.admit(command.operationId);
+        if (fresh) { await journal.admit(command.operationId); admitted = true; }
         await port.retireRegistration(command, async () => { await check(); mutationPossible = true; });
       } else {
         // Re-fsync the known tombstone if the previous process lost a parent
@@ -88,7 +88,10 @@ export class FixtureRegistrationRemovalHandler {
       await this.options.afterRetire(command);
       status = "removed";
     } catch (error) {
-      if (error instanceof RegistrationRemovalRefused && !mutationPossible) errorCode = error.code;
+      // A previous admission can already own a durable mapping manifest. A
+      // temporary safety refusal must preserve that intent for exact recovery;
+      // a definitive rejection would strand its persistent registration fence.
+      if (error instanceof RegistrationRemovalRefused && !mutationPossible && !admitted) errorCode = error.code;
       else if (fresh && error instanceof Error && error.message === "BIO_REMOVAL_BINDING_MISMATCH") errorCode = "REMOVAL_BINDING_MISMATCH";
       else { status = "reconcile_required"; errorCode = "REMOVAL_RECONCILE_REQUIRED"; port?.fenceRegistration(command); }
     }
