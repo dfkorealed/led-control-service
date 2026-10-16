@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1·2·3 구현·독립 검토(필요 보완 재검토 포함)를 완료하고 Task4를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 전체 unit5FAIL은 남아 있고 Task1 추가 관측 browser3FAIL은 Task2에서 전제·의미를 검증해 실제 흐름 PASS로 확인했다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
+상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1–4 구현·독립 검토(필요 보완 재검토 포함)를 완료하고 Task5를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 전체 unit5FAIL은 남아 있고 Task1 추가 관측 browser3FAIL은 Task2에서 전제·의미를 검증해 실제 흐름 PASS로 확인했다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
 
 ## Global Constraints
 
@@ -237,6 +237,10 @@ test("P3 exact section grid inset and heading roles", async ({ page, designScena
 - Modify: `apps/web/src/features/control/automation/{ScheduleControlPanel,VehicleEventControlPanel}.tsx`, `apps/web/src/features/control/groups/{FixtureGroupsPanel,FixtureGroupsContent}.tsx`
 - Modify: `apps/web/src/features/control/ManualExecutionPanel.tsx`, `apps/web/src/features/control/target-selection/ManualSelectionPanel.tsx`, `apps/web/src/features/floor-editor/FloorEditorView.tsx`
 - Modify: `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`의 일반 내용 소비만
+- 추가 확인된 동일 역할 Modify: `apps/web/src/features/control/automation/{ScheduleDialog,VehicleEventDialog}.tsx`, `apps/web/src/features/control/automation/components/{AutomationQuickFields,ScheduleCalendar}.tsx`
+- 추가 확인된 내부 내용 owner Modify: `apps/web/src/features/floor-editor/{EditorPropertiesPanel,MapElementPropertiesPanel,MapSelectionProperties,EditorBatchPlacementPanel,EditorLayersPanel,FixtureIdentifyPanel}.tsx`
+- 총괄 한정 승인 Modify/Test: `apps/web/src/components/ui/{DataGrid,DataGrid.test}.tsx`의 고객 compact bordered-card 외곽 grid18/regular20·16만. table cell12/8·default divided rows·field 내부·sort/detail/threshold는 보존한다.
+- Modify/Test: `apps/web/src/features/control/groups/FixtureGroupsPanel.test.tsx`의 regular 표현 기대값, `docs/lesson_leared.md`의 재시도 완료 관측 교훈
 - Test: `apps/web/src/features/control/ControlView.test.tsx`, `apps/web/src/features/settings/floor-plans/FloorEditorRoute.test.tsx`
 - Modify/Test: `apps/web/e2e/ui-eight-layout-regressions.spec.ts`, `apps/web/e2e/design-system-roles.spec.ts`
 - Test/소비: `apps/web/e2e/support/{mock-api-boundary,settings-api,first-screen-statistics}.ts`
@@ -246,7 +250,7 @@ test("P3 exact section grid inset and heading roles", async ({ page, designScena
 
 이전 `.local`32case 증거는 실행 의존성이 아니다. 현재 versioned ui-eight spec과 mock-api-boundary/settings-api/first-screen-statistics 지원fixture가 없으면 전제 오류로 중단하며 임의 복원하지 않는다. FloorEditorView 정보 SidePanel(현재678행)의 p0·width280/overlay320·단일reader geometry는 보존하고 내부 일반 정보/속성 내용만 regular 역할을 적용한다. canvas/toolbar에 일반 inset을 덮어쓰지 않는다.
 
-- [ ] **Step 1: mode별 역할 실패 단언 작성.** manual/schedule/event/group의 ready/pending/error/empty 일반 패널에 section/grid/inset/title 역할을 단언한다. 실제 제공 상태만 사용한다. geometry inset과 ordinary content를 다른 assertion으로 구분한다.
+- [x] **Step 1: mode별 역할 실패 단언 작성.** manual/schedule/event/group의 ready/pending/error/empty 일반 패널에 section/grid/inset/title 역할을 단언한다. 실제 제공 상태만 사용한다. geometry inset과 ordinary content를 다른 assertion으로 구분한다.
 
 ```ts
 // ui-eight의 기존 SET-003 setup/navigation 이후, 원 testcase 안에서 실행.
@@ -263,11 +267,11 @@ expect(await target.evaluate(e => { const r = document.createRange(); r.selectNo
 ```
 
 기존 test명 `SET-003 short editor retains a reachable placement body`와 SET-004 기록/복구, 통계 scenario의 실제 locator를 유지한다. 원 content587/588/589 동일 map DOM·zoom·선택 assertion, UUID100끝 wheel·disabled를 실행하며 위 핵심 assertion으로32case를 대체하지 않는다.
-- [ ] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-roles.spec.ts --grep control` → 기존 역할 불일치의 computed FAIL을 기록한다. 기존8수리 spec은 실행 전 기준 결과를 보존한다.
-- [ ] **Step 3: 최소 소비 적용.** 공통 API를 일반 control surface에 적용하고 지도 chrome·editor height/containment·scroll owner는 유지한다. class 정합화가 필요해도 수동 거절/불확정 잠금·timer·자동 재전송·권한·mutation/cache 로직은 바꾸지 않는다.
-- [ ] **Step 4: 실제 보호 회귀.** `ui-eight-layout-regressions.spec.ts`에서 floor editor256 이상, content587/588/589 split과 동일 map DOM/selection/zoom/history, 긴100 UUID의 끝 reader/위험disabled, 등록 ID·긴층·Save16px·통계수치/단위·초기화ID를 tap/wheel/keyboard/Range로 단언한다. bounds만 맞고 실제 접근 실패하면 FAIL이다.
-- [ ] **Step 5: GREEN 검증.** Step2 PASS 및 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/ui-eight-layout-regressions.spec.ts`·관련 focused Vitest. 759/760·1023/1024·1120·320×600을 확인하고 6unit 잔여는 별도 baseline로 남긴다.
-- [ ] **Step 6: 문서·검토·commit.** mode·workspace/ordinary 경계와 수리 보호 근거를 갱신한다. 이 Task Files 실제 변경만 선택 stage하고 타 소유 변경 제외 후 `git commit -m "refactor(web): align control surfaces without changing workspace behavior"`.
+- [x] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-roles.spec.ts --grep control` → 기존 역할 불일치의 computed FAIL을 기록한다. 기존8수리 spec은 실행 전 기준 결과를 보존한다.
+- [x] **Step 3: 최소 소비 적용.** 공통 API를 일반 control surface에 적용하고 지도 chrome·editor height/containment·scroll owner는 유지한다. class 정합화가 필요해도 수동 거절/불확정 잠금·timer·자동 재전송·권한·mutation/cache 로직은 바꾸지 않는다.
+- [x] **Step 4: 실제 보호 회귀.** `ui-eight-layout-regressions.spec.ts`에서 floor editor256 이상, content587/588/589 split과 동일 map DOM/selection/zoom/history, 긴100 UUID의 끝 reader/위험disabled, 등록 ID·긴층·Save16px·통계수치/단위·초기화ID를 tap/wheel/keyboard/Range로 단언한다. bounds만 맞고 실제 접근 실패하면 FAIL이다.
+- [x] **Step 5: GREEN 검증.** Step2 PASS 및 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/ui-eight-layout-regressions.spec.ts`·관련 focused Vitest. 759/760·1023/1024·1120·320×600을 확인하고 6unit 잔여는 별도 baseline로 남긴다.
+- [x] **Step 6: 문서·검토·commit.** mode·workspace/ordinary 경계와 수리 보호 근거를 갱신한다. 이 Task Files 실제 변경만 선택 stage하고 타 소유 변경 제외 후 `git commit -m "refactor(web): align control surfaces without changing workspace behavior"`.
 
 ## Task 5: 공개3entry·브랜드·연락·404·bootstrap
 
