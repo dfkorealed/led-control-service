@@ -19,7 +19,8 @@ describe("BIO temporary control persistence on self-owned PostgreSQL", () => {
   beforeAll(async () => {
     cluster = await disposablePostgres();
     const url = cluster.database();
-    const before = cluster.deploy(url, "99999999", { exclude: [migration] });
+    // This test upgrades one migration, not every future consumer of its tables.
+    const before = cluster.deploy(url, migration, { exclude: [migration] });
     if (before.status !== 0) throw new Error(before.stderr + before.stdout);
     db = new PrismaClient({ datasourceUrl: url });
     legacy = await seed(db);
@@ -29,8 +30,8 @@ describe("BIO temporary control persistence on self-owned PostgreSQL", () => {
         VALUES (${scheduleId},${legacy.site.id},${legacy.gateway.id},'preserved',${now},${now},'08:00','09:00','once',true,60,${legacy.actor.id},${legacy.actor.id},${now})`;
       await tx.lightingScheduleFixture.create({ data: { scheduleId, fixtureId: legacy.fixture.id, siteId: legacy.site.id, gatewayId: legacy.gateway.id } });
     });
-    legacyBefore = await db.meshNode.findMany({ where: { gatewayId: legacy.gateway.id }, orderBy: { id: "asc" } });
-    const deployed = cluster.deploy(url);
+    legacyBefore = await nodeSnapshot();
+    const deployed = cluster.deploy(url, migration);
     if (deployed.status !== 0) {
       // Prisma may hide the first transactional DDL error behind 25P02.
       // Re-run only on this disposable DB to expose the original PostgreSQL diagnostic.
@@ -42,6 +43,7 @@ describe("BIO temporary control persistence on self-owned PostgreSQL", () => {
 
   const rows = <T = Record<string, unknown>>(sql: string, ...args: unknown[]) => db.$queryRawUnsafe<T[]>(sql, ...args);
   const execute = (sql: string, ...args: unknown[]) => db.$executeRawUnsafe(sql, ...args);
+  const nodeSnapshot = () => rows('SELECT to_jsonb(n) AS node FROM "MeshNode" n WHERE "gatewayId"=$1 ORDER BY id', legacy.gateway.id);
   // Identifiers below are local literals; values always use bound parameters.
   const insert = (table: string, data: Record<string, unknown>) => {
     const entries = Object.entries(data);
@@ -76,8 +78,8 @@ describe("BIO temporary control persistence on self-owned PostgreSQL", () => {
   it("adds false schedule defaults while retaining native/BIO identities and settings", async () => {
     const schedules = await rows('SELECT to_jsonb(s) AS value FROM "LightingSchedule" s WHERE "siteId"=$1', legacy.site.id);
     expect(schedules[0].value).toMatchObject({ excludeWeekends: false, excludeHolidays: false, brightnessPercent: 60 });
-    expect(await db.meshNode.findMany({ where: { gatewayId: legacy.gateway.id }, orderBy: { id: "asc" } })).toEqual(legacyBefore);
-    expect(await db.fixture.findUnique({ where: { id: legacy.fixture.id } })).toMatchObject({ brightness: 37, bioConfiguredBrightness: 74 });
+    expect(await nodeSnapshot()).toEqual(legacyBefore);
+    expect(await db.fixture.findUnique({ where: { id: legacy.fixture.id }, select: { brightness: true, bioConfiguredBrightness: true } })).toMatchObject({ brightness: 37, bioConfiguredBrightness: 74 });
   });
 
   it("serializes competing owners and reserves exactly one monotonic generation pair", async () => {
@@ -129,7 +131,7 @@ describe("BIO temporary control persistence on self-owned PostgreSQL", () => {
     expect(await rows('SELECT "lastGeneration","ownerSessionId" FROM "TemporaryControlLease" WHERE "fixtureId"=$1', h.fixture.id))
       .toEqual([{ lastGeneration: 0n, ownerSessionId: null }]);
     expect(await rows('SELECT count(*)::int AS n FROM "TemporaryControlTarget" WHERE "sessionId"=$1', id)).toEqual([{ n: 0 }]);
-    await db.gateway.update({ where: { id: h.gateway.id }, data: { assignmentVersion: 2 } });
+    await db.gateway.update({ where: { id: h.gateway.id }, data: { assignmentVersion: 2 }, select: { id: true } });
     await expect(target(h, id)).rejects.toThrow();
   });
 
@@ -187,12 +189,12 @@ describe("BIO temporary control persistence on self-owned PostgreSQL", () => {
     const next = await session(h); await target(h, next, 3n);
     expect(await rows('SELECT "applyGeneration","releaseGeneration" FROM "TemporaryControlTarget" WHERE "sessionId"=$1', next)).toEqual([{ applyGeneration: 3n, releaseGeneration: 4n }]);
     await settle(h, next);
-    await db.fixture.delete({ where: { id: h.fixture.id } });
+    await db.fixture.delete({ where: { id: h.fixture.id }, select: { id: true } });
     expect(await rows('SELECT "lastGeneration","releaseTombstoneGeneration","liveFixtureId" FROM "TemporaryControlLease" WHERE "fixtureId"=$1', h.fixture.id))
       .toEqual([{ lastGeneration: 4n, releaseTombstoneGeneration: 4n, liveFixtureId: null }]);
-    await expect(db.fixture.create({ data: { id: h.fixture.id, floorId: h.floor.id, name: "reused PK", ratedWatt: 20, x: 0, y: 0 } })).rejects.toThrow();
-    await db.meshNode.update({ where: { id: h.node.id }, data: { deviceUuid: "bio:bbbbbbbbbbbb" } });
-    const fixture = await db.fixture.create({ data: { floorId: h.floor.id, siteId: h.site.id, gatewayId: h.gateway.id, meshNodeId: h.node.id, name: "new identity", ratedWatt: 20, x: 0, y: 0 } });
+    await expect(db.fixture.create({ data: { id: h.fixture.id, floorId: h.floor.id, name: "reused PK", ratedWatt: 20, x: 0, y: 0 }, select: { id: true } })).rejects.toThrow();
+    await db.meshNode.update({ where: { id: h.node.id }, data: { deviceUuid: "bio:bbbbbbbbbbbb" }, select: { id: true } });
+    const fixture = await db.fixture.create({ data: { floorId: h.floor.id, siteId: h.site.id, gatewayId: h.gateway.id, meshNodeId: h.node.id, name: "new identity", ratedWatt: 20, x: 0, y: 0 }, select: { id: true } });
     const recreated = { ...h, fixture, nativeUuid: "bbbbbbbbbbbb" }; await lease(recreated);
     const fresh = await session(recreated); await target(recreated, fresh);
     await expect(target(recreated, id)).rejects.toThrow();
@@ -265,11 +267,15 @@ async function seed(db: PrismaClient) {
   const actor = await db.user.create({ data: { organizationId: organization.id, loginId: randomUUID(), name: "actor", passwordHash: "fixture", role: "admin" } });
   const site = await db.site.create({ data: { organizationId: organization.id, adminUserId: actor.id, name: "fixture" } });
   const floor = await db.floor.create({ data: { siteId: site.id, name: "fixture", level: 1 } });
-  const gateway = await db.gateway.create({ data: { siteId: site.id, name: "fixture", serialNumber: randomUUID(), firmwareVersion: "fixture", claimedAt: now, assignmentVersion: 1 } });
+  // Latest Prisma create also inserts future client-side defaults. Seed this
+  // pre-migration Gateway through explicit historical columns instead.
+  const gateway = { id: randomUUID(), serialNumber: randomUUID() };
+  await db.$executeRaw`INSERT INTO "Gateway" (id,"siteId",name,"serialNumber","firmwareVersion","claimedAt","assignmentVersion","updatedAt")
+    VALUES (${gateway.id},${site.id},'fixture',${gateway.serialNumber},'fixture',${now},1,${now})`;
   const nativeUuid = randomUUID().replace(/-/g, "").slice(0, 12);
-  const node = await db.meshNode.create({ data: { gatewayId: gateway.id, deviceUuid: `bio:${nativeUuid}`, meshAddress: "0x0100", firmwareVersion: "fixture", vehicleSensorProtocol: "bio_usb_pulse" } });
-  await db.meshNode.create({ data: { gatewayId: gateway.id, deviceUuid: randomUUID().replace(/-/g, ""), meshAddress: "0x0101", firmwareVersion: "native" } });
-  const fixture = await db.fixture.create({ data: { floorId: floor.id, siteId: site.id, gatewayId: gateway.id, meshNodeId: node.id, name: "fixture", ratedWatt: 20, x: 0, y: 0, brightness: 37, bioConfiguredBrightness: 74 } });
+  const node = await db.meshNode.create({ data: { gatewayId: gateway.id, deviceUuid: `bio:${nativeUuid}`, meshAddress: "0x0100", firmwareVersion: "fixture", vehicleSensorProtocol: "bio_usb_pulse" }, select: { id: true } });
+  await db.meshNode.create({ data: { gatewayId: gateway.id, deviceUuid: randomUUID().replace(/-/g, ""), meshAddress: "0x0101", firmwareVersion: "native" }, select: { id: true } });
+  const fixture = await db.fixture.create({ data: { floorId: floor.id, siteId: site.id, gatewayId: gateway.id, meshNodeId: node.id, name: "fixture", ratedWatt: 20, x: 0, y: 0, brightness: 37, bioConfiguredBrightness: 74 }, select: { id: true } });
   const inventory = await db.gatewayInventory.create({ data: { serialNumber: gateway.serialNumber, claimedGatewayId: gateway.id, claimedAt: now } });
   await db.gatewayCertificate.create({ data: { inventoryId: inventory.id, gatewayId: gateway.id, purpose: "mqtt", status: "active",
     certificateSerial: randomUUID(), fingerprint: randomUUID(), issuer: "fixture", notBefore: new Date(now.getTime() - 60_000), notAfter: new Date(now.getTime() + 60_000) } });

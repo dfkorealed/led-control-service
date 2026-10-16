@@ -259,6 +259,7 @@ function harness(options: { statusCheck?: boolean; loseAttemptFence?: boolean } 
     });
     const tx: any = {
       vehicleEventSource: { findFirst: async () => null },
+      temporaryControlLease: { findFirst: async () => null },
       $executeRaw: async () => { context.locked = true; return 1; },
       $queryRaw: async (query: any, ...parameters: any[]) => {
         const sql = Array.isArray(query) ? query.join("") : query.text;
