@@ -6,6 +6,8 @@
 
 작성일: 2026-10-15
 
+상세 수치표 갱신: 2026-10-16. 사용자가 수치표와 계획 작성을 요청한 단계이며 아래 목표값의 상세 검토·계획·실행 방식은 대기 중이다. 현재 제품값을 변경하지 않았다.
+
 사용자의 “다 포함 해”, “오케이”는 전체 Web 범위와 인챗 설계 방향에 대한 승인이다. 이 문서는 그 방향을 검토할 수 있도록 작성한 초안이며, 서면 설계 승인·구현 계획 승인·코드 적용 완료를 뜻하지 않는다. 현재 유효한 규범은 [ui-spacing.md](ui-spacing.md)다. 충돌하는 제안은 이 초안으로 현재 규범을 소급 변경하지 않는다.
 
 ## 정본 전환과 책임
@@ -42,6 +44,7 @@
 | section title | 20px / 28px | 20px / 28px | 독립 하위 section |
 | 작은 card title | 16px / 24px | 16px / 24px | card heading |
 | 실제 조작 영역 | 최소 44×44 CSS px | 최소 44×44 CSS px | 공통 control와 배치 owner |
+| 일반 문서형 main 외곽 | 좌우28px / 상하24px | 좌우14px / 상하18px | 고객·운영자 shell content. 인증 fullscreen composition·공개·workspace frame 제외 |
 
 기존 52px 또는 그 이상의 지도·도구 조작 영역을 44px로 축소하지 않는다. 기존 body·caption·metric scale은 승인된 역할을 재사용하며 이 표를 모든 텍스트에 적용하지 않는다.
 
@@ -50,6 +53,69 @@ Card와 SidePanel은 일반 내용의 `regular` inset20/16px, 목적과 소비 �
 외부 여백은 shell이, section 리듬은 해당 section 부모가, card grid는 grid 부모가, 카드 내부는 Card가 소유한다. feature가 shell padding을 중첩해 보상하지 않는다. 값이 같은 row gap과 section gap은 역할이 다르다. field label/description, form 행, toolbar의 아이콘·label gap은 현재 승인 scale에서 콘텐츠 관계에 맞게 공통 form/toolbar가 소유하며, 모든 `gap`을 20px 또는 18px로 치환하지 않는다. compact 정보 카드의 16px 고정 inset처럼 독립된 역할만 예외 등록 후 허용한다.
 
 `headingLevel`은 문서 구조를, `titleRole`은 시각적 크기를 결정한다. h2/h3를 썼다는 이유로 page title 크기를 주지 않는다. page/section/card 역할을 공통 제목 API에서 구분하고 동일 역할의 형제 제목은 같은 표현을 쓴다. route마다 page h1 owner 하나를 명시한다. 표시 크기를 맞추기 위해 문서 heading 구조를 바꾸지 않는다.
+
+## 정확한 값 검토표
+
+px 환산은 root16px 기준이며 사용자 font 설정·확대를 막는 전역16px 강제는 추가하지 않는다. 아래에서 ‘유지’는 현재 source의 역할·값을 보존한다는 뜻이고, ‘통일 목표’는 승인 후 소비자를 정합화할 값이다. 운영자 현재 main24/32px·mobile14/24px는 일반 문서형 main28/24px·mobile14/18px로 통일할 대상이다.
+
+| 구분 | 역할 | 크기 / 행간 / 굵기 | 결정 |
+| --- | --- | --- | --- |
+| 제목 | page desktop / compact | 26px / 35.1px(1.35) /700 · 24px /32px /700 | 통일 목표; customer-page-title와 기존 section-title 재사용 |
+| 제목 | section / 작은 card | 20px /28px /700 ·16px /24px /700 | 통일 목표; customer-section/card-title 표현 재사용 |
+| 본문 | body-lg / body / body-sm | 16/24/400 ·14/22/400 ·13/20/400 | 유지 |
+| 보조 | label / caption / overline | 12/18/600 ·12/18/400 ·11/16/700 | 유지; caption을 필수 본문 대용으로 축소하지 않음 |
+| 지표 | 고객 desktop / compact · 일반 | 30/39/700 ·28/34/700 ·28/34/700 | 유지; tabular-nums |
+| 일반 font | 기본·고객·인증·운영자 | `Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` | `styles/base.css:210` 유지 |
+| 브랜드 font | 공개 | `Inter, "Pretendard", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif` | `--font-landing` 유지 |
+| 공개 hero | 제품 home만 | `clamp(55px,5.3vw,78px)` /1.15 /자간−0.085em /850 | 승인 브랜드 유지; concept의100px 상한과 혼합 금지 |
+| frame | operator / auth / public | max1160 /960 /1180px | 목적 frame 유지; auth 소개2열/compact1열 |
+| 공개 header | 기본 / stacked≤720px | min82 /96px | 유지;430/720/1050px 포함형 경계 |
+
+색상 source는 `apps/web/src/styles/theme.css`, 고객 alias는 `apps/web/src/styles/base.css`다. 기본은 고객 marker 없는 공개·인증·운영자의 semantic fallback이며 브랜드 고유색과 다른 역할이다.
+
+| semantic 역할 (`--color-` 접두사) | 기본 | 고객 light | 고객 dark |
+| --- | --- | --- | --- |
+| surface-canvas | #F4F8FA | #F4F7FB | #0F1724 |
+| surface-panel / elevated | #FFFFFF | #FFFFFF | #182334 |
+| surface-inset | #F1F5F9 | #EEF2F8 | #1E2D44 |
+| surface-inverse | #172033 | #0F1724 | #000000 |
+| content-primary | #15324A | #152C43 | #EAF1FA |
+| content-secondary / muted | #64748B / #73839A | #526477 / #526477 | #B0BDCE / #B0BDCE |
+| content-inverse | #FFFFFF | #FFFFFF | #FFFFFF |
+| content-disabled | #94A3B8 | #526477 | #B0BDCE |
+| border-subtle / default | #E2E8F0 / #DBE7F5 | #D8E1EC / #D8E1EC | #33465D / #33465D |
+| border-strong | #CBD5E1 | #7B8B9C | #647C98 |
+| border-focus | #256FA1 | #245FE8 | #94B9FF |
+| border-disabled | #CBD5E1 | #D8E1EC | #33465D |
+| action-primary | #256FA1 | #245FE8 | #94B9FF |
+| action-primary-hover | #1D5C86 | #194BC0 | #B3CEFF |
+| action-primary-active | #1D5C86 | #153C99 | #CCE0FF |
+| action-primary-foreground | #FFFFFF | #FFFFFF | #0F1724 |
+| action-primary-soft | #E8F2F8 | #E9F0FF | #263D68 |
+| action-secondary | #FFFFFF | #FFFFFF | #182334 |
+| action-disabled | #F1F5F9 | #EEF2F8 | #1E2D44 |
+| status-success foreground / background | #15803D / #ECFDF3 | #187445 / #E7F4EC | #70D6A4 / #1C3834 |
+| status-warning foreground / background | #B45309 / #FFFBEB | #946000 / #FFF4DE | #F2C46D / #3A3225 |
+| status-danger foreground / background | #DC2626 / #FFF1F2 | #B4233C / #FFF0F3 | #FF91A5 / #392536 |
+
+ブランド navy#15324A・blue#256FA1・coral#FF7A5C・paper#F4F8FA는 유지한다. 고객 primary 글자에는 action-primary-foreground를 사용하며 dark에서도 흰색인 content-inverse와 혼동하지 않는다. 비고객 Button의 기존 inverse 소비는 보존한다. 위 status 쌍은 semantic 상태값이며 badge/feedback 전용 역할을 덮어쓰지 않는다. feedback info foreground/background 기본#0B63E5/#E9F2FF, light#245FE8/#E9F0FF, dark#94B9FF/#263D68; success foreground 기본#166534/light#187445/dark#70D6A4; warning foreground/background 기본#92400E/#FFF7E6, light#946000/#FFF4DE, dark#F2C46D/#3A3225; danger foreground 기본#991B1B/light#B4233C/dark#FF91A5를 각각 유지한다.
+
+팔레트 유지가 모든 조합의 AA 통과를 뜻하지 않는다. FormField help는 기본 secondary가 canvas에서 약4.45:1이어서 primary를 쓰는 기존 보정·주석을 유지한다. 실제 배경·opacity 합성·역할 조합을 검사하고 실패하면 승인된 적합 role로 대체 가능한지 확인한다. 새 색/token이 필요할 때만 한정 승인으로 분리하며 AA 기준을 낮추지 않는다.
+
+| primitive | 현재 정확한 계약과 결정 | source (`apps/web/src/components/ui` 기준) |
+| --- | --- | --- |
+| Button 일반 | min높이44, gap8, border1, radius10,700. sm inset좌우12/상하0·13/20; md16/0·14/22; lg min48·24/8·16/24 유지 | `Button.tsx:20,46` |
+| disabled/loading | 기본 opacity60%, disabled/aria-busy·중복 activation 차단 유지. action-disabled token을 실제 fill로 일괄 치환하지 않음 | `Button.tsx`, loading primitive |
+| field | min높이44(lg48); sm inset12/8, md12/10, lg16/12. coarse pointer 글자16/24 유지(viewport와 구분) | `fields/field-types.ts`, field primitive |
+| field 관계 | label/control/help gap8, label primary, help primary, error danger 유지 | `fields/FormField.tsx` |
+| icon control | IconButton min44·aspect-square·padding8; IconTooltipButton 기본52/sm44·icon18 유지 | `IconButton.tsx`, `IconTooltipButton.tsx` |
+| FilterPanel | inline 관계gap12/compact8; popover fields gap16/compact12 유지 | `FilterPanel.tsx:39–66` |
+| option / 표 | Select option min44·gap4; DataGrid cell inset좌우16/상하12, compact12/8 유지 | `fields/SelectBox.tsx`, DataGrid 하위 table primitive |
+| radius | control10, panel/popover14 유지; 브랜드 geometry와 DataGrid header 예외는 별도 | `styles/theme.css` |
+| motion | 일반Button 전역duration 추가 없음; popover/sheet200ms, spinner1s linear, reduced-motion에서 해당 animation 없음 유지 | overlay/loading primitive |
+| 브랜드 motion | public action200ms ease·hover translateY(−2px), header250ms 유지 | `Button.tsx`, `public-site/SiteFrame.tsx` |
+
+form row gap·icon size·전역 duration을 하나의 새 숫자로 강제하지 않는다. 위 목적 primitive 계약과 일반 section/card 역할을 구분한다. 원본 source 근거는 정적 대조이며 현재 브라우저 검증 완료가 아니다.
 
 ## 공통 source와 소비 API
 
@@ -100,4 +166,4 @@ keyboard 순서·visible focus·label·상태 announcement·pending 중 재입�
 
 lexical 정책 0건은 필요한 gate지만 역할 적합성과 화면 통일의 충분조건이 아니다. 소비 역할 목록, 실제 generated CSS/computed 값, 내용의 Range/box, keyboard/tap/wheel/focus와 상태별 시각 검증을 함께 사용한다. 미실행·실패·보류와 지원하지 않는 환경은 그대로 기록한다. 운영 배포·실제 API·메일·native·장비/HIL은 별도 증거 없이는 완료로 표시하지 않는다.
 
-서면 설계 검토와 승인 이후 writing-plans에서 파일별 작업·테스트·검토 순서를 구체화하고 계획 승인과 실행 방식 선택을 받는다. 본 문서는 실행 명령별 계획이 아니며 지금 제품 적용을 시작하는 허가가 아니다.
+2026-10-16 후속 요청으로 [writing-plans 초안](superpowers/plans/2026-10-16-web-design-system-unification.md)에 파일별 작업·테스트·검토 순서를 작성했다. 현재 상세 수치·계획 검토와 실행 방식 선택을 기다린다. 이 가이드와 계획 작성은 제품 적용을 시작하는 허가가 아니다.
