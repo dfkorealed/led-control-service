@@ -4,6 +4,14 @@
 
 ## 2026-10-16 조명 등록 삭제 Task 1 기반
 
+### Task 3 결과 복구 원장 확장
+
+- `20261016110000_fixture_removal_result_evidence`는 이전 migration을 수정하지 않는 순방향 확장이다.
+- `FixtureRegistrationRemovalResultEvidence`는 작업별 terminal 원문/hash와 정확한 application ACK 원문/hash를 eventId별 append-only로 보존한다. UPDATE/DELETE는 거절하며 실제 부모 Site 삭제에 따른 CASCADE만 기존 전체 삭제 경계를 따른다. 기존 결과 backfill의 `receivedAt`은 원래 수신 시각을 추정하지 않고 NULL로 남긴다.
+- 작업 원장의 result/ACK 필드는 latest 포인터다. 원 command identity는 계속 불변이며 기존 unknown terminal과 ACK가 별도 증거에 정확히 보존된 경우에만 `reconcile_required` terminal에서 `removed`/`rejected` terminal로 한 번 수렴할 수 있다. definitive 결과 변경, 증거 없는 포인터 교체, 과거 상태로의 회귀는 DB에서도 거절한다.
+- 과거 exact terminal 재생은 해당 불변 증거의 과거 ACK로 종결하며 최신 상태를 되돌리지 않는다. command 만료 시각과 operation ID는 재작성하지 않는다.
+- 이 확장의 격리 PostgreSQL 검증과 운영 migration 적용은 별도다. 운영 DB에는 실행하지 않는다.
+
 순방향 `20261016090000_fixture_registration_removal`은 기존 migration과 등록/명령/전력 이력을 다시 쓰지 않고 다음 구조를 추가한다. 운영 DB에는 적용하지 않았으며 Task 1은 shared/DB 기반만 제공한다. HTTP 접수·인가·publisher·terminal 소비·전력 종료·맵 복구·catalog/group exact ACK 수렴은 Task 3에서 연결한다.
 
 | 모델 | 추가 계약 |

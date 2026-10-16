@@ -66,6 +66,21 @@ const enabled = process.env.FIXTURE_REMOVAL_DISPOSABLE_POSTGRES === "1";
     const rows = await db.$queryRaw<any[]>`SELECT * FROM "FixtureRegistrationRemovalOperation" WHERE "operationId"=${operationId}`;
     return rows[0];
   }
+  async function persistTerminal(row: any, terminal: any) {
+    const { requestedAt: _r, expiresAt: _e, ...identity } = row.payload;
+    const resultHash = canonicalPayloadHash(terminal), now = new Date();
+    const ack = { ...identity, commandHash: row.commandHash, eventId: terminal.eventId, resultHash,
+      ingestedAt: now.toISOString(), status: "ingested" };
+    await db.$transaction(async tx => {
+      await tx.fixtureRegistrationRemovalResultEvidence.create({ data: { operationId: row.operationId, siteId: row.siteId,
+        eventId: terminal.eventId, terminal, terminalHash: resultHash, applicationAck: ack,
+        applicationAckHash: canonicalPayloadHash(ack), receivedAt: now } });
+      await tx.fixtureRegistrationRemovalOperation.update({ where: { operationId: row.operationId }, data: {
+        status: "gateway_confirmed", result: terminal, resultHash, resultEventId: terminal.eventId, gatewayConfirmedAt: now,
+        applicationAck: ack, applicationAckHash: canonicalPayloadHash(ack) } });
+    });
+    return ack;
+  }
   async function createGroup() {
     const node = await db.meshNode.create({ data: { gatewayId, meshAddress: `0x${(256 + ++sequence).toString(16).padStart(4, "0")}`, firmwareVersion: "test" } });
     const anchor = await db.fixture.create({ data: { floorId, meshNodeId: node.id, name: "anchor", ratedWatt: 20, x: 0, y: 0 } });
@@ -239,8 +254,7 @@ const enabled = process.env.FIXTURE_REMOVAL_DISPOSABLE_POSTGRES === "1";
       await db.fixtureRegistrationRemovalOperation.update({ where: { operationId: row.operationId }, data: { status, errorCode: "SERVER_REJECTED" } });
     } else {
       const terminal = { ...row.payload, commandHash: row.commandHash, eventId: randomUUID(), occurredAt: row.requestedAt.toISOString(), status: "removed", errorCode: null };
-      await db.fixtureRegistrationRemovalOperation.update({ where: { operationId: row.operationId }, data: { status: "gateway_confirmed", result: terminal,
-        resultHash: canonicalPayloadHash(terminal), resultEventId: terminal.eventId, gatewayConfirmedAt: new Date() } });
+      await persistTerminal(row, terminal);
       await db.$transaction(async tx => {
         await tx.meshNode.update({ where: { id: node.id }, data: { retiredAt: new Date(), deviceUuid: null } });
         await tx.fixture.update({ where: { id: fixture.id }, data: { retiredAt: new Date() } });
@@ -278,12 +292,8 @@ const enabled = process.env.FIXTURE_REMOVAL_DISPOSABLE_POSTGRES === "1";
       WHERE "operationId"=${row.operationId}`).rejects.toThrow();
     await expect(db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET status='gateway_confirmed', result=${JSON.stringify({ ...terminal, commandHash: canonicalPayloadHash({}) })}::jsonb,
       "resultHash"=${canonicalPayloadHash(terminal)}, "resultEventId"=${terminal.eventId}, "gatewayConfirmedAt"=now() WHERE "operationId"=${row.operationId}`).rejects.toThrow();
-    await db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET status='gateway_confirmed', result=${JSON.stringify(terminal)}::jsonb,
-      "resultHash"=${canonicalPayloadHash(terminal)}, "resultEventId"=${terminal.eventId}, "gatewayConfirmedAt"=now() WHERE "operationId"=${row.operationId}`;
+    const ack = await persistTerminal(row, terminal);
     await expect(db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET "resultHash"=${canonicalPayloadHash({})} WHERE "operationId"=${row.operationId}`).rejects.toThrow();
-    const { requestedAt: _r, expiresAt: _e, ...identity } = row.payload;
-    const ack = { ...identity, commandHash: row.commandHash, eventId: terminal.eventId, resultHash: canonicalPayloadHash(terminal),
-      ingestedAt: new Date().toISOString(), status: "ingested" };
     await expect(db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET "applicationAck"=${JSON.stringify({ ...ack, eventId: randomUUID() })}::jsonb,
       "applicationAckHash"=${canonicalPayloadHash(ack)} WHERE "operationId"=${row.operationId}`).rejects.toThrow();
     await db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET "applicationAck"=${JSON.stringify(ack)}::jsonb,
@@ -307,8 +317,7 @@ const enabled = process.env.FIXTURE_REMOVAL_DISPOSABLE_POSTGRES === "1";
     const result = { ...row.payload, commandHash: row.commandHash, eventId: randomUUID(), occurredAt: row.requestedAt.toISOString(), status: "removed", errorCode: null };
     await expect(db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET result=${JSON.stringify(result)}::jsonb,
       "resultEventId"=${result.eventId}, "resultHash"=${canonicalPayloadHash(result)} WHERE "operationId"=${row.operationId}`).rejects.toThrow();
-    await db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET status='gateway_confirmed', result=${JSON.stringify(result)}::jsonb,
-      "resultEventId"=${result.eventId}, "resultHash"=${canonicalPayloadHash(result)}, "gatewayConfirmedAt"=CURRENT_TIMESTAMP WHERE "operationId"=${row.operationId}`;
+    await persistTerminal(row, result);
     await expect(db.meshNode.update({ where: { id: nodeId }, data: { retiredAt: new Date(), deviceUuid: null } })).rejects.toThrow();
     await expect(db.$transaction(async tx => {
       await tx.meshNode.update({ where: { id: nodeId }, data: { retiredAt: new Date(), deviceUuid: null, meshAddress: "0x7777" } });
@@ -332,8 +341,7 @@ const enabled = process.env.FIXTURE_REMOVAL_DISPOSABLE_POSTGRES === "1";
     const row = await createOperation();
     const terminal = { ...row.payload, eventId: randomUUID(), commandHash: row.commandHash,
       occurredAt: row.requestedAt.toISOString(), status: "removed", errorCode: null };
-    await db.$executeRaw`UPDATE "FixtureRegistrationRemovalOperation" SET status='gateway_confirmed', result=${JSON.stringify(terminal)}::jsonb,
-      "resultHash"=${canonicalPayloadHash(terminal)}, "resultEventId"=${terminal.eventId}, "gatewayConfirmedAt"=now() WHERE "operationId"=${row.operationId}`;
+    await persistTerminal(row, terminal);
     await db.$transaction(async tx => {
       await tx.$executeRaw`UPDATE "MeshNode" SET "retiredAt"=CURRENT_TIMESTAMP, "deviceUuid"=NULL WHERE id=${nodeId}`;
       await tx.$executeRaw`UPDATE "Fixture" SET "retiredAt"=CURRENT_TIMESTAMP WHERE id=${fixtureId}`;
