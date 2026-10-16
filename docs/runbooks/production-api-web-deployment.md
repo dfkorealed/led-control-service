@@ -70,6 +70,14 @@ sudo /usr/bin/python3 -I -S "/Library/Application Support/Kinda/ClockAttestor/op
 
 설치 실패 rollback은 자기 `system/com.kinda.clock-attestor`만 bootout하며 계정·상태·staging을 보존한다. 실행 파일 일부 교체 뒤 실패한 경우도 자동 구버전 기동/세대 삭제를 하지 않는다. 운영자가 exact receipt·hash·launchd 상태를 확인하고 재설치/재결속한다. 승인된 수동 정지도 `sudo /bin/launchctl bootout system/com.kinda.clock-attestor`만 사용하며 다른 launchd job·DB·API를 중지하지 않는다. 실제 별도 UID에서의 `ps/proc_pidpath` 가시성, 시스템 Python/ACL 메타데이터, live SNTP 750ms 충족 및 launchd 재시작 증거는 운영 설치 단계에서 확인해야 한다. 테스트 fixture 통과를 그 증거로 대체하지 않는다.
 
+**2026-10-16 Mac 실환경 추가 주의**
+
+- 사람의 GUI 인증 응답과 실제 명령 종료를 구별한다. 장기 인증 대기는 소유 프로세스 신원을 확인해 취소하고 지연 실행을 남기지 않는다. 정상 재시작 여부는 launchd 실행 횟수·새 PID·이전 정상 종료로 확인한다.
+- 일반 계정의 정상 시간 관측과 별도 producer의 관측을 비교한다. 실환경에서 일반20초/200회 무효화0인 동안 서비스 step 세대는 반복 증가했다. 현재 프로세스의 background scheduling 해제만으로 충분하지 않았고, 승인된 root 제어에서 exact PID/UID/시작시각/argv를 확인한 뒤 runtime latency/throughput tier0을 적용해 별도 안정성 검사를 진행했다. 시간 오차·표본 유효기간·kernel peer·설치 보호와 세대 승인 기준은 변경하지 않았다.
+- Runtime 정책은 재시작·재부팅 뒤 유지된다고 보장하지 않는다. 영구 정책을 바꾸려면 실제 설치의 sourceCommit/fileHashes와 현 작업 트리 차이를 먼저 검토하고 설치 프로그램·생성 plist·보호 receipt를 함께 검증하는 별도 승인된 업데이트가 필요하다. root plist나 프로그램 일부만 직접 덮어쓰거나 세대 파일을 지워 우회하지 않는다.
+- SNTP 간헐 실패가 공용 서버 제한 때문이라고 확정하지 않는다.5초 간격 정상3표본과 마지막 유효 관측의 승인은 확인했지만 유효기간을5초로 늘린 것이 아니다. 승인 뒤에도 실제 같은 DB transaction과 사용자 브라우저 사전 확인을 다시 검증한다.
+- 이 실환경의 최종 한정 검증은 runtime 조정 뒤60초 동일 세대182/9·새3표본 승인,16:52~16:54KST 실제 DB transaction12/12와 방습등1 삭제 preview 활성화/취소다. 영구 정책 수리·재부팅 검증이나 실제 삭제 HIL 증거는 아니다. 상세 기록은 `docs/superpowers/plans/2026-10-16-fixture-registration-removal.md`를 따른다.
+
 ### 공휴일 서버 provider — 보호 파일 연결 경계
 
 `KASI_HOLIDAY_SERVICE_KEY_PATH`는 API 프로세스에만 주입하는 보호 파일의 절대 경로다. 키 자체를 env 값·Git·Web `VITE_*`·Gateway·문서·로그에 넣지 않는다. 현재 API UID 소유의 symlink 아닌 regular 0600 파일과 같은 UID 소유 상위 0700 디렉터리를 준비한다. Loader는 no-follow open 후 동일 descriptor의 fstat와 최대 513바이트 bounded read를 사용하며 512바이트 초과를 거절한다. 값은 URL decode 없이 `[A-Za-z0-9+/%=._-]` 16~256자의 단일 키만 허용하며 끝 LF 하나만 허용한다. 내부 공백/개행·끝 개행 2개·잘못된 owner/mode/경로·읽기 오류는 provider unavailable로 처리하고 API 전체 부팅은 중단하지 않는다.

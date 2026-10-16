@@ -117,7 +117,7 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 - [x] 기존 로컬 환경/ACL과 Gateway의 인증·등록 매핑·영속 상태를 백업하고 실제 배포 대상·진행 작업·센서 소유권을 재확인한다.
 - [x] 보호 clock의 정상 독립 표본/관리자 승인·같은 transaction의 DB primary 검증 후 API에 고정 소켓을 연결한다. 삭제용 MQTT 권한만 추가한다.
 - [x] 안전한 drain/복구 조건을 충족한 뒤 최신 Gateway를 배포하고 실제 heartbeat의 삭제 지원 version1과 기존 identity 보존을 확인한다.
-- [x] 브라우저 삭제 사전 조회/취소·원장/조명 수 보존을 확인하고 수동 시험 절차와 남은 차단 사유를 기록한다. 실제 삭제 POST는 실행하지 않는다.
+- [x] 현재 프로세스 실행 정책 조정 뒤 반복 시각 검증·브라우저 삭제 사전 조회/취소·원장/조명 수 보존을 확인하고 수동 시험 절차와 남은 차단 사유를 기록한다. 재부팅 뒤 영구 설치 정책 완료나 실제 삭제 HIL이 아니며 실제 삭제 POST는 실행하지 않는다.
 
 운영 중간 기록: env/ACL 및 기존 TLS 파일을 private 백업한 뒤 고정 socket과 삭제 전용 ACL4행만 추가하고 broker reload를 확인했다. 실제 DB `::1/128` 대 보호 증거 `::1` 차이를 새 임시 PG RED1/6PASS로 재현하고 `host(inet_server_addr())`로 수리했다(`64eeb6d0`, MAIN ff-only). 초기 관련112PASS·IPv6 회귀·type/build0, 제어 outbox/등록 재검증/HTTP 삭제14PASS를 확인했다. 확장 런의 IPC 시간 제한1건은 단독78PASS 재검증으로 구분하며 전체 저장소 GREEN은 아니다.
 
@@ -138,6 +138,12 @@ POST 응답 유실 복구를 위해 `GET registration-removals/by-request/:clien
 규칙 후속: 최초 복구55활성/APPLIED 뒤16:27KST 정상 PATCH가 있었고 현재56비활성/APPLIED·errornull이다. 자동 비활성화로 추정하지 않고 현재 상태를 보존했다. 이전 복구 승인을 현재 사용자의 변경을 덮어쓰는 권한으로 해석하지 않는다.
 
 수동 시험: 설정→현장 관리→조명 관리에서 방습등1 또는2의 등록 삭제를 열고 이름/시리얼을 확인한 뒤 사용자가 최종 승인한다. 다른4개는 규칙/구역/진행 작업 또는 지원 분류 등 기존 사전 차단 사유가 있으므로 강제 삭제하지 않는다. 시간 서버 응답이 실패하면503 안내 후 수동 재확인하며 Mac sleep/새 step·primary 세대는 새 승인부터 수행한다. 실제 장비 삭제·구세대 RF 차단·재등록 HIL은 아직이다.
+
+재점검:16:47KST 검증이 다시 실패했고 실제 step182/9·observed였다. 최초167/9 승인·preview 허용은 보존하되 현재 준비 완료를 뜻하지 않는다. 일반 계정20초/200회 관측은 gap최대108.514ms·wall-step최대0.123ms·무효화0이다. 기존51344만 runtime latency/throughput tier0으로 조정하고60초 같은 세대를 유지할 때에만 새로운3표본 승인을 시도한다. 세대가 변하면 자동 재시도/승인하지 않는다. 설치 프로그램/plist·오차/만료/승인 관문은 그대로다.
+
+현재 실행 환경의 최종 결과: runtime tier0 적용 후60초간182/9·같은 primary를 유지했고 새 독립 probe3개와 마지막 관측 승인에 성공했다.16:52:09~16:54:06KST 실제 보호 reader+동일 운영 DB transaction 검증12/12·실패0을 확인했다. receipt는 `.local/fixture-removal-20261016-ops/clock-runtime-tier-verification-1792137246735.json`이다. 반복 검증 뒤 실제 admin 방습등1 preview의 최종 삭제 버튼 활성화·증거 저장·취소와 등록6개 유지를 다시 확인했다(`final-clock-runtime-tier-preview.jpg`). 실제 삭제 POST·퇴역·삭제 원장 생성은0이다.
+
+후속 한계: runtime 조정은 현재51344에만 적용했다. 재시작/재부팅 뒤 유지된다고 보장하지 않으며 sleep/새 세대는 별도 표본 승인과 동일 DB 검증을 다시 수행한다. 영구 실행 정책은 실제 설치 source와 MAIN 차이를 보존 검토한 뒤 installer/plist/receipt를 함께 검증하는 별도 승인 작업이다. 현재 준비를 영구 운영 안정성 또는 실제 삭제/재등록 HIL 완료로 기록하지 않는다.
 
 ## 실행 상태
 

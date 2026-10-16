@@ -2,16 +2,18 @@
 
 기준일: 2026-10-15
 
-## 2026-10-16 조명 등록 삭제 — 수동 시험 준비 확인
+## 2026-10-16 조명 등록 삭제 — 현재 실행 환경의 수동 시험 준비 확인
 
 - 사용자가 서버 시간 검증 복구·연결과 실제 Gateway 업데이트를 승인했다. 실제 삭제는 사용자가 직접 수행하며 에이전트는 삭제 사전 조회/취소까지만 확인한다.
-- 기존 삭제 구현 계획 Task6을 완료했다. [x] 로컬 실행/보호 clock 확인, [x] 환경·장비 백업/배포 전 확인, [x] 정상 시각·DB primary 검증/API 연결/삭제 MQTT 인가, [x] 안전 Gateway 업데이트/실제 지원 heartbeat, [x] 새 시간 표본 승인·동일 DB transaction 검증·실제 브라우저 사전 확인/취소다. 실제 삭제·재등록 HIL 성공을 뜻하지 않는다.
+- 기존 삭제 구현 계획 Task6의 현재 실행 환경 준비를 확인했다. [x] 로컬 실행/보호 clock 확인, [x] 환경·장비 백업/배포 전 확인, [x] 정상 시각·DB primary 검증/API 연결/삭제 MQTT 인가, [x] 안전 Gateway 업데이트/실제 지원 heartbeat, [x] 현재 프로세스 실행 정책 조정·반복 시간 검증·실제 브라우저 사전 확인/취소다. 실제 삭제·재등록 HIL이나 재부팅 뒤 영구 설정 완료를 뜻하지 않는다.
 - 초기 clock 미설정/미승인을 확인하고 private 백업 뒤 고정 socket·삭제 전용 ACL4행을 연결했다. 실제 PostgreSQL 주소의 `/128` 접두사 결함을 `64eeb6d0`에서 `host(inet_server_addr())`로 수리/메인 ff-only 반영했다. 임시PG RED→GREEN·관련112PASS·HTTP 삭제14PASS·타입/빌드0, IPC 단독78PASS와 독립 소스 C/I0을 확인했다. 실제 보호 reader+동일 DB transaction 검증은06:51UTC 성공했으며 안전 기준은 유지했다.
 - 실제54비활성/APPLIED·native0과 새3root CMS백업67,404,574bytes/off-device 전체 검증 후 Pi를 정상 종료·USB0 확인·새 컨테이너83cc7135/imagef9aa4ce5로 교체했다. 보호 identity/mapping/provision25개와 환경·인증·mount/security는 유지했고 실제 heartbeat의 삭제 지원 version1을 확인했다. 기존 중지 컨테이너와 백업은 보존한다.
 - compiled API/Web/broker는 정상 쓰기 모드 supervisor27573/readiness5up이다. 기존 차량 감지 규칙은 정상 UI에서 원래 감지100%·유지5초·대기10%/5초·self/sensor로 복구했다. 서버 desired=applied55/errornull과 장비 native applied/intentnull·원 설정 일치를 확인했다. 07:16UTC 재조회도 version1·55/APPLIED·삭제/퇴역/결과/복구 원장0이다.
 - 위55/APPLIED는 당시 복구 증거다. 16:44KST 재조회에서는 규칙56/disabled/APPLIED·errornull이다. 로그에16:27KST 정상 PATCH가 있으므로 자동 안전 비활성화로 단정하거나 이전 승인을 근거로 다시 켜지 않았다. 사용자가 변경한 현재 상태를 보존한다.
 - 시간 검증 후속: 사용자 터미널 실행 후 launchd runs2/새 clock51344·이전 정상 exit0을 확인했다. 새 Mac 인증도 실행 완료했다. 서비스 계정의 primary 검사는 정상이며 SNTP는 간헐 실패했지만5초 간격3회는 모두 성공했다. 실제 서비스의 같은 세대167/9에서 독립 표본1→2→3과 마지막 관측 승인을 완료했다. 16:43:35KST 실제 보호 reader+동일 운영 DB transaction을 통과했고 실제 admin의 방습등1 삭제 버튼 활성화→증거 저장→취소를 확인했다. 시간 오차/유효기간/peer·설치 보호를 완화하거나 root 파일/세대 상태를 초기화하지 않았다. 대기 중 특권 명령0이다.
 - 현장6개/전체8개 조명·퇴역/삭제/결과/복구 원장0과 Gateway fresh heartbeat version1을 재확인했다. 설정→현장 관리→조명 관리의 방습등1 또는2로 사용자가 직접 시험한다. 공용 시간 서버 응답 실패와 Mac sleep/새 세대는 다시503을 만들 수 있다. 이번 준비 성공을 장기 안정성이나 실제 삭제 HIL 완료로 표현하지 않는다.
+- 후속16:47KST 동일 transaction 검증이 다시 실패했고 보호 status의 step167→182·observed를 확인해 단발 성공 판정을 철회했다. 일반 계정20초/200회 관측은 gap최대108.514ms·wall-step최대0.123ms·무효화0이었다. 기존 서비스51344만 runtime latency/throughput tier0으로 조정한 뒤60초간 같은182/9를 유지했고 새3표본·마지막 관측 승인을 통과했다.16:52:09~16:54:06KST 실제 보호 reader+동일 DB transaction 반복 검증12/12와 최종 실제 preview의 삭제 버튼 활성화→취소·조명6개 유지를 확인했다. 증거는 `.local/fixture-removal-20261016-ops/clock-runtime-tier-verification-1792137246735.json`과 `final-clock-runtime-tier-preview.jpg`다.
+- 현재 프로세스 한정 수동 시험 준비이며 영구 설치 정책 수리는 아니다. Mac sleep·서비스 재시작·재부팅 후에는 실행 정책/세대/표본 승인·동일 DB 검증을 다시 확인한다. 영구 정책 변경은 실제 설치 sourceCommit/fileHashes와 작업 트리 차이를 검토하고 installer/plist/receipt를 함께 검증하는 별도 후속이다. 설치 파일·보안/시간 기준·장비 규칙은 이번 후속에서 바꾸지 않았다.
 
 ## 2026-10-16 실제 조명 등록 삭제 구현 및 최종 적용
 
