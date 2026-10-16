@@ -33,9 +33,9 @@
 
 - [x] Task1 장비 명령·시간단위 정적 근거와 실제 확인 필요 범위 판정
 - [x] Task2 기존 BIO 유지시간 1초 코드·DB 변경 파일·격리 UI 검증 (운영 미반영)
-- [ ] Task3 자기 설정 codec/client — 저수준 적용/복구 코드·한정 검증 완료, 실제1초 쓰기·단계별 복귀는 미검증
-- [ ] Task4 자기 제어 공통 계약·서버 저장/검증
-- [ ] Task5 Gateway 내구 적용·복구 연결
+- [x] Task3 자기 설정 codec/client — B1-L006 1초 SET/독립 GET·사용자 밝아짐/낮은 밝기 복귀·전체 원복 확인. 정확한 광출력 경과/재감지 연장 실측은 아님
+- [x] Task4 자기 제어 공통 계약·서버 저장/검증
+- [x] Task5 Gateway 내구 적용·복구 연결
 - [ ] Task6 자기 제어 UI·한정 검증·문서·병합
 
 Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 다르면 자기 제어 Task3–6을 추측해 구현하지 않는다. 확인된 근거와 필요한 다음 행동을 기록한다. 독립적인 Task2는 진행할 수 있지만 전체 자기 제어 완료로 표현하지 않는다.
@@ -124,3 +124,15 @@ Task1에서 근거가 확보되지 않거나 실제 표현 범위가 설계와 �
 - [x] 직접관련Web145·타입포함build·diff/자가리뷰·메뉴/schema 문서를 확인했다. 사용자 단독 지시에 따라 다른 채팅 공유/에이전트0이다.
 - [ ] 개발 브랜치에 병합한다. 최신MAIN을 기능브랜치로 역통합하고 Web155/브라우저2/build를 확인했다. MAIN이실행중APIwatch/Vite원본이므로DB신규열없는부분반영을피해실제MAIN병합은운영승인과함께진행한다. 공유 상태판의 병행 미커밋 내용을 임의 stage/stash/덮어쓰지 않는다.
 - [x] 실제 서버/장비 반영 전에 DB2migration·API/Web/Gateway 버전 일치와 필요한 중단 범위를 사용자에게 알렸다. 새 영구 배포 승인을 요청하며 승인 전 규칙 활성화/RF는 하지 않는다.
+
+### Task 7: 승인된 영구 반영과 UI 시험 준비 (2026-10-16)
+
+사용자가 DB 백업·두 migration·MAIN 병합·서비스 재기동·Gateway 배포를 명시 승인했다. 기존 ID·기본 밝기·인증을 보존한다. 실제 규칙 활성화/움직임 시험/방습등 설정 쓰기는 포함하지 않는다. 단독 진행·다른 채팅 공유 금지를 유지한다.
+
+- [ ] 현재 DB migration/보호 데이터·서비스 lifetime·Gateway/USB/미처리 작업을 읽기 전용으로 확인하고 새 DB 백업을 검증한다.
+- [ ] clean feature commit의 ARM64 production bundle을 생성하고 현재 정책/commit/이미지를 검증한다. 기존 검증 경계를 우회하지 않는다.
+- [ ] API/Web watcher를 정상 중단하고 pending 작업 없음·메인 dirty 원문 백업/해시를 확인한다. broker/PKI/ACL은 변경하지 않는다.
+- [ ] 두 forward migration·Prisma client를 반영하고 MAIN에 검증된 feature를 병합한다. 다른 미커밋 변경은 커밋하지 않고 그대로 보존한다.
+- [ ] 같은 env/인증의 API/Web를 재개하고 readiness·기존 보호 데이터·새 UI를 확인한다.
+- [ ] appliance lock 하에 같은 시점의 Gateway 전체 영속root를 새로 암호화 백업·검증하고 현재 launch/security/identity를 보존한 새 image로 교체한다. 원 컨테이너/백업은 보존한다.
+- [ ] 새 lifetime/USB owner1·MQTT heartbeat·명시 native capability·정확 snapshot/ACK와 UI 설정 가능 상태를 최소 확인한다. 규칙은 활성화하지 않고 결과/남은 한계를 문서화한다.
