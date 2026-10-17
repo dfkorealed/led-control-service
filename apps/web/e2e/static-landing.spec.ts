@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type BrowserContext } from "@playwright/test";
 import { createRequire } from "node:module";
 import { classifyLandingAxe, runLandingAxe } from "./support/landing-accessibility";
 import { installDesignMemoryBoundary } from "./support/design-system-fixture";
@@ -7,6 +7,45 @@ test.use({ serviceWorkers: "block" });
 const boundaries = new WeakMap<object, () => Promise<void>>();
 test.beforeEach(async ({ context, baseURL }) => { boundaries.set(context, await installDesignMemoryBoundary(context, baseURL!)); });
 test.afterEach(async ({ context }) => { await boundaries.get(context)!(); });
+
+async function closeStaticLandingContext(context: BrowserContext, closeBoundary: () => Promise<void>) {
+  try { await closeBoundary(); } finally { await context.close(); }
+}
+
+test("manual static context closes even when its actual boundary finalizer rejects", async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL, serviceWorkers: "block" });
+  const closeBoundary = await installDesignMemoryBoundary(context, baseURL!);
+  const page = await context.newPage();
+  let boundaryError: unknown;
+  let finalizerError: unknown;
+  try {
+    await page.goto("/");
+    expect(await page.evaluate(async () => {
+      let socket = "sent";
+      try { new WebSocket(location.origin.replace("http", "ws")); } catch { socket = "blocked"; }
+      return {
+        api: await fetch("/api/static-finalizer-unconfigured").then(response => response.status),
+        external: await fetch("https://blocked.invalid/", { method: "POST" }).then(() => "sent", () => "blocked"),
+        socket,
+        beacon: navigator.sendBeacon("https://blocked.invalid/", "fixture")
+      };
+    })).toEqual({ api: 404, external: "blocked", socket: "blocked", beacon: false });
+    try {
+      await closeStaticLandingContext(context, async () => {
+        try { await closeBoundary(); } catch (error) { boundaryError = error; throw error; }
+      });
+    } catch (error) { finalizerError = error; }
+    expect(boundaryError).toBeInstanceOf(Error);
+    expect(finalizerError).toBe(boundaryError);
+    for (const sentinel of ["API GET /api/static-finalizer-unconfigured", "EXTERNAL POST https://blocked.invalid/", "WebSocket", "sendBeacon"]) expect(String(finalizerError)).toContain(sentinel);
+    expect(page.isClosed(), "The actual static finalizer must terminate the page before propagating its boundary error").toBe(true);
+    expect(browser.contexts()).not.toContain(context);
+  } finally {
+    // Keep the regression safe if the shared finalizer stops closing on error:
+    // this fallback runs only after the actual-path closure assertions above.
+    if (browser.contexts().includes(context)) await context.close();
+  }
+});
 
 for (const [route, heading] of [["/", /현장의 하루.*한눈에 이어지다/], ["/features", "현장 운영에 필요한 네 가지 흐름"], ["/pricing", "현장에 맞는 운영 방식을 선택하세요."]] as const) {
   test(`standalone production ${route} direct load, reload and all contact actions`, async ({ page }) => {
@@ -66,5 +105,5 @@ test("375px public pages and contact modal support touch, keyboard and axe", asy
         await prepared.dispatchEvent("click"); await expect(page).toHaveURL(new RegExp(`${route}$`));
       }
     }
-  } finally { await closeBoundary(); await context.close(); }
+  } finally { await closeStaticLandingContext(context, closeBoundary); }
 });
