@@ -357,3 +357,44 @@ test("coverage names all customer surfaces and operator routes", () => {
 ## 계획 검토와 실행 인계
 
 2026-10-16 사용자 승인으로 순차 subagent-driven 실행을 시작했다. 공통 API를 먼저 고정하고 같은 공유파일을 한 소유자가 수정한 뒤 소비자를 순차 검토한다. 승인된 Git worktree는 `.worktrees/web-design-system-unification-20261016`이며 시작 SHA는 `24d2d8e4`다. 계획의 명령은 실제 결과가 기록되기 전까지 실행 증거가 아니다. 병합·배포·운영 서비스 변경은 별도 승인 범위다.
+
+## 2026-10-17 승인 후속 — 남은 제어·CAD 6건 수리
+
+사용자는 `남은 제어·CAD 6건도 이어서 수정`, `기존 기능과 테스트 단언 유지`, `전체 테스트와 PC·모바일 브라우저 검증`을 명시 승인하고 필요한 로컬 수리·검증 승인을 일괄 허용했다. 이전 보류를 새 승인 범위로 해제하며 Tasks1–6 구현/검토를 다시 수행하지 않는다. 시작 제품 SHA는 `8a325e7d`, 원 최종 Web은3928PASS/6FAIL/3SKIP이다. 이는 성공 baseline이 아니다. Task7 제어5건의 독립 검토 뒤 Task8 CAD1건과 최종 통합 검증을 순차 실행한다.
+
+추가 보존 계약: 원6 testcase의 기대값·expect 단언·물리 제어0·권한·scope·dirty/적용·단일 reader/close·URL/키보드 의미를 유지한다. mock/helper 수정이 필요하면 실제 접근/콜백 소유권 원인을 증명하고 원 단언을 유지한 최소 수정만 한다. hidden query로 접근 가능성을 가장하거나 timeout/retry/worker/skip/expectedFailure를 완화하지 않는다. 새 운영 기능·API·DB·장비 동작은 추가하지 않는다. Task4의 presentation-only 수명 제한은 이 승인된 focus/reader/CAD 수명 버그 수리에 한해서만 확장하며, command/lease/auth/query 안전 수명은 보존한다.
+
+### Task 7: 제어 이력·닫기3건과 탭 포커스2건
+
+**Files:**
+- Modify: `apps/web/src/features/control/ControlView.tsx`, `manual-workspace/ManualAuxiliaryPanel.tsx`, `automation/ControlModeTabs.tsx`
+- 원인에 필요한 경우만 Modify: `apps/web/src/features/control/{ManualExecutionPanel,CommandHistoryPanel,TemporaryControlPanel}.tsx`
+- Test/최소 fixture 보완: `apps/web/src/features/control/ControlView.test.tsx`, `automation/ControlModeTabs.test.tsx`
+- Create/Test: `apps/web/e2e/control-cad-preservation.spec.ts`
+- Modify: `apps/web/playwright.design-system.config.ts`의 새 mock spec testMatch만
+- Modify: `docs/menus/control.md`, `docs/lesson_leared.md`의 재현 원인/예방 한정
+
+**Interfaces:** 기존 control mode·수동 command owner/API·provider 외부 props를 소비한다. mode를 바꾸더라도 navigation owner/ref가 유지되고, 이력/reader의 접근 가능성·포커스 복귀가 현재 scope에 속해야 한다. 신규 공통 API는 기본적으로 생산하지 않는다. Task8은 동일 E2E 파일과 안전 fixture를 소비하므로 동시에 편집하지 않는다.
+
+- [ ] **Step 1: 원재현·원인 고정.** `pnpm workspace:prepare` 뒤 `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/automation/ControlModeTabs.test.tsx`를 실행하고 원5개 :991/:1016/:1012/:2397/:2582의 실제 실패를 저장한다. 이전 원인 보고를 가설로 취급하고 More/portal/실제 opener와 manual→group owner/ref 경계를 추적한다. mutation 없이 history를 읽는 원 보호 단언을 확인한다.
+- [ ] **Step 2: 재현 RED 보강.** 필요한 경우 실제 opener→이력 상세→단일 close/동일 ref와 desktop↔compact focus, ArrowLeft/Right/Home/End·URL/back-forward/theme·권한 tab을 다루는 독립 회귀를 먼저 추가해 RED를 확인한다. 원 expect·기대값을 삭제/완화하지 않는다. UI의 올바른 접근 경로와 잘못된 test helper 전제를 구분한다.
+- [ ] **Step 3: 원인 최소 수리.** tab owner를 mode별 다른 root에서 재생성하는 원인을 제거하고, reader 이동/닫힘과 focus owner를 현재 scope에서 일관되게 처리한다. helper 원인이 입증되면 실제 사용자 경로를 수행하도록 최소 보완한다. command·선택·타이머·자동 재전송·query·권한·지도 DOM/zoom은 그대로 두며 예외에는 설명 주석을 남긴다.
+- [ ] **Step 4: 집중·브라우저 GREEN.** 위 focused 단위와 새 spec을 실행한다. mock-only 실제 App에서320/390/1024/1440 및 고객 light/dark로 이력/단일닫기/More/Escape·resize focus와 mode keyboard/URL/DOM identity를 확인한다. 물리 POST는 명시 mock 이외0, 실제 hit·잘림/가로 overflow·단일 reader도 확인한다. 원래8수리의 map DOM/588/256 경계를 보존한다.
+- [ ] **Step 5: gate·문서·commit.** typecheck/build/UI정책·ui:check와 관련 브라우저 종료 후 최종 source를 고정하고 전체 `pnpm --filter @led-control/web test`를 단독1회 실행한다. CAD 미해결/새 실패는 모두 보고하고 전체 GREEN으로 부르지 않는다. 메뉴/교훈을 갱신해 소유 파일만 commit하고 독립 task reviewer의 spec/quality 승인을 받는다. 총괄은 plan/spec/status/progress만 갱신한다.
+
+### Task 8: CAD 표시 완료 소유권 수리와 전체 통합 검증
+
+**Files:**
+- Test/진단·최소 mock 보완: `apps/web/src/features/floor-editor/FloorEditorView.test.tsx`
+- 원인에 필요한 경우만 Modify: `apps/web/src/features/floor-editor/{CadImportPreview,CadImportSceneCanvas,FloorEditorView}.tsx` 및 기존 해당 `.test.tsx`
+- Test/Modify: `apps/web/e2e/control-cad-preservation.spec.ts`, 필요한 mock-only `support/settings-api.ts` 또는 기존 CAD support/fixture(정확 경로는 보고서에 명시)
+- Modify: `docs/menus/settings.md`, `docs/lesson_leared.md`, `docs/assets/web-design-system-2026-10-16/coverage.md` 및 최신 공통 gate 수치를 가진 영향 메뉴 문서
+
+**Interfaces:** 기존 `MapSceneCanvas`/CAD preview의 source/generation/revision/attempt·camera/viewport viewKey 및 paint-ready 콜백을 소비한다. 현재 문서·renderer owner의 표시 완료만 적용 가능 상태를 만든다. old scope/취소/late callback·권한·dirty/적용 API·해상도 정책은 보존한다. 원 scope/interruption testcase와 expect는 유지한다.
+
+- [ ] **Step 1: 원인 증거 수집.** Task7 뒤 source에서 CAD85개 및 연관 preview/canvas 단위를 집중 실행한다. full에서 :1442가 실제site중단(:1496) 전 초기 paint에서 실패했다는 사실을 보존한다. singleton `previewPaint.props`에 쓰는 각 canvas owner와 읽는 callback의 scope/document/view key·시점을 추적하고, 필요 시 test-only 계측으로 경계를 입증한다. focused PASS를 원인 해결로 판정하지 않는다.
+- [ ] **Step 2: 결정적 RED.** 입증된 callback-owner/camera/render 경계를 통제해 실제 버그를 재현하는 회귀를 추가한다. 임의 sleep/높은 반복/전체 suite 반복으로 재현을 대신하지 않는다. 제품 결함과 부정확한 mock 수명 계약을 구분하고 mock 수정은 원 expect와 실제 소비 경계를 유지한다. 원인을 못 찾으면 추측 수리 대신 구체적 증거/가설을 총괄에 보고한다.
+- [ ] **Step 3: 최소 GREEN.** 확인된 소유권 원인을 제품 또는 원인 mock 경계에서 수리한다. stale generation/view의 완료로 ready를 강제하지 않고, 무조건true·권한/paint 관문 제거·단언 완화 금지. 원85개와 새 negative/late/scope 회귀를 집중 검증한다.
+- [ ] **Step 4: PC·모바일 통합.** 새 mock-only 실제 App CAD 진입→원본 표시 준비→검토→허용된 mock 적용/dirty 보호·취소·scope 변경을320/390/1024/1440에서 확인한다. 이전 Task7 제어와 기존 디자인 runner 전체를 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts`로 실행한다. disabled의 실제 접근·focus·긴 내용·canvas/toolbar containment를 검사하고 대표 PC/mobile PNG를 실제 확인한다. renderer mock 단위를 실제 GPU 전체 인증으로 확대하지 않는다.
+- [ ] **Step 5: 최종 전체 gate.** `pnpm --filter @led-control/web typecheck`, `build`, `test:ui-policy`, `ui:check`, `test:landing-contract`, `test:public-contract` 및 E2E TypeScript를 실행한다. 모든 owned heavy/listener 종료·source freeze 뒤 `pnpm --filter @led-control/web test`를 단독1회 실행해 원6건 포함 결과를 기록한다. 추가 실패는 원인 확인하며 설정/skip/단언을 바꾸거나 반복 until green 하지 않는다. 필요한 추가 전체 실행은 구체적 근거로 총괄이 기록·승인한다.
+- [ ] **Step 6: 문서·검토·인계.** 소유 변경·메뉴와 source/원 단언 보존을 scoped commit하고 독립 task review를 받는다. 이후 전체branch 최종 검토를 수행하며 Task6 Step5의 남은 Important를 실제 증거로 닫는다. 총괄이 상태판/설계/계획을 맞추고, 전체 단위와 브라우저가 통과한 범위만 완료로 기록한다. 병합·push·PR·배포는 별도 승인 전 실행하지 않는다.

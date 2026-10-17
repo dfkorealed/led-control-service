@@ -2,7 +2,7 @@
 
 현장 운영·시설관리 담당자가 상태·대상·조작 결과를 쉽게 읽고 편하게 작업할 수 있도록 전체 Web의 UI를 일관되게 만든다. 공개 페이지의 기존 브랜드 특징은 유지한다.
 
-상태: **2026-10-16 사용자 승인 · 2026-10-17 과제별 검토·전체 리뷰 보완 반영 · 전체 Web 6FAIL/Important 보존 관문 미해결 · 회귀 수리 범위 결정 대기**
+상태: **2026-10-16 디자인 적용 승인 · 2026-10-17 남은 제어·CAD 6건 수리/기존 단언 유지/전체 Web·PC모바일 검증 추가 승인 · Tasks7–8 진행 중(시작 gate6FAIL)**
 
 작성일: 2026-10-15
 
@@ -102,6 +102,8 @@ lexical 정책만 통과하는 것을 완료로 보지 않는다. 각 page/state
 완료 주장은 실제 통과한 소프트웨어 범위로 제한한다. 운영 API·실제 문의/메일·AWS 배포·native WebView·Safari/WebKit·OS 키보드·Gateway/LED HIL은 해당 증거가 없으면 미검증이다.
 
 ## 문서 갱신과 인계
+
+2026-10-17 후속 승인: 사용자가 남은 제어·CAD6건 수리와 기존 기능·원 테스트 단언 유지, 수정 후 전체 테스트·PC/모바일 검증을 명시 지시하고 필요한 로컬 승인을 일괄 허용했다. [계획 Tasks7–8](../plans/2026-10-16-web-design-system-unification.md)의 소유권/포커스/표시 준비 버그 수리는 이 승인 범위다. 원 expect·물리POST0·권한·scope·dirty·단일reader/close·URL/키보드 계약은 보존한다. 원인으로 확인된 helper/mock은 실제 접근 경로/콜백 소유권에 맞춘 최소 보완만 허용하며 hidden query·skip·timeout/retry 완화로 통과시키지 않는다. 운영·장비·API/DB·배포 또는 새 제품 기능 승인은 아니다.
 
 구현과 같은 작업에서 `docs/menus/monitoring.md`, `control.md`, `statistics.md`, `settings.md`, `landing.md`, `features.md`, `pricing.md`, `operator.md` 중 영향받은 문서를 갱신한다. 공통 overlay/loading/auth 변경이 여러 메뉴에 걸치면 관련 소비 메뉴를 모두 갱신한다. 메뉴별 구현 완료/미구현/부족하거나 개선이 필요한 기능/관련 파일/갱신 규칙 구성을 유지하고 mock·실제 운영·장비 한계를 구별한다.
 
