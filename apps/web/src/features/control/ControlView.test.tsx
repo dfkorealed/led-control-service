@@ -1071,6 +1071,24 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
+  it("keeps exactly one accessible page heading when compact More opens and closes", () => {
+    renderControl("admin", dashboard.site.id, USER_A, undefined, true);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "조명 제어" })).toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "더보기" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(more);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "조명 제어" })).toBeInTheDocument();
+    const manual = screen.getByRole("tab", { name: "수동 제어" });
+    manual.focus(); fireEvent.keyDown(manual, { key: "Escape" });
+    expect(more).toHaveFocus(); expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("tablist", { name: "제어 방식" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "조명 제어" })).toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("does not reveal inherited navigation focus for a new principal entering compact mode", () => {
     const view = renderControl();
     screen.getByRole("tab", { name: "수동 제어" }).focus();

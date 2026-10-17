@@ -116,6 +116,8 @@ for (const width of [320, 390, 1024, 1440]) for (const theme of ["light", "dark"
     try {
     await page.goto("/control?siteId=site-1&mode=manual&keep=literal%25#section");
     const map = page.getByTestId("target-selection-map-viewport"); await expect(map).toBeVisible();
+    const pageHeading = page.getByRole("heading", { level: 1 });
+    await expect(pageHeading).toHaveCount(1); await expect(pageHeading).toHaveText("조명 제어");
     const originalMap = await map.elementHandle();
     const marker = page.locator("[data-spatial-map-marker]").first(); await marker.click();
     await page.getByRole("button", { name: "지도 확대", exact: true }).click();
@@ -123,6 +125,7 @@ for (const width of [320, 390, 1024, 1440]) for (const theme of ["light", "dark"
     await page.getByRole("button", { name: new RegExp(`최근 명령 상세: ${commandId}`) }).click();
     if (width < 760) await expect(page.getByRole("region", { name: "최근 결과 상세" })).toHaveCount(0);
     await expandDetail(page);
+    await expect(pageHeading).toHaveCount(1); await expect(pageHeading).toHaveText("조명 제어");
     const detail = page.getByRole("region", { name: "최근 결과 상세" });
     await expect(detail).toContainText("37%");
     const close = page.getByRole("button", { name: "명령 상세 닫기", exact: true });
@@ -161,11 +164,13 @@ for (const width of [320, 390, 1024, 1440]) for (const theme of ["light", "dark"
       await manual.focus(); await manual.press("Escape");
       await expect(page.getByRole("button", { name: "더보기", exact: true })).toBeFocused();
       await expect(page.getByRole("tablist", { name: "제어 방식" })).toHaveCount(0);
+      await expect(pageHeading).toHaveCount(1); await expect(pageHeading).toHaveText("조명 제어");
     }
     const input = page.getByRole("textbox", { name: "밝기 수치" }); await input.focus();
     await resizeManual(page, 1440); await input.focus();
     await resizeManual(page, 390);
     await expect(input).toBeFocused(); await expect(page.getByRole("button", { name: "더보기", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(pageHeading).toHaveCount(1); await expect(pageHeading).toHaveText("조명 제어");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(writes, "Navigation/history/resize must issue zero physical or other writes").toEqual([]);
     await page.screenshot({ path: info.outputPath("control-preservation.png") });

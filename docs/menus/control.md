@@ -1,11 +1,14 @@
 # 제어 메뉴 기능 현황
 
-최신 제어 보존 수리 검증(2026-10-17 Task7): 최종 source 고정 뒤 단독 Web 전체 1회는 **3,937 PASS / 0 FAIL / 3 SKIP**(266 files, 51.66초)다. 원 제어5건을 해소했고 새 제어 부정 회귀3건을 추가했다. CAD85건은 이번 실행에서 통과했지만 CAD 소스/시험을 변경하지 않았으므로 이전 간헐 실패의 원인 해결로 판정하지 않는다. Task8에서 결정적인 RED와 원인 확인이 필요하다. 상세 명령·원로그·PNG는 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-7-report.md`를 따른다.
+최신 검토 보완(2026-10-17 Task7 round1): 더보기의 열림 상태와 무관하게 공통 페이지 틀에 접근 가능한 `조명 제어` level1 heading을 정확히1개 유지한다. 닫힘→열림→Escape 단위RED1/브라우저RED1 뒤 집중185PASS·strict8조합+차단guard1의Chromium9PASS·타입/빌드/UI정책을 확인했다. 전체 Web 추가 실행은 하지 않았으며 아래3,937PASS는 보완 전 커밋의 결과다. 보완 source를 포함한 다음 전체 관문은 Task8 최종 검증이다.
+
+Task7 최초 커밋 `89d61b31`(round1 보완 전)의 source 고정 뒤 단독 Web 전체 1회는 **3,937 PASS / 0 FAIL / 3 SKIP**(266 files, 51.66초)였다. 원 제어5건을 해소했고 새 제어 부정 회귀3건을 추가했다. CAD85건은 해당 실행에서 통과했지만 CAD 소스/시험을 변경하지 않았으므로 이전 간헐 실패의 원인 해결로 판정하지 않는다. Task8에서 결정적인 RED와 원인 확인이 필요하다. 상세 명령·원로그·PNG는 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-7-report.md`를 따른다.
 
 ## 2026-10-17 제어 이력·단일 닫기·탭 포커스 보존 (Task7)
 
 ### 구현 완료
 
+- 페이지 h1은 공통 scaffold에 남기고 tabs만 portal로 이동한다. compact 더보기 닫힘·열림·Escape 닫힘에서 접근 가능한 `조명 제어` h1은 정확히1개이며 기존 tab identity/focus/keyboard와 reader의 단일 닫기를 보존한다. 검토 보완은 제목 이동2줄과 해당 회귀 한정이다.
 - 실제 더보기→상세 보기 경로로 이력을 열고 닫기1개·재열기·물리 요청0건을 검사한다. 원 단언과 기대값은 보존했다. desktop 상세 닫기→compact 이동은 전환 직전 현재 More 내용이 실제 focus를 소유한 경우에만 reader를 공개하며 Escape는 실제 연결된 더보기로 복귀한다.
 - 제어 방식 navigation의 React 소유자와 portal target을 모드/표현 전환에서 유지한다. 동일 tab DOM/ref로 ArrowLeft/Right·Home/End, query/hash·뒤로/앞으로·테마를 보존하고 현재 사용자/현장의 연결된 선택 tab만 focus를 복원한다. 바깥 밝기 입력·닫힌 reader·다른 principal은 자동 공개하지 않는다.
 - 실제 App 320/390/1024/1440px×고객 light/dark8조합, unknown API/command write의 abort 방어1건, 기존 지도588px/편집기256px/카메라8건을 확인했다. 최종 Chromium20expected는 실제17PASS와 기존3의도된 teardownFAIL을 구분한 결과다. 정상8조합은 write0/unknown API0이며 backend/장비 요청은 없다.

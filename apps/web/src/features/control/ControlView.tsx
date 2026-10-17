@@ -622,6 +622,7 @@ export function ControlView({
 
   const modeTabs = <ControlNavigationSlot host={navigationHost} focus={navigationFocus} scope={navigationScope} />;
   const withNavigation = (content: ReactNode) => <>
+    <Heading as="h1" className="sr-only">조명 제어</Heading>
     {createPortal(<div className="contents" onFocusCapture={event => { navigationFocus.current = { element: event.target as HTMLElement, scope: navigationScope }; }}
       onBlurCapture={event => {
         // Native DOM moves emit focusout with no related target, even while
@@ -629,7 +630,7 @@ export function ControlView({
         // destination outside this host releases it immediately.
         if (event.relatedTarget && !navigationHost.contains(event.relatedTarget as Node)) navigationFocus.current = null;
       }}>
-      <Heading as="h1" className="sr-only">조명 제어</Heading><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />
+      <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />
     </div>, navigationHost)}
     {content}
   </>;
