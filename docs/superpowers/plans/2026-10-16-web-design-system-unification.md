@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 2026-10-17 현재 Task1–6 구현·과제별 독립 검토(필요 보완 재검토 포함)를 마쳤으며, whole-branch 독립 최종 검토와 총괄 문서 동기화는 진행 중이다. Task6 결합 브라우저164expected/0unexpected(실제161passed+의도된 teardown실패3)·인증/운영자24PASS다. 최신 전체 Web은3925PASS/5ControlFAIL/3SKIP으로 전체GREEN은 아니다. CAD85는 최종 통과했지만 과거principal/onSaved-purge/floor interruption 및 Task3 중간실패의 원인은 미확정으로 보존한다. 아래 체크는 실행·근거 확인 완료를 뜻하며 실패한 소프트웨어 gate의 성공 판정은 아니다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
+상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. 2026-10-17 현재 공통 기반·고객/운영자/인증/공개 소비와 coverage를 분리 브랜치에 반영하고 과제별 검토·whole-branch 리뷰·단일 보완/재검토를 수행했다. 최종 보완 ae522893은 통계 카드 누락과 검증도구3건을 해소했으며 새 fix-diff 결함은 없지만, 보존 관문1건(Important)은 미해결이다. 최신 canonical 전체 Web은3928PASS/6FAIL/3SKIP(Control5+CAD 초기준비1)으로 전체GREEN·전체완료·merge-ready가 아니다. 원212브라우저는208actualPASS+3의도된FAIL+cleanup timeout1, 승인 수리 뒤 최종delta는59actualPASS+3의도된FAIL/0unexpected다. 212전체PASS로 합성하지 않는다. Task6 Step5는 미해결 관문 때문에 체크를 보류하며, Control interaction/history 방향과 CAD callback-owner 원인·수리 범위의 별도 결정을 기다린다. 과거CAD/Task3 미재현의 인과 한계와 원로그를 보존하고 병합·push·배포·운영/API/DB/장비 작업은 실행하지 않는다.
 
 ## Global Constraints
 
@@ -350,7 +350,9 @@ test("coverage names all customer surfaces and operator routes", () => {
 - [x] **Step 3: 생성CSS·사용성 최종 검증.** `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts e2e/design-system-coverage.spec.ts e2e/design-system-roles.spec.ts e2e/ui-eight-layout-regressions.spec.ts`를 실행한다. matrix의 exact computed값·텍스트 Range·실제hit·keyboard/tap/wheel/focus·theme/motion·긴내용을 저장한다. lexical PASS와 시각/동작 PASS를 다른 열로 기록한다.
 - [x] **Step 4: 필수 소프트웨어 gate.** 준비된 dependency는 저장소 `pnpm workspace:prepare` 규칙을 따른다. `pnpm --filter @led-control/web typecheck`, `pnpm --filter @led-control/web test`, `pnpm --filter @led-control/web build`, `pnpm --filter @led-control/web test:ui-policy`, `pnpm --filter @led-control/web ui:check`, landing/public 계약을 실행한다. 정책0/0·빈baseline·anchor불변을 확인한다. 실패6의 현재 원인과 전후 증거가 남으면 전체GREEN·전체완료로 발표하지 않고 처리 방향을 총괄에 보고한다.
 - [ ] **Step 5: 독립 최종 QA.** 작성자가 아닌 reviewer가 spec/guide/전체diff/coverage와 미실행환경을 대조한다. 색 대비 미달이면 승인role 대체 가능성을 확인하고 토큰변경필요는 별도 승인으로 분리한다. 성공값 반올림·무근거threshold·원본수치삭제 금지. C/I 지적을 해소하고 실제 실행된 범위를 명시한다.
-- [ ] **Step 6: 문서 동기화·scoped commit.** menu8개와 guide coverage·spec·계획·상태판을 실제 결과로 맞춘다. diff check·링크/경로·보호파일 확인 후 이 Task Files의 소유 변경만 선택 stage한다. 상태판은 총괄이 자신의 구간만 반영하며 다른 owner 구간·AGENTS는 제외한다. `git commit -m "docs(web): record design system coverage and verification limits"`. 운영·메일·native·장비 검증으로 확대하지 않는다.
+- [x] **Step 6: 문서 동기화·scoped commit.** menu8개와 guide coverage·spec·계획·상태판을 실제 결과로 맞춘다. diff check·링크/경로·보호파일 확인 후 이 Task Files의 소유 변경만 선택 stage한다. 상태판은 총괄이 자신의 구간만 반영하며 다른 owner 구간·AGENTS는 제외한다. `git commit -m "docs(web): record design system coverage and verification limits"`. 운영·메일·native·장비 검증으로 확대하지 않는다.
+
+2026-10-17 최종 기록: 과제별/전체branch 리뷰와 단일 보완 재검토는 수행했다. 통계 카드 및 검증도구4건은 해소됐으나 Step5의 보존 관문1건(Important, Control5+CAD1)은 미해결이므로 완료 체크를 보류한다. Step6 체크는 문서·scoped commit 동기화 완료이며 전체 테스트 성공/병합 승인이 아니다. [최신 coverage](../../assets/web-design-system-2026-10-16/coverage.md)의 원212실패·최종delta62·canonical3928/6/3과 미실행 범위를 따른다.
 
 ## 계획 검토와 실행 인계
 
