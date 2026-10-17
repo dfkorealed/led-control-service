@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 Task1–4 구현·독립 검토(필요 보완 재검토 포함)를 완료하고 Task5를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 전체 unit5FAIL은 남아 있고 Task1 추가 관측 browser3FAIL은 Task2에서 전제·의미를 검증해 실제 흐름 PASS로 확인했다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
+상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. `codex/web-design-system-unification-20261016`에서 2026-10-17 현재 Task1–5 구현·독립 검토(필요 보완 재검토 포함)를 완료하고 Task6 전체 coverage·독립 QA를 시작한다. 아래 체크박스는 검증·독립 검토가 끝난 실제 단계만 완료한다. 최신 전체 unit6FAIL(Control5+추가CAD principal1)은 남고 CAD focused85/cohort87 미재현의 원인은 미확정이다. Task1 추가 관측 browser3FAIL은 Task2에서 전제·의미를 검증해 실제 흐름 PASS로 확인했다. 운영 서비스·DB·장비 작업은 포함하지 않는다.
 
 ## Global Constraints
 
@@ -280,13 +280,14 @@ expect(await target.evaluate(e => { const r = document.createRange(); r.selectNo
 - Create: `apps/web/src/components/ui/MobilePreparation.tsx`
 - Create/Test: `apps/web/src/components/ui/MobilePreparation.test.tsx`
 - Modify: `apps/web/src/components/ui/public-site/{SiteFrame,PublicContactDialog}.tsx`
+- 총괄 한정 승인 Modify: `apps/web/src/features/landing/PublicSiteLayout.tsx`의 header-contact caller에 `min-w-11`만 추가. 실제320px의40.921875×44 target을44px로 보완하며 hero/font/padding/공통Button landing 정책은 보존한다.
 - Test: `apps/web/src/components/ui/public-site/PublicLogin.test.tsx`, `apps/web/src/features/landing/PublicContact.test.tsx`
 - Modify/Test: `apps/web/e2e/{public-deploy,static-landing}.spec.ts`
 - Modify: `docs/menus/{landing,features,pricing}.md`
 
 **Interfaces:** `MobilePreparation({failed=false}: {failed?:boolean}): JSX.Element`를 생산해 main/service만 소비한다. 기존 prepare/fail 문구·role·reload action 유지. landing은 private bootstrap을 import하지 않는다. 공개상담·PublicLogin의 public API는 그대로다.
 
-- [ ] **Step 1: 실패 단언 작성.** 일반 main/landing/service의 public3 route, 로그인 활성/준비중·외부HTTPS 링크, tel/mailto·선택plan·API호출0을 mode별 단언한다. 404가 JS 없이HTTP404·귀환44hit·functional title/body를 표시하고 bootstrap 준비/실패가 같은 공통 wrapper·상태 role을 쓰는지 검사한다.
+- [x] **Step 1: 실패 단언 작성.** 일반 main/landing/service의 public3 route, 로그인 활성/준비중·외부HTTPS 링크, tel/mailto·선택plan·API호출0을 mode별 단언한다. 404가 JS 없이HTTP404·귀환44hit·functional title/body를 표시하고 bootstrap 준비/실패가 같은 공통 wrapper·상태 role을 쓰는지 검사한다.
 
 ```ts
 test("public contact remains local links without API", async ({ page }) => {
@@ -308,9 +309,9 @@ test("404 retains CSS and works with JavaScript disabled", async ({ browser, bas
   await context.close();
 });
 ```
-- [ ] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec vitest run src/components/ui/MobilePreparation.test.tsx src/features/landing/PublicContact.test.tsx src/components/ui/public-site/PublicLogin.test.tsx` → 신규 공통 entry 계약 부재 FAIL을 기록하고 browser에서 독립404의 기존 typography/inset 불일치를 확인한다.
-- [ ] **Step 3: 최소 구현.** main/service preparation을 공통화하고 root/unmount/bootstrap 순서·native 요청 수명을 유지한다. 404.html은 raw inline style을 제거하고 `/src/styles.css` stylesheet와 승인utility를 사용해 JS-free HTTP404를 유지한다. token/inline색을 복사하지 않는다. public hero/font/landing card geometry·palette·motion은 유지하고 상담modal 일반 내용만 regular로 정합화한다.
-- [ ] **Step 4: GREEN과 bundle 검증.** Step2 PASS, `pnpm --filter @led-control/web test:landing-contract`, `pnpm --filter @led-control/web test:public-contract`. 아래 네 명령을 순서대로 실행하고 각 mode 산출물을 freeze한다. 기존 public config가 소유 preview의 cleanup까지 완료한 다음 다음mode를 build한다. 404 산출 CSS href·private module 배제·dot/privateasset HTTP404 계약을 검사하며15341 dev로 대체하지 않는다.
+- [x] **Step 2: RED 실행.** `pnpm --filter @led-control/web exec vitest run src/components/ui/MobilePreparation.test.tsx src/features/landing/PublicContact.test.tsx src/components/ui/public-site/PublicLogin.test.tsx` → 신규 공통 entry 계약 부재 FAIL을 기록하고 browser에서 독립404의 기존 typography/inset 불일치를 확인한다.
+- [x] **Step 3: 최소 구현.** main/service preparation을 공통화하고 root/unmount/bootstrap 순서·native 요청 수명을 유지한다. 404.html은 raw inline style을 제거하고 `/src/styles.css` stylesheet와 승인utility를 사용해 JS-free HTTP404를 유지한다. token/inline색을 복사하지 않는다. public hero/font/landing card geometry·palette·motion은 유지하고 상담modal 일반 내용만 regular로 정합화한다.
+- [x] **Step 4: GREEN과 bundle 검증.** Step2 PASS, `pnpm --filter @led-control/web test:landing-contract`, `pnpm --filter @led-control/web test:public-contract`. 아래 네 명령을 순서대로 실행하고 각 mode 산출물을 freeze한다. 기존 public config가 소유 preview의 cleanup까지 완료한 다음 다음mode를 build한다. 404 산출 CSS href·private module 배제·dot/privateasset HTTP404 계약을 검사하며15341 dev로 대체하지 않는다.
 
 ```bash
 WEB_DEPLOY_MODE=landing pnpm --filter @led-control/web build:public
@@ -318,8 +319,8 @@ WEB_DEPLOY_MODE=landing PUBLIC_PORT=15342 pnpm --filter @led-control/web exec pl
 WEB_DEPLOY_MODE=service pnpm --filter @led-control/web build:public
 WEB_DEPLOY_MODE=service PUBLIC_PORT=15342 pnpm --filter @led-control/web exec playwright test --config=playwright.public.config.ts
 ```
-- [ ] **Step 5: 경계와 동작 검증.** 공개429/430/430.5/431·719/720/720.5/721·1049/1050/1050.5/1051px 및 기본4viewport에서 header/anchor/hero/font·normal/reduced-motion·modal keyboard/복귀·href를 확인한다. archive는 URL/링크 보호만 검사한다.
-- [ ] **Step 6: 문서·검토·commit.** 공개 메뉴3문서에 entry별 검증과 운영 한계를 기록한다. 이 Task Files 실제 변경만 선택 stage하고 타 소유 변경 제외 후 `git commit -m "refactor(web): align public utility states and entry presentation"`.
+- [x] **Step 5: 경계와 동작 검증.** 공개429/430/430.5/431·719/720/720.5/721·1049/1050/1050.5/1051px 및 기본4viewport에서 header/anchor/hero/font·normal/reduced-motion·modal keyboard/복귀·href를 확인한다. archive는 URL/링크 보호만 검사한다.
+- [x] **Step 6: 문서·검토·commit.** 공개 메뉴3문서에 entry별 검증과 운영 한계를 기록한다. 이 Task Files 실제 변경만 선택 stage하고 타 소유 변경 제외 후 `git commit -m "refactor(web): align public utility states and entry presentation"`.
 
 ## Task 6: 전체 coverage·독립 최종 QA
 
