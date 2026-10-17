@@ -1,5 +1,6 @@
 import { CircleCheck, Clock3, Eye, TriangleAlert } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type MutableRefObject } from "react";
+import { createPortal } from "react-dom";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -59,7 +60,7 @@ import {
 } from "./active-command-session";
 import { SpatialTargetSelector } from "./target-selection/SpatialTargetSelector";
 import { ManualExecutionPanel } from "./ManualExecutionPanel";
-import { ManualAuxiliaryProvider } from "./manual-workspace/ManualAuxiliaryPanel";
+import { ManualAuxiliaryProvider, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
 import { ManualSelectionPanel } from "./target-selection/ManualSelectionPanel";
 
 const ScheduleControlPanel = lazy(async () => {
@@ -95,8 +96,20 @@ export function ControlView({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  // Mode pages have different presentation roots. Keep navigation's React
+  // owner and portal target stable so keyboard refs survive those roots and
+  // the compact More reader without remounting the command owner.
+  const [navigationHost] = useState(() => {
+    const host = document.createElement("div");
+    // The portal target is an ownership anchor, not a new grid item with an
+    // intrinsic minimum width (which would stretch the compact reader).
+    host.style.display = "contents";
+    return host;
+  });
+  const navigationFocus = useRef<{ element: HTMLElement; scope: string } | null>(null);
   const requestedMode = new URLSearchParams(location.search).get("mode");
   const { data, isLoading, error } = useControlDashboard(siteId);
+  const navigationScope = `${userId}:${data?.site.id ?? siteId ?? ""}`;
   const capabilities = data?.capabilities;
   const canControl = capabilities?.control === true;
   const temporaryPrincipalKey = JSON.stringify([userId, userRole, canControl]);
@@ -607,12 +620,24 @@ export function ControlView({
     : isSubmitting ? "명령 전송 중"
     : message || (readOnly ? "조회 전용" : blockMessage || (controlsLocked ? "새 제어 잠금 · 더보기에서 상태를 확인하세요." : "")));
 
-  const modeTabs = <><Heading as="h1" className="sr-only">조명 제어</Heading><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} /></>;
+  const modeTabs = <ControlNavigationSlot host={navigationHost} focus={navigationFocus} scope={navigationScope} />;
+  const withNavigation = (content: ReactNode) => <>
+    {createPortal(<div className="contents" onFocusCapture={event => { navigationFocus.current = { element: event.target as HTMLElement, scope: navigationScope }; }}
+      onBlurCapture={event => {
+        // Native DOM moves emit focusout with no related target, even while
+        // the tab reports connected. Preserve that move's intent; an actual
+        // destination outside this host releases it immediately.
+        if (event.relatedTarget && !navigationHost.contains(event.relatedTarget as Node)) navigationFocus.current = null;
+      }}>
+      <Heading as="h1" className="sr-only">조명 제어</Heading><ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />
+    </div>, navigationHost)}
+    {content}
+  </>;
   const groupMutationsBlocked = isSubmitting || restorePending || commandInProgress || commandSessionBlocked || Boolean(storageError);
 
   if (capabilities && mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
-    return (
+    return withNavigation(
       <PageStack as="section" className={controlScreenClassName} data-control-screen="">
         {modeTabs}
         {eventSiteId ? (
@@ -626,7 +651,7 @@ export function ControlView({
 
   if (capabilities && mode === "schedule") {
     const scheduleSiteId = data?.site.id ?? siteId;
-    return (
+    return withNavigation(
       <PageStack as="section" className={controlScreenClassName} data-control-screen="">
         {modeTabs}
         {scheduleSiteId ? (
@@ -659,24 +684,24 @@ export function ControlView({
   }
 
   if (isLoading && !data) {
-    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<LoadingIndicator>제어 대상을 불러오는 중입니다.</LoadingIndicator></PageStack>;
+    return withNavigation(<PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<LoadingIndicator>제어 대상을 불러오는 중입니다.</LoadingIndicator></PageStack>);
   }
 
   if (error && !data) {
-    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="danger" role="alert">제어 대상을 불러오지 못했습니다.</Text></PageStack>;
+    return withNavigation(<PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="danger" role="alert">제어 대상을 불러오지 못했습니다.</Text></PageStack>);
   }
 
   if (!data) {
-    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></PageStack>;
+    return withNavigation(<PageStack as="section" className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></PageStack>);
   }
 
   if (mode === "group") {
-    return <PageStack as="section" className={controlScreenClassName} data-control-screen="">
+    return withNavigation(<PageStack as="section" className={controlScreenClassName} data-control-screen="">
       {modeTabs}
       <div id="control-mode-panel-group" role="tabpanel" aria-labelledby="control-mode-group" className="grid min-h-0 min-w-0 flex-1">
         <FixtureGroupsPanel key={`${userId}:${data.site.id}`} siteId={data.site.id} dashboard={data} canManage={canManage} mutationsBlocked={groupMutationsBlocked} />
       </div>
-    </PageStack>;
+    </PageStack>);
   }
 
   const importantStatus = <div role="status" aria-label="제어 중요 상태" aria-live="polite" aria-atomic="true" className="max-h-20 overflow-y-auto overscroll-contain text-caption">
@@ -687,7 +712,7 @@ export function ControlView({
                 </div>;
   const auxiliaryContent = <>
           {singleColumnLayout ? <>
-            <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} allowGroups={canControl} />
+            {modeTabs}
             <InlineStatusSummary label="현장 전체" items={[
               { id: "total", label: "전체", value: data.summary.totalFixtures ?? null, tone: "neutral" },
               { id: "online", label: "온라인", value: data.summary.onlineFixtures ?? null, tone: "success" },
@@ -716,7 +741,7 @@ export function ControlView({
   // h-full alone leaves content-start's implicit auto rows at intrinsic
   // height. The size-contained canvas contributes zero intrinsic height, so
   // pass the finite remainder through explicit rows in manual mobile only.
-  return (
+  return withNavigation(
     <>
     <ModalDialog isOpen={temporaryPreviewScopeMatches} title="시간제 적용 미리보기" onClose={() => setTemporaryPreview(null)} actions={<>
       <Button type="button" variant="secondary" onClick={() => setTemporaryPreview(null)}>취소</Button>
@@ -727,7 +752,7 @@ export function ControlView({
     </ModalDialog>
     <ManualAuxiliaryProvider enabled={singleColumnLayout} scope={`${userId}:${data.site.id}:${selection.mode}`}>
     <PageStack as="section" className={cn(controlScreenClassName, singleColumnLayout && "h-full grid-rows-[auto_minmax(0,1fr)] gap-1")} data-control-screen="">
-      {singleColumnLayout ? <><Heading as="h1" className="sr-only">조명 제어</Heading><Text variant="caption">수동 제어</Text></> : modeTabs}
+      {singleColumnLayout ? <Text variant="caption">수동 제어</Text> : modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className={`grid min-h-0 min-w-0 flex-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} tablet:flex tablet:flex-col`} data-control-manual-panel="">
       <div className={`grid min-h-0 min-w-0 flex-1 grid-cols-1 ${singleColumnLayout ? "grid-rows-[minmax(0,1fr)_auto] gap-1" : "gap-4"} compact:overflow-y-auto compact:overscroll-contain compact:grid-cols-[minmax(0,1fr)_350px] compact:grid-rows-[auto_minmax(min-content,1fr)]`} data-control-layout="">
         {/* Subgrid shares the toolbar row without reparenting the live map or
@@ -803,6 +828,30 @@ export function ControlView({
   );
 }
 
+/** Only the private navigation DOM moves; command state stays in ControlView. */
+function ControlNavigationSlot({ host, focus, scope }: { host: HTMLDivElement; focus: MutableRefObject<{ element: HTMLElement; scope: string } | null>; scope: string }) {
+  const slot = useRef<HTMLDivElement>(null);
+  const auxiliary = useManualAuxiliary();
+  const restoring = useRef(false);
+  useLayoutEffect(() => {
+    // Replaying a layout effect must not move an already placed focused tab.
+    if (slot.current && host.parentNode !== slot.current) slot.current.appendChild(host);
+    const owned = focus.current;
+    restoring.current = owned?.scope === scope && host.contains(owned.element);
+    if (restoring.current && auxiliary?.enabled && auxiliary.active !== "more") auxiliary.revealFocused("more");
+  }, [host, scope]);
+  // The containing reader also moves its host in layout effects. Restore
+  // after that DOM placement, when the selected tab is actually displayed.
+  useEffect(() => {
+    const owned = focus.current;
+    if (restoring.current && owned?.scope === scope && owned.element.isConnected && !owned.element.closest("[hidden]")
+      && owned.element.getAttribute("aria-selected") === "true") {
+      owned.element.focus({ preventScroll: true }); restoring.current = false;
+    }
+  }, [auxiliary?.active, auxiliary?.host, host, scope]);
+  return <div ref={slot} className="contents" />;
+}
+
 function manualCommandSummary(status: CommandStatusResponse) {
   const result = presentRecentCommandResult(status);
   return result.kind === "completed" ? result.label : result.kind === "pending" ? "명령 처리 중"
@@ -850,7 +899,8 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
 }) {
   const [details, setDetails] = useState<{ id: string; open: boolean } | null>(null);
   const detailsOpen = details?.id === displayedStatus?.id && details?.open === true;
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const auxiliary = useManualAuxiliary();
   const closeOwnedFocus = useRef(false);
   const previousDetailLayout = useRef({ singleColumnLayout, id: displayedStatus?.id, open: detailsOpen });
   useLayoutEffect(() => {
@@ -865,7 +915,10 @@ function ManualControlFeedback({ compact = false, singleColumnLayout = false, sc
     if (!detailsOpen || previous.id !== displayedStatus?.id) closeOwnedFocus.current = false;
     previousDetailLayout.current = { singleColumnLayout, id: displayedStatus?.id, open: detailsOpen };
   }, [singleColumnLayout, displayedStatus?.id, detailsOpen]);
-  const closeAction = <Button ref={closeRef} variant="secondary" type="button" disabled={commandInProgress || isSubmitting}
+  const closeAction = <Button ref={element => {
+    closeRef.current = element;
+    if (element && closeOwnedFocus.current && auxiliary) auxiliary.focusReplacement.current = element;
+  }} variant="secondary" type="button" disabled={commandInProgress || isSubmitting}
     onFocus={() => { closeOwnedFocus.current = true; }} onBlur={() => { closeOwnedFocus.current = false; }}
     onClick={onCloseDetail}>명령 상세 닫기</Button>;
   const result = presentRecentCommandResult(displayedStatus);

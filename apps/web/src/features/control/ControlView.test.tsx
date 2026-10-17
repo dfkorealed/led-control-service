@@ -1033,6 +1033,53 @@ describe("ControlView 대상 선택", () => {
     focus.mockRestore();
   });
 
+  it("restores the More opener after Escape from a detail revealed by desktop-to-compact focus", async () => {
+    const status = { ...createCommandStatus(commandIds.terminal, "verified_applied"), siteId: dashboard.site.id, outcome: "applied" };
+    mocks.apiGet.mockResolvedValue({ items: [status], nextCursor: null });
+    mocks.useCommandStatus.mockImplementation(id => ({ data: id === status.id ? status : undefined, error: null, isFetching: false, refetch: vi.fn() }));
+    const view = renderControl();
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(status.id) }));
+    expandRecentDetails(); screen.getByRole("button", { name: "명령 상세 닫기" }).focus();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, undefined, true));
+    const close = screen.getByRole("button", { name: "명령 상세 닫기" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "더보기" })).toHaveFocus();
+    expect(screen.queryByRole("region", { name: "최근 결과 상세" })).not.toBeInTheDocument();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, undefined, false));
+    screen.getByRole("textbox", { name: "밝기 수치" }).focus();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_A, undefined, true));
+    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("textbox", { name: "밝기 수치" })).toHaveFocus();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("keeps the same mobile navigation tabs focused and readable when returning from groups", async () => {
+    renderControl("admin", dashboard.site.id, USER_A, undefined, true);
+    fireEvent.click(screen.getByRole("button", { name: "더보기" }));
+    const manual = screen.getByRole("tab", { name: "수동 제어" });
+    const group = screen.getByRole("tab", { name: "그룹/구역" });
+    manual.focus(); fireEvent.keyDown(manual, { key: "End" });
+    expect(group).toHaveFocus();
+    fireEvent.keyDown(group, { key: "Home" });
+    expect(screen.getByRole("tab", { name: "수동 제어" })).toBe(manual);
+    expect(manual).toHaveFocus(); expect(manual).toBeVisible();
+    expect(screen.getAllByRole("tablist", { name: "제어 방식" })).toHaveLength(1);
+    fireEvent.keyDown(manual, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "더보기" })).toHaveFocus();
+    expect(screen.queryByRole("tablist", { name: "제어 방식" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("does not reveal inherited navigation focus for a new principal entering compact mode", () => {
+    const view = renderControl();
+    screen.getByRole("tab", { name: "수동 제어" }).focus();
+    view.rerender(controlElement(dashboard.site.id, "admin", USER_B, undefined, true));
+    expect(screen.getByRole("button", { name: "더보기" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("tablist", { name: "제어 방식" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("clears close focus intent when command detail becomes unavailable before reopening", async () => {
     const status = { ...createCommandStatus(commandIds.terminal, "verified_applied"), siteId: dashboard.site.id, outcome: "applied" };
     mocks.apiGet.mockResolvedValue({ items: [status], nextCursor: null });
@@ -2843,6 +2890,10 @@ async function expectScreenStatusCount(count: number) {
 }
 
 function expandRecentDetails() {
+  // Compact feedback is a reader inside More. Follow the visible opener;
+  // querying hidden portal text would bypass the user's disclosure path.
+  const more = screen.queryByRole("button", { name: "더보기" });
+  if (more?.getAttribute("aria-expanded") === "false") fireEvent.click(more);
   const toggle = screen.queryByRole("button", { name: "상세 보기" });
   if (toggle) fireEvent.click(toggle);
 }

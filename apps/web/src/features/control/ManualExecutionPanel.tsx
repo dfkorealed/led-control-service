@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ManualAuxiliaryContent, manualCompactButtonHitClassName, useManualAuxiliary } from "./manual-workspace/ManualAuxiliaryPanel";
 import { Button, LoadingSpinner, NumberField, Slider, Text } from "../../components/ui";
 
@@ -27,6 +27,10 @@ export function ManualExecutionPanel({ brightness, controlsLocked, canSubmit, ap
   const moreOpen = compact && auxiliary ? auxiliary.active === "more" : inlineMoreOpen;
   const moreId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    auxiliary?.registerOpener("more", moreRef.current);
+    return () => auxiliary?.registerOpener("more", null);
+  }, [auxiliary?.registerOpener]);
   const [invalidDraft, setInvalidDraft] = useState(false);
   const [restored, setRestored] = useState("");
   const [inputRevision, setInputRevision] = useState(0);

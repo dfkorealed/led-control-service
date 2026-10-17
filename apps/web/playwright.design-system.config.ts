@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: ["design-system-{foundation,roles,coverage,security}.spec.ts", "ui-eight-layout-regressions.spec.ts", "account-security.spec.ts", "calm-operations-auth-operator.spec.ts"],
+  testMatch: ["design-system-{foundation,roles,coverage,security}.spec.ts", "ui-eight-layout-regressions.spec.ts", "control-cad-preservation.spec.ts", "account-security.spec.ts", "calm-operations-auth-operator.spec.ts"],
   workers: 1,
   timeout: 30_000,
   expect: { timeout: 5_000 },

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useId, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useId, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { Button, Heading } from "../../../components/ui";
 
@@ -16,6 +16,9 @@ type Auxiliary = {
   registerHost: (host: HTMLDivElement | null) => void;
   toggle: (kind: Kind, opener: HTMLButtonElement) => void;
   close: (restoreFocus?: boolean) => void;
+  revealFocused: (kind: Kind) => void;
+  registerOpener: (kind: Kind, element: HTMLButtonElement | null) => void;
+  focusReplacement: MutableRefObject<HTMLElement | null>;
 };
 const Context = createContext<Auxiliary | null>(null);
 
@@ -24,6 +27,9 @@ export function ManualAuxiliaryProvider({ enabled, scope, children }: { enabled:
   const [opened, setOpened] = useState<{ scope: string; kind: Kind } | null>(null);
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
+  const openers = useRef<Partial<Record<Kind, HTMLButtonElement | null>>>({});
+  const previousScope = useRef(scope);
+  const focusReplacement = useRef<HTMLElement | null>(null);
   const panelId = useId();
   const active = enabled && opened?.scope === scope ? opened.kind : null;
   const registerHost = useCallback((node: HTMLDivElement | null) => setHost(node), []);
@@ -31,7 +37,22 @@ export function ManualAuxiliaryProvider({ enabled, scope, children }: { enabled:
     setOpened(null);
     if (restoreFocus && opener.current?.isConnected) opener.current.focus({ preventScroll: true });
   }, []);
-  useLayoutEffect(() => { setOpened(null); }, [scope]);
+  const registerOpener = useCallback((kind: Kind, element: HTMLButtonElement | null) => {
+    openers.current[kind] = element;
+    // A focused navigation child can reveal before its execution parent's
+    // layout effect registers More. Fill only a missing/disconnected opener.
+    if (element && !opener.current?.isConnected) opener.current = element;
+  }, []);
+  const revealFocused = useCallback((kind: Kind) => {
+    opener.current = openers.current[kind] ?? opener.current;
+    setOpened({ scope, kind });
+  }, [scope]);
+  useLayoutEffect(() => {
+    // A child may reveal its currently focused navigation on first mount.
+    // Only a real scope replacement invalidates that presentation intent.
+    if (previousScope.current !== scope) { setOpened(null); opener.current = null; focusReplacement.current = null; }
+    previousScope.current = scope;
+  }, [scope]);
   useEffect(() => {
     if (!active) return;
     // The opener remains outside the nonmodal panel. Escape must close there
@@ -42,9 +63,10 @@ export function ManualAuxiliaryProvider({ enabled, scope, children }: { enabled:
     document.addEventListener("keydown", escape);
     return () => document.removeEventListener("keydown", escape);
   }, [active, close]);
-  return <Context.Provider value={{ enabled, active, panelId, host, registerHost, close,
+  return <Context.Provider value={{ enabled, active, panelId, host, registerHost, close, revealFocused, registerOpener, focusReplacement,
     toggle: (kind, trigger) => {
       opener.current = trigger;
+      openers.current[kind] = trigger;
       if (active === kind) close(); else setOpened({ scope, kind });
     } }}>{children}</Context.Provider>;
 }
@@ -70,6 +92,8 @@ export function ManualAuxiliaryContent({ kind, children, mobileOnly = false }: {
   const auxiliary = useManualAuxiliary();
   const inlineHost = useRef<HTMLDivElement>(null);
   const focusToRestore = useRef<HTMLElement | null>(null);
+  const focusedWithin = useRef<HTMLElement | null>(null);
+  const previousEnabled = useRef(auxiliary?.enabled);
   const [container] = useState(() => {
     const element = document.createElement("div");
     element.style.display = "contents";
@@ -83,25 +107,44 @@ export function ManualAuxiliaryContent({ kind, children, mobileOnly = false }: {
     const destination = auxiliary?.enabled ? auxiliary.host : inlineHost.current;
     if (auxiliary && destination) {
       destination.appendChild(container);
-      const focused = focusToRestore.current;
+      const wasFocused = focusToRestore.current;
+      // The close action changes parents at this breakpoint. Its private ref
+      // identifies the replacement only when that action owned focus.
+      const replacement = auxiliary.focusReplacement.current;
+      const focused = wasFocused?.isConnected ? wasFocused
+        : wasFocused && replacement && container.contains(replacement) ? replacement : null;
+      if (focused === replacement) auxiliary.focusReplacement.current = null;
+      const enteringReader = kind === "more" && auxiliary.enabled && previousEnabled.current === false && Boolean(focused);
+      if (enteringReader) auxiliary.revealFocused(kind);
       // Moving a connected DOM subtree clears native focus even though React
       // keeps its owners. Restore only the same connected, displayed element;
       // never steal focus from another scope or reveal a closed reader.
       if (focused?.isConnected && (!auxiliary.enabled || auxiliary.active === kind)
         && !focused.closest("[hidden]")) focused.focus({ preventScroll: true });
-      focusToRestore.current = null;
+      if (enteringReader) focusToRestore.current = focused;
+      else focusToRestore.current = null;
     }
+    previousEnabled.current = auxiliary?.enabled;
     return () => {
       focusToRestore.current = document.activeElement instanceof HTMLElement && container.contains(document.activeElement)
-        ? document.activeElement : null;
+        ? document.activeElement : document.activeElement === document.body ? focusedWithin.current : null;
       container.remove();
     };
   }, [auxiliary?.enabled, auxiliary?.host, Boolean(auxiliary), container]);
+  useLayoutEffect(() => {
+    const focused = focusToRestore.current;
+    if (focused?.isConnected && auxiliary?.active === kind && !focused.closest("[hidden]")) {
+      focused.focus({ preventScroll: true });
+      focusToRestore.current = null;
+    }
+  }, [auxiliary?.active, kind]);
   if (!auxiliary) return <>{children}</>;
   const hidden = auxiliary.enabled ? auxiliary.active !== kind : mobileOnly;
   return <>
     <div ref={inlineHost} className={auxiliary.enabled ? "hidden" : "contents"} />
     {createPortal(<div hidden={hidden} className={hidden ? "hidden" : auxiliary.enabled ? "grid min-w-0 gap-2" : "contents"}
+      onFocusCapture={event => { focusedWithin.current = event.target as HTMLElement; }}
+      onBlurCapture={() => { focusedWithin.current = null; }}
       onKeyDown={event => {
         if (auxiliary.enabled && event.key === "Escape" && !event.defaultPrevented) {
           event.stopPropagation(); event.preventDefault(); auxiliary.close();

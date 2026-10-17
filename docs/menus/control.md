@@ -1,6 +1,36 @@
 # 제어 메뉴 기능 현황
 
-최신 공통 검증(2026-10-17 최종 보완): 단독 Web 전체 1회는 **3,928 PASS / 6 FAIL / 3 SKIP**다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD는 focused1PASS로 미재현됐지만 원인은 미확정이다. 결합212의 cleanup1실패와 후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS를 구분한다. 전체 gate는 FAIL이며 아래 Task6/Task5 수치는 해당 회차 이력이다. [최신 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+최신 제어 보존 수리 검증(2026-10-17 Task7): 최종 source 고정 뒤 단독 Web 전체 1회는 **3,937 PASS / 0 FAIL / 3 SKIP**(266 files, 51.66초)다. 원 제어5건을 해소했고 새 제어 부정 회귀3건을 추가했다. CAD85건은 이번 실행에서 통과했지만 CAD 소스/시험을 변경하지 않았으므로 이전 간헐 실패의 원인 해결로 판정하지 않는다. Task8에서 결정적인 RED와 원인 확인이 필요하다. 상세 명령·원로그·PNG는 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-7-report.md`를 따른다.
+
+## 2026-10-17 제어 이력·단일 닫기·탭 포커스 보존 (Task7)
+
+### 구현 완료
+
+- 실제 더보기→상세 보기 경로로 이력을 열고 닫기1개·재열기·물리 요청0건을 검사한다. 원 단언과 기대값은 보존했다. desktop 상세 닫기→compact 이동은 전환 직전 현재 More 내용이 실제 focus를 소유한 경우에만 reader를 공개하며 Escape는 실제 연결된 더보기로 복귀한다.
+- 제어 방식 navigation의 React 소유자와 portal target을 모드/표현 전환에서 유지한다. 동일 tab DOM/ref로 ArrowLeft/Right·Home/End, query/hash·뒤로/앞으로·테마를 보존하고 현재 사용자/현장의 연결된 선택 tab만 focus를 복원한다. 바깥 밝기 입력·닫힌 reader·다른 principal은 자동 공개하지 않는다.
+- 실제 App 320/390/1024/1440px×고객 light/dark8조합, unknown API/command write의 abort 방어1건, 기존 지도588px/편집기256px/카메라8건을 확인했다. 최종 Chromium20expected는 실제17PASS와 기존3의도된 teardownFAIL을 구분한 결과다. 정상8조합은 write0/unknown API0이며 backend/장비 요청은 없다.
+- 원 ControlView179+ModeTabs2의 baseline176PASS/5FAIL을 재현했고, 새3건을 포함한 집중184PASS와 최종 전체3937PASS/3SKIP를 확인했다. 타입·E2E타입·빌드·UI정책79PASS·정책 위반0/0이다. 원 기대문634개의 원문/순서와 CAD 원시험 불변을 확인했다.
+
+### 미구현
+
+- 실제 Gateway/LED·backend·인증 변경·native·Safari/WebKit·OS키보드·HIL·배포 검증은 수행하지 않았다. CAD 원인 수리와 결정적인 재현은 별도 Task8에 남아 있다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 최초8조합PASS 뒤 native null-blur 의도 정리 확장으로 실제 focus6FAIL을 관측했다. 동일1440dark 계측RED에서 DOM 이동 focusout을 확인하고 원 경계 복귀·동일parent 중복append 제거 후 집중GREEN 및 최종20expected를 확인했다. 중간 실패·helper/guard 전제 오류·sandbox 시작 제한 로그를 보존하며 성공 로그로 덮지 않는다.
+- 전체3937은 이전3928PASS + Control5해소 + 신규3회귀 + 이번 CAD1통과다. CAD85PASS만으로 이전 site 초기 preview-ready의 원인이나 재현 가능성을 확정하지 않는다. 기존3SKIP·pnpm 설정 경고·큰 bundle 경고·테스트의 Konva 경고는 유지한다.
+
+### 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`, `ControlView.test.tsx`, `ManualExecutionPanel.tsx`, `manual-workspace/ManualAuxiliaryPanel.tsx`.
+- `apps/web/e2e/control-cad-preservation.spec.ts`, `apps/web/playwright.design-system.config.ts`(testMatch만 추가), 기존 `apps/web/e2e/ui-eight-layout-regressions.spec.ts`(무수정 소비).
+- `docs/lesson_leared.md`, `.superpowers/sdd/2026-10-16-web-design-system-unification/task-7-report.md`.
+
+### 갱신 규칙
+
+- focus는 React 소유권·실제 DOM 배치·scope·연결된 opener를 함께 검증한다. 숨겨진 text/query나 timeout/retry 확대·원 expected 변경으로 접근성 실패를 덮지 않는다. 44px hit·20/18/20·16px 디자인 계약과 명령/선택/query/타이머/자동 재전송 금지는 계속 보존한다.
+
+이전 최종 보완(Task7 수리 전): 단독 Web 전체는 **3,928 PASS / 6 FAIL / 3 SKIP**였다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD의 focused1PASS·원인 미확정, 결합212의 cleanup1실패·후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS는 해당 회차 이력이며 [당시 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다. 아래 Task6/Task5 수치를 최신 Task7 결과로 사용하지 않는다.
 
 ## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
 

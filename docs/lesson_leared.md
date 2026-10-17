@@ -1,5 +1,14 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-17 / 제어 reader와 navigation의 React 소유권·실제 DOM 포커스를 구분한다
+
+- compact 명령 결과는 더보기 reader 안에 있다. 이력 행을 눌렀다는 이유로 숨겨진 상세가 접근 가능하다고 가정하지 않는다. 회귀 helper는 실제 더보기→상세 보기를 수행하고, 닫힌 reader의 role 부재·단일 닫기·물리 요청 0건 단언을 함께 보존한다.
+- 모드별 반환 root가 다르면 탭을 같은 JSX로 작성해도 이전 DOM/ref가 제거된다. navigation portal의 소유자와 target을 유지하고 현재 사용자/현장·선택 tab에 속한 focus만 DOM 배치 뒤 복원한다. 명령 소유자·UUID·query·타이머를 재생성하는 수리로 확대하지 않는다.
+- native Chromium의 DOM 이동은 `isConnected=true`인 탭에도 `relatedTarget=null`인 focusout을 발생시킨다. null만으로 focus intent를 폐기하지 않고 실제 host 밖으로 이동한 목적지를 구분한다. 같은 parent로 중복 append하지 않으며 실제 App 키보드·테마·뒤로/앞으로와 scope 부정 회귀로 확인한다.
+- desktop 상세 닫기가 compact reader로 이동할 때는 전환 직전 실제 focus를 소유한 More 내용만 공개한다. 바깥 입력·명시적 닫힘·다른 principal은 공개하지 않는다. private ref로 교체된 단일 닫기 action을 연결하고 Escape는 현재 연결된 실제 opener로 복귀한다.
+- portal target은 새 intrinsic grid item이 되지 않게 한다. 모바일에서 실제 rect·scrollWidth·elementFromPoint를 측정하며 44px 크기만으로 잘림 없는 hit를 단정하지 않는다. viewport 변경 뒤에는 Shell의 실제 표현 commit을 확인하고 timeout/지연을 늘려 경합을 숨기지 않는다.
+- `**/api/**`는 Vite의 `/src/api/*.ts`도 매칭한다. pathname `/api/`로 실제 API만 구분하고 미등록 API·write는 abort+보고한다. mock Chromium·소프트웨어 검증을 실제 Gateway/조명/HIL 성공으로 기록하지 않는다.
+
 ## 2026-10-16 / 등록 삭제는 이력 보존과 불확정 복구를 함께 검증한다
 
 - DB 원장 보호용 statement lock을 추가할 때 기존 metadata/heartbeat의 row lock 순서와 역전될 수 있다. 실제 PostgreSQL의 양방향 동시 실행으로 40P01을 재현하고 일반 UPDATE 범위를 좁혔다. 모의 transaction 테스트만으로 잠금 안전을 확정하지 않는다.
