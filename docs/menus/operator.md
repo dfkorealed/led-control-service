@@ -1,5 +1,28 @@
 # 운영자 메뉴 기능 현황
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- 운영자4route를390/1440px의 실제 loaded region·단일h1·functional title·main gutter18/14·24/28와 max1160으로 확인했다. fresh 보안/계정/calm24개에서 actual credentials/TOTP/recovery, 양shell password focus, 현장 관리자4행7필드/8라벨·작업과 pending/error/empty 복구 근거를 [coverage](../assets/web-design-system-2026-10-16/coverage.md)에 연결했다.
+
+### 미구현
+
+- 실제 운영자 계정·프로파일 승인/철회·상담/메일·native·장비/HIL은 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 현장 관리자 열합1230>최대content1104에 따른 card 상태만 확인했으며 operator table 표시 완료가 아니다. 프로파일·문의의 모든 populated/pending/error/cursor 조건은 browser 미실행이다. 최종 전체 단독 실패와 인과 한계는 coverage QA를 따른다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP이며 CAD85PASS의미재현은과거원인해결증명이아니다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,design-system-security,account-security,calm-operations-auth-operator}.spec.ts`, `docs/assets/web-design-system-2026-10-16/coverage.md`.
+
+### 갱신 규칙
+
+- 실제 card/table·동작 권한과 source/unit-only 조건부 범위를 구분한다. 상태명이나 mock fixture 이름만으로 기능 성공/오류를 집계하지 않는다.
+
 ## 2026-10-16 공통 디자인 시스템 Task 2
 
 ### 구현 완료

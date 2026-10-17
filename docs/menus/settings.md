@@ -1,5 +1,29 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- 설정7leaf와 customer/operator 공통 보안, forced password 실제 gate 상태를 [coverage](../assets/web-design-system-2026-10-16/coverage.md)에 연결했다. 현장 정보는 정상 인증 뒤 pending/error/empty/실제 offline 대기→online 복구를 검사한다. 층2행 DataGrid는320/1024px grid18·inset16/20·수정 modal/focus를 확인했다.
+- 실제 editor PC/mobile PNG와 최소256·contain:size,390px 가로 toolbar scroll·Tab→정보 버튼·우측disabled복구 접근을 확인했다. 일반 문서 gutter owner는 바깥 main 태그가 아닌 `data-shell-content`다.
+
+### 미구현
+
+- 실제 운영 저장/등록·CAD/장비·native·OS키보드·Safari/WebKit·HIL은 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- developer TestDataTools 활성 조건과 legacy standalone PasswordChangeCard, 도형/다중선택/legacy 정보 panel의 개별 browser mount는 미실행이며 N/A가 아니다. CAD principal/onSaved-purge 및 중간 floor interruption 실패의 원인은 미확정이다. 최종 전체 단독 결과와 과거 locator6건 판정은 coverage를 따른다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP과이번CAD85PASS를함께기록하며, CAD미재현을과거원인해결로확정하지않는다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,design-system-roles,design-system-security,ui-eight-layout-regressions}.spec.ts`, `docs/assets/web-design-system-2026-10-16/{baseline,coverage}.md`.
+
+### 갱신 규칙
+
+- 정상 인증된 feature 상태와 auth gate 상태, source/unit·computed/조작·대표 pixel 확인을 구분하고 과거 실패/미재현을 삭제하지 않는다.
+
 ## 2026-10-16 맵 편집 정보의 일반 내용 역할 (Task 4)
 
 - 구현 완료: 편집기 속성·도형/다중 선택 속성·배치·레이어·위치 확인·버전 기록의 내용 owner가 공통 regular inset20/16px와 작은 제목16/24px를 소비한다. 외부 정보 SidePanel의 p0·desktop280px·overlay최대320px와 기록 탭의 단일 reader를 유지하며 field/layer 행 간격은 별도 관계로 보존한다.

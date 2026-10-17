@@ -1,5 +1,29 @@
 # 공개 랜딩 메뉴 기능 현황
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- 공개3page×실제 main/landing/service entry별 PASS testcase16폭과 route×motion96행을 literal inventory로 독립 대조했다. 실제 graph/artifact·bootstrap·JSoff404·HTML14 보존 범위는 [coverage](../assets/web-design-system-2026-10-16/coverage.md)를 따른다. 최신 static cleanup fix suite6PASS와 기존 public cohort72PASS/8mode제외를 구분한다.
+- 실제 mobile 연락 modal의 viewport PNG와 fixed backdrop390×844, dialog containment·52px닫기5hitpoints·Tab/Escape/focus를 확인했다. fullPage 합성의 viewport 밖 backdrop 모습은 제품 결함으로 분류하지 않는다.
+
+### 미구현
+
+- 실제 문의/전화/메일·운영 API·배포·native·Safari/WebKit·OS키보드·실장비는 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- landing에는 bootstrap/auth/private module이 없으므로 해당 entry 조합만 N/A다. source상 React fallback의 별도 mounted computed 및 모든 브랜드 색 조합의 대비는 미실행이다. 최종 전체 단독 실패·CAD 미확정은 coverage의 최신 QA를 따르며 전체 GREEN으로 바꾸지 않는다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP이며 CAD85PASS의미재현은과거원인해결증명이아니다. 아래Task5의3924/6/3은당시관측으로보존한다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,public-deploy,static-landing}.spec.ts`, `docs/assets/web-design-system-2026-10-16/coverage.md`.
+
+### 갱신 규칙
+
+- 공개 page3와 entry3·mode 제외·기존/최종 artifact를 구분한다. 현재 `dist-public` landing artifact를 service 증거로 사용하지 않는다.
+
 ## 2026-10-16 공개·복구 표현 정합화 (Task 5)
 
 - 구현 완료: 일반 main·독립 landing·service entry가 공유하는 공개3페이지의 브랜드 font·hero·카드·포함형430/720/1050px 경계를 보존하고, 연락 팝업의 일반 inset을20/16px로 맞췄다.320px 헤더 상담 버튼에서 관측된40.921875px 너비는 공통 공개 레이아웃 caller의 최소44px로 보완했다. 전화·이메일 href, 양식/API 없는 연락, 선택 요금제와 닫기·포커스 복귀는 유지한다.

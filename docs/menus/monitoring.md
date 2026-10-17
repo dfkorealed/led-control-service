@@ -1,5 +1,28 @@
 # 모니터링 메뉴 기능 현황
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- 실제 모니터링 ready·light/dark 역할과 fullview 진입/Escape·동일 지도 수명 보호 근거를 [coverage](../assets/web-design-system-2026-10-16/coverage.md)에 모았다. 공유 DataGrid의 운영로그 소비자를320/1024px populated2행에서 grid18·inset16/20, 실제 다음페이지·닫기·focus 복귀로 추가 검증했다.
+
+### 미구현
+
+- 실제 LED/Gateway 상태·운영 API·native·Safari/WebKit·OS키보드·HIL은 이번 mock Chromium 검증에서 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 모든 dashboard/설치대기/error 조건의 별도 mounted·pixel 검증은 아니다. 기존 Control 단위 실패·CAD 원인 미확정과 최종 단독 전체 결과는 coverage의 QA 판정을 따른다. 전역 auth paused를 모니터링 feature paused로 집계하지 않는다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP이며 CAD85PASS의미재현은과거원인해결증명이아니다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,design-system-roles,ui-eight-layout-regressions}.spec.ts`, `docs/assets/web-design-system-2026-10-16/coverage.md`.
+
+### 갱신 규칙
+
+- 실제 실행된 route/state와 source/unit만의 조건부 범위, 대표 시각 확인과 전체 pixel 검증을 구분한다. 기존 Task4의 운영로그 개별 coverage 후속은 위 실제 populated 검증으로 보완했다.
+
 ## 2026-10-16 제어·편집 역할 적용의 공유 작업 공간 보호 (Task 4)
 
 - 구현 완료: 제어/편집 정보 panel 역할 적용에서 기존 모니터링 fullview의 gap8·shell inset·동일 지도 수명과 보안 presentation 경계를 보존한다. 모니터링 제품 코드와 일반 map 내부 geometry는 이번 Task에서 수정하지 않는다.

@@ -1,5 +1,28 @@
 # 제어 메뉴 기능 현황
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- 수동/스케줄/이벤트/그룹4mode를 각각 실제 loaded 화면으로 검증하고 고객12leaf→15surface의 등록·단언 완료 case title 집합을 대조했다. 역할72·이전8수리35(32functional+3expected-teardown)의 명령1회/잠금·100UUID·content587/588/589·같은지도/선택/배율 근거와 PC/mobile 대표 PNG를 [coverage](../assets/web-design-system-2026-10-16/coverage.md)에 연결했다.
+
+### 미구현
+
+- 실제 명령/감지·LED/Gateway·운영 API·native·Safari/WebKit·OS키보드·HIL 검증은 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 원 Control 단위5실패의 조건·assertion과 CAD 실패/미재현 원인을 구분해 보존한다. 최종 전체 단독 결과는 coverage를 따른다. 비활성 apply는 opacity0.6의 disabled 대비 면제로 분류하며 일반 enabled 텍스트 AA 근거로 사용하지 않는다. 모든 규칙 저장/활성화·calendar 상태의 mounted 검증은 아니다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP이며원5개의정확한조건·단언991/1016/1012/2397/2582까지대조했다. CAD85PASS로과거실패원인을해결했다고하지않는다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,design-system-roles,ui-eight-layout-regressions}.spec.ts`, `docs/assets/web-design-system-2026-10-16/{baseline,coverage}.md`.
+
+### 갱신 규칙
+
+- 정책·computed/실제조작·pixel 확인·unit 실패를 구별하고 mock 성공을 실장비 완료로 확대하지 않는다. 기존 실패명은 ignorelist로 쓰지 않는다.
+
 ## 2026-10-16 제어 일반 역할과 작업 공간 경계 (Task 4)
 
 - 구현 완료: 제어의 수동/스케줄/이벤트/그룹 부모와 실제 로딩·오류 분기는 공통 `PageStack`20px를 소비한다. 일반 실행·선택·자동화 목록·달력·구역·규칙 설정/고급 설정 패널은 regular inset20/16px, 작은 제목은16/24px다. field·목록 행·toolbar 관계는 section 간격으로 일괄 치환하지 않는다.

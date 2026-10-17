@@ -1,5 +1,28 @@
 # 요금제 페이지 기능 현황
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- `/pricing`를 포함한 실제 공개3entry의96computed행/entry와 PASS width testcase를 독립 대조하고 기존 Plus 맥락·준비중·tel/mailto·mode별 login을 [coverage](../assets/web-design-system-2026-10-16/coverage.md)에 연결했다. 실제 mobile 연락 modal을 fullPage/viewport PNG로 구분하고 backdrop·52px닫기hit·keyboard/focus를 확인했다.
+
+### 미구현
+
+- 결제/계약 적용·문의 접수·실제 전화/메일·운영 API·배포·native·실장비는 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 기본 palette 보존을 모든 text/graphic 조합의 AA 통과로 기록하지 않는다. 대표 상담 제목 대비와 disabled 예외만의 실제 분류·원수치, 기존 Web 전체 실패·CAD 미확정 및 최신 단독 결과는 coverage를 따른다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP이며 CAD85PASS의미재현은과거원인해결증명이아니다. 아래Task5의3924/6/3은당시관측이다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,public-deploy,static-landing}.spec.ts`, `docs/assets/web-design-system-2026-10-16/coverage.md`.
+
+### 갱신 규칙
+
+- page3/entry3·브랜드와functional 역할·실제 과금과예시·검증한 상태와미실행을 구분하며 랜딩/주요기능 문서와 함께 갱신한다.
+
 ## 2026-10-16 공개·복구 표현 정합화 (Task 5)
 
 - 구현 완료: `/pricing`의 가격·준비중·선택plan·브랜드 카드 geometry와 main·landing·service별 기존 로그인 모드를 보존한다. 연락 팝업의 일반 inset만20/16px로 정합화하고 전화/이메일 href·선택 Plus 맥락·양식/API 없는 상담·keyboard/touch 닫기와 포커스 복귀를 유지한다.320px 헤더 상담에서 실제 관측한40.921875px 너비는 공개 레이아웃 caller의 최소44px로 보완했다.

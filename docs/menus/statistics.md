@@ -1,5 +1,28 @@
 # 통계 메뉴 기능 현황
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- 개요/분석/보고서3surface의 실제 ready와 일반 panel·제목·단위 Range·탭/선택·dialog 보존 근거를 [coverage](../assets/web-design-system-2026-10-16/coverage.md)에 연결했다. 보고서 DataGrid는320/1024px 실제 failed/processing2행에서 grid18·inset16/20·상세 펼침/실패 안내/닫기를 검사해 Task4의 개별 populated 후속을 보완했다.
+
+### 미구현
+
+- 실제 계측·서버 집계·운영 PDF/CSV/다운로드·native·HIL은 이번 브라우저에서 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 모든 query pending/error/empty 및 보고서 만료/다운로드 상태의 mounted 검증은 미실행이다. 현재 실패 판정과 CAD 원인 미확정은 coverage를 따르며 숫자 Range PASS로 전체 unit 실패를 덮지 않는다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP이며 CAD85PASS의미재현은과거원인해결증명이아니다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,design-system-roles,ui-eight-layout-regressions}.spec.ts`, `apps/web/src/features/statistics/reports/ReportJobList.tsx`(이번 무변경), `docs/assets/web-design-system-2026-10-16/coverage.md`.
+
+### 갱신 규칙
+
+- 외곽 functional 역할과 chart 내부 geometry/mobile8 예외, 실제 표/card surface 및 운영 파일 검증을 구분한다.
+
 ## 2026-10-16 작업 공간 역할 적용 뒤 통계 수치 보호 (Task 4)
 
 - 구현 완료: 제어/편집 역할 적용의 보호 회귀에서 기존 통계 숫자·단위의 Text Range·카드 읽기 폭·light/dark와 기존 통계 탭/보고서 dialog 접근을 유지한다. 통계 제품 코드·chart 내부 geometry·mobile gap8은 수정하지 않는다.

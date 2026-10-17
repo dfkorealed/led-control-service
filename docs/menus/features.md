@@ -1,5 +1,28 @@
 # 주요 기능 페이지 기능 현황
 
+## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
+
+### 구현 완료
+
+- `/features`를 포함한 공개3page와 실제 main/landing/service의16폭×2motion×3route96행/entry를 원 PASS testcase·computed 로그로 독립 대조했다. 브랜드 경계·anchor·login/contact·bootstrap·HTTP404와 archive/smoke 경계는 [coverage](../assets/web-design-system-2026-10-16/coverage.md)에 연결했다.
+
+### 미구현
+
+- 실제 제품 제어·문의 접수·메일·운영 배포·native·Safari/WebKit·OS키보드·HIL은 실행하지 않았다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 대표 pixel 확인은 실제 제어/편집기와 공개 상담의 소수 PNG다. features의 모든 상태 pixel/대비 검증으로 확대하지 않는다. 기존 전체 Web 실패·CAD 원인 미확정과 최종 단독 결과는 coverage를 따른다.
+- 최종 결합164expected/0unexpected(3expected-teardown포함), 별도auth/operator24PASS다. 단독전체3925PASS/5ControlFAIL/3SKIP이며 CAD85PASS의미재현은과거원인해결증명이아니다. 아래Task5의3924/6/3은당시관측이다.
+
+### 관련 파일
+
+- `apps/web/e2e/{design-system-coverage,public-deploy,static-landing}.spec.ts`, `docs/assets/web-design-system-2026-10-16/coverage.md`.
+
+### 갱신 규칙
+
+- 실제entry·registered/executed case·computed/조작·시각·미실행을 나눠 기록하고 공개 page를 entry 수만큼 중복 집계하지 않는다.
+
 ## 2026-10-16 공개·복구 표현 정합화 (Task 5)
 
 - 구현 완료: `/features`를 공유하는 main·landing·service의 기존 브랜드 font·header·카드·anchor100px와 포함형430/720/1050px 경계를 보존한다. 연락 팝업은 공통 regular inset20/16px를 사용하고,320px 헤더 상담의40.921875px 너비는 공개 레이아웃 caller에서 최소44px로 보완했다. 전화·이메일 href, API/양식 없는 상담과 keyboard·touch 닫기·포커스 복귀를 유지한다.

@@ -2,13 +2,13 @@
 
 현장 운영·시설관리 담당자가 상태·대상·조작 결과를 쉽게 읽고 편하게 작업할 수 있는 일관된 UI를 만든다. 공개 페이지는 기존 브랜드 특징을 유지한다.
 
-상태: **2026-10-16 사용자 승인 · 현재 Web 디자인 규범 · 공통 기반 적용**
+상태: **2026-10-16 사용자 승인 · 현재 Web 디자인 규범 · 2026-10-17 전체 적용 범위·검증 한계 기록**
 
 작성일: 2026-10-15
 
-상세 수치표 갱신: 2026-10-16. 사용자가 상세 수치표·실행 계획·분리 작업공간 실행을 승인했다. 최초 기반 작업에서 공통 layout·panel padding·titleRole 계약을 제공하며, 개별 화면 소비 적용과 전체 coverage는 후속 작업에서 검증한다.
+상세 수치표 승인: 2026-10-16. 사용자가 상세 수치표·실행 계획·분리 작업공간 실행을 승인했다. Task1의 공통 layout·panel padding·titleRole을 Task2–5에서 고객·운영자·인증·공개 소비자로 연결했고, 실제 실행 범위와 미실행 조건을 [coverage](assets/web-design-system-2026-10-16/coverage.md)에 기록한다. Task6 및 whole-branch 독립 최종 검토는 별도 관문이다.
 
-이 문서는 전체 Web의 현재 디자인 규범이다. [ui-spacing.md](ui-spacing.md)는 현행 규칙을 이 가이드로 연결하고 날짜별 승인·실패 이력을 보존한다. 규범 승인은 모든 화면의 적용 완료를 뜻하지 않는다. 적용 전 실제 실패는 [fresh baseline](assets/web-design-system-2026-10-16/baseline.md), 화면별 완료 여부는 실행 계획과 후속 coverage를 따른다.
+이 문서는 전체 Web의 현재 디자인 규범이다. [ui-spacing.md](ui-spacing.md)는 현행 규칙을 이 가이드로 연결하고 날짜별 승인·실패 이력을 보존한다. 규범 승인은 모든 화면의 적용 완료를 뜻하지 않는다. 적용 전 실제 실패는 [fresh baseline](assets/web-design-system-2026-10-16/baseline.md), 현재의 실제 등록·실행·computed/조작·대표 시각 확인과 한계는 [coverage](assets/web-design-system-2026-10-16/coverage.md)를 따른다.
 
 ## 정본 전환과 책임
 
@@ -162,10 +162,10 @@ keyboard 순서·visible focus·label·상태 announcement·pending 중 재입�
 | workspace geometry | 고객 지도·floor editor·chart 내부 geometry. editor 최소256px, 수동 지도 content588px split | 320×600/587·588·589px의 pointer·선택·단일 scroll·데이터 의미 보존 |
 | overlay frame | dialog/drawer의 backdrop·최대폭·viewport 배치·safe-area·단일 reader·기존52px 닫기·focus·pending | 일반 modal/drawer 내용은 functional panel20/16px로 정합화. frame 계약을 일반 inset 불일치의 포괄 예외로 쓰지 않음 |
 
-위 source는 `apps/web/src/features/statistics/StatisticsShell.tsx`, `apps/web/src/features/monitoring/MonitoringView.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/components/ui/DataGrid.tsx`다. 수치·소비 범위는 소스와 대조한 보존 계약이며 해당 소비 화면의 현재 브라우저 완료 판정은 후속 coverage를 따른다. 새 예외는 designer·web_frontend가 근거를 검토하고 총괄 승인 후 좁게 적용한다. 토큰 변경이면 별도 토큰 승인 경로도 통과한다. 미확인 소비자를 무조건 예외로 넣지 않고 적용 coverage에서 미확인으로 남긴다.
+위 source는 `apps/web/src/features/statistics/StatisticsShell.tsx`, `apps/web/src/features/monitoring/MonitoringView.tsx`, `apps/web/src/features/shells/CustomerShell.tsx`, `apps/web/src/components/ui/DataGrid.tsx`다. 수치·소비 범위는 소스와 대조한 보존 계약이며 해당 소비 화면의 현재 브라우저 판정은 [coverage](assets/web-design-system-2026-10-16/coverage.md)를 따른다. DataGrid의 구역·사용자·층·보고서·운영로그 다섯 populated 소비자는 개별 검사하며, container/열 최소폭과 frame으로 실제 table/card를 구분한다. 새 예외는 designer·web_frontend가 근거를 검토하고 총괄 승인 후 좁게 적용한다. 토큰 변경이면 별도 토큰 승인 경로도 통과한다. 미확인 소비자를 무조건 예외로 넣지 않고 적용 coverage에서 미확인으로 남긴다.
 
 ## 검증과 변경 완료
 
 lexical 정책 0건은 필요한 gate지만 역할 적합성과 화면 통일의 충분조건이 아니다. 소비 역할 목록, 실제 generated CSS/computed 값, 내용의 Range/box, keyboard/tap/wheel/focus와 상태별 시각 검증을 함께 사용한다. 미실행·실패·보류와 지원하지 않는 환경은 그대로 기록한다. 운영 배포·실제 API·메일·native·장비/HIL은 별도 증거 없이는 완료로 표시하지 않는다.
 
-2026-10-16 승인된 [실행 계획](superpowers/plans/2026-10-16-web-design-system-unification.md)에 따라 공통 기반을 적용했다. Task1은 PageStack/CardGrid·panel inset·명시적 titleRole·일반 Button 최소폭과 격리 브라우저 기반을 제공한다. 미전달 legacy 제목·Card tone/variant/customer/none·SidePanel surface는 호환을 유지한다. 전체 화면과 상태의 적용 완료는 후속 coverage 및 독립 검토로 판단한다.
+2026-10-16 승인된 [실행 계획](superpowers/plans/2026-10-16-web-design-system-unification.md)에 따라 공통 기반과 소비 표현을 적용했다. 미전달 legacy 제목·Card tone/variant/customer/none·SidePanel surface는 호환을 유지한다. [coverage](assets/web-design-system-2026-10-16/coverage.md)는 고객12leaf/15surface·operator4·auth gate/state·public3×actual entry3·overlay/recovery/bootstrap/404와 HTML14 경계를 추적한다. 정책0/0, 실제 computed·조작, 대표 PNG, raw 대비와 단위 실패 판정을 구분하며 existing-but-unexecuted 조건부 mount는 N/A로 바꾸지 않는다. 전체 Web 실패와 CAD 원인 미확정·실제 native/운영/HIL 한계가 남으면 전체 GREEN 또는 모든 상태 완료로 발표하지 않는다.
