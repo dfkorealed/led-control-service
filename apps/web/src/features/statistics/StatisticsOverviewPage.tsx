@@ -13,7 +13,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergyComparison, useEnergyRangeComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
-import { LoadingState, Button, Card, CardGrid, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, PageStack, SidePanel, StatusBadge, Text, useThemeColors, useDateRangeDraft  } from "../../components/ui";
+import { LoadingState, Button, Card, CardGrid, DateRangePicker, FeedbackState, FilterPanel, formatTimestamp, Heading, MetricCard, PageStack, SidePanel, StatusBadge, Text, panelPaddingClass, useThemeColors, useDateRangeDraft  } from "../../components/ui";
 import { StatisticsOperationalInfo } from "./StatisticsOperationalInfo";
 import { draftToDate } from "../../components/ui/date/useDateDraft";
 import { EnergyComparisonChart } from "./EnergyComparisonChart";
@@ -341,6 +341,7 @@ function ComparisonSection({
           <CardGrid className="grid-cols-4 tablet:grid-cols-4 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
               <MetricCard
+                className={panelPaddingClass("regular")}
                 label={presentation.label}
                 value={formatKwhValue(presentation.ratePercent!)}
                 unit="%"
@@ -350,6 +351,7 @@ function ComparisonSection({
             </div>
             <div className="min-w-0">
               <MetricCard
+                className={panelPaddingClass("regular")}
                 label="예상 사용량"
                 value={formatKwhValue(query.data.summary.estimatedKwh!)}
                 unit="kWh"
@@ -359,6 +361,7 @@ function ComparisonSection({
             </div>
             <div className="min-w-0">
               <MetricCard
+                className={panelPaddingClass("regular")}
                 label={`${savingsPrefix} 전력`}
                 value={formatKwhValue(Math.abs(presentation.savingsKwh!))}
                 unit="kWh"
@@ -368,6 +371,7 @@ function ComparisonSection({
             </div>
             <div className="min-w-0">
               <MetricCard
+                className={panelPaddingClass("regular")}
                 label={`${savingsPrefix} 비용`}
                 value={formatWon(Math.abs(presentation.savingsCost!))}
                 helper="현재 설정 단가 기준"
@@ -379,6 +383,7 @@ function ComparisonSection({
           <CardGrid className="grid-cols-2 max-compact:grid-cols-1 max-compact:order-2">
             <div className="min-w-0">
               <MetricCard
+                className={panelPaddingClass("regular")}
                 label="기준 사용량"
                 value={formatKwhValue(query.data.summary.baselineKwh)}
                 unit="kWh"
@@ -437,6 +442,7 @@ function EnergyMetric({ label, period, periodLabel }: { label: string; period: E
   return (
     <div className="min-w-0">
       <MetricCard
+        className={panelPaddingClass("regular")}
         label={`${label} 전력 사용량`}
         value={period.dataStatus === "no_data" ? "—" : formatKwhValue(period.estimatedKwh)}
         unit={period.dataStatus === "no_data" ? undefined : "kWh"}

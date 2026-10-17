@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { test, expect, mountFoundationFixture } from "./support/design-system-fixture";
+import { test, expect, withFoundationFixture } from "./support/design-system-fixture";
 import { browserReport, installFirstScreenStatisticsFixtures } from "./support/first-screen-statistics";
 
 // Independent inventory: changing a route/mode, losing its loaded content or
@@ -29,6 +29,19 @@ const customerCases = [
   { key: "floor-editor", url: "/settings/floor-plans/floor-1/edit", selector: '[data-testid="floor-editor-canvas"][data-map-ready="true"]' },
   { key: "security", url: "/settings/security", selector: '[data-security-card="sessions"]' }
 ] as const;
+
+// One serial cohort owns all 38 loaded checks and its inventory. A consumer
+// failure remains a failure and skips the remaining cohort, so a replacement
+// worker can never compare its empty module state to another worker's work.
+// Select the complete describe (or this file), never a test/line within it.
+test.describe("coverage complete consumer cohort", () => {
+test.describe.configure({ mode: "serial", retries: 0 });
+let inventoryCompleted = false;
+test.afterAll(() => {
+  // CLI / file:line / test-list selection can omit the inventory itself.
+  // Completion is checked from actual work, never inferred from grep config.
+  expect(inventoryCompleted, 'Incomplete indivisible consumer cohort; rerun all 38 consumers + inventory with --grep "coverage complete consumer cohort".').toBe(true);
+});
 
 for (const width of [390, 1440]) for (const item of customerCases) {
   const key = `customer:${item.key}:${width}`;
@@ -114,6 +127,7 @@ for (const width of [390, 1440]) for (const [route, region] of [
 }
 
 test("coverage inventory matches actual registered and completed customer/operator cases", async ({}, info) => {
+  expect(executed, 'Indivisible 38-consumer + inventory cohort: select --grep "coverage complete consumer cohort", the whole file, or the full suite; all 38 consumers must complete first.').toHaveLength(38);
   const expected = [390, 1440].flatMap(width => [
     ...expectedCustomer.map(surface => `customer:${surface}:${width}`),
     ...expectedOperator.map(route => `operator:${route}:${width}`)
@@ -122,6 +136,8 @@ test("coverage inventory matches actual registered and completed customer/operat
   expect(executed.map(item => item.key).sort()).toEqual(expected);
   expect(executed.map(item => item.title).sort()).toEqual(expected.map(key => `coverage ${key} loads its real consumer`).sort());
   await info.attach("registered-executed-inventory", { body: JSON.stringify({ expected, registered, executed }, null, 2), contentType: "application/json" });
+  inventoryCompleted = true;
+});
 });
 
 for (const width of [320, 1024]) for (const consumer of ["floors", "reports", "logs"] as const) test(`coverage remaining DataGrid ${consumer} populated ${width}`, async ({ page, designScenario }) => {
@@ -305,24 +321,14 @@ for (const width of [390, 1440]) test(`coverage forced password real ready pendi
 });
 
 test("coverage foundation generated CSS keeps literal role values", async ({ page }) => {
-  const fixture = await mountFoundationFixture(page);
-  const failures: unknown[] = [];
-  try {
+  await withFoundationFixture(page, async () => {
     await expect(page.getByTestId("page-stack")).toHaveCSS("gap", "20px");
     await expect(page.getByTestId("card-grid")).toHaveCSS("gap", "18px");
     await expect(page.getByTestId("regular-panel")).toHaveCSS("padding", "20px");
     await expect(page.getByRole("heading", { name: "구역", exact: true })).toHaveCSS("font-size", "20px");
     await page.getByRole("button", { name: "확인", exact: true }).click();
     expect(await page.evaluate(() => (window as unknown as { foundationClicks: number }).foundationClicks)).toBe(1);
-  } catch (error) { failures.push(error); } finally {
-    // The HTTP memory server must outlive its page. Closing the server first
-    // can wait on that page's open connection until the test deadline. Retain
-    // assertion/close errors together so cleanup never masks the first error.
-    try { await page.close(); } catch (error) { failures.push(error); }
-    try { await fixture.close(); } catch (error) { failures.push(error); }
-  }
-  if (failures.length === 1) throw failures[0];
-  if (failures.length > 1) throw new AggregateError(failures, "Foundation assertions and cleanup failed");
+  });
 });
 
 async function installSecurity(page: Page) {
@@ -402,7 +408,7 @@ async function recordContrast(locator: Locator, classification: "normal-text" | 
   const raw = await colors(locator);
   await test.info().attach(`contrast-${classification}`, { body: JSON.stringify({ classification, ...raw }, null, 2), contentType: "application/json" });
   if (classification === "disabled-action-exempt") { expect(raw.disabled).toBe(true); return; }
-  expect(raw.layers.every(layer => layer.opacity === "1" && layer.image === "none"), "solid backgrounds without opacity groups").toBe(true);
+  assertSolidTrace(raw);
   if (classification === "large-text") expect(Number.parseFloat(raw.fontSize) >= 24 || Number(raw.fontWeight) >= 700 && Number.parseFloat(raw.fontSize) >= 56 / 3).toBe(true);
   expect(raw.ratio).toBeGreaterThanOrEqual(classification === "large-text" ? 3 : 4.5);
 }
@@ -413,5 +419,23 @@ async function recordControlBoundary(button: Locator) {
   const a = luminance(fill.background), b = luminance(parent.background);
   const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
   await test.info().attach("primary-control-nontext-boundary", { body: JSON.stringify({ fill, parent, ratio }, null, 2), contentType: "application/json" });
+  assertSolidTrace(fill);
+  assertSolidTrace(parent);
   expect(ratio).toBeGreaterThanOrEqual(3);
+}
+
+function assertSolidTrace(raw: Awaited<ReturnType<typeof colors>>) {
+  expect(raw.layers.every(layer => layer.opacity === "1" && layer.image === "none"), "solid backgrounds without opacity groups").toBe(true);
+}
+
+for (const [target, effect] of [["fill", "opacity"], ["fill", "gradient"], ["adjacent", "opacity"], ["adjacent", "gradient"]] as const) {
+  test(`nontext contrast rejects ${target} ${effect} despite a high solid-color ratio`, async ({ page }) => {
+    await page.goto("/");
+    await page.setContent('<main style="background:white"><button style="background:black;color:white">contrast probe</button></main>');
+    const button = page.getByRole("button", { name: "contrast probe" });
+    await (target === "fill" ? button : button.locator("..")).evaluate((element, effect) => {
+      (element as HTMLElement).style[effect === "opacity" ? "opacity" : "backgroundImage"] = effect === "opacity" ? "0.5" : "linear-gradient(black, white)";
+    }, effect);
+    await expect(recordControlBoundary(button)).rejects.toThrow("solid backgrounds without opacity groups");
+  });
 }

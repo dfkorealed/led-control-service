@@ -298,11 +298,9 @@ async function metricBounds(cards: Locator) {
   }));
 }
 
-for (const scenario of [
-  { id: "BUS-001", route: "analysis", width: 1024, theme: "light" },
-  { id: "BUS-001", route: "analysis", width: 1024, theme: "dark" },
-  { id: "BUS-002", route: "overview", width: 390, theme: "light" }
-]) test(`${scenario.id} complete statistics numbers stay inside cards ${scenario.theme}`, async ({ page, baseURL }, info) => {
+for (const width of [320, 390, 1024, 1440]) for (const theme of ["light", "dark"]) for (const route of ["analysis", "overview"]) {
+const scenario = { id: route === "analysis" ? "BUS-001" : "BUS-002", route, width, theme };
+test(`${scenario.id} complete statistics numbers stay inside cards ${scenario.width} ${scenario.theme}`, async ({ page, baseURL }, info) => {
   await setup(page, baseURL, scenario.width, scenario.width === 390 ? 844 : 768, scenario.theme, { ids: { siteId: statisticsSiteId } });
   await largeStatistics(page);
   await page.goto(`/statistics/${scenario.route}?siteId=${statisticsSiteId}`);
@@ -311,13 +309,29 @@ for (const scenario of [
   await target.scrollIntoViewIfNeeded();
   expect(await target.evaluate(element => { const range = document.createRange(); range.selectNodeContents(element); return range.getBoundingClientRect().width; })).toBeGreaterThan(0);
   await evidence(page, info, "numeric-cards", target);
-  const metrics = await metricBounds(target.locator("[data-metric-card]"));
+  // Check ordinary overview/analysis cards as well as the selected detail's
+  // two bordered siblings; a full-page width check misses an escaped digit.
+  const cards = page.locator("[data-metric-card]");
+  for (const card of await cards.all()) await expect(card).toHaveCSS("padding", scenario.width < 760 ? "16px" : "20px");
+  const metrics = await metricBounds(cards);
   await writeFile(info.outputPath("numeric-ranges.json"), JSON.stringify(metrics, null, 2));
   expect(metrics.flatMap(item => item.escaped)).toEqual([]);
   expect(metrics.map(item => item.overflow)).toEqual(metrics.map(() => 0));
   await expect(target).toContainText("123,456.78");
   if (scenario.route === "overview") await expect(target).toContainText("987,654.32");
+  else {
+    await expect(page.getByRole("group", { name: "현장 사용량", exact: true })).toContainText("12,345,678.9");
+    await expect(page.getByRole("group", { name: "저장 비용", exact: true }).first()).toContainText("1,975,308,624");
+    await expect(target).toContainText("kWh");
+    await expect(target).toContainText("19,753,085원");
+    await expect(target.locator("[data-metric-card]").first().locator("..")).toHaveCSS("gap", "18px");
+  }
+  for (const value of await cards.locator("strong > span").all()) {
+    await expect(value).toHaveCSS("font-size", "28px");
+    await expect(value).toHaveCSS("line-height", "34px");
+  }
 });
+}
 
 test.describe("reset target touch", () => {
 test.use({ hasTouch: true, isMobile: true });

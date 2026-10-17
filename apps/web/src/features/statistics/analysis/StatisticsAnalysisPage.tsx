@@ -5,7 +5,7 @@ import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "luci
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyObservedMeanHeatmap, useEnergyRankings, useEnergySummary } from "../../../api/energy";
-import { LoadingState, Button, CardGrid, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, PageStack, SelectBox, StatusBadge, StatusDetailButton, Text, useDateDraft  } from "../../../components/ui";
+import { LoadingState, Button, CardGrid, DatePicker, FeedbackState, FilterPanel, MetricCard, PageHeader, PageStack, SelectBox, StatusBadge, StatusDetailButton, Text, panelPaddingClass, useDateDraft  } from "../../../components/ui";
 import { draftToDate } from "../../../components/ui/date/useDateDraft";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { completedDateBounds } from "../completed-date-bounds";
@@ -111,9 +111,9 @@ export function StatisticsAnalysisPage() {
         action={<Button variant="secondary" onClick={() => query.refetch()}>다시 시도</Button>} /> : null}
       {ranking ? <>
       <CardGrid className="grid-cols-3 max-compact:grid-cols-1 max-compact:order-1">
-        <MetricCard label="현장 사용량" value={ranking.siteTotalKwh.toLocaleString("ko-KR")} unit="kWh" tone="primary" />
-        <MetricCard label="저장 비용" value={Math.round(ranking.siteTotalCost).toLocaleString("ko-KR")} unit="원" />
-        <MetricCard label="분석 대상" value={ranking.ranked.length} unit="개" />
+        <MetricCard className={panelPaddingClass("regular")} label="현장 사용량" value={ranking.siteTotalKwh.toLocaleString("ko-KR")} unit="kWh" tone="primary" />
+        <MetricCard className={panelPaddingClass("regular")} label="저장 비용" value={Math.round(ranking.siteTotalCost).toLocaleString("ko-KR")} unit="원" />
+        <MetricCard className={panelPaddingClass("regular")} label="분석 대상" value={ranking.ranked.length} unit="개" />
       </CardGrid>
       <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-control border border-status-info-border bg-status-info-background px-3 py-2 max-compact:order-1" aria-label="분석 상태">
         <StatusBadge tone="info" icon={BarChart3}>상태 기반 추정</StatusBadge>

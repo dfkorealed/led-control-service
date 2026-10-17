@@ -50,6 +50,8 @@
 
 Card와 SidePanel은 일반 내용의 `regular` inset20/16px, 목적과 소비 범위를 등록한 `compact` inset16px, 작업 공간의 geometry를 분리한다. SidePanel이라는 태그만으로 일반 정보 내용을 geometry 예외로 만들지 않는다. loaded/pending/error/empty는 같은 page/section wrapper와 역할을 소비하며 상태 전환에 따른 임의 여백 변화를 만들지 않는다. 상태 분기와 query 조건은 유지한다.
 
+통계 개요·분석의 `MetricCard`와 `EnergyRankingDetailPanel` 안의 테두리가 있는 두 지표 카드는 같은 일반 정보 카드 역할이다. 세 소비자가 기존 `panelPaddingClass("regular")`를 명시적으로 사용하며, 상세의 두 형제 카드도 `CardGrid`18px를 사용한다. 중첩됐다는 이유로 chart geometry 예외가 되지 않는다. 카드 내부 gap·metric28/34px·전체 숫자/단위와 chart margin/높이는 보존한다. 다른 호출자의 호환을 위해 `MetricCard` 자체의 미전달 기본 inset16px는 바꾸지 않는다.
+
 외부 여백은 shell이, section 리듬은 해당 section 부모가, card grid는 grid 부모가, 카드 내부는 Card가 소유한다. feature가 shell padding을 중첩해 보상하지 않는다. 값이 같은 row gap과 section gap은 역할이 다르다. field label/description, form 행, toolbar의 아이콘·label gap은 현재 승인 scale에서 콘텐츠 관계에 맞게 공통 form/toolbar가 소유하며, 모든 `gap`을 20px 또는 18px로 치환하지 않는다. compact 정보 카드의 16px 고정 inset처럼 독립된 역할만 예외 등록 후 허용한다.
 
 `headingLevel`은 문서 구조를, `titleRole`은 시각적 크기를 결정한다. h2/h3를 썼다는 이유로 page title 크기를 주지 않는다. page/section/card 역할을 공통 제목 API에서 구분하고 동일 역할의 형제 제목은 같은 표현을 쓴다. route마다 page h1 owner 하나를 명시한다. 표시 크기를 맞추기 위해 문서 heading 구조를 바꾸지 않는다.
@@ -169,3 +171,5 @@ keyboard 순서·visible focus·label·상태 announcement·pending 중 재입�
 lexical 정책 0건은 필요한 gate지만 역할 적합성과 화면 통일의 충분조건이 아니다. 소비 역할 목록, 실제 generated CSS/computed 값, 내용의 Range/box, keyboard/tap/wheel/focus와 상태별 시각 검증을 함께 사용한다. 미실행·실패·보류와 지원하지 않는 환경은 그대로 기록한다. 운영 배포·실제 API·메일·native·장비/HIL은 별도 증거 없이는 완료로 표시하지 않는다.
 
 2026-10-16 승인된 [실행 계획](superpowers/plans/2026-10-16-web-design-system-unification.md)에 따라 공통 기반과 소비 표현을 적용했다. 미전달 legacy 제목·Card tone/variant/customer/none·SidePanel surface는 호환을 유지한다. [coverage](assets/web-design-system-2026-10-16/coverage.md)는 고객12leaf/15surface·operator4·auth gate/state·public3×actual entry3·overlay/recovery/bootstrap/404와 HTML14 경계를 추적한다. 정책0/0, 실제 computed·조작, 대표 PNG, raw 대비와 단위 실패 판정을 구분하며 existing-but-unexecuted 조건부 mount는 N/A로 바꾸지 않는다. 전체 Web 실패와 CAD 원인 미확정·실제 native/운영/HIL 한계가 남으면 전체 GREEN 또는 모든 상태 완료로 발표하지 않는다.
+
+2026-10-17 최종 보완의 단독 전체 Web은3,928PASS/6FAIL/3SKIP으로 FAIL이다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 남았고, CAD focused1PASS는 원인 해결의 증거가 아니다. Task5 principal/Task4 floor/이번 site 실패를 같은 원인으로 묶지 않는다. 결합212의 cleanup1실패는 원 로그를 유지하고 test-only 수리 뒤62expected(실제59PASS+3의도된차단FAIL)와 수명helper4unitPASS로 변경 부분을 검증했다. 이를 새212전체PASS나 전체 Web GREEN으로 표현하지 않는다. 정확한 회차·명령·한계는 coverage의 최종 보완 기록을 따른다.

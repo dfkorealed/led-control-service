@@ -1,5 +1,30 @@
 # 통계 메뉴 기능 현황
 
+최신 공통 검증(2026-10-17 최종 보완): 단독 Web 전체 1회는 **3,928 PASS / 6 FAIL / 3 SKIP**다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD는 focused1PASS로 미재현됐지만 원인은 미확정이다. 결합212의 cleanup1실패와 후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS를 구분한다. 전체 gate는 FAIL이며 아래 Task6/Task5 수치는 해당 회차 이력이다. [최신 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+
+## 2026-10-17 최종 리뷰의 일반 지표 카드 정합화
+
+### 구현 완료
+
+- 개요·분석의 일반 `MetricCard`와 순위 상세 내부의 테두리가 있는 두 형제 카드가 기존 `panelPaddingClass("regular")`20/16px를 명시적으로 소비한다. 상세 내부 형제 grid는 `CardGrid`18px다. 공통 MetricCard의 미전달 기본16px와 카드 내부 gap·metric28/34px·chart margin/높이는 보존한다.
+- 역할 검사와 별도로 큰 숫자를 overview/analysis×320/390/1024/1440px×light/dark16개 actual mount에서 검사했다. 전체 숫자·단위·카드 내 Text Range·overflow와 글자 크기/행간을 유지한다. 집중68PASS, 후속도구delta62expected(59실제PASS+3의도된차단FAIL)이며212결합의원cleanup실패와전체Web판정은 [coverage](../assets/web-design-system-2026-10-16/coverage.md)의 최종 수리 기록을 따른다. selected detail390/1440light대표PNG도직접확인했다.
+
+### 미구현
+
+- 실제 집계·운영 PDF/CSV/다운로드·native·장비/HIL은 이번 표시 변경으로 검증하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 모든 query 상태 조합의 mounted 검증은 미실행이다. Control5의 구체적인 숨겨진 More/탭 unmount 원인은 별도 보존 관문이며 통계 표시 PASS로 면제하지 않는다.
+
+### 관련 파일
+
+- `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`, `analysis/{StatisticsAnalysisPage,EnergyRankingDetailPanel}.tsx`, `apps/web/e2e/{design-system-roles,ui-eight-layout-regressions}.spec.ts`, `docs/ui-design-system.md`.
+
+### 갱신 규칙
+
+- 중첩된 테두리 정보 카드와 chart 내부 geometry를 구분한다. 일반 inset/grid와 전체 수치/단위 가독성을 함께 검사하고 producer의 기존 기본값을 일괄 변경하지 않는다.
+
 ## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
 
 ### 구현 완료

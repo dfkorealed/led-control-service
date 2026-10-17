@@ -1,5 +1,7 @@
 # 운영자 메뉴 기능 현황
 
+최신 공통 검증(2026-10-17 최종 보완): 단독 Web 전체 1회는 **3,928 PASS / 6 FAIL / 3 SKIP**다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD는 focused1PASS로 미재현됐지만 원인은 미확정이다. 결합212의 cleanup1실패와 후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS를 구분한다. 전체 gate는 FAIL이며 아래 Task6/Task5 수치는 해당 회차 이력이다. [최신 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+
 ## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
 
 ### 구현 완료

@@ -1,7 +1,7 @@
 import type { EnergyRankingItem } from "@led-control/shared/energy-analytics-contracts";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Card, Heading, MetricCard, Text, useThemeColors } from "../../../components/ui";
+import { Card, CardGrid, Heading, MetricCard, Text, panelPaddingClass, useThemeColors } from "../../../components/ui";
 import { formatKwh, formatWon } from "../statistics-format";
 import { statisticsAxisTick, statisticsXAxisSpacing, statisticsYAxisSpacing } from "../statistics-chart-axis";
 
@@ -18,10 +18,12 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
         <div className="grid min-w-0 flex-1 gap-2"><Text variant="caption" tone="secondary">선택 대상 상세</Text><Heading as="h2" variant="customer-section-title" className="[overflow-wrap:anywhere]">{item.name}</Heading></div>
         <Text as="span" variant="label" tone="primary" className="shrink-0 rounded-control bg-action-primary-soft px-2 py-1">#{item.rank}</Text>
       </header>
-      <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
-        <MetricCard className="min-w-0 gap-1 p-2.5" label="사용량" value={item.estimatedKwh === null ? "—" : formatKwh(item.estimatedKwh)} />
-        <MetricCard className="min-w-0 gap-1 p-2.5" label="저장 비용" value={item.estimatedCost === null ? "—" : formatWon(item.estimatedCost)} />
-      </div>
+      {/* These bordered sibling readouts are ordinary information cards, even
+          inside a detail panel. Chart geometry and internal metric gaps stay separate. */}
+      <CardGrid className="grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))]">
+        <MetricCard className={`min-w-0 gap-1 ${panelPaddingClass("regular")}`} label="사용량" value={item.estimatedKwh === null ? "—" : formatKwh(item.estimatedKwh)} />
+        <MetricCard className={`min-w-0 gap-1 ${panelPaddingClass("regular")}`} label="저장 비용" value={item.estimatedCost === null ? "—" : formatWon(item.estimatedCost)} />
+      </CardGrid>
       <dl className="m-0 grid gap-3 py-3 text-body-sm">
         <div className="flex flex-wrap justify-between gap-2 border-b border-border-default pb-3"><dt className="text-content-secondary">현장 기여도</dt><dd className="m-0 font-bold tabular-nums">{item.contributionRate === null ? "—" : `${(item.contributionRate * 100).toFixed(1)}%`}</dd></div>
         <div className="border-b border-border-default pb-3"><dt className="sr-only">이전 동일 기간 비교</dt><dd className="m-0">

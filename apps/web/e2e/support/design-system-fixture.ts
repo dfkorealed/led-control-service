@@ -3,6 +3,7 @@ import { test as base, expect, type BrowserContext, type Page, type Route } from
 import { build } from "vite";
 import { installMockApiBoundary } from "./mock-api-boundary";
 import { installSettingsApiRoutes } from "./settings-api";
+import { runFoundationLifetime } from "../../src/test/design-memory-lifetime";
 
 export type DesignScenario = {
   principal: "admin" | "viewer" | "operator" | "anonymous";
@@ -35,9 +36,15 @@ async function denyLiveChannels(context: BrowserContext, sentinels: string[], al
       const report = (kind: string) => { void (window as unknown as { __designBoundaryBlocked(kind: string): Promise<void> }).__designBoundaryBlocked(kind); };
       // Vite's same-origin HMR handshake is also denied, but is expected runner
       // infrastructure rather than an attempted product live channel.
-      window.WebSocket = class { constructor(url: string | URL) {
+      window.WebSocket = class { constructor(url: string | URL, protocols?: string | string[]) {
         const target = new URL(url, location.href);
-        if (!allowDevHmr || target.host !== location.host) report("WebSocket");
+        // Match Vite's actual dev handshake, not every same-host product
+        // socket. The handshake remains denied before any transport opens.
+        const hmr = allowDevHmr && target.host === location.host
+          && target.protocol === (location.protocol === "https:" ? "wss:" : "ws:")
+          && target.pathname === "/" && protocols === "vite-hmr"
+          && [...target.searchParams.keys()].join(",") === "token" && Boolean(target.searchParams.get("token"));
+        if (!hmr) report("WebSocket");
         throw new Error("Design fixture blocks WebSocket");
       } } as unknown as typeof WebSocket;
       navigator.sendBeacon = () => { report("sendBeacon"); return false; };
@@ -164,4 +171,12 @@ export async function mountFoundationFixture(page: Page): Promise<{ close(): Pro
     await page.getByTestId("page-stack").waitFor();
     return { close };
   } catch (error) { await close(); throw error; }
+}
+
+// Both foundation consumers own the same page + memory HTTP lifetime. Close
+// the page first so server.close cannot wait on its live connection. Attempt
+// both cleanups even on assertion failure and retain every original error.
+export async function withFoundationFixture(page: Page, run: () => Promise<void>) {
+  const fixture = await mountFoundationFixture(page);
+  await runFoundationLifetime(run, () => page.close(), () => fixture.close());
 }

@@ -11,13 +11,15 @@
 
 작업 checkout은 `/Users/kim-jh/Documents/led-control-service/.worktrees/web-design-system-unification-20261016`이다. 아래 로그·JSON·PNG의 공통 경로는 `.superpowers/sdd/2026-10-16-web-design-system-unification/`이며 Git 제외 로컬 증거다. 이 coverage 문서는 커밋하고 원 로그는 삭제하지 않는다.
 
-소유 Vite `127.0.0.1:15341`, `--strictPort`, `reuseExistingServer:false`, workers1, Chromium, serviceWorkers:block을 사용했다. 기존5173/4000/8883·다른 worktree·실제 backend/DB·인증/메일/장비·배포/재시작은 실행하지 않았다. 자동 fixture가 미등록 API·외부 write·WebSocket·beacon을 차단·보고하며, 기존 도메인 mock의 미등록 응답은 synthetic404다. 개발 runner의 same-host WebSocket 보고 예외는 HMR 관측 한계로 남긴다. 모든 same-host 제품 socket이 실패 보고된다고 주장하지 않는다. 실제 production memory boundary는 HMR 예외 없이 모든 socket을 보고한다.
+소유 Vite `127.0.0.1:15341`, `--strictPort`, `reuseExistingServer:false`, workers1, Chromium, serviceWorkers:block을 사용했다. 기존5173/4000/8883·다른 worktree·실제 backend/DB·인증/메일/장비·배포/재시작은 실행하지 않았다. 자동 fixture가 미등록 API·외부 write·WebSocket·beacon을 차단·보고하며, 기존 도메인 mock의 미등록 응답은 synthetic404다. 개발 runner의 보고 예외는 실제 Vite handshake의 same-host·문서에 대응하는 ws/wss·루트경로·단일 token query·`vite-hmr` subprotocol 조합으로 한정했다. 이것도 transport 전에 차단한다. 실제 `/@vite/client` 부팅과 함께 same-host 일반경로/일반subprotocol/잘못된경로3시도 모두 차단+보고되는 음성 검사를 통과했다. production memory boundary는 계속 HMR 예외 없이 모든 socket을 보고한다.
 
 ## 실제 등록·실행 inventory
 
 고객 leaf는 monitoring1 + control1 + statistics3 + settings7 = 12다. control을 manual/schedule/event/group4mode로 나누면 15surface다. 공개3page와 entry3개를 9page로 합산하지 않는다. operator는4route다. index/wildcard redirect·dialog·query/hash는 page 수에 더하지 않는다.
 
 `design-system-coverage.spec.ts`는 별도 literal 기대집합15/4와 실제 등록 key38개, 단언 완료 뒤 `test.info().title`까지 저장한 실행38개를 대조한다. 자체 배열 길이만 검사하지 않는다. 최종 JSON의 실제 Playwright spec/test 결과와 `registered-executed-inventory` attachment도 함께 대조한다. table의 `coverage customer:{key}:390/1440`와 `coverage operator:{key}:390/1440`가 실제 case title prefix다.
+
+최종 수리에서 `coverage complete consumer cohort`라는 **38소비자+inventory39개 직렬 묶음**으로 실행 계약을 고정했다. 전체 파일/전체 suite 또는 `--grep "coverage complete consumer cohort"`로 선택한다. inventory 시작의 명시적38완료 선행조건과 afterAll의 완주 관문이 부분 grep/file:line/test-list를 거절한다. 소비자 하나가 실패하면 그 원 실패를 유지하며 나머지 묶음을 skip한다. 재시도0으로 다른 worker가 이전 worker의 부분 실행을 이어서 빈 inventory를 검사하지 않는다. 수리 뒤에는 전체 묶음을 새 worker에서 다시 실행해야 한다. 기대집합을 선택된 subset으로 축소하지 않는다. 부분 inventory 선택의 최초 오류는 전체 cohort 실행 방법을 안내하는38완료 선행조건이며 뒤 afterAll 오류도 별도 보존한다. operator행 line 선택은 본문8개 완료 후 완료 관문 실패(7PASS/1FAIL)를 확인한 별도 방어 증거이며 일반 PASS에 합산하지 않는다. worker의 public grep 설정만으로 CLI 선택을 추정하던 초기 보완은 실제 진단에서 효과가 없어 제거했다.
 
 | 고객 surface key | 실제 진입·loaded 단언 | computed·조작 근거 | 추가 상태/한계 |
 | --- | --- | --- | --- |
@@ -26,8 +28,8 @@
 | schedule | `/control?mode=schedule`, 실제 빈 목록 | roles:20·20/16·populated 규칙·추가 dialog·focus·calendar503 내부 오류 | 실제 규칙 저장/활성화·모든 calendar 상태는 미실행 |
 | event | `/control?mode=event`, 실제 빈 규칙 | roles:20·20/16·populated·추가 dialog·Escape | roles pending/403 error; 실제 감지/활성화는 미실행 |
 | group | `/control?mode=group`, 실제 빈 구역 | roles: populated2행 grid18·card16/20·새 구역 취소·같은 Card | roles pending/error; 실제 mesh membership 성공은 미실행 |
-| statistics-overview | `/statistics/overview`, 실제 오늘 사용량과 비용 | roles4폭×2theme: 외곽 panel20/16·grid18·제목·단위; eight nonzero Text Range | 모든 query pending/error/empty 조합의 mounted 검사는 미실행 |
-| statistics-analysis | `/statistics/analysis`, 실제 에너지 사용 비교 | roles: heatmap/순위 detail 외곽20/16·탭·선택·공통 SidePanel | chart 내부 cell/margin은 geometry. 모든 query 오류는 미실행 |
+| statistics-overview | `/statistics/overview`, 실제 오늘 사용량과 비용 | roles4폭×2theme: 외곽·일반 MetricCard20/16·grid18·제목·단위; 큰 수치4폭×2theme nonzero Text Range | 모든 query pending/error/empty 조합의 mounted 검사는 미실행 |
+| statistics-analysis | `/statistics/analysis`, 실제 에너지 사용 비교 | roles: heatmap/순위 detail 외곽과 지표 카드20/16·상세 내부 두 카드 grid18·탭·선택·공통 SidePanel; 큰 수치4폭×2theme | 상세의 테두리 지표2개는 일반 카드다. chart 내부 cell/margin·metric28/34는 보존. 모든 query 오류는 미실행 |
 | statistics-reports | `/statistics/reports`, 실제 빈 목록 | roles: 보고서 dialog20/16·56px닫기·단일 reader·Escape; 신규 populated 이력2행/상세 | failed+processing mock job 표시. 실제 PDF/CSV/다운로드·전체 오류/만료 상태 미실행 |
 | settings | `/settings`, 설치 이어가기 | 실제 h1 24/26·content owner14/28·18/24; roles grid18·card제목16 | TestDataTools 조건부 활성 mount는 아래 한계 참조 |
 | site | `/settings/site`, 현장 구성 | roles: section20/28·card16/24·panel20/16·mock 현장/층 저장; 신규 층2행·수정 modal | 인증 ready 후 feature pending/403 error/empty/paused→online 복구 실제 검사 |
@@ -115,7 +117,7 @@ Task6와 총괄이 `view_image`로 실제 PNG를 직접 확인했다. 초기 `ta
 | 공개 상담 제목 | `rgb(21,50,74)` / `rgb(255,255,255)` |20px/700 large·3 |13.232437312996261 |
 | 수동 apply390/1440 | opacity0.6, disabled=true |disabled 면제; group opacity 합성 AA를 계산하지 않음 |`null` |
 
-위 원수치는 `contrast-*`/`primary-control-nontext-boundary` JSON attachment와 연결한다. 실제 보이는 배경은 모두 sRGB solid/opacity1이며 공개 modal의 불투명 white panel은 뒤 backdrop을 완전히 가린다. 선택한 조합의 통과가 모든 palette 조합·focus ring·오류/상태/graphic 대비 통과를 뜻하지 않는다. 도형/CAD 원본색·disabled·장식과 필수 UI의 분류를 혼동하지 않는다.
+위 원수치는 `contrast-*`/`primary-control-nontext-boundary` JSON attachment와 연결한다. 실제 보이는 배경은 모두 sRGB solid/opacity1이며 공개 modal의 불투명 white panel은 뒤 backdrop을 완전히 가린다. 최종 수리는 텍스트와 nontext가 같은 solid/opacity 적격 검사를 사용하게 했다. nontext는 fill과 인접 면 양쪽의 전체 ancestor trace를 확인하고 gradient/image 또는 group opacity가 있으면 비율이 높아도 PASS할 수 없다. fill/adjacent × opacity/gradient4개 음성 검사가 이를 증명하며 별도 pixel 분석 없이 해당 측정을 적합 판정하지 않는다. raw ratio·기존3/4.5 기준은 유지한다. 선택한 조합의 통과가 모든 palette 조합·focus ring·오류/상태/graphic 대비 통과를 뜻하지 않는다. 도형/CAD 원본색·disabled·장식과 필수 UI의 분류를 혼동하지 않는다.
 
 ## 독립 baseline QA와 실패 판정
 
@@ -123,9 +125,9 @@ Task6와 총괄이 `view_image`로 실제 PNG를 직접 확인했다. 초기 `ta
 
 | 원 관측 | 원 조건·assertion 대조 | 독립 판정 |
 | --- | --- | --- |
-| Control narrow historical detail1 | verified_applied 이력 클릭→expandRecentDetails 뒤 :991 최근 결과 상세 region 없음 | prepared5와 Task5 full6에 같은 조건/단언 관측. 원인 미확정 |
-| Control close transition2 | 같은 verified_applied 이력. singleColumn=false는 rerender 뒤 :1016 close부재, true는 초기 :1012 oldClose부재 | 원prepared와최종rawstack도동일. baseline요약의false행1005–1012보다원raw의1016이정확하다. source동일만으로 인과 무관 확정하지 않음 |
-| Control roving2 | End/ArrowLeft로group 이동 후 :2397/:2582 focus 불일치 | 같은 원 fixture/키/단언. 원인 미확정, ignorelist 아님 |
+| Control narrow historical detail1 | verified_applied 이력 클릭→expandRecentDetails 뒤 :991 최근 결과 상세 region 없음 | focused 재현: mobile More의 active=null/hidden 상태에서 findByText는 숨겨진 결과도 찾지만 helper는 accessible 상세 보기만 query해 열지 않는다. 실제 접근 경로는 더보기→상세 보기다. 원 assertion 미수정; 후속 시험 조건/정책 결정 필요 |
+| Control close transition2 | 같은 verified_applied 이력. singleColumn=false는 rerender 뒤 :1016 close부재, true는 초기 :1012 oldClose부재 | false→true는 열린 상세가 초기 닫힌 More portal로 이동해 접근 불가; true 초기 조건도 More를 열지 않는다. close focus 단언 전에 실패한다. More 표시·이력/focus 생명주기를 변경하지 않았고 원 단언을 유지한다 |
+| Control roving2 | End/ArrowLeft로group 이동 후 :2397/:2582 focus 불일치 | handler는 기존 tab에 focus한 뒤 mode를 바꾼다. manual의 Fragment/provider 아래 tab이 group의 최상위 PageStack 분기로 이동하며 unmount되어 body로 focus가 빠진다. circular 시험은 이전 group DOM 참조도 보유한다. 제품 상호작용/시험 identity 계약의 별도 후속 결정 필요 |
 | 역사적 CAD 여섯째·Task5 CAD principal | common=true/principal 또는 onSaved-purge; automatic=false singleton callback→:1442 preview-ready=true 기대/false | prepared CAD85PASS, Task4 floor interruption 실패/후속미재현, Task5 full principalFAIL/85·87focusedPASS는 별도 관측. 미재현을 해결/flake/인과 무관으로 확정하지 않음 |
 | 원 E2E manual locator1 | marker 선택 후 `조명 목록 열기` 대기30초; 원복사본은 import분리1행만 차이 | 현재UI의 `조명 목록`/compact drawer 경로와 다른 locator 전제오류. 그 뒤 원 payload 전체 여정의 최종 성공을 증명하지 않음 |
 | 원 E2E settings locator4 |320/390×light/dark, h2 설정 visible 기대 | 현재 shell의 실제h1 설정과 불일치. locator 전제오류4; 원case 전체 후속 상태를 실행 완료로 바꾸지 않음 |
@@ -146,3 +148,17 @@ Task6와 총괄이 `view_image`로 실제 PNG를 직접 확인했다. 초기 `ta
 독립 AST 검사는 Vite 의존 PostCSS로 `@theme static`1개/738선언, 승인 anchor `e841c57b11321a5ae35d15920031020089f06ee2`, theme 원문 anchor동일, policy anchor/baseline sourceRef일치, `files:{}`를 확인했다. root font-size16 강제·zoom disable·새 token/정책 예외·baseline allowance·API/route·backend/native/shared/service config 변경은 없다.
 
 실제 운영 API·인증/메일·전화·PDF/다운로드·배포·LED/Gateway HIL·Safari/WebKit/Firefox·실기기·iOS/Android WebView·OS키보드·브라우저 확대/사용자 font 변경은 미실행이다. 지원하지 않는 새 테마를 만들지 않았다. Task6 독립 task review와 whole-branch final review는 총괄이 별도로 수행하며 이 기록이 그 승인을 대신하지 않는다.
+
+## 2026-10-17 최종 리뷰의 단일 수정 묶음
+
+통계 ordinary 지표 카드는 위 역할 계약으로 수리했고 `MetricCard` producer/default16px는 보존했다. roles8개와 큰 수치16개(overview/analysis×320/390/1024/1440×light/dark)가 actual20/16px·상세 형제grid18px·metric28/34px·전체 숫자/단위·카드 내 Range/overflow를 확인했다. analysis selected detail390/1440light의 `final-fix-browser-results/ui-eight-layout-regression-{0ed14-stay-inside-cards-390-light,9f25d-tay-inside-cards-1440-light}-chromium/numeric-cards.png`2개도 직접 열어 확인했다. PC의 kWh 줄바꿈을 포함해 숫자/단위가 모두 보이고 카드 안에 배치된다. 이는 해당2장면 확인이며 전체 화면 pixel 검증이 아니다.
+
+확장 결합 `final-fix-browser-final.json`은212개/343.797979초/exit1,211expected/1unexpected(실제208PASS+3의도된sentinelFAIL+foundation cleanup1timeout)다. 모든 foundation1440px CSS/hit/6클릭counter/브랜드18px단언은 끝났으나 열린page연결 때문에 memory server.close가30초까지 대기했다. 원JSON·trace와 실패를 보존한다. 총괄 승인으로 동일wave 안에서 두foundation소비자만 `withFoundationFixture`의 page→server정리로 연결하고 기존coverage의 오류보존을 test-only `runFoundationLifetime`으로 공통화했다. 정상순서·원body Error동일성·단일cleanup Error동일성/후속정리·복수3오류동일성/순서4unit은4RED→4PASS다.
+
+212가 시작된 뒤 선택guard와cleanup의 test-only delta가 있으므로 이를 새212전체PASS로 기록하지 않는다. 총괄 승인한 마지막 집중명령 `--grep 'coverage complete consumer cohort|coverage foundation generated CSS|fixture |functional computed'`는 실제62개를 선택했다(coverage40+foundation7+기존eight15). `final-fix-delta-final.json`은62expected/0unexpected/0skip,실제59PASS+3의도된sentinelFAIL,67.517238초/exit0이다. 수리된foundation functional은2.497초PASS, inventory는등록/기대/실행38개의key가정확히일치했다. 일반 `fixture `필터가 기존eight case15개도 선택했으며 최초 예상48개와 실제62개를 혼동하지 않는다. 부분inventory 선택의명시선행조건1FAIL과부분operator행선택7PASS/1FAIL은별도방어로그이며기능PASS에합산하지않는다. 최종run에서는beforeAll의CLI필터추측을제거하고실제완료선행조건+afterAll완주계약을검사한다.
+
+마지막 source의 build(TSC포함)와 explicitE2ETSC는exit0, UI정책79PASS·최종ui:check0/0, landing/public계약6+3PASS다. theme1블록/738선언·anchor원문동일·빈baseline과producer/Control원코드·원test/HTML불변을확인했다. pnpm설정/색출력/큰chunk경고는보존하고의존성정책/번들구조를변경하지않았다. 모든소유heavy/15341listener를종료하고 `final-fix-source-freeze.sha256`를기록한뒤 canonicalWeb전체를단독1회실행한다. 그결과와Control5의실패관문은최종보고서를따르며통계/도구수리로면제하지않는다.
+
+그 단독1회 `final-fix-web-full-alone.log`의 실제 결과는 **3928PASS/6FAIL/3SKIP**,266files(263PASS/2FAIL/1SKIP),46.63초/exit1이다. 새수명4unit은PASS했다. 기존Control5에 더해 CAD `previews CAD review results and applies with editor authority (common map: true, interruption: 'site')`가 :1442 `data-preview-ready=true` 기대/false로 실패했다. site interruption(:1492이후) 수행 전 초기paint단계다. 정확한case만 원단언/설정 그대로 실행한 `final-fix-cad-site-focused.log`는1PASS/84필터제외이며 전체를 반복하지 않았다. 위 Task6의3925/5/3과 Task5 principal·Task4 floor·과거onSaved-purge는 각 회차의 다른 관측이다. 이번 미재현을 원인 해결/flake/인과 무관으로 확정하지 않는다.
+
+CAD 경계 조사에서 원test는 `previewPaint.automatic=false`, 모든 `MapSceneCanvas` 렌더가 같은 `previewPaint.props` singleton을 덮어쓰며 :1441의 onPaintReady는 그 마지막 props를 호출한다. 제품 `CadImportSceneCanvas`는 source/generation/revision/attempt/viewKey를 fence하고 `CadImportPreview`는 해당token의ready display를 요구한다. 이 경계는 확인했지만 원full에서 실제 어느owner/view의callback이호출됐는지 입증한 계측은 없어 singleton/스케줄 경합을 확정 원인으로 쓰지 않는다. CAD 제품/원시험/단언은 수정하지 않았다. 전체 gate는6FAIL로 유지하고 별도 callback owner 추적·후속 방향 결정이 필요하다. 메뉴8문서의 최신 공통 검증도 이 최종값으로 일치시켰다.
