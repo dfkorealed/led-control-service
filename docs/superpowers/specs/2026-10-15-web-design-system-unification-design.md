@@ -2,11 +2,15 @@
 
 현장 운영·시설관리 담당자가 상태·대상·조작 결과를 쉽게 읽고 편하게 작업할 수 있도록 전체 Web의 UI를 일관되게 만든다. 공개 페이지의 기존 브랜드 특징은 유지한다.
 
-상태: **원 공통 적용·후속 제어5건/CAD1건 수리·독립 검토 완료 · 2026-10-18 기존 branch 로컬 병합 완료 · 병합 후 Web3939PASS/0FAIL/기존3SKIP · 전체 Chromium225actualPASS+의도된3FAIL+cleanup timeout1 → 전체 통합 검증 수용 보류**
+상태: **원 공통 적용·후속 제어5건/CAD1건 수리·기존 branch 로컬 병합 완료 · 2026-10-18 Task2 서버 cleanup 수리·독립 I1 ADDRESSED · 새 전체 Web3941PASS/0FAIL/기존3SKIP · 전체 Chromium226actualPASS+의도된3FAIL/예상밖0 · Web 범위 통합 검증 수용·메인 clean**
 
 작성일: 2026-10-15
 
-2026-10-18 로컬 통합: 사용자가 기존 `codex/mvp1-cloud-web`로 병합·다른 작업 보존·병합 후 전체 Web/PC·모바일 재검증을 명시 승인했다. [통합 계획](../plans/2026-10-18-web-design-system-integration.md)에 따라 양쪽 변경과 원 미커밋2파일을 보존해 `d87a1901`로 병합했다. 새 전체 Chromium229는225actualPASS·의도된차단FAIL3·foundation cleanup timeout1로 FAIL이며, 마지막 단독 Web3939/0/3과 구분한다. 독립 통합 리뷰는 C0/I1/M0·readiness NO다. I1 연결 소유 원인은 미확정이며 추측 수리·단언/timeout/retry 완화는 하지 않았다. 원 구현의 과거 검증과 현재 통합 실패를 합쳐 GREEN으로 발표하지 않는다. 정확한 회차·증거·제한은 최신 coverage와 통합 계획을 따른다.
+2026-10-18 Task2 후속 수리·수용: 사용자가 cleanup1 조사·수리·원 기능/단언/타작업 보존·새 전체 검증·메인 clean을 명시 승인했다. 실제 무데이터 TCP의 close-only 대기를 RED로 입증하고 소유 서버의 연결만 종료하는 test-only 수리 `95a1cc07`로7회귀 PASS를 확인했다. 실제 main에서 새 전체 Web3941/0/3(51.83초), 전체 Chromium229실행226actualPASS+의도된3FAIL·unexpected/skip/flaky0, 정적 모드·타입/빌드/정책 관문을 통과했다. 독립 검토는 Spec/Quality PASS·I1 ADDRESSED·C0/I0/M0·readiness Yes다. 원 브라우저 incident의 정확한 socket 소유자는 미확정이며 단일 probe도 미재현이었다. 원 미커밋 AGENTS84행/상태판13행은 각각 `b7dafc3e`/`f92158ad`에 원문 그대로 보존했다. 최종 문서 마감·보존/해시/clean 감사는 [통합 계획](../plans/2026-10-18-web-design-system-integration.md)을 따른다. 실제 backend/DB/장비/native/HIL·배포 인증은 아니다.
+
+2026-10-18 로컬 통합 최초 회차 이력: 사용자가 기존 `codex/mvp1-cloud-web`로 병합·다른 작업 보존·병합 후 전체 Web/PC·모바일 재검증을 명시 승인했다. [통합 계획](../plans/2026-10-18-web-design-system-integration.md)에 따라 양쪽 변경과 원 미커밋2파일을 보존해 `d87a1901`로 병합했다. 새 전체 Chromium229는225actualPASS·의도된차단FAIL3·foundation cleanup timeout1로 FAIL이며, 마지막 단독 Web3939/0/3과 구분한다. 독립 통합 리뷰는 C0/I1/M0·readiness NO다. I1 연결 소유 원인은 미확정이며 추측 수리·단언/timeout/retry 완화는 하지 않았다. 원 구현의 과거 검증과 현재 통합 실패를 합쳐 GREEN으로 발표하지 않는다. 정확한 회차·증거·제한은 최신 coverage와 통합 계획을 따른다.
+
+위 최초 회차의 FAIL·당시 I1/readiness NO는 보존 이력이며 현재 수용 상태는 Task2의 새 전체 검증·독립 판정을 따른다.
 
 2026-10-16 후속: 사용자가 [중앙 guide 수치표](../../ui-design-system.md)와 [실행 계획](../plans/2026-10-16-web-design-system-unification.md)의 공통 컴포넌트·전체 Web 적용을 지시하고 분리 작업공간 실행을 승인했다. 순차 subagent-driven 구현을 시작하며 실제 완료 상태·검증 한계는 계획과 coverage를 따른다.
 

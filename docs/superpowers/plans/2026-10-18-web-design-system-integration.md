@@ -10,9 +10,9 @@
 
 **Spec:** [승인된 디자인 설계](../specs/2026-10-15-web-design-system-unification-design.md), [공통 가이드](../../ui-design-system.md), [완료된 구현 계획](2026-10-16-web-design-system-unification.md). 사용자가 2026-10-18 로컬 병합·다른 작업 보존·병합 후 전체 테스트와 PC/모바일 검증을 명시 승인했다.
 
-상태: [x]원변경 snapshot, [x]분리공간 통합, [x]기존branch 반영·미커밋 복원, [x]새 전체 검증 실행, [x]독립 검토·결과 기록, [ ]전체 브라우저 수용 관문. 로컬 병합과 재검증 실행은 완료됐으나 foundation cleanup timeout1이 남아 **전체 통합 검증 승인은 보류**한다.
+상태: [x]원변경 snapshot, [x]분리공간 통합, [x]기존branch 반영·미커밋 복원, [x]새 전체 검증 실행, [x]독립 검토·결과 기록, [x]Task2 후속 수리·새 전체 브라우저 수용 관문. 원 Task1의 cleanup timeout1은 이력으로 유지하고, Task2의 실제 TCP RED/GREEN·한정 수리·새 전체 검증과 독립 I1 ADDRESSED 판정으로 **Web 범위 통합 검증을 수용**한다. 원 incident의 정확한 socket 소유자는 소급 확정하지 않는다.
 
-후속 실행 승인: 사용자가 남은 I1의 원인 조사·수리, 기존 기능/원 단언/타작업 보존, 새 전체 Web·PC/모바일 검증과 최종 메인 clean을 명시 지시했다. Task2는 [ ]인과 재현/RED, [ ]한정 수리/GREEN, [ ]메인 반영/새 전체 검증, [ ]독립 검토/최종 clean이다. 미커밋 상태판13행은 `제어 페이지 담당자`가 자신의 과거 기록이며 현재 편집 중이 아니라고 확인했다. AGENTS84행은 조회한 두 세션 및 Git 이력에서 작성자를 확인하지 못했다. 원문을 백업·대조하고 각각 `f92158ad`/`b7dafc3e`로 보존했으며 삭제·내용 변경 없이 메인 clean을 확인했다.
+후속 실행 승인·완료: 사용자가 남은 I1의 원인 조사·수리, 기존 기능/원 단언/타작업 보존, 새 전체 Web·PC/모바일 검증과 최종 메인 clean을 명시 지시했다. Task2는 [x]인과 재현/RED, [x]한정 수리/GREEN, [x]메인 반영/새 전체 검증, [x]독립 검토/최종 clean이다. 미커밋 상태판13행은 `제어 페이지 담당자`가 자신의 과거 기록이며 현재 편집 중이 아니라고 확인했다. AGENTS84행은 조회한 두 세션 및 Git 이력에서 작성자를 확인하지 못했다. 원문을 백업·대조하고 각각 `f92158ad`/`b7dafc3e`로 보존했으며 삭제·내용 변경 없이 메인 clean을 확인했다.
 
 ## Global Constraints
 
@@ -51,7 +51,9 @@
 - [x] **Step 5: 마지막 단독 전체Web.** 모든ownedheavy/listener 종료와 source동결을 확인하고 actual target에서 `pnpm --filter @led-control/web test`를 마지막 단독1회 실행한다. 전후source manifest/targetHEAD/dirty2보존을 확인한다. 새 실패는 원인·원출력을 남기고 skip/기대값/설정 완화나 untilgreen 반복을 하지 않는다.
 - [x] **Step 6: 문서·소유commit·독립검토.** coverage/guide와필요메뉴만 새결과로 맞추고 소유문서만commit한다. 총괄은 본계획과상태판UI부분을맞추되 status전체gitadd로 foreign13줄을 섞지 않는다. 원문hunk를따로stage하거나 HEAD에서UI부분만합성한indexpatch를사용하고 cached diff를확인한다. 최종dirty2의원변경/AGENTS/미승인stage0과source동일성을확인한다. reviewer는 통합의spec/quality·보존·새QA를독립평가한다.
 
-## 실행 결과와 미해결 수용 관문
+## Task1 당시 실행 결과와 미해결 수용 관문 — 보존 이력
+
+아래는 최초 병합 회차의 원 실패·당시 판정이다. 현재 수용 상태는 Task2의 후속 결과를 따른다. 과거 FAIL을 PASS로 고쳐 쓰지 않는다.
 
 - 로컬 merge는 `d87a190119d61d8b78192c654c5d1a0096573c2f`, 새 QA 문서 기록은 `08c5a8f2aedc9510bbe03e95930ce1441a6f7e6e`다. 양 parent·승인 Web tree·대상 API/기타 변경, 원 AGENTS84행·상태판 foreign13행은 독립 대조로 보존을 확인했다. 상태판은 HEAD에 UI소유 section만 합성해 index에 넣고 외부 section은 stage하지 않는다. 최종 마감도 문서만 변경한다.
 - 실제 main에서 새 canonical Web은 **3,939PASS/0FAIL/기존3SKIP**(266파일·47.05초), 전체 Chromium은 **229실행/225actualPASS/의도된차단FAIL3/예상밖cleanup timeout1**, skip/flaky0이다. 타입/E2E5root·build·정책79/ui위반0·landing6/public3계약 및 정적기본/QA6회차38actualPASS+기존modeSKIP6은 별도 결과다. 대표 PC/mobile PNG를 직접 확인했고907source·runner 전후 동일, ownedheavy0/QA4포트idle이다.
@@ -69,13 +71,22 @@
 
 **Interfaces:** `runFoundationLifetime`의 기존3/4인자 호출·setup/body/page→server·원 Error identity/AggregateError 순서를 유지한다. 같은 test lifetime module의 `closeOwnedHttpServer(server: Pick<import("node:http").Server, "close" | "closeAllConnections">): Promise<void>`를 actual fixture와 실제 TCP 회귀가 함께 소비한다. 소유 서버만 대상으로 하며 다른 context/server는 닫지 않는다.
 
-- [ ] **Step 1: 인과 probe와 선택 확인.** `cleanup-diagnosis.md`의 관측·가설을 읽고 새 raw 위치/runtime/소유 idle을 고정한다. 기존 functional case를 `--list --reporter=json`으로 정확1개/file/title/project까지 확인한 동일 selector로만 단일 계측 실행한다. 무데이터 연결인지 request/response가 진행 중인지 socket별 accept/request수/bytes/close와 server.close 시작·완료를 실제로 기록한다. body/header/cookie/auth/실제서비스 기록은 금지한다. 재현되지 않아도 원 실패를 없애거나 until-green 반복하지 않는다.
-- [ ] **Step 2: 실제 소유 TCP RED.** 실제 loopback node:http 서버에 node:net으로 연결하고 HTTP bytes를 보내지 않은 채 기존 종료 경로가 완료되지 않음을 먼저 확인한다. 회귀는 production-fixture의 실제 helper를 호출해 소유 socket 종료·server.listening=false·getConnections0을 단언하며, 별도 서버 연결은 유지되어야 한다. ordinary keepalive도 포함하고 실패/정리 finally는 자기 자원만 종료한다. 기존5개 lifetime test와 원 foundation/coverage/CAD/control expect는 전부 보존한다. RED의 정확 원인과 원출력을 저장한 뒤 구현한다.
-- [ ] **Step 3: 최소 수리·집중 GREEN.** 위 helper는 증명된 소유권 결함만 수리한다. close callback을 등록해 accept를 멈춘 뒤 소유 연결 종료를 요청하고 callback 완료를 기다린다. 다른 서버/context 종료·전역 monkeypatch·지연sleep·timeout/retry/skip/안전경계/단언 완화는 수리가 아니다. 기존 오류 보존과 양 cleanup 시도·sentinel 검사를 유지하고 예외 이유는 주석으로 명시한다. 실제 TCP 회귀·기존 lifetime5·같은 foundation case/전체foundation을 실행해 단언 동등성과 종료 완료를 확인하고 소유 파일만 커밋한다.
-- [ ] **Step 4: 메인 반영과 새 전체 검증.** 메인 expected HEAD/clean/index/타작업 보존을 확인한 뒤 확정 source를 ff-only한다. 그 실제 메인에서 workspace:prepare 후 source/runner를 freeze하고 Web/E2E5root type·build·정책79/ui0·공개계약6+3, 전체 safe design-system Chromium을 grep없이 실행한다. 기존229에 새 browser test를 만들지 않는 경우 actual226PASS+의도된차단FAIL3·unexpected/skip/flaky0을 기대한다. 정적랜딩/public의 default15185/5187 및QA15342·landing/service 모드도 새로 실행하고 PC/mobile4폭·지원theme의 원동작과 대표PNG를 직접 확인한다. 소유heavy/4포트 종료 뒤 마지막 단독 canonical `pnpm --filter @led-control/web test`를 한 번 실행하고 source/runner 전후 동일성을 확인한다. 예상밖 실패는 원문 유지·원인 조사하며 설정을 완화하지 않는다.
-- [ ] **Step 5: 근거·독립 검토·clean.** 원본 실패와 새 회차를 분리해 위 소유 검증 문서만 커밋한다. 원 AGENTS bytes/hash, 타작업13행/상태판UI외 원문, 보존 커밋과 기존 target/API/Gateway/Mobile/packages trees, 새 source diff의 test-only 범위를 대조한다. fresh 독립 reviewer가 원 I1·원 단언·TCP RED/GREEN·새 whole raw·소유권/side-effect/문서를 검토한 뒤 총괄이 정확 승인 결과만 기록한다. 메인 `git status --porcelain=v1 --untracked-files=all`/cached/unmerged0을 최종 확인하며, 새 외부 변경은 버리거나 임의 stage하지 않는다. push/PR/운영/장비 작업은 없다.
+- [x] **Step 1: 인과 probe와 선택 확인.** `cleanup-diagnosis.md`의 관측·가설을 읽고 새 raw 위치/runtime/소유 idle을 고정한다. 기존 functional case를 `--list --reporter=json`으로 정확1개/file/title/project까지 확인한 동일 selector로만 단일 계측 실행한다. 무데이터 연결인지 request/response가 진행 중인지 socket별 accept/request수/bytes/close와 server.close 시작·완료를 실제로 기록한다. body/header/cookie/auth/실제서비스 기록은 금지한다. 재현되지 않아도 원 실패를 없애거나 until-green 반복하지 않는다.
+- [x] **Step 2: 실제 소유 TCP RED.** 실제 loopback node:http 서버에 node:net으로 연결하고 HTTP bytes를 보내지 않은 채 기존 종료 경로가 완료되지 않음을 먼저 확인한다. 회귀는 production-fixture의 실제 helper를 호출해 소유 socket 종료·server.listening=false·getConnections0을 단언하며, 별도 서버 연결은 유지되어야 한다. ordinary keepalive도 포함하고 실패/정리 finally는 자기 자원만 종료한다. 기존5개 lifetime test와 원 foundation/coverage/CAD/control expect는 전부 보존한다. RED의 정확 원인과 원출력을 저장한 뒤 구현한다.
+- [x] **Step 3: 최소 수리·집중 GREEN.** 위 helper는 증명된 소유권 결함만 수리한다. close callback을 등록해 accept를 멈춘 뒤 소유 연결 종료를 요청하고 callback 완료를 기다린다. 다른 서버/context 종료·전역 monkeypatch·지연sleep·timeout/retry/skip/안전경계/단언 완화는 수리가 아니다. 기존 오류 보존과 양 cleanup 시도·sentinel 검사를 유지하고 예외 이유는 주석으로 명시한다. 실제 TCP 회귀·기존 lifetime5·같은 foundation case/전체foundation을 실행해 단언 동등성과 종료 완료를 확인하고 소유 파일만 커밋한다.
+- [x] **Step 4: 메인 반영과 새 전체 검증.** 메인 expected HEAD/clean/index/타작업 보존을 확인한 뒤 확정 source를 ff-only한다. 그 실제 메인에서 workspace:prepare 후 source/runner를 freeze하고 Web/E2E5root type·build·정책79/ui0·공개계약6+3, 전체 safe design-system Chromium을 grep없이 실행한다. 기존229에 새 browser test를 만들지 않는 경우 actual226PASS+의도된차단FAIL3·unexpected/skip/flaky0을 기대한다. 정적랜딩/public의 default15185/5187 및QA15342·landing/service 모드도 새로 실행하고 PC/mobile4폭·지원theme의 원동작과 대표PNG를 직접 확인한다. 소유heavy/4포트 종료 뒤 마지막 단독 canonical `pnpm --filter @led-control/web test`를 한 번 실행하고 source/runner 전후 동일성을 확인한다. 예상밖 실패는 원문 유지·원인 조사하며 설정을 완화하지 않는다.
+- [x] **Step 5: 근거·독립 검토·clean.** 원본 실패와 새 회차를 분리해 위 소유 검증 문서만 커밋한다. 원 AGENTS bytes/hash, 타작업13행/상태판UI외 원문, 보존 커밋과 기존 target/API/Gateway/Mobile/packages trees, 새 source diff의 test-only 범위를 대조한다. fresh 독립 reviewer가 원 I1·원 단언·TCP RED/GREEN·새 whole raw·소유권/side-effect/문서를 검토한 뒤 총괄이 정확 승인 결과만 기록한다. 메인 `git status --porcelain=v1 --untracked-files=all`/cached/unmerged0을 최종 확인하며, 새 외부 변경은 버리거나 임의 stage하지 않는다. push/PR/운영/장비 작업은 없다.
 
 Task2 자체 검토: Step1→2는 관측과 단일 가설을 실제 TCP 계약 회귀로 연결하고, Step2→3은 동일 helper의 RED→GREEN, Step3→4는 fix commit/같은 단언을 실제main freeze로 연결한다. Step4→5는 새 raw/manifest·clean 메인/원문 backup을 독립 검토와 최종 audit가 소비한다. Task1의 실패 기록은 역사로 남기며 새 통과 전에는 I1이나 전체 수용 체크를 닫지 않는다. 단일 수리·정리·새 검증을 한 인계 단위로 묶어 하나의 fresh 최종 reviewer가 spec/quality/I1/whole 후속 gate를 함께 검토한다.
+
+## Task2 최종 결과와 수용
+
+- 수리 `95a1cc078a3738e5f01088c3b07f180e49bcf052`는 fixture/lifetime/회귀의 정확3개 test-only 파일이다. 요청 바이트가 없는 소유 TCP 연결에서 close-only 대기가 끝나지 않는 결함을 실제 RED로 재현했고, accept를 멈춘 뒤 그 서버의 연결만 종료하고 callback을 기다리도록 수리했다. 회귀는6PASS/1FAIL→7PASS이며 다른 서버의 연결 유지와 실제 close 오류를 확인했다. 원5unit 본문·generic lifetime·foundation/coverage/Control/CAD 단언·page→server·원 오류/안전 경계는 그대로다.
+- 정확1개를 확인한 수리 전 브라우저 probe는 PASS로 미재현이었다. **원 incident의 정확한 socket 소유자는 여전히 미확정**이며, 실제 TCP 결함 입증 및 새 전체 관문 성공과 구분한다. 원 실패·진단0·trace·도구 오류·RED 원출력은 보존했다.
+- 실제 main의 새 전체 안전 Chromium은 **229실행/226actualPASS+의도된차단FAIL3**, unexpected/skip/flaky0·retry0·383.418891초다. 원 functional foundation은 기본30초 내2632ms PASS다. 마지막 단독 전체 Web1회는 **3,941PASS/0FAIL/기존3SKIP**,266파일·51.83초다. prepare·Web/E2E5root 타입·build·정책79/ui위반0·정적계약6+3과 landing/public default/QA·landing/service 모드도 통과했다. 대표 PC/mobile4폭과 light/dark 조작·PNG는 원 실행과 직접 확인을 구분해 기록했다.
+- QA 문서 `b665f6e5`는 정확11개 검증 문서만 갱신했다. 새 raw는 actualmain `.local/web-test-server-cleanup-20261018/qa-NxhtMA/`, Probe·최종 보고서·독립 리뷰는 source worktree `.superpowers/sdd/2026-10-18-web-design-system-integration/`다. 원907source/5runner/설정 해시를 대조했고 QA 이후 source/test/runner 변경은 없다.
+- 독립 최종 검토 `task-2-review.md`: **Spec PASS / Quality PASS / I1 ADDRESSED / C0·I0·M0 / whole-followup readiness Yes**. [x] 원 I1과 전체 브라우저 수용 관문을 닫는다. AGENTS84행/타작업13행은 별도 보존 커밋·원 SHA/UI밖 바이트 대조로 유지했고 다른 앱/공유패키지 tree·양parent·복구stash도 보존했다. 최종 마감은 본 계획/spec/UI상태의 문서3파일뿐이며 main `codex/mvp1-cloud-web`의 미커밋/untracked/index/unmerged0과 소유heavy0/QA4포트idle·소스 해시를 최종 감사한다.
+- 기존 경고·unit3SKIP·모드상6SKIP는 유지한다. mock Web 검증이며 실제 backend/DB/장비/native/HIL·다른 브라우저/실기기·모든 시각 상태·전체 monorepo CI 인증은 아니다. push/PR/배포·서비스 재시작·외부 작업 삭제는 하지 않았다.
 
 ## 계획 자체 검토
 
