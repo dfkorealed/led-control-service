@@ -10,7 +10,7 @@
 
 **Spec:** [승인된 디자인 설계](../specs/2026-10-15-web-design-system-unification-design.md), [공통 가이드](../../ui-design-system.md), [완료된 구현 계획](2026-10-16-web-design-system-unification.md). 사용자가 2026-10-18 로컬 병합·다른 작업 보존·병합 후 전체 테스트와 PC/모바일 검증을 명시 승인했다.
 
-상태: [ ]원변경 snapshot, [ ]분리공간 통합, [ ]기존branch 반영·미커밋 복원, [ ]새 전체 검증, [ ]독립 검토·최종 기록.
+상태: [x]원변경 snapshot, [x]분리공간 통합, [x]기존branch 반영·미커밋 복원, [x]새 전체 검증 실행, [x]독립 검토·결과 기록, [ ]전체 브라우저 수용 관문. 로컬 병합과 재검증 실행은 완료됐으나 foundation cleanup timeout1이 남아 **전체 통합 검증 승인은 보류**한다.
 
 ## Global Constraints
 
@@ -41,12 +41,20 @@
 
 **Interfaces:** approved source와 target HEAD를 소비해 두 parent를 보존한 merge commit 및 대상branch의 새 HEAD를 만든다. 제품 계약은 새로 만들지 않는다. 전체 Web/안전browser의 원 reporter·manifest·보존 증거를 독립 reviewer에게 전달한다.
 
-- [ ] **Step 1: 보존 snapshot.** branch/HEAD/index/dirty/unmerged·merge진행상태와 소유 heavy/port를 확인한다. dirty2파일 원문·binarydiff·SHA/mtime·상태판 비소유region을 백업한다. 실제 다른변경 추가/target HEAD 변경은 overwrite하지 않고 재판정한다.
-- [ ] **Step 2: 분리공간 통합.** 기존 UI worktree에서 확정target HEAD를 `merge.autoStash=false`, `--no-ff --no-commit`으로 병합한다. lesson 충돌은 두 신규 블록을 모두 유지하고 staged tree에서Web=승인source/API·타작업=target을 증명한 뒤 merge commit한다. 예상밖 기능 충돌은 추측수리하지 않고 총괄에 보고한다.
-- [ ] **Step 3: 대상 반영.** snapshot·대상HEAD·index를 재확인한다. 상태판 path만 stash push하고 OID/경로를 보존한다. 확정merge SHA로 target을 ff-only한 즉시 exact stash OID를 apply한다. AGENTS불변, foreign상태판원문·dirtyhunk불변, indexempty, 두parentancestor를 확인한다. 충돌/외부변경은 원본을 버리거나 덮지 않는다.
-- [ ] **Step 4: 실제 대상에서 검증.** workspace:prepare 후 source/검증runner manifest를 고정하고 typecheck·확장E2Etype5root·build·UI정책·ui:check·landing/public계약을 실행한다. 전체 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts`는 grep없이229전체를 실행해 actualPASS와3안전차단의도FAIL을 분리한다. 정적landing/public의default15185/5187와QA15342·landing/service mode도 새owned서버에서 실행한다. 대표mobile/PC PNG를 직접 확인하고 actualfocus/hit/overflow/paint/API보호 결과를 저장한다.
-- [ ] **Step 5: 마지막 단독 전체Web.** 모든ownedheavy/listener 종료와 source동결을 확인하고 actual target에서 `pnpm --filter @led-control/web test`를 마지막 단독1회 실행한다. 전후source manifest/targetHEAD/dirty2보존을 확인한다. 새 실패는 원인·원출력을 남기고 skip/기대값/설정 완화나 untilgreen 반복을 하지 않는다.
-- [ ] **Step 6: 문서·소유commit·독립검토.** coverage/guide와필요메뉴만 새결과로 맞추고 소유문서만commit한다. 총괄은 본계획과상태판UI부분을맞추되 status전체gitadd로 foreign13줄을 섞지 않는다. 원문hunk를따로stage하거나 HEAD에서UI부분만합성한indexpatch를사용하고 cached diff를확인한다. 최종dirty2의원변경/AGENTS/미승인stage0과source동일성을확인한다. reviewer는 통합의spec/quality·보존·새QA를독립평가한다.
+- [x] **Step 1: 보존 snapshot.** branch/HEAD/index/dirty/unmerged·merge진행상태와 소유 heavy/port를 확인한다. dirty2파일 원문·binarydiff·SHA/mtime·상태판 비소유region을 백업한다. 실제 다른변경 추가/target HEAD 변경은 overwrite하지 않고 재판정한다.
+- [x] **Step 2: 분리공간 통합.** 기존 UI worktree에서 확정target HEAD를 `merge.autoStash=false`, `--no-ff --no-commit`으로 병합한다. lesson 충돌은 두 신규 블록을 모두 유지하고 staged tree에서Web=승인source/API·타작업=target을 증명한 뒤 merge commit한다. 예상밖 기능 충돌은 추측수리하지 않고 총괄에 보고한다.
+- [x] **Step 3: 대상 반영.** snapshot·대상HEAD·index를 재확인한다. 상태판 path만 stash push하고 OID/경로를 보존한다. 확정merge SHA로 target을 ff-only한 즉시 exact stash OID를 apply한다. AGENTS불변, foreign상태판원문·dirtyhunk불변, indexempty, 두parentancestor를 확인한다. 충돌/외부변경은 원본을 버리거나 덮지 않는다.
+- [x] **Step 4: 실제 대상에서 검증.** workspace:prepare 후 source/검증runner manifest를 고정하고 typecheck·확장E2Etype5root·build·UI정책·ui:check·landing/public계약을 실행한다. 전체 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts`는 grep없이229전체를 실행해 actualPASS와3안전차단의도FAIL을 분리한다. 정적landing/public의default15185/5187와QA15342·landing/service mode도 새owned서버에서 실행한다. 대표mobile/PC PNG를 직접 확인하고 actualfocus/hit/overflow/paint/API보호 결과를 저장한다.
+- [x] **Step 5: 마지막 단독 전체Web.** 모든ownedheavy/listener 종료와 source동결을 확인하고 actual target에서 `pnpm --filter @led-control/web test`를 마지막 단독1회 실행한다. 전후source manifest/targetHEAD/dirty2보존을 확인한다. 새 실패는 원인·원출력을 남기고 skip/기대값/설정 완화나 untilgreen 반복을 하지 않는다.
+- [x] **Step 6: 문서·소유commit·독립검토.** coverage/guide와필요메뉴만 새결과로 맞추고 소유문서만commit한다. 총괄은 본계획과상태판UI부분을맞추되 status전체gitadd로 foreign13줄을 섞지 않는다. 원문hunk를따로stage하거나 HEAD에서UI부분만합성한indexpatch를사용하고 cached diff를확인한다. 최종dirty2의원변경/AGENTS/미승인stage0과source동일성을확인한다. reviewer는 통합의spec/quality·보존·새QA를독립평가한다.
+
+## 실행 결과와 미해결 수용 관문
+
+- 로컬 merge는 `d87a190119d61d8b78192c654c5d1a0096573c2f`, 새 QA 문서 기록은 `08c5a8f2aedc9510bbe03e95930ce1441a6f7e6e`다. 양 parent·승인 Web tree·대상 API/기타 변경, 원 AGENTS84행·상태판 foreign13행은 독립 대조로 보존을 확인했다. 상태판은 HEAD에 UI소유 section만 합성해 index에 넣고 외부 section은 stage하지 않는다. 최종 마감도 문서만 변경한다.
+- 실제 main에서 새 canonical Web은 **3,939PASS/0FAIL/기존3SKIP**(266파일·47.05초), 전체 Chromium은 **229실행/225actualPASS/의도된차단FAIL3/예상밖cleanup timeout1**, skip/flaky0이다. 타입/E2E5root·build·정책79/ui위반0·landing6/public3계약 및 정적기본/QA6회차38actualPASS+기존modeSKIP6은 별도 결과다. 대표 PC/mobile PNG를 직접 확인했고907source·runner 전후 동일, ownedheavy0/QA4포트idle이다.
+- 독립 리뷰는 **Spec PARTIAL / Quality WITH FIXES / readiness NO, C0/I1/M0**이다. I1(`design-system-fixture.ts:166`)은 화면 단언·page.close·unroute 뒤 메모리 서버 정리를 기다리다 timeout한 실패이며 정확한 연결 소유 원인은 미확정이다. 한 번의 계측 진단은 bare-title 선택 오류로 실행0이었고 통과·원인 증거가 아니다. 원 전체 RED·trace·진단 오류를 보존했다. 별도 frozen continuation으로 독립 나머지 gate와 마지막 Web1회만 실행했고 원 runner/timeout/retry/skip/단언/제품 소스는 변경하지 않았다.
+- **수용 관문: [ ] I1 원인 입증·한정 수리와 새 전체 브라우저 검증.** 이 계획의 merge·재검증 실행 체크는 이 관문의 성공·결함 면제·전체 GREEN을 뜻하지 않는다. 이번 인계는 실패를 명시한 실행 결과이며 추측 수리/자동 rollback/push/배포는 하지 않는다. 후속 수리는 원 실패와 기존 단언·안전 경계를 유지하는 별도 범위로 다룬다.
+- 상세 최신 결과와 한계는 [coverage](../../assets/web-design-system-2026-10-16/coverage.md)의 ‘기존 브랜치 통합 후 새 검증’을 따른다. 원증거는 actualmain `.local/web-design-system-integration-20261018/qa-3zqOCJ/`, 통합 보고서·독립 리뷰·최종 보존 기록은 source worktree의 `.superpowers/sdd/2026-10-18-web-design-system-integration/`에 남긴다. monorepo/backend/native/실장비/HIL 검증은 아니다.
 
 ## 계획 자체 검토
 

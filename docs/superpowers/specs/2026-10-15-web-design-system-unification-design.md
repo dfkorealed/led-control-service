@@ -2,9 +2,11 @@
 
 현장 운영·시설관리 담당자가 상태·대상·조작 결과를 쉽게 읽고 편하게 작업할 수 있도록 전체 Web의 UI를 일관되게 만든다. 공개 페이지의 기존 브랜드 특징은 유지한다.
 
-상태: **전체 공통 적용·후속 제어5건/CAD1건 수리·과제별 검토 완료 · 전체branch 추가3건 보완8d73eb4f·독립재검토 모두해소/새C·I·Minor0 · 2026-10-18 최종 Web3939PASS/0FAIL/3기존SKIP·최종집중Chromium53actualPASS+6modeN/A · 실행된 범위의 검증·인계 완료/분리브랜치 보존**
+상태: **원 공통 적용·후속 제어5건/CAD1건 수리·독립 검토 완료 · 2026-10-18 기존 branch 로컬 병합 완료 · 병합 후 Web3939PASS/0FAIL/기존3SKIP · 전체 Chromium225actualPASS+의도된3FAIL+cleanup timeout1 → 전체 통합 검증 수용 보류**
 
 작성일: 2026-10-15
+
+2026-10-18 로컬 통합: 사용자가 기존 `codex/mvp1-cloud-web`로 병합·다른 작업 보존·병합 후 전체 Web/PC·모바일 재검증을 명시 승인했다. [통합 계획](../plans/2026-10-18-web-design-system-integration.md)에 따라 양쪽 변경과 원 미커밋2파일을 보존해 `d87a1901`로 병합했다. 새 전체 Chromium229는225actualPASS·의도된차단FAIL3·foundation cleanup timeout1로 FAIL이며, 마지막 단독 Web3939/0/3과 구분한다. 독립 통합 리뷰는 C0/I1/M0·readiness NO다. I1 연결 소유 원인은 미확정이며 추측 수리·단언/timeout/retry 완화는 하지 않았다. 원 구현의 과거 검증과 현재 통합 실패를 합쳐 GREEN으로 발표하지 않는다. 정확한 회차·증거·제한은 최신 coverage와 통합 계획을 따른다.
 
 2026-10-16 후속: 사용자가 [중앙 guide 수치표](../../ui-design-system.md)와 [실행 계획](../plans/2026-10-16-web-design-system-unification.md)의 공통 컴포넌트·전체 Web 적용을 지시하고 분리 작업공간 실행을 승인했다. 순차 subagent-driven 구현을 시작하며 실제 완료 상태·검증 한계는 계획과 coverage를 따른다.
 
