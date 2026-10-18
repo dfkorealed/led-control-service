@@ -32,7 +32,7 @@ const request = { ...scope, nonce: "33333333-3333-4333-8333-333333333333" };
     const [row] = await db.$queryRaw<Array<{
       issuedAt: Date; primaryStartedAt: Date; serverAddress: string | null; serverPort: number | null
     }>>`SELECT clock_timestamp() AS "issuedAt", pg_postmaster_start_time() AS "primaryStartedAt",
-      inet_server_addr()::text AS "serverAddress", inet_server_port() AS "serverPort"`;
+      host(inet_server_addr()) AS "serverAddress", inet_server_port() AS "serverPort"`;
     evidence = {
       issuedAt: row.issuedAt, offsetMs: 0, stepGeneration: 1, clearedStepGeneration: 1,
       failoverGeneration: 1, clearedFailoverGeneration: 1,

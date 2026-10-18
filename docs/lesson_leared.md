@@ -26,6 +26,16 @@
 - portal target은 새 intrinsic grid item이 되지 않게 한다. 모바일에서 실제 rect·scrollWidth·elementFromPoint를 측정하며 44px 크기만으로 잘림 없는 hit를 단정하지 않는다. viewport 변경 뒤에는 Shell의 실제 표현 commit을 확인하고 timeout/지연을 늘려 경합을 숨기지 않는다.
 - `**/api/**`는 Vite의 `/src/api/*.ts`도 매칭한다. pathname `/api/`로 실제 API만 구분하고 미등록 API·write는 abort+보고한다. mock Chromium·소프트웨어 검증을 실제 Gateway/조명/HIL 성공으로 기록하지 않는다.
 
+## 2026-10-16 / 실제 PostgreSQL의 inet 직렬화와 시각 증거를 대조한다
+
+- 실제 primary의 `inet_server_addr()::text`는 IPv4 `/32`·IPv6 `/128`를 붙인다. 보호 시각 증거의 정규 IP와 단순 비교하면 동일 primary도 거절한다. `host(inet_server_addr())`로 조회하고 주소·포트·기동 시각의 정확한 비교는 유지한다.
+- 동일한 잘못된 SQL로 만든 test evidence는 이 결함을 숨긴다. 임시 실제 PostgreSQL에서 host와 inet text 차이를 먼저 증명하고 건강한 host 증거의 실패→성공, 다른 주소/포트/기동 시각·만료·오차·세대의 계속 거절을 함께 검증한다.
+- readiness와 clock 승인 성공은 현재 transaction의 시각 검증 성공을 대신하지 않는다. 별도로 실제 보호 reader와 운영 DB의 같은 transaction을 확인한다. CPU 부하·절전·네트워크 표본 실패로 시각 관문이 닫히면 임의 시간을 주입하거나 오차/만료 기준을 완화하지 않는다.
+- 관리자 인증을 요청하거나 사람이 승인했다고 말한 것만으로 명령 실행을 완료 처리하지 않는다. 종료 코드·현재 launchd PID/실행 횟수·실제 보호 응답을 확인하고, 장기 대기 명령은 신원을 확인해 취소하여 뒤늦은 재시작을 막는다.
+- 시간 수집 실패는 일반 사용자와 실제 producer UID에서 primary 검사·NTP 지연·cleanup/자식 회수를 분리 비교한다.5초 간격 정상3표본은 확인했지만 공용 서버 제한이 원인이라고 단정하지 않는다. 수집 간격과 표본 유효기간은 별개이며 현재 관측·같은 세대 검사를 거쳐 마지막 유효 표본만 승인한다. 실패 시 자동 승인 반복·가짜 증거·유효기간 확대를 하지 않는다.
+- 장비 업데이트 후 복구한 규칙 revision은 그 시점의 증거다. 후속 정상 PATCH나 사용자 변경이 있으면 기존 복구 승인을 근거로 덮어쓰지 않고 현재 설정을 보존한다.
+- 시간 승인·preview의 단발 성공만으로 수동 준비를 확정하지 않는다. 실제 새 step 재발로 판정을 철회했고 runtime 지연 정책 조정 뒤60초 세대 유지·실제 DB12회·브라우저 재확인을 분리했다. runtime 우선순위 변경은 영구 installer/plist 수리와 다르며 재시작 후 자동 유지로 문서화하지 않는다.
+
 ## 2026-10-16 / 등록 삭제는 이력 보존과 불확정 복구를 함께 검증한다
 
 - DB 원장 보호용 statement lock을 추가할 때 기존 metadata/heartbeat의 row lock 순서와 역전될 수 있다. 실제 PostgreSQL의 양방향 동시 실행으로 40P01을 재현하고 일반 UPDATE 범위를 좁혔다. 모의 transaction 테스트만으로 잠금 안전을 확정하지 않는다.

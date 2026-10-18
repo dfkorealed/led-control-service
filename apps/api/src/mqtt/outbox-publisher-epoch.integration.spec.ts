@@ -36,7 +36,7 @@ import { MqttService } from "./mqtt.service";
       generation: epoch, workerId, brokerIdentity: `command-set-${epoch}`
     })) });
     const [primary] = await db.$queryRaw<Array<{ startedAt: Date; address: string; port: number }>>`
-      SELECT pg_postmaster_start_time() AS "startedAt", inet_server_addr()::text AS address, inet_server_port() AS port`;
+      SELECT pg_postmaster_start_time() AS "startedAt", host(inet_server_addr()) AS address, inet_server_port() AS port`;
     evidence = { issuedAt: new Date(), offsetMs: 0, stepGeneration: 0, clearedStepGeneration: 0,
       failoverGeneration: 0, clearedFailoverGeneration: 0, primary };
     const baseline = { generation: epoch, ...evidence };
