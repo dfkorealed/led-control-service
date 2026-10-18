@@ -138,7 +138,7 @@ createRoot(document.getElementById("root")).render(el(PageStack,{"data-testid":"
  el(Button,{variant:"landingMapMarker","aria-label":"브랜드 점"},"")));
 `;
 
-export async function mountFoundationFixture(page: Page): Promise<{ close(): Promise<void> }> {
+async function createFoundationFixture(page: Page): Promise<{ setup(): Promise<void>; close(): Promise<void> }> {
   const entry = "virtual:design-system-foundation";
   const result = await build({ logLevel: "silent", build: { write: false, rollupOptions: { input: entry } }, plugins: [{
     name: "design-system-foundation", enforce: "pre",
@@ -166,17 +166,16 @@ export async function mountFoundationFixture(page: Page): Promise<{ close(): Pro
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     expect(sentinels, "Memory fixture attempted an unconfigured API or external write").toEqual([]);
   };
-  try {
+  return { close, setup: async () => {
     await page.goto(`http://127.0.0.1:${address.port}`);
     await page.getByTestId("page-stack").waitFor();
-    return { close };
-  } catch (error) { await close(); throw error; }
+  } };
 }
 
-// Both foundation consumers own the same page + memory HTTP lifetime. Close
+// Both foundation consumers own setup and body in the same HTTP lifetime. Close
 // the page first so server.close cannot wait on its live connection. Attempt
 // both cleanups even on assertion failure and retain every original error.
 export async function withFoundationFixture(page: Page, run: () => Promise<void>) {
-  const fixture = await mountFoundationFixture(page);
-  await runFoundationLifetime(run, () => page.close(), () => fixture.close());
+  const fixture = await createFoundationFixture(page);
+  await runFoundationLifetime(run, () => page.close(), () => fixture.close(), () => fixture.setup());
 }

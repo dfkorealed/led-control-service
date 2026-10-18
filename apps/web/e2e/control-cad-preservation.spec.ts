@@ -306,8 +306,8 @@ for (const width of [320, 390, 1024, 1440]) {
       await page.screenshot({ path: info.outputPath(`cad-applied-${width}.png`) });
     } finally {
       releaseRegions(); releaseTiles();
-      await info.attach("cad-api", { body: JSON.stringify({ requests: boundary.requests, unknown: boundary.unknown, unhandled: api.unhandledRequests, applies: api.payloads }), contentType: "application/json" });
-      expect(boundary.unknown).toEqual([]); expect(api.unhandledRequests).toEqual([]);
+      await info.attach("cad-api", { body: JSON.stringify({ requests: boundary.requests, unknown: boundary.unknown, unhandled: api.unhandledRequests, browserErrors: api.browserErrors, applies: api.payloads }), contentType: "application/json" });
+      expect(boundary.unknown).toEqual([]); expect(api.unhandledRequests).toEqual([]); expect(api.browserErrors).toEqual([]);
     }
   });
 }
@@ -365,8 +365,8 @@ for (const width of [320, 1440]) for (const interruption of ["cancel", "scope"] 
       await page.screenshot({ path: info.outputPath(`cad-${interruption}-${width}.png`) });
     } finally {
       releaseTiles();
-      await info.attach("cad-api", { body: JSON.stringify({ requests: boundary.requests, unknown: boundary.unknown, unhandled: api.unhandledRequests, applies: api.payloads, cancelled, heldTileRequests, releasedTileResponses }), contentType: "application/json" });
-      expect(boundary.unknown).toEqual([]); expect(api.unhandledRequests).toEqual([]);
+      await info.attach("cad-api", { body: JSON.stringify({ requests: boundary.requests, unknown: boundary.unknown, unhandled: api.unhandledRequests, browserErrors: api.browserErrors, applies: api.payloads, cancelled, heldTileRequests, releasedTileResponses }), contentType: "application/json" });
+      expect(boundary.unknown).toEqual([]); expect(api.unhandledRequests).toEqual([]); expect(api.browserErrors).toEqual([]);
     }
   });
 }

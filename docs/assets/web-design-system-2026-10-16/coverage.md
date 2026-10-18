@@ -1,6 +1,6 @@
 # Web 공통 디자인 시스템 적용·검증 범위
 
-승인일 2026-10-16, 최신 검증일 2026-10-18. 분리 브랜치 `codex/web-design-system-unification-20261016`의 Task1–5 제품을 Task6에서 확인했고, Task7/8 수리 뒤 최신 전체 Web3,938PASS/0FAIL/3SKIP·전체 안전 Chromium226actualPASS+의도된FAIL3을 확인했다. 아래 회차별 실패 이력과 마지막 Task8 기록을 구분한다. 운영 배포·실장비 완료나 독립 최종 리뷰 승인을 뜻하지 않는다. [중앙 가이드](../../ui-design-system.md), [적용 설계](../../superpowers/specs/2026-10-15-web-design-system-unification-design.md), [적용 전 baseline](baseline.md)을 함께 읽는다.
+승인일 2026-10-16, 최신 검증일 2026-10-18. 분리 브랜치 `codex/web-design-system-unification-20261016`의 Task1–5 제품과 Task7/8 후속 수리 뒤 test-only 최종 보완을 확인했다. 최신 단독 전체 Web은3,939PASS/0FAIL/기존3SKIP이며 이번 집중 CAD8+foundation7·공개 기본/QA 포트 검증과 이전 Task8 전체 안전 Chromium226actualPASS+의도된FAIL3은 별도 회차다. 아래 실패·중단·최종 기록을 구분하며 운영 배포·실장비 완료나 독립 최종 리뷰 승인을 뜻하지 않는다. [중앙 가이드](../../ui-design-system.md), [적용 설계](../../superpowers/specs/2026-10-15-web-design-system-unification-design.md), [적용 전 baseline](baseline.md)을 함께 읽는다.
 
 ## 증거의 구분과 실행 경계
 
@@ -187,3 +187,29 @@ CAD current4는320/390light·1024/1440dark에서 provisional/held tile ready=fal
 최종 `browser-full-results/control-cad-preservation-C-8e946-nt-dirty-and-mock-apply-390-chromium/cad-review-390.png`와 `control-cad-preservation-C-07a31-t-dirty-and-mock-apply-1440-chromium/cad-review-1440.png`를 실제 열었다. light/dark의 fixture3도형·preview containment·표시완료 안내·apply를 확인했다. 이는 합성 fixture 대표2장면이며 실제 DWG 변환·모든 CAD 색의 AA 인증이 아니다. 아래 취소 action은 내부 scroll 대상이다. 추가로320applied/1440scope PNG도 열었으며 후속 맵loading 상태이므로 새 맵 완전paint/404표시완료로 확대하지 않는다.
 
 fixture 추출 직후 기존함수/등록본문동일을 확인했고 이후 canvas parameter와 prepared tile descriptor의 type-only 보완을 별도로 했다. 원 CAD expect200은 spec+support 합산 그대로이며 기존 제어 E2E52도 유지한다. 기존 legacy CAD journey 전체는 이 runner에 없으며 새8건/타입 검사를 그 전체 PASS로 기록하지 않는다. 기존3SKIP·pnpm ignored-overrides·색출력/큰chunk·Konva 경고와 운영backend/native/HIL/확대·OS키보드 등 미검증 경계는 유지한다. 원212실패·후속delta62와 이번 새로운 전체229를 혼합하지 않는다. 독립 task/whole-branch 리뷰와 병합은 총괄의 별도 관문이다.
+
+## 2026-10-18 후속 최종 보완 — 기본 실행·오류 관측·초기 정리
+
+전체 branch 검토의3건을 한 test-only wave에서 보완했다. 공유 공개 spec의15342 고정 단언은 기본 config15185/5187에서 실제404 testcase RED를 확인한 뒤 config에서 유도한 loopback origin으로 바꿨다. 기본 config·정적 서버·실 HTTP status/body·비공개 경로·API 차단·service 모드·연락 href·JS-disabled404 단언은 유지했다. CAD 두 finally는 기존 browserErrors를 attachment와 빈 배열 관문에 포함한다. cancel320의 실제 uncaught 예외 주입은 관문 전1PASS→추가 뒤1FAIL이며 주입은 최종 source에서 제거했다.
+
+foundation의 goto/준비 대기는 기존 runFoundationLifetime 안에서 body와 함께 실행한다. setup+page cleanup+server cleanup 실패에서도 원 setup Error를 첫 항목으로 보존하며 body를 실행하지 않고 page→server를 모두 시도한다. 새 setup 회귀는4PASS/1FAIL RED→5PASS다. 자가 검토에서 선택 setup의 await가 기존3인자 호출의 본문 시작을 한 microtask 늦추는 것을 추가 RED로 확인했고 조건부 await로 원 즉시 시작과 기존 정리 순서를 보존했다(동일5case, 별도 회차).
+
+첫 고정 실행 `followup-final-fix-green-OwoGA4`는 unit5·집중 browser15·공개 기본/QA·Web 타입 통과 뒤 확장 E2E 타입 검사에서 중단됐다. public runner의 서로 다른 fixture overload union으로 TS2349가10건 발생했다. exact FIX_BASE `055e665c`의 변경6파일을 읽기 전용 compiler host에 겹쳐 같은 위치/진단10건을 재현했으며, `const test: typeof base` 선언만으로 수리했다. 실제 main/production 선택과 자동 boundary는 유지한다. 이 중단 회차에서는 전체 Web과 finalfix once-lock을 시작하지 않았다.
+
+최종 원증거는 `.superpowers/sdd/2026-10-16-web-design-system-unification/followup-final-fix-green-jhlgRh/`다. 같은 고정 runner를 primary session63013에서 실행해 COMPLETE/exit0이며 소스907개와 runner hash를 첫 gate 전에 고정하고 전체 Web 전후 일치를 확인했다. 모든 gate는 이 최종 test/helper source 기준이며 이전 Task8 raw/once-lock/907 manifest는 그대로다.
+
+| 최종 gate·원로그 | 실제 결과 |
+| --- | --- |
+| lifetime / 목록 / 집중 classifier | 5PASS / 등록15개 이름 일치 / CAD8+foundation7 actual15PASS, 24.523396초 |
+| 정적 랜딩 기본15185 / QA15342 | 각6PASS, 4.437308초 / 3.864144초 |
+| public landing 기본5187 / QA15342 | 각5PASS+기존 service 전용3SKIP, 3.353834초 / 3.248653초 |
+| public service 기본5187 / QA15342 | 각8PASS, 4.611256초 / 4.646406초 |
+| Web / 확장 E2E 타입 | 둘 다 exit0; E2E는 변경3spec+foundation+legacy CAD journey 포함 |
+| build / UI정책 / ui:check | exit0 / 79PASS / 기존0·신규0 위반 |
+| landing / public 계약 | 6PASS / 3PASS |
+| 마지막 단독 canonical Web1회 | **3,939PASS / 0FAIL / 기존3SKIP**, 265PASS/1SKIP 파일(266), 51.36초 |
+| source / runner / idle | 907 SHA256와 runner 전후 일치, 소유heavy0, 15341/15342/5187/15185 listener0, diff check0 |
+
+이번 브라우저 회차는53actualPASS+public landing 모드상 서비스 전용6SKIP이며 unexpected/flaky0이다. 각 landing 모드3SKIP는 bootstrap·service session·service login의 원 조건부 분기이고 service 모드에서는 같은3개가 실행됐다. CAD8의 browserErrors/unknown/unhandled attachment는 모두 빈 배열이며 original paint/dirty/current-document/mock apply/API fence를 유지한다. 원 expect chain은 CAD preservation102개 전부 유지+2개 오류 관문, 공개80/정적32개는 해당 origin 단언1개씩만 교체, fixture3개·기존 lifetime11개는 유지했다.
+
+이전 Task8의 전체 안전 Chromium229 expected(실제226PASS+의도된 차단FAIL3)·Web3,938PASS/3SKIP는 이전 source의 별도 전체 회차다. 이번53과 합산한 새로운 전체229PASS나 전 소비자 재실행을 주장하지 않는다. 새3939는 setup 회귀1개 증가이며 재설계·제품 변경이 아니다. 전체 monorepo CI·실 backend/DB/장비/native/HIL·실제 DWG·전 GPU/브라우저·모든 상태/대비·후속 맵 완전 paint·legacy CAD journey 전체는 추가 인증하지 않았다. pnpm/color·main934.90kB/gzip281.38kB chunk·React act/negative Zod/Konva 진단은 남는다. 상세 명령·원로그·자가 검토는 `followup-final-fix-report.md`, 독립 검토와 통합 상태는 plan/project-status의 별도 정본을 따른다.

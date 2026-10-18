@@ -1,5 +1,14 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-18 / 공유 E2E는 실행 config와 실패 수명의 경계를 함께 검증한다
+
+- 작업 전용 QA 포트를 공유 spec에 고정하면 기존 config의 정상 기본 포트까지 거부한다. 공개 테스트의 loopback·프로토콜·origin 검증은 실제 config에서 유도하고, QA 전용 포트 제한은 실행 명령과 소유 listener 검사에 둔다. 실제 HTTP 404·본문·비공개 경로 검증을 browser synthetic route로 대신하지 않는다.
+- `pageerror`를 배열에 수집하기만 하면 비동기 예외가 판정에서 빠진다. 성공 경로뿐 아니라 `finally`에 원 배열 attachment와 빈 배열 단언을 두고, 통제된 uncaught 예외가 실제 테스트 실패로 나타나는지 확인한다. 예외를 새 allowlist나 skip으로 숨기지 않는다.
+- fixture의 초기 `goto`/준비 대기도 body와 같은 수명에 둔다. setup 실패 뒤에도 page→server 순서로 두 cleanup을 모두 시도하며, 동시 cleanup 실패는 원 setup 오류를 첫 항목으로 보존한다. setup·page·server 동시 실패 회귀와 정상 실제 브라우저 실행은 각각 다른 경계를 증명한다.
+- 기본 config·명시 QA 포트·이전 전체 브라우저·새 focused 회차는 별도 수치로 남긴다. 수정된 test/helper의 최종 source를 고정한 뒤 명시 승인된 canonical Web 전체를 마지막 단독 한 번 실행하고, 이전 Task8 once-lock과 raw 증거는 수정하지 않는다.
+- 확장 타입 검사에서 처음 드러난 오류를 이번 수정 탓이나 기존 오류로 추정하지 않는다. exact 기준 source를 메모리 compiler host에 겹쳐 같은 진단을 재현하고 원문·해시를 보존한다. 공통 fixture만 쓰는 runner의 type-only 호출 선언으로 수리할 때도 실제 선택과 자동 안전 boundary를 바꾸지 않는다.
+- 선택 setup의 `await setup?.()`는 setup이 없는 기존 호출에도 불필요한 microtask를 만든다. 기존3인자 호출의 즉시 본문 시작을 await 전 snapshot으로 검사하고, `if (setup) await setup()`으로 원 순서를 보존한다. 실패 diff가 나중에 변경된 배열을 표시하지 않도록 실제 관측 시점의 값을 고정한다.
+
 ## 2026-10-18 / 비동기 preview의 현재 DOM과 renderer 표시 소유권을 분리한다
 
 - 후보 응답 뒤 regions 응답이 native scene/reviewKey를 바꾸면 먼저 캡처한 preview DOM은 분리될 수 있다. callback을 호출했는데 이전 DOM이 false라는 사실만으로 제품 paint fence나 mutable singleton 오배달을 결론내리지 않는다. source/generation/revision·camera/viewport·mount 경계를 계측하고 old disconnected/current ready 대조로 원인을 확인한다.

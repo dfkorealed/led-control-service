@@ -4,7 +4,11 @@ import { runFoundationLifetime } from "./design-memory-lifetime";
 describe("foundation memory lifetime", () => {
   it("closes the page before the memory server after a successful body", async () => {
     const events: string[] = [];
-    await runFoundationLifetime(async () => { events.push("body"); }, async () => { events.push("page"); }, async () => { events.push("server"); });
+    const lifetime = runFoundationLifetime(async () => { events.push("body"); }, async () => { events.push("page"); }, async () => { events.push("server"); });
+    // Existing three-argument callers start their body before the first await.
+    const initialEvents = [...events];
+    await lifetime;
+    expect(initialEvents).toEqual(["body"]);
     expect(events).toEqual(["body", "page", "server"]);
   });
 
@@ -31,5 +35,21 @@ describe("foundation memory lifetime", () => {
     expect(error.errors[1]).toBe(page);
     expect(error.errors[2]).toBe(server);
     expect(events).toEqual(["page", "server"]);
+  });
+
+  it("retains setup and both cleanup errors, closes page first, and never runs the body", async () => {
+    const events: string[] = [], setup = new Error("setup"), page = new Error("page"), server = new Error("server");
+    const error = await runFoundationLifetime(
+      async () => { events.push("body"); },
+      async () => { events.push("page"); throw page; },
+      async () => { events.push("server"); throw server; },
+      async () => { events.push("setup"); throw setup; }
+    ).catch(error => error);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.errors).toEqual([setup, page, server]);
+    expect(error.errors[0]).toBe(setup);
+    expect(error.errors[1]).toBe(page);
+    expect(error.errors[2]).toBe(server);
+    expect(events).toEqual(["setup", "page", "server"]);
   });
 });

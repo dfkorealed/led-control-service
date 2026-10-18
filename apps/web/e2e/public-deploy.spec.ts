@@ -2,7 +2,9 @@ import { expect, test as base } from "@playwright/test";
 import { installDesignMemoryBoundary, test as designTest } from "./support/design-system-fixture";
 const main = process.env.TASK5_ENTRY === "main";
 const service = main || process.env.WEB_DEPLOY_MODE === "service";
-const test = main ? designTest : base.extend<{ _publicBoundary: void }>({
+// Both runners expose the base fixtures used here; keep their runtime safety
+// boundaries while avoiding an uncallable union of extended fixture overloads.
+const test: typeof base = main ? designTest : base.extend<{ _publicBoundary: void }>({
   _publicBoundary: [async ({ browser, context, baseURL }, use) => {
     const cleanups = [await installDesignMemoryBoundary(context, baseURL!)];
     const newContext = browser.newContext.bind(browser);
@@ -89,7 +91,7 @@ test("unknown, concept, opposite-mode assets and private archive URLs remain rea
   test.skip(main, "The ordinary Vite entry retains its development fallback");
   // Direct, read-only probes of this owned static origin prove real HTTP status;
   // browser /api routing is intentionally synthetic and cannot prove this.
-  expect(new URL(baseURL!).port).toBe("15342");
+  expect(new URL(baseURL!).origin).toBe(new URL(`http://127.0.0.1:${Number(process.env.PUBLIC_PORT ?? "5187")}`).origin);
   for (const path of ["/unknown", "/settings/nope", "/concepts/field-day.html", "/features/", "/published/r1/index.html", "/releases/r1/manifest.json", "/.env", "/.git/config", "/assets/.private.js", `/assets/${service ? "landing" : "service"}/app-12345678.js`, ...(!service ? ["/login", "/monitoring", "/api/auth/me"] : [])]) {
     const response = await request.get(`${baseURL}${path}`);
     expect(response.status(), path).toBe(404);

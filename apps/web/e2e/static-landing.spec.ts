@@ -74,7 +74,7 @@ for (const [route, heading] of [["/", /현장의 하루.*한눈에 이어지다/
 }
 
 test("production unknown/internal/concept routes are true 404 public not-found", async ({ page, request, baseURL }) => {
-  expect(new URL(baseURL!).port).toBe("15342");
+  expect(new URL(baseURL!).origin).toBe(new URL(`http://127.0.0.1:${Number(process.env.LANDING_PORT ?? "15185")}`).origin);
   for (const path of ["/login", "/operator", "/control", "/api/auth/me", "/concepts/field-day.html", "/features/", "/unknown"]) {
     expect((await request.get(`${baseURL}${path}`)).status()).toBe(404);
     if (path.startsWith("/api/")) continue;

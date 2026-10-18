@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-최신 공통 검증(2026-10-18 Task8): 최종 source의 단독 Web 전체 1회는 **3,938 PASS / 0 FAIL / 3 SKIP**다. 전체 안전 Chromium은 **229 expected = 실제 226 PASS + 의도된 차단 FAIL 3**, unexpected/skip/flaky 0이며 CAD8·제어9와 전체 소비자 inventory를 포함한다. 타입/E2E타입·빌드·UI정책79 PASS/위반0·landing6/public3 계약을 통과했다. Task7 h1 보완까지 포함하며 CAD는 regions 응답 뒤 교체된 DOM을 일찍 캡처한 시험 수명을 결정적 RED로 확인해 test-only로 수리했다. mock 소프트웨어 검증이며 실장비·실backend·native 인증은 아니다. [최신 공통 증거와 한계](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+최신 공통 검증(2026-10-18 후속 최종 보완): test-only 최종 source의 단독 Web 전체 1회는 **3,939 PASS / 0 FAIL / 기존 3 SKIP**다. 이번 집중 Chromium은 CAD8+foundation7 PASS, 정적 랜딩 기본15185/QA15342 각각6 PASS, public landing 기본5187/QA15342 각각5 PASS+기존 서비스 전용3 SKIP, public service 두 포트 각각8 PASS다. 타입/E2E타입·빌드·UI정책79 PASS/위반0·landing6/public3 계약을 통과했다. 이전 Task8의 전체 안전 Chromium229 expected(실제226 PASS+의도된 차단 FAIL3)는 별도 source의 전체 회차이며 이번 집중 결과와 합산하지 않는다. 제품·기본 config·원 안전 관문을 보존한 mock 소프트웨어 검증이며 실장비·실backend·native 인증은 아니다. [공통 증거와 회차별 한계](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
 
 이전 검토 보완 이력(2026-10-17 Task7 round1): 더보기의 열림 상태와 무관하게 공통 페이지 틀에 접근 가능한 `조명 제어` level1 heading을 정확히1개 유지한다. 닫힘→열림→Escape 단위RED1/브라우저RED1 뒤 집중185PASS·strict8조합+차단guard1의Chromium9PASS·타입/빌드/UI정책을 확인했다. 당시 전체 Web 추가 실행은 하지 않았으며 아래3,937PASS는 보완 전 커밋의 결과다. 이 보완 source는 위 Task8 최종 전체 관문에 포함됐다.
 
