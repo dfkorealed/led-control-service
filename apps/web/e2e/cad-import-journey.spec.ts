@@ -1,24 +1,12 @@
+import {
+  installPreparedReview, installCadJourney, initialState, candidate, floorPlan, json, regions,
+  createParityScene, serveNativeAsset, now, jobId, candidates, nativePoints, nativeScene
+} from "./support/cad-journey";
 import { expect, test, type Locator, type Page, type Route, type TestInfo } from "@playwright/test";
 import { resolve } from "node:path";
-import { buildCadSceneDescriptor, cadSceneManifestSchema, normalizeCadMapSize, type CadSceneState } from "@led-control/shared";
-import { mapDisplayManifestSchema, type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
-import type { MapDocumentRef, MapElement, MapOp } from "@led-control/shared/map-document-contracts";
-import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
-import { encodeCadSceneTile, encodeMapDisplayTile, getCadSceneTileIntegrity } from "../../api/src/floor-import/cad-scene-codec";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
-import type { FloorEditorState, FloorImportJob } from "../src/features/floor-editor/editor-types";
+import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
 
-const now = "2026-09-18T00:00:00.000Z";
-const jobId = "00000000-0000-4000-8000-000000000020";
-const sourceAssetId = "00000000-0000-4000-8000-000000000010";
-const renderedAssetId = "00000000-0000-4000-8000-000000000040";
-const candidates = [
-  candidate("00000000-0000-4000-8000-000000000031", "insert-1", 200, 180),
-  candidate("00000000-0000-4000-8000-000000000032", "insert-2", 400, 180)
-];
-const nativePoints = [{ x: 6400, y: 5376 }, { x: 7424, y: 4352 }, { x: 9472, y: 6400 }];
-const nativeScene = createNativeScene();
-const preparedScene = createPreparedScene();
 const evidenceDirectory = resolve(import.meta.dirname, "../../../.local/cad-native-qa");
 
 test.use({ actionTimeout: 10_000 });
@@ -743,7 +731,7 @@ test("CAD preview parity uses the editor raster resolution through apply and rel
 });
 
 async function rasterResolution(surface: Locator) {
-  return surface.getByRole("img", { name: "맵 도형", exact: true }).locator("canvas").evaluate(canvas => {
+  return surface.getByRole("img", { name: "맵 도형", exact: true }).locator("canvas").evaluate((canvas: HTMLCanvasElement) => {
     const rect = canvas.getBoundingClientRect();
     return { width: canvas.width, height: canvas.height, viewportWidth: rect.width,
       viewportHeight: rect.height, resolution: canvas.width / rect.width };
@@ -830,351 +818,25 @@ async function featurePixelCount(page: Page, surface: Locator, preview: boolean,
     height: (bounds.maxY - bounds.minY) * zoom, rgb });
 }
 
-async function installPreparedReview(page: Page, scene = preparedScene) {
-  const base = await installCadJourney(page, true);
-  let activeJob: FloorImportJob | null = importJob("review_required", 100, true);
-  let reviewCandidates = candidates.map((value, index) => ({ ...value, ...nativePoints[index] }));
-  let prepared = scene.ref;
-  const payloads: unknown[] = [];
-  const requests: string[] = [];
-  const completedJobs = new Map<string, FloorImportJob>();
-  await page.route("**/api/floors/floor-1/**", async route => {
-    const path = new URL(route.request().url()).pathname.replace(/^\/api/, "");
-    requests.push(path);
-    if (path === "/floors/floor-1/import-jobs/active") return json(route, { job: activeJob });
-    const completed = completedJobs.get(path);
-    if (completed) return json(route, completed);
-    if (activeJob) {
-      const prefix = `/floors/floor-1/import-jobs/${activeJob.jobId}`;
-      if (await servePreparedAsset(route, path, activeJob.jobId, prepared, scene)) return;
-      if (path === prefix) return json(route, activeJob);
-      if (path === `${prefix}/regions`) return json(route, { ...regions(true), jobId: activeJob.jobId,
-        regions: regions(true).regions.map(region => ({ ...region,
-          primitiveCount: region.regionId === "region-1" ? scene.ref.elementCount : region.primitiveCount,
-          lightCandidateCount: region.regionId === "region-1" ? reviewCandidates.length : 0 })) });
-      if (path === `${prefix}/candidates`) return json(route, { candidates: reviewCandidates });
-      if (path === `${prefix}/apply`) {
-        const payload = route.request().postDataJSON();
-        payloads.push(payload);
-        const state = base.state();
-        expect(payload.expectedRevision).toBe(state.floor.mapRevision);
-        const accepted = reviewCandidates.filter(candidate => payload.candidateIds.includes(candidate.id));
-        const deletedObjectCount = state.objects.length;
-        const deletedSlotCount = state.lightSlots.length;
-        const unplacedFixtureCount = state.fixtures.filter(fixture => fixture.placementStatus === "placed").length;
-        state.objects = [];
-        state.fixtures = state.fixtures.map(fixture => ({ ...fixture, x: 0, y: 0, placementStatus: "unplaced" }));
-        state.lightSlots = accepted.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x,
-          y: candidate.y, rotation: 0, assignedFixtureId: null }));
-        state.floor.mapRevision++;
-        state.floor.cadScene = null;
-        state.floor.mapDocument = { ...prepared, revision: state.floor.mapRevision };
-        state.floor.floorPlan = floorPlan(true);
-        const { version: _version, ...appliedFloorPlan } = floorPlan(true);
-        // Apply's shared DTO still requires compatibility metadata. The common
-        // preview never reads those assets; this is not a compatibility-OFF test.
-        const result = { jobId: activeJob.jobId, status: "completed", revision: state.floor.mapRevision,
-          acceptedCandidateIds: accepted.map(candidate => candidate.id), renderedAssetId,
-          deletedObjectCount, deletedSlotCount, unplacedFixtureCount, createdSlotCount: accepted.length,
-          floorPlan: appliedFloorPlan };
-        // A poll already in flight can finish after apply. The real API retains
-        // terminal jobs; dropping this fixture route invents a 404 race.
-        completedJobs.set(prefix, { ...activeJob, status: "completed", stage: "completed", completedAt: now, appliedAt: now });
-        activeJob = null;
-        return json(route, result);
-      }
-    }
-    const applied = base.state().floor.mapDocument;
-    if (applied && await servePreparedAsset(route, path, undefined, applied, scene)) return;
-    return route.fallback();
-  });
-  return { ...base, payloads, requests, nextReview: () => {
-    activeJob = { ...importJob("review_required", 100, true), jobId: "00000000-0000-4000-8000-000000000021" };
-    prepared = { ...scene.ref, generationId: "prepared-second" };
-    reviewCandidates = [];
-  } };
-}
 
-async function installCadJourney(page: Page, native = false) {
-  const browserErrors: string[] = [];
-  const unhandledRequests: string[] = [];
-  page.on("pageerror", error => browserErrors.push(error.message));
-  let pollCount = 0;
-  let applied = !native;
-  let selected = false;
-  let monitoringSnapshotRequestCount = 0;
-  let appliedStateRequestsBeforeApply = 0;
-  const applyPayloads: unknown[] = [];
-  const savePayloads: unknown[] = [];
-  const regionPayloads: unknown[] = [];
-  const cadPayloads: unknown[] = [];
-  const state = initialState();
-  let appliedElements = preparedElements("#06b6d4");
-  const appliedOperations: MapOp[] = [];
-  const oldSceneId = "00000000-0000-4000-8000-000000000080";
-  const oldJobId = "00000000-0000-4000-8000-000000000081";
-  const oldDescriptor = { ...nativeScene.descriptor, id: oldSceneId, sourceImportJobId: oldJobId,
-    manifestContentPath: nativeScene.descriptor.manifestContentPath.replace(jobId, oldJobId),
-    tileContentPathTemplate: nativeScene.descriptor.tileContentPathTemplate.replace(jobId, oldJobId) };
-  const oldTiles = nativeScene.tiles.map(tile => ({ ...tile, descriptor: { ...tile.descriptor, sceneId: oldSceneId } }));
-  const oldScene = { descriptor: oldDescriptor, tiles: oldTiles,
-    manifest: { ...nativeScene.manifest, sceneId: oldSceneId, tiles: oldTiles.map(tile => tile.descriptor) } };
-  if (native) {
-    state.floor.cadScene = oldDescriptor;
-    state.floor.floorPlan = floorPlan(true);
-  }
-  const reviewCandidates = candidates.map((candidate, index) => ({ ...candidate, ...(native ? nativePoints[index] : {}) }));
-  if (!native) {
-    // New imports are native; legacy coverage starts from an already-applied SVG map.
-    state.objects = [];
-    state.fixtures = state.fixtures.map(fixture => ({ ...fixture, x: 0, y: 0, placementStatus: "unplaced" }));
-    state.lightSlots = reviewCandidates.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x, y: candidate.y, rotation: candidate.rotation, assignedFixtureId: null }));
-    state.floor.mapRevision = 2;
-    state.floor.floorPlan = floorPlan(false);
-  }
-  const sceneState: CadSceneState = { revision: 2, scene: nativeScene.descriptor, overrides: [], layers: [] };
-  await page.route("**/old.svg", route => svg(route));
 
-  await page.route("**/cad-e2e-upload", route => route.fulfill({ status: 200, body: "" }));
-  await page.route("**/api/**", async route => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (!url.pathname.startsWith("/api/")) return route.continue();
-    const path = url.pathname.replace(/^\/api/, "");
-    if (native && await servePreparedAsset(route, path, jobId, preparedScene.ref)) return;
-    const document = state.floor.mapDocument;
-    if (native && document && path.startsWith("/floors/floor-1/map-document")) {
-      if (path.endsWith("/elements")) {
-        const ids = request.postDataJSON().ids as string[];
-        return json(route, appliedElements.filter(element => ids.includes(element.id)));
-      }
-      if (path.endsWith("/selection")) {
-        const query = request.postDataJSON();
-        return json(route, { generationId: document.generationId, revision: document.revision,
-          ids: appliedElements.filter(element => {
-            if (query.groupId && element.groupId !== query.groupId) return false;
-            if (!query.bounds) return true;
-            const bounds = getMapElementBounds(element);
-            return bounds.minX <= query.bounds.maxX && bounds.maxX >= query.bounds.minX
-              && bounds.minY <= query.bounds.maxY && bounds.maxY >= query.bounds.minY;
-          }).map(element => element.id), nextCursor: null });
-      }
-      if (await servePreparedAsset(route, path, undefined, document,
-        applied ? preparedScene : createPreparedScene("#06b6d4"), appliedOperations)) return;
-    }
-    if (native && path === nativeScene.descriptor.statePath) {
-      if (!applied) appliedStateRequestsBeforeApply += 1;
-      if (!applied) return json(route, { revision: state.floor.mapRevision, scene: oldDescriptor,
-        layers: [], overrides: [{ elementId: "native-3", hidden: false, transform: null, strokeColor: null,
-          fillColor: "#06b6d4", strokeWidth: null, text: null, locator: { lod: 0, tileX: 18, tileY: 12, part: 0 } }] });
-      if (request.method() === "PUT") {
-        const payload = request.postDataJSON();
-        cadPayloads.push(payload);
-        expect(payload.expectedRevision).toBe(state.floor.mapRevision);
-        sceneState.overrides = payload.overrideMutations.map((mutation: { value: object; locator: object }) => ({
-          hidden: false, transform: null, strokeColor: null, fillColor: null, strokeWidth: null, text: null,
-          ...mutation.value, locator: mutation.locator
-        }));
-        state.floor.mapRevision += 1;
-      }
-      return json(route, { ...sceneState, revision: state.floor.mapRevision });
-    }
-    if (native && (await serveNativeAsset(route, path) || await serveNativeAsset(route, path, oldScene))) return;
-    if (path === "/auth/me") return json(route, { user: { id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active" } });
-    if (path === "/sites") return json(route, [{ id: "site-1", name: "검증 현장" }]);
-    if (path === "/sites/site-1/monitoring-incidents") return json(route, {
-      incidents: [], unreadCount: 0, activeCount: 0, nextCursor: null
-    });
-    if (path === "/sites/site-1/floors/floor-1/monitoring-activity") return json(route, {
-      generatedAt: new Date().toISOString(), retainedFrom: now, items: [], nextCursor: null
-    });
-    if (path === "/sites/site-1/dashboard") return json(route, dashboard(state));
-    if (path === "/sites/site-1/floors/floor-1/fixtures") return json(route, { items: staleMonitoringFixtures(state), nextCursor: null, generatedAt: new Date().toISOString() });
-    if (path === "/sites/site-1/floors/floor-1/map-snapshot") {
-      monitoringSnapshotRequestCount += 1;
-      return json(route, mapSnapshot(state));
-    }
-    if (path === "/floors/floor-1/editor-state") {
-      if (request.method() === "PUT") {
-        const payload = request.postDataJSON();
-        savePayloads.push(payload);
-        for (const update of payload.fixtureUpdates) Object.assign(state.fixtures.find(fixture => fixture.id === update.id)!, update);
-        const lightSlotUpdates = new Map<string, string | null>(
-          payload.slotAssignments.map((update: { slotId: string; assignedFixtureId: string | null }) => [update.slotId, update.assignedFixtureId])
-        );
-        state.lightSlots = state.lightSlots.map(slot => ({
-          ...slot,
-          assignedFixtureId: lightSlotUpdates.has(slot.id) ? lightSlotUpdates.get(slot.id)! : slot.assignedFixtureId
-        }));
-        state.floor.mapRevision += 1;
-        if (state.floor.mapDocument) {
-          state.floor.mapDocument.revision = state.floor.mapRevision;
-          for (const operation of (payload.documentChanges?.operations ?? []) as MapOp[]) {
-            appliedOperations.push(operation);
-            if (operation.kind === "update") appliedElements = appliedElements.map(element =>
-              element.id === operation.element.id ? operation.element : element);
-          }
-        }
-      }
-      return json(route, state);
-    }
-    if (path === "/floors/floor-1/editor-lease") return json(route, { editable: true, token: "lease-floor-1", fence: 1 });
-    if (path === "/floors/floor-1/editor-revisions") return json(route, { items: [], nextCursor: null });
-    if (path === "/floors/floor-1/import-jobs/applied-overlay") return json(route, {
-      overlay: applied ? {
-        floorId: "floor-1", jobId, revision: state.floor.mapRevision,
-        renderedAssetId, renderedAssetPath: "/api/floors/floor-1/assets/rendered/content",
-        renderedViewport: native ? { width: nativeScene.manifest.width, height: nativeScene.manifest.height } : { width: 1200, height: 800 },
-        appliedAt: now, candidates: reviewCandidates.map(candidate => ({ ...candidate, reviewStatus: "accepted" }))
-      } : null
-    });
-    if (path === "/floors/floor-1/import-jobs/active") return json(route, { job: null });
-    if (path === "/floors/floor-1/assets/upload-intent") return json(route, {
-      assetId: sourceAssetId, uploadUrl: `${url.origin}/cad-e2e-upload`,
-      accessPath: "/api/floors/floor-1/assets/source/content", expiresInSeconds: 300
-    });
-    if (path === `/floors/floor-1/assets/${sourceAssetId}/complete`) return json(route, {
-      id: sourceAssetId, kind: "original", status: "ready", mimeType: "application/dwg", sizeBytes: 15,
-      sha256: "a".repeat(64), accessPath: "/api/floors/floor-1/assets/source/content"
-    });
-    if (path === "/floors/floor-1/import-jobs" && request.method() === "POST") return json(route, importJob("queued", 0, native));
-    if (path === `/floors/floor-1/import-jobs/${jobId}`) {
-      pollCount += 1;
-      return json(route, selected ? importJob("review_required", 100, native) : pollCount === 1 ? importJob("processing", 55, native) : importJob("region_selection_required", 70, native));
-    }
-    if (path === `/floors/floor-1/import-jobs/${jobId}/regions/select`) {
-      regionPayloads.push(request.postDataJSON());
-      selected = true;
-      return json(route, regions(selected));
-    }
-    if (path === `/floors/floor-1/import-jobs/${jobId}/regions`) return json(route, regions(selected));
-    if (/\/assets\/00000000-0000-4000-8000-00000000005[01]\/content$/.test(path)) return svg(route);
-    if (path === `/floors/floor-1/import-jobs/${jobId}/candidates`) {
-      return json(route, { candidates: reviewCandidates });
-    }
-    if (path === `/floors/floor-1/import-jobs/${jobId}/apply`) {
-      const payload = request.postDataJSON();
-      applyPayloads.push(payload);
-      applied = true;
-      state.objects = [];
-      state.fixtures = state.fixtures.map(fixture => ({ ...fixture, x: 0, y: 0, placementStatus: "unplaced" }));
-      const accepted = reviewCandidates.filter(candidate => payload.candidateIds.includes(candidate.id));
-      state.lightSlots = accepted.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x, y: candidate.y, rotation: candidate.rotation, assignedFixtureId: null }));
-      state.floor.mapRevision = 2;
-      state.floor.floorPlan = floorPlan(native);
-      if (native) {
-        state.floor.cadScene = null;
-        state.floor.mapDocument = { ...preparedScene.ref, revision: 2 };
-        appliedElements = preparedElements("#e11d48");
-        appliedOperations.length = 0;
-      }
-      const { version: _version, ...appliedFloorPlan } = floorPlan(native);
-      return json(route, {
-        jobId, status: "completed", revision: 2, acceptedCandidateIds: accepted.map(candidate => candidate.id),
-        renderedAssetId, deletedObjectCount: 1, unplacedFixtureCount: 2, deletedSlotCount: 1, createdSlotCount: accepted.length,
-        floorPlan: appliedFloorPlan
-      });
-    }
-    if (path === "/floors/floor-1/assets/rendered/content") return route.fulfill({
-      contentType: "image/svg+xml",
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="#fff"/><path d="M40 400H1160" stroke="#111827"/></svg>'
-    });
-    unhandledRequests.push(`${request.method()} ${path}`);
-    return json(route, { message: path }, 404);
-  });
-  return {
-    state: () => state, applyPayloads: () => applyPayloads, savePayloads: () => savePayloads,
-    monitoringSnapshotRequests: () => monitoringSnapshotRequestCount,
-    appliedStateRequestsBeforeApply: () => appliedStateRequestsBeforeApply,
-    regionPayloads: () => regionPayloads, cadPayloads: () => cadPayloads, browserErrors, unhandledRequests
-  };
-}
 
-function initialState(): FloorEditorState {
-  return {
-    floor: { id: "floor-1", siteId: "site-1", name: "B1", level: -1, mapRevision: 1, floorPlan: { imageUrl: "/old.svg", width: 800, height: 600, version: 1 } },
-    objects: [{ id: "object-1", floorId: "floor-1", type: "rectangle", x: 50, y: 50, width: 200, height: 100, rotation: 0, strokeColor: "#334155", fillColor: "transparent", strokeWidth: 1, text: "", fontSize: null, zIndex: 0, locked: false, visible: true }],
-    lightSlots: [{ id: "old-slot", x: 100, y: 100, rotation: 0, assignedFixtureId: "fixture-1" }],
-    fixtures: [
-      { id: "fixture-1", name: "B1-L01", x: 100, y: 100, size: 20, ratedWatt: 40, brightness: 70, status: "online", placementStatus: "placed", positionVerifiedAt: null },
-      { id: "fixture-2", name: "B1-L02", x: 300, y: 100, size: 20, ratedWatt: 40, brightness: 70, status: "online", placementStatus: "placed", positionVerifiedAt: null }
-    ]
-  };
-}
 
-function importJob(status: FloorImportJob["status"], progressPercent: number, native = false): FloorImportJob {
-  return {
-    jobId, floorId: "floor-1", sourceAssetId, renderedAssetId: !native && status === "review_required" ? renderedAssetId : null,
-    sourceFormat: "dwg", status, stage: status, progressPercent, attemptCount: status === "queued" ? 0 : 1,
-    parserVersion: status === "review_required" ? "libredwg-0.14" : null,
-    detectorVersion: status === "review_required" ? "site-drawing-20260803-v1" : null,
-    failureCode: null, sourceAssetPath: "/api/floors/floor-1/assets/source/content",
-    renderedAssetPath: !native && status === "review_required" ? "/api/floors/floor-1/assets/rendered/content" : null,
-    renderedViewport: !native && status === "review_required" ? { width: 1200, height: 800 } : null,
-    startedAt: status === "queued" ? null : now, reviewRequiredAt: status === "review_required" ? now : null,
-    appliedAt: null, completedAt: null, failedAt: null, cancelledAt: null, createdAt: now, updatedAt: now
-  };
-}
 
-function candidate(id: string, sourceEntityId: string, x: number, y: number) {
-  return {
-    id, sourceEntityId, layerName: "LIGHT", blockName: "LED", x, y, rotation: 0, confidence: 0.95,
-    detectionMethod: "rule_based" as const, provider: null, model: null, inputDigest: null,
-    profileVersion: "site-drawing-20260803-v1", profileDigest: "b".repeat(64), reviewStatus: "pending" as const
-  };
-}
 
-function floorPlan(native = false) {
-  return {
-    imageUrl: "/api/floors/floor-1/assets/rendered/content", sourceType: native ? "cad" as const : "image" as const,
-    originalFileUrl: "/api/floors/floor-1/assets/source/content",
-    renderedImageUrl: "/api/floors/floor-1/assets/rendered/content", width: native ? nativeScene.manifest.width : 1200,
-    height: native ? nativeScene.manifest.height : 800, gridSize: native ? nativeScene.manifest.gridSize : 10, version: 2
-  };
-}
 
-function dashboard(state: FloorEditorState) {
-  const fixtures = staleMonitoringFixtures(state);
-  return {
-    generatedAt: new Date().toISOString(), monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 },
-    capabilities: { read: true, control: true, manage: true, commission: true },
-    site: { id: "site-1", name: "검증 현장", customerName: "고객사", installationStatus: "installed", address: null, tariffKwhRate: 160, timeZone: "Asia/Seoul" },
-    summary: { totalFixtures: fixtures.length, onlineFixtures: fixtures.length, faultFixtures: 0, averageBrightness: 70 },
-    floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: { imageUrl: "/old.svg", width: 800, height: 600, version: 1 }, meshControlGroups: [], fixtures }],
-    groups: [], gateways: []
-  };
-}
 
-function staleMonitoringFixtures(state: FloorEditorState) {
-  return state.fixtures.map((fixture, index) => monitoringFixture({
-    ...fixture,
-    x: 900 + index * 50,
-    y: 700,
-    placementStatus: "unplaced"
-  }));
-}
 
-function monitoringFixture(fixture: FloorEditorState["fixtures"][number]) {
-  return {
-    ...fixture, rssi: -55, hopCount: 1, commandSuccessRate: 1, lastSeenAt: new Date().toISOString(),
-    health: null, gateway: { id: "gateway-1", name: "Gateway B1", connectionStatus: "online" as const },
-    controllable: true, controlBlockReason: null
-  };
-}
 
-function mapSnapshot(state: FloorEditorState) {
-  return {
-    floorId: "floor-1", revision: state.floor.mapRevision,
-    width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800,
-    floorPlan: state.floor.floorPlan, cadScene: state.floor.cadScene, mapDocument: state.floor.mapDocument, objects: state.objects,
-    fixtures: state.floor.mapDocument ? state.fixtures.filter(fixture => fixture.placementStatus === "placed")
-      .map(fixture => ({ id: fixture.id, name: fixture.name, x: fixture.x, y: fixture.y, size: fixture.size ?? 20 })) : state.lightSlots.flatMap(slot => {
-      if (!slot.assignedFixtureId) return [];
-      const fixture = state.fixtures.find(candidate => candidate.id === slot.assignedFixtureId);
-      return fixture ? [{ id: fixture.id, name: fixture.name, x: slot.x, y: slot.y, size: fixture.size ?? 20 }] : [];
-    })
-  };
-}
+
+
+
+
+
+
+
+
+
 
 async function currentState(page: Page) {
   return page.evaluate(async () => {
@@ -1210,9 +872,7 @@ async function expectMarkerAtMapPoint(
   expect(actual.y).toBeCloseTo(actual.height * point.y / size.height, 0);
 }
 
-function json(route: Route, body: unknown, status = 200) {
-  return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-}
+
 
 async function saveScreenshot(page: Page, testInfo: TestInfo, name: string) {
   const path = resolve(evidenceDirectory, `${name}.png`);
@@ -1220,178 +880,23 @@ async function saveScreenshot(page: Page, testInfo: TestInfo, name: string) {
   await testInfo.attach(name, { path, contentType: "image/png" });
 }
 
-function svg(route: Route) {
-  return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect x="40" y="40" width="1120" height="720" fill="none" stroke="#111827"/></svg>' });
-}
 
-function regions(selected: boolean) {
-  return {
-    jobId, selectionStatus: selected ? "selected" : "selection_required", selectedRegionId: selected ? "region-1" : null,
-    excludedRegionPrimitiveCount: selected ? 1 : 0,
-    regions: [3, 1].map((primitiveCount, index) => ({
-      regionId: `region-${index + 1}`, bounds: { minX: 0, minY: 0, maxX: 1200, maxY: 800 },
-      primitiveCount, textCount: 0, lightCandidateCount: index === 0 ? 2 : 0, area: 960000,
-      preview: { assetId: `00000000-0000-4000-8000-00000000005${index}`, width: 1200, height: 800, byteSize: 1024, sha256: "c".repeat(64) }
-    }))
-  };
-}
+
+
 
 // These synthetic map-space rectangles exercise the production binary decoder,
 // worker, WebGL renderer and picker. No DWG parser or backend is running here.
-function createNativeScene() {
-  const sceneId = "00000000-0000-4000-8000-000000000060";
-  const manifestAssetId = "00000000-0000-4000-8000-000000000061";
-  const sourceBounds = { minX: 5000, minY: 7000, maxX: 6200, maxY: 7800 };
-  const size = normalizeCadMapSize(sourceBounds);
-  const scale = Math.min((size.width - 2 * size.padding) / 1200, (size.height - 2 * size.padding) / 800);
-  const tiles = nativePoints.map(({ x, y }, index) => {
-    const tileX = Math.floor(x / 512);
-    const tileY = Math.floor(y / 512);
-    const payload = encodeCadSceneTile([{
-      elementId: `native-${index + 1}`, groupId: "group-1", layerName: "WALLS", sourceType: "LWPOLYLINE",
-      bounds: { minX: x - 200, minY: y - 200, maxX: x + 200, maxY: y + 200 }, clipBounds: null,
-      style: { strokeColor: "#111827", fillColor: "#e11d48", strokeWidth: 4, opacity: 1 },
-      type: "rectangle", geometry: { origin: { x: x - 200, y: y - 200 }, width: 400, height: 400, rotation: 0 }
-    }]);
-    return { payload, descriptor: {
-      version: 1 as const, sceneId, tileX, tileY, lod: 0 as const, part: 0,
-      assetId: `00000000-0000-4000-8000-00000000007${index}`, primitiveCount: 1,
-      ...getCadSceneTileIntegrity(payload),
-      bounds: { minX: tileX * 512, minY: tileY * 512, maxX: (tileX + 1) * 512, maxY: (tileY + 1) * 512 }
-    } };
-  });
-  const manifest = cadSceneManifestSchema.parse({
-    version: 1, sceneId, regionId: "region-1", manifestAssetId, ...size,
-    tileSize: 512, lodMode: "additive", primitiveCount: 3, tileCount: tiles.length,
-    byteSize: 1024, sha256: "a".repeat(64), sourceBounds,
-    transform: { scaleX: scale, scaleY: -scale,
-      translateX: (size.width - 1200 * scale) / 2 - sourceBounds.minX * scale,
-      translateY: (size.height + 800 * scale) / 2 + sourceBounds.minY * scale },
-    tiles: tiles.map(tile => tile.descriptor)
-  });
-  const descriptor = buildCadSceneDescriptor("site-1", "floor-1", {
-    id: sceneId, version: 1, sourceImportJobId: jobId, ...size,
-    tileSize: 512, primitiveCount: 3, tileCount: tiles.length, manifestAssetId
-  });
-  return { manifest, descriptor, tiles };
-}
 
-function preparedElements(fillColor: string): MapElement[] {
-  return nativePoints.map(({ x, y }, index) => ({
-    id: `prepared-${index}`, groupId: "group-1", layerId: "walls", zIndex: index,
-    visible: true, locked: false, provenance: { importJobId: jobId, sourceId: `native-${index + 1}` },
-    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
-    style: { strokeColor: "#111827", fillColor, strokeWidth: 4, opacity: 1 },
-    type: "rectangle", geometry: { origin: { x: x - 200, y: y - 200 }, width: 400, height: 400 }
-  }));
-}
 
-function createPreparedScene(fillColor = "#e11d48") {
-  const { sceneId, manifestAssetId, width, height, gridSize } = nativeScene.manifest;
-  const tiles = nativePoints.map(({ x, y }, index) => {
-    const tileX = Math.floor(x / 512);
-    const tileY = Math.floor(y / 512);
-    const payload = encodeMapDisplayTile([{
-      elementId: `prepared-${index}`, groupId: "group-1", layerName: "WALLS", sourceType: "LWPOLYLINE",
-      zIndex: index, fragmentOrder: 0,
-      bounds: { minX: x - 200, minY: y - 200, maxX: x + 200, maxY: y + 200 }, clipBounds: null,
-      style: { strokeColor: "#111827", fillColor, strokeWidth: 4, opacity: 1 },
-      type: "rectangle", geometry: { origin: { x: x - 200, y: y - 200 }, width: 400, height: 400, rotation: 0 }
-    }]);
-    return { payload, descriptor: { version: 2 as const, sceneId, tileX, tileY, lod: 0 as const, part: 0,
-      assetId: `00000000-0000-4000-8000-00000000009${index}`, primitiveCount: 1,
-      ...getCadSceneTileIntegrity(payload),
-      bounds: { minX: tileX * 512, minY: tileY * 512, maxX: (tileX + 1) * 512, maxY: (tileY + 1) * 512 } } };
-  });
-  const ref: MapDocumentRef = { formatVersion: 1, generationId: "prepared-first", revision: 0,
-    width, height, gridSize, elementCount: 3,
-    manifest: { assetId: "canonical-prepared", byteSize: 1, decodedByteSize: 1, sha256: "a".repeat(64) } };
-  const display = mapDisplayManifestSchema.parse({ version: 2, sceneId, manifestAssetId, regionId: "region-1",
-    width, height, gridSize, padding: 0, tileSize: 512, lodMode: "additive", primitiveCount: 3,
-    tileCount: tiles.length, byteSize: 1, sha256: "b".repeat(64),
-    sourceBounds: { minX: 0, minY: 0, maxX: width, maxY: height },
-    transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: tiles.map(tile => tile.descriptor) });
-  const layers = [{ id: "walls", name: "WALLS", order: 0, visible: true, locked: false }];
-  const displayLayerBindings = [{ layerName: "WALLS", layerId: "walls" }];
-  return { ref, display, tiles, layers, displayLayerBindings };
-}
 
-function createParityScene() {
-  const scene = createPreparedScene();
-  const makeTile = (index: number, lod: 0 | 1 | 2, primitive: OrderedMapDisplayPrimitive) => {
-    const payload = encodeMapDisplayTile([primitive]);
-    const tileX = Math.floor(primitive.bounds.minX / 512), tileY = Math.floor(primitive.bounds.minY / 512);
-    return { payload, descriptor: { version: 2 as const, sceneId: scene.display.sceneId, tileX, tileY, lod, part: 0,
-      assetId: `00000000-0000-4000-8000-00000000010${index}`, primitiveCount: 1, ...getCadSceneTileIntegrity(payload),
-      bounds: { minX: tileX * 512, minY: tileY * 512, maxX: (tileX + 1) * 512, maxY: (tileY + 1) * 512 } } };
-  };
-  const base = { groupId: "group-1", layerName: "WALLS", fragmentOrder: 0, clipBounds: null,
-    style: { strokeColor: null, fillColor: null, strokeWidth: 0, opacity: 1 } };
-  const extra = [
-    makeTile(0, 0, { ...base, elementId: "dimension-line", sourceType: "DIMENSION", zIndex: 3,
-      bounds: { minX: 10260, minY: 5140, maxX: 10690, maxY: 5190 },
-      style: { ...base.style, strokeColor: "#be123c", strokeWidth: 40 },
-      type: "line", geometry: { start: { x: 10260, y: 5165 }, end: { x: 10690, y: 5165 } } }),
-    makeTile(1, 2, { ...base, elementId: "dimension-label", sourceType: "DIMENSION", zIndex: 4,
-      bounds: { minX: 10260, minY: 5290, maxX: 10690, maxY: 5590 }, style: { ...base.style, fillColor: "#16a34a" },
-      type: "text", geometry: { position: { x: 10260, y: 5590 }, text: "32", width: 430, height: 300,
-        fontSize: 300, rotation: 0 } }),
-    makeTile(2, 2, { ...base, elementId: "label", sourceType: "TEXT", zIndex: 5,
-      bounds: { minX: 12288, minY: 5200, maxX: 12780, maxY: 5590 }, style: { ...base.style, fillColor: "#2563eb" },
-      type: "text", geometry: { position: { x: 12288, y: 5590 }, text: "CAD", width: 492, height: 390,
-        fontSize: 280, rotation: 0 } }),
-    makeTile(3, 1, { ...base, elementId: "hidden", layerName: "HIDDEN", sourceType: "LWPOLYLINE", zIndex: 6,
-      bounds: { minX: 14360, minY: 5160, maxX: 14790, maxY: 5590 }, style: { ...base.style, fillColor: "#ff00ff" },
-      type: "rectangle", geometry: { origin: { x: 14360, y: 5160 }, width: 430, height: 430, rotation: 0 } })
-  ];
-  const tiles = [...scene.tiles, ...extra];
-  return { ...scene, tiles, ref: { ...scene.ref, elementCount: 7 },
-    display: { ...scene.display, tiles: tiles.map(tile => tile.descriptor), primitiveCount: 7, tileCount: 7 },
-    layers: [...scene.layers, { id: "hidden", name: "HIDDEN", order: 1, visible: false, locked: false }],
-    displayLayerBindings: [...scene.displayLayerBindings, { layerName: "HIDDEN", layerId: "hidden" }] };
-}
 
-async function servePreparedAsset(route: Route, path: string, importJobId: string | undefined, ref: MapDocumentRef,
-  scene = preparedScene, operations: MapOp[] = []) {
-  const prefix = `/floors/floor-1${importJobId ? `/import-jobs/${importJobId}` : ""}/map-document`;
-  if (!path.startsWith(prefix)) return false;
-  if (path === prefix) await json(route, ref);
-  else {
-    const query = new URL(route.request().url()).searchParams;
-    expect(query.get("generationId")).toBe(ref.generationId);
-    expect(query.get("revision")).toBe(String(ref.revision));
-    if (path === `${prefix}/manifest`) await json(route, { generationId: ref.generationId, revision: ref.revision,
-      canonical: ref.manifest, display: scene.display,
-      groups: [{ id: "group-1", parentId: null, name: "Prepared", visible: true, locked: false }],
-      layers: scene.layers,
-      displayLayerBindings: scene.displayLayerBindings });
-    else if (path === `${prefix}/changes`) await json(route, { generationId: ref.generationId, revision: ref.revision,
-      operations, nextCursor: null });
-    else {
-      const tile = scene.tiles.find(tile => path === `${prefix}/tiles/${tile.descriptor.assetId}`);
-      if (!tile) return false;
-      await route.fulfill({ contentType: "application/octet-stream", body: tile.payload });
-    }
-  }
-  return true;
-}
 
-async function serveNativeAsset(route: Route, path: string, scene = nativeScene) {
-  if (path === scene.descriptor.manifestContentPath) {
-    await json(route, scene.manifest);
-    return true;
-  }
-  for (const { descriptor, payload } of scene.tiles) {
-    const tilePath = scene.descriptor.tileContentPathTemplate
-      .replace("{lod}", String(descriptor.lod)).replace("{tileX}", String(descriptor.tileX))
-      .replace("{tileY}", String(descriptor.tileY)).replace("{part}", String(descriptor.part));
-    if (path === tilePath) {
-      await route.fulfill({ contentType: "application/octet-stream", body: payload });
-      return true;
-    }
-  }
-  return false;
-}
+
+
+
+
+
+
 
 async function editorPoint(page: Page, point: { x: number; y: number }, absolute = true) {
   return page.getByTestId("floor-editor-canvas").evaluate((element, { point, absolute }) => {

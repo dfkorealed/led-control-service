@@ -1,6 +1,33 @@
 # 설정 메뉴 기능 현황 및 구현 설계
 
-최신 공통 검증(2026-10-17 최종 보완): 단독 Web 전체 1회는 **3,928 PASS / 6 FAIL / 3 SKIP**다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD는 focused1PASS로 미재현됐지만 원인은 미확정이다. 결합212의 cleanup1실패와 후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS를 구분한다. 전체 gate는 FAIL이며 아래 Task6/Task5 수치는 해당 회차 이력이다. [최신 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+최신 공통 검증(2026-10-18 Task8): 최종 source의 단독 Web 전체 1회는 **3,938 PASS / 0 FAIL / 3 SKIP**다. 전체 안전 Chromium은 **229 expected = 실제 226 PASS + 의도된 차단 FAIL 3**, unexpected/skip/flaky 0이며 CAD8·제어9와 전체 소비자 inventory를 포함한다. 타입/E2E타입·빌드·UI정책79 PASS/위반0·landing6/public3 계약을 통과했다. Task7 h1 보완까지 포함하며 CAD는 regions 응답 뒤 교체된 DOM을 일찍 캡처한 시험 수명을 결정적 RED로 확인해 test-only로 수리했다. mock 소프트웨어 검증이며 실장비·실backend·native 인증은 아니다. [최신 공통 증거와 한계](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+
+이전 공통 검증 이력(2026-10-17 최종 보완): 단독 Web 전체 1회는 **3,928 PASS / 6 FAIL / 3 SKIP**다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD는 focused1PASS로 미재현됐지만 원인은 미확정이다. 결합212의 cleanup1실패와 후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS를 구분한다. 당시 전체 gate는 FAIL이었으며 아래 Task6/Task5 수치는 해당 회차 이력이다. [당시 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+
+## 2026-10-18 CAD 표시 완료 시험 수명과 통합 보존 (Task8)
+
+### 구현 완료
+
+- 후보 응답의 provisional preview와 regions 응답 뒤 native scene의 preview는 reviewKey가 달라 DOM이 교체된다. 실제 renderer 준비 뒤 현재 DOM을 캡처하도록 시험만 보완했다. 통제한 regions 지연에서 old DOM detached/current DOM ready를 대조하고 원85개 testcase·337개 matcher/기대값 및 자동 paint false를 보존했다. 제품 paint/source/generation/revision/attempt·권한 fence 변경은 없다.
+- 관련 단위111 PASS와 최종 Web3,938 PASS/3 SKIP, 실제 App CAD8 PASS를 확인했다. 320/390/1024/1440의 표시 준비→dirty 차단/undo→확인 취소/focus 복귀→mock apply, 320/1440의 cancel·동일 문서 BrowserRouter 층 전환 뒤 old tile 완료의 preview 부활 방지를 검사했다. mock apply4/cancel2, unknown/unhandled API0이며 실제 운영 write는 없다.
+
+### 미구현
+
+- 실제 CAD 변환 backend·운영 저장·장비·native WebView·Safari/WebKit·OS키보드·HIL은 검증하지 않았다. 기존 legacy CAD journey 전체 실행을 새8건의 성공으로 대체하지 않는다.
+
+### 부족하거나 개선이 필요한 기능
+
+- 첫 새 CAD8의6 PASS/2 FAIL은 store reset 뒤 동일 App query가 리뷰를 재수화하는 시험 전제 오류였다. 실제 동일 문서 floor 전환으로 보완한 집중2 PASS와 최종 전체 runner 안의8 PASS를 분리 기록한다. 과거 별도 Task4 floor/onSaved-purge 관측을 모두 같은 원인이라고 단정하지 않는다.
+- 대표390 light/1440 dark review PNG의 fixture3도형과 containment를 확인했다. 모바일 적용 후·scope 전환 후 PNG는 후속 맵 loading 상태이며 mock ACK/이전 preview 부재 증거이지 새 맵의 완전한 paint나404 오류 표시 완료 증거가 아니다. 모달 아래 action은 내부 scroll 대상이며 전체 내용이 한 화면에 보인다는 주장이 아니다.
+
+### 관련 파일
+
+- `apps/web/src/features/floor-editor/FloorEditorView.test.tsx`, `apps/web/e2e/control-cad-preservation.spec.ts`, `apps/web/e2e/cad-import-journey.spec.ts`, `apps/web/e2e/support/cad-journey.ts`.
+- [공통 coverage](../assets/web-design-system-2026-10-16/coverage.md), `.superpowers/sdd/2026-10-16-web-design-system-unification/task-8-report.md`와 `task-8-qa-ZPz7QN/` 원로그·PNG.
+
+### 갱신 규칙
+
+- 비동기 scene 교체의 이전/현재 DOM과 callback owner를 대조한다. ready 강제·paint/dirty/권한 관문 제거·timeout/retry/skip 완화 없이 원 단언을 유지하며 단위 mock, 실제 Chromium fixture, 운영 renderer/장비 증거를 구분한다.
 
 ## 2026-10-17 공통 디자인 시스템 전체 coverage (Task 6)
 

@@ -12,7 +12,7 @@ import { MemoryRouter } from "react-router-dom";
 import { SessionStatusProvider, ToastRegion } from "../../components/ui";
 import { handleMobileBack } from "../mobile/mobile-back";
 
-const previewPaint = vi.hoisted(() => ({ automatic: true, props: null as import("../map-scene/MapSceneCanvas").MapSceneCanvasProps | null }));
+const previewPaint = vi.hoisted(() => ({ automatic: true, regions: null as Promise<void> | null, props: null as import("../map-scene/MapSceneCanvas").MapSceneCanvasProps | null }));
 vi.mock("../map-scene/MapSceneCanvas", async () => {
   const { useEffect } = await import("react");
   return { MapSceneCanvas: (props: import("../map-scene/MapSceneCanvas").MapSceneCanvasProps) => {
@@ -48,12 +48,15 @@ const floorEditorApi = vi.hoisted(() => ({
 vi.mock("../../api/floor-editor", () => floorEditorApi);
 vi.mock("../../api/queries", async importOriginal => ({
   ...await importOriginal<typeof import("../../api/queries")>(),
-  listFloorImportRegions: vi.fn(async (_floorId, jobId) => ({
+  listFloorImportRegions: vi.fn(async (_floorId, jobId) => {
+    if (previewPaint.regions) await previewPaint.regions;
+    return {
     jobId, selectionStatus: "auto_selected", selectedRegionId: "region-1", excludedRegionPrimitiveCount: 0,
     regions: [{ regionId: "region-1", bounds: { minX: 5000, minY: 7000, maxX: 6200, maxY: 7600 },
       primitiveCount: 1, textCount: 0, lightCandidateCount: 1, area: 720000,
       preview: { assetId: "preview-1", width: 640, height: 360, byteSize: 1, sha256: "a".repeat(64) } }]
-  }))
+    };
+  })
 }));
 vi.mock("../floor-map/cad-scene-readonly-runtime", () => ({
   createReadOnlyCadSceneRenderer: vi.fn(async () => ({
@@ -512,6 +515,7 @@ describe("FloorEditorView", () => {
   beforeEach(() => {
     previewPaint.automatic = true;
     previewPaint.props = null;
+    previewPaint.regions = null;
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
     floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValue({ overlay: null });
@@ -1279,6 +1283,11 @@ describe("FloorEditorView", () => {
       .map(interruption => ({ common: true, interruption }))
   ])("previews CAD review results and applies with editor authority (common map: $common, interruption: $interruption)", async ({ common, interruption }) => {
     previewPaint.automatic = false;
+    // Region hydration changes review.scene and remounts the preview by its
+    // review key. Force the previously intermittent response order in the
+    // original site case without delaying or relaxing any product paint gate.
+    const regions = deferred<void>();
+    if (interruption === "site") previewPaint.regions = regions.promise;
     const originalBounds = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       return ["floor-editor-canvas", "cad-import-preview"].includes(this.dataset.testid ?? "") ? new DOMRect(0, 0, 800, 600) : originalBounds.call(this);
@@ -1433,8 +1442,22 @@ describe("FloorEditorView", () => {
 
     await screen.findByRole("button", { name: "확인 및 적용" });
     const modal = screen.getByRole("dialog", { name: "CAD 가져오기" });
-    const preview = within(modal).getByRole("region", { name: "CAD 도면 미리보기" });
+    const provisionalPreview = within(modal).getByRole("region", { name: "CAD 도면 미리보기" });
+    if (interruption === "site") {
+      expect(provisionalPreview).toHaveAttribute("data-preview-ready", "false");
+      expect(previewPaint.props).toBeNull();
+      expect(within(modal).getByRole("button", { name: "확인 및 적용" })).toBeDisabled();
+      await act(async () => regions.resolve());
+    }
     await waitFor(() => expect(previewPaint.props?.onReady).toBeDefined());
+    // Bind the assertion target to the hydrated renderer's current preview,
+    // not the detached region rendered before its scene identity was known.
+    const preview = within(modal).getByRole("region", { name: "CAD 도면 미리보기" });
+    expect(preview).toBeInTheDocument();
+    if (interruption === "site") {
+      expect(provisionalPreview).not.toBeInTheDocument();
+      expect(preview).not.toBe(provisionalPreview);
+    }
     expect(preview).toHaveAttribute("data-preview-ready", "false");
     expect(within(modal).getByRole("button", { name: "확인 및 적용" })).toBeDisabled();
     expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();

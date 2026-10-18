@@ -1,5 +1,13 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-18 / 비동기 preview의 현재 DOM과 renderer 표시 소유권을 분리한다
+
+- 후보 응답 뒤 regions 응답이 native scene/reviewKey를 바꾸면 먼저 캡처한 preview DOM은 분리될 수 있다. callback을 호출했는데 이전 DOM이 false라는 사실만으로 제품 paint fence나 mutable singleton 오배달을 결론내리지 않는다. source/generation/revision·camera/viewport·mount 경계를 계측하고 old disconnected/current ready 대조로 원인을 확인한다.
+- 재현은 regions 응답을 통제해 원래 ready=true 단언을 실패시키고, 실제 renderer 준비 뒤 현재 DOM을 캡처하는 최소 시험 수정으로 끝낸다. 자동 paint false·실제 callback·원 matcher/기대값·late/scope/dirty/권한 관문은 유지한다. 집중 PASS와 미재현은 원인 증명을 대신하지 않는다.
+- 실제 App에서는 store reset만 해도 동일 route/query의 durable review가 재수화된다. scope fence 검증은 같은 document의 BrowserRouter 층 전환과 새 floor query를 확인한 뒤 held tile 응답을 풀어야 한다. reload로 옛 document를 파괴한 성공을 late-response 보호로 기록하지 않는다.
+- 공유 fixture 추출은 이동 직후의 본문 동일성과 이후 type-only 보완을 구분한다. 이동한 helper의 단언까지 합산하고 기존 journey 전체 미실행을 새 소비자 PASS로 승격하지 않는다. page.evaluate 안의 브라우저 전역은 module mock 이름과 충돌하지 않도록 window.history처럼 명시한다.
+- mock apply ACK 뒤의 loading PNG는 새 맵의 paint 완료 증거가 아니다. actual PASS와 의도된 sentinel FAIL, sandbox 시작 실패와 testcase FAIL, mandatory 승인 대기와 실행 시간을 각각 기록한다. 전체 검증은 소유 프로세스/리스너 종료 및 source hash 고정 뒤 단독1회로 수행한다.
+
 ## 2026-10-17 / 제어 reader와 navigation의 React 소유권·실제 DOM 포커스를 구분한다
 
 - compact 명령 결과는 더보기 reader 안에 있다. 이력 행을 눌렀다는 이유로 숨겨진 상세가 접근 가능하다고 가정하지 않는다. 회귀 helper는 실제 더보기→상세 보기를 수행하고, 닫힌 reader의 role 부재·단일 닫기·물리 요청 0건 단언을 함께 보존한다.

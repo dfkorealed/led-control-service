@@ -1,6 +1,6 @@
 # Web 공통 디자인 시스템 적용·검증 범위
 
-승인일 2026-10-16, 검증일 2026-10-17. 분리 브랜치 `codex/web-design-system-unification-20261016`의 Task1–5 제품을 Task6에서 독립 확인했다. 운영 배포 완료나 전체 테스트 GREEN을 뜻하지 않는다. [중앙 가이드](../../ui-design-system.md), [적용 설계](../../superpowers/specs/2026-10-15-web-design-system-unification-design.md), [적용 전 baseline](baseline.md)을 함께 읽는다.
+승인일 2026-10-16, 최신 검증일 2026-10-18. 분리 브랜치 `codex/web-design-system-unification-20261016`의 Task1–5 제품을 Task6에서 확인했고, Task7/8 수리 뒤 최신 전체 Web3,938PASS/0FAIL/3SKIP·전체 안전 Chromium226actualPASS+의도된FAIL3을 확인했다. 아래 회차별 실패 이력과 마지막 Task8 기록을 구분한다. 운영 배포·실장비 완료나 독립 최종 리뷰 승인을 뜻하지 않는다. [중앙 가이드](../../ui-design-system.md), [적용 설계](../../superpowers/specs/2026-10-15-web-design-system-unification-design.md), [적용 전 baseline](baseline.md)을 함께 읽는다.
 
 ## 증거의 구분과 실행 경계
 
@@ -149,7 +149,7 @@ Task6와 총괄이 `view_image`로 실제 PNG를 직접 확인했다. 초기 `ta
 
 실제 운영 API·인증/메일·전화·PDF/다운로드·배포·LED/Gateway HIL·Safari/WebKit/Firefox·실기기·iOS/Android WebView·OS키보드·브라우저 확대/사용자 font 변경은 미실행이다. 지원하지 않는 새 테마를 만들지 않았다. Task6 독립 task review와 whole-branch final review는 총괄이 별도로 수행하며 이 기록이 그 승인을 대신하지 않는다.
 
-## 2026-10-17 최종 리뷰의 단일 수정 묶음
+## 2026-10-17 최종 리뷰의 단일 수정 묶음 — Task7/8 이전 이력
 
 통계 ordinary 지표 카드는 위 역할 계약으로 수리했고 `MetricCard` producer/default16px는 보존했다. roles8개와 큰 수치16개(overview/analysis×320/390/1024/1440×light/dark)가 actual20/16px·상세 형제grid18px·metric28/34px·전체 숫자/단위·카드 내 Range/overflow를 확인했다. analysis selected detail390/1440light의 `final-fix-browser-results/ui-eight-layout-regression-{0ed14-stay-inside-cards-390-light,9f25d-tay-inside-cards-1440-light}-chromium/numeric-cards.png`2개도 직접 열어 확인했다. PC의 kWh 줄바꿈을 포함해 숫자/단위가 모두 보이고 카드 안에 배치된다. 이는 해당2장면 확인이며 전체 화면 pixel 검증이 아니다.
 
@@ -162,3 +162,28 @@ Task6와 총괄이 `view_image`로 실제 PNG를 직접 확인했다. 초기 `ta
 그 단독1회 `final-fix-web-full-alone.log`의 실제 결과는 **3928PASS/6FAIL/3SKIP**,266files(263PASS/2FAIL/1SKIP),46.63초/exit1이다. 새수명4unit은PASS했다. 기존Control5에 더해 CAD `previews CAD review results and applies with editor authority (common map: true, interruption: 'site')`가 :1442 `data-preview-ready=true` 기대/false로 실패했다. site interruption(:1492이후) 수행 전 초기paint단계다. 정확한case만 원단언/설정 그대로 실행한 `final-fix-cad-site-focused.log`는1PASS/84필터제외이며 전체를 반복하지 않았다. 위 Task6의3925/5/3과 Task5 principal·Task4 floor·과거onSaved-purge는 각 회차의 다른 관측이다. 이번 미재현을 원인 해결/flake/인과 무관으로 확정하지 않는다.
 
 CAD 경계 조사에서 원test는 `previewPaint.automatic=false`, 모든 `MapSceneCanvas` 렌더가 같은 `previewPaint.props` singleton을 덮어쓰며 :1441의 onPaintReady는 그 마지막 props를 호출한다. 제품 `CadImportSceneCanvas`는 source/generation/revision/attempt/viewKey를 fence하고 `CadImportPreview`는 해당token의ready display를 요구한다. 이 경계는 확인했지만 원full에서 실제 어느owner/view의callback이호출됐는지 입증한 계측은 없어 singleton/스케줄 경합을 확정 원인으로 쓰지 않는다. CAD 제품/원시험/단언은 수정하지 않았다. 전체 gate는6FAIL로 유지하고 별도 callback owner 추적·후속 방향 결정이 필요하다. 메뉴8문서의 최신 공통 검증도 이 최종값으로 일치시켰다.
+
+## 2026-10-18 Task8 — 최신 전체 통합 검증
+
+위 마지막 문단은 당시의 미확정 결론이다. Task7에서 제어5건과 h1 보완을 수리했고, Task8은 CAD의 regions 응답→native scene→reviewKey 전환에서 먼저 캡처한 DOM이 분리되는 시험 수명 문제를 입증했다. `task-8-stale-preview-red.log`의 통제된 regions 지연은 원 site case 초기 paint 단언에서84PASS/1FAIL이며 `capturedConnected=false/currentReady=true`를 동시에 기록한다. 같은 source/generation/revision/camera의 현재 callback은 정상적으로 현재 DOM을 ready로 만들었다. 제품 paint fence나 singleton 오배달로 분류하지 않는다. 실제 renderer 준비 뒤 현재 DOM을 캡처하는 test-only 수정으로 관련111PASS, 원85case/337 matcher·기대값 보존(신규6)이다. 별도 과거 floor/onSaved-purge 관측까지 같은 원인으로 일반화하지 않는다.
+
+새 CAD actual-App8의 첫 실행은6PASS/2FAIL(`task-8-cad-browser-green.json`)이었다. store reset만 하면 동일 route/query가 durable review를 다시 읽으므로 scope 부재라는 시험 전제가 틀렸다. 동일 document의 `window.history.pushState`/popstate BrowserRouter floor 전환, 기존 html identity 유지, 새floor query를 확인하는 방식으로 바꿨다. 명시 floor2 404만 mock하고 unknown API는 계속 거절한다. 첫 고정 QA `task-8-qa-gYODU9`는 Web 타입PASS 뒤 module mock `history` 이름 충돌 E2E타입FAIL에서 멈췄으며 전체 Web은 시작하지 않았다. 브라우저 전역을 명시한 최소 보완 후 `task-8-qa-ZPz7QN`의 scope2PASS와 전체 runner CAD8PASS를 확인했다.
+
+최종 원증거 디렉터리는 `task-8-qa-ZPz7QN/`이다. 각 단계의 `.command`와 `.log`, raw JSON reporter 본문인 `browser-full.log`, classification·trace·PNG·API attachment를 보존한다. 승인된 고정 `task-8-final-qa.sh`를 primary가 실행했고 session79194 exit0으로 완료했다. 최초 infra의 Vite `listen EPERM`과 mandatory 승인 대기/중단 시간은 testcase 실행 시간에 합산하지 않는다.
+
+| 최종 gate | 실제 결과 |
+| --- | --- |
+| Web/E2E TypeScript | 둘 다 exit0; E2E는 새 preservation와 기존 CAD journey spec 포함 |
+| 전체 안전 Chromium | 229 expected = **226 actual PASS + 의도된 차단 FAIL3**, unexpected/skip/flaky0, 356.402829초 |
+| 전체 inventory | 직렬38소비자+inventory39 완주; 기대/등록/실행38 key·title 일치 |
+| CAD/제어 | CAD8 PASS, 기존 제어9 PASS; CAD 적용4·cancel2·scope2 포함 |
+| build / UI정책 / ui:check | exit0 / 79PASS / 기존0·신규0 위반 |
+| landing/public 계약 | 6PASS / 3PASS |
+| 단독 Web 전체1회 | **3,938PASS / 0FAIL / 기존3SKIP**, 265PASS/1SKIP 파일(총266), 54.46초 |
+| source/프로세스 | 907파일 SHA256 before/after 전부일치, 소유heavy0·15341listener0·diff check0 |
+
+CAD current4는320/390light·1024/1440dark에서 provisional/held tile ready=false·disabled 물리API0→실제 renderer ready→dirty/undo·확인 취소 focus·44px hit→mock apply ACK를 검증한다. 적용 payload는 candidateIds[]/expectedRevision1/confirmMapResettrue/leaseTokenlease-floor-1/leaseFence1이며 mock4회다. cancel/scope4는320/1440에서 각각 held1/released1의 늦은 응답 후 preview0/apply0을 확인했다. 전체 CAD8의 unknown/unhandled0, mockcancel총2이며 실제 backend/장비 write는 없다.
+
+최종 `browser-full-results/control-cad-preservation-C-8e946-nt-dirty-and-mock-apply-390-chromium/cad-review-390.png`와 `control-cad-preservation-C-07a31-t-dirty-and-mock-apply-1440-chromium/cad-review-1440.png`를 실제 열었다. light/dark의 fixture3도형·preview containment·표시완료 안내·apply를 확인했다. 이는 합성 fixture 대표2장면이며 실제 DWG 변환·모든 CAD 색의 AA 인증이 아니다. 아래 취소 action은 내부 scroll 대상이다. 추가로320applied/1440scope PNG도 열었으며 후속 맵loading 상태이므로 새 맵 완전paint/404표시완료로 확대하지 않는다.
+
+fixture 추출 직후 기존함수/등록본문동일을 확인했고 이후 canvas parameter와 prepared tile descriptor의 type-only 보완을 별도로 했다. 원 CAD expect200은 spec+support 합산 그대로이며 기존 제어 E2E52도 유지한다. 기존 legacy CAD journey 전체는 이 runner에 없으며 새8건/타입 검사를 그 전체 PASS로 기록하지 않는다. 기존3SKIP·pnpm ignored-overrides·색출력/큰chunk·Konva 경고와 운영backend/native/HIL/확대·OS키보드 등 미검증 경계는 유지한다. 원212실패·후속delta62와 이번 새로운 전체229를 혼합하지 않는다. 독립 task/whole-branch 리뷰와 병합은 총괄의 별도 관문이다.

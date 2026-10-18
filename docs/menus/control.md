@@ -1,6 +1,8 @@
 # 제어 메뉴 기능 현황
 
-최신 검토 보완(2026-10-17 Task7 round1): 더보기의 열림 상태와 무관하게 공통 페이지 틀에 접근 가능한 `조명 제어` level1 heading을 정확히1개 유지한다. 닫힘→열림→Escape 단위RED1/브라우저RED1 뒤 집중185PASS·strict8조합+차단guard1의Chromium9PASS·타입/빌드/UI정책을 확인했다. 전체 Web 추가 실행은 하지 않았으며 아래3,937PASS는 보완 전 커밋의 결과다. 보완 source를 포함한 다음 전체 관문은 Task8 최종 검증이다.
+최신 공통 검증(2026-10-18 Task8): 최종 source의 단독 Web 전체 1회는 **3,938 PASS / 0 FAIL / 3 SKIP**다. 전체 안전 Chromium은 **229 expected = 실제 226 PASS + 의도된 차단 FAIL 3**, unexpected/skip/flaky 0이며 CAD8·제어9와 전체 소비자 inventory를 포함한다. 타입/E2E타입·빌드·UI정책79 PASS/위반0·landing6/public3 계약을 통과했다. Task7 h1 보완까지 포함하며 CAD는 regions 응답 뒤 교체된 DOM을 일찍 캡처한 시험 수명을 결정적 RED로 확인해 test-only로 수리했다. mock 소프트웨어 검증이며 실장비·실backend·native 인증은 아니다. [최신 공통 증거와 한계](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+
+이전 검토 보완 이력(2026-10-17 Task7 round1): 더보기의 열림 상태와 무관하게 공통 페이지 틀에 접근 가능한 `조명 제어` level1 heading을 정확히1개 유지한다. 닫힘→열림→Escape 단위RED1/브라우저RED1 뒤 집중185PASS·strict8조합+차단guard1의Chromium9PASS·타입/빌드/UI정책을 확인했다. 당시 전체 Web 추가 실행은 하지 않았으며 아래3,937PASS는 보완 전 커밋의 결과다. 이 보완 source는 위 Task8 최종 전체 관문에 포함됐다.
 
 Task7 최초 커밋 `89d61b31`(round1 보완 전)의 source 고정 뒤 단독 Web 전체 1회는 **3,937 PASS / 0 FAIL / 3 SKIP**(266 files, 51.66초)였다. 원 제어5건을 해소했고 새 제어 부정 회귀3건을 추가했다. CAD85건은 해당 실행에서 통과했지만 CAD 소스/시험을 변경하지 않았으므로 이전 간헐 실패의 원인 해결로 판정하지 않는다. Task8에서 결정적인 RED와 원인 확인이 필요하다. 상세 명령·원로그·PNG는 `.superpowers/sdd/2026-10-16-web-design-system-unification/task-7-report.md`를 따른다.
 

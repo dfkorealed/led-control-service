@@ -1,6 +1,7 @@
 import { test, expect } from "./support/design-system-fixture";
 import { installSettingsApiRoutes, commandDetailClockFixture } from "./support/settings-api";
 import type { Page, Locator } from "@playwright/test";
+import { installPreparedReview, jobId as cadJobId, nativeScene } from "./support/cad-journey";
 
 const commandId = "99999999-9999-4999-8999-000000000711";
 const history = {
@@ -180,6 +181,192 @@ for (const width of [320, 390, 1024, 1440]) for (const theme of ["light", "dark"
       await info.attach("api-reads", { body: JSON.stringify(api.requests), contentType: "application/json" });
       await info.attach("unknown-api", { body: JSON.stringify(unknownApi), contentType: "application/json" });
       expect(unknownApi, "Unknown APIs and every attempted mutation must abort and fail").toEqual([]);
+    }
+  });
+}
+
+async function installCadBoundary(page: Page) {
+  const reads = new Set([
+    "/api/auth/me", "/api/sites", "/api/sites/site-1/dashboard", "/api/sites/default/dashboard",
+    "/api/sites/site-1/monitoring-incidents", "/api/floors/floor-1/editor-state", "/api/floors/floor-1/editor-revisions",
+    "/api/floors/floor-2/editor-state",
+    "/api/floors/floor-1/import-jobs/active", "/api/floors/floor-1/import-jobs/applied-overlay",
+    `/api/floors/floor-1/import-jobs/${cadJobId}`, `/api/floors/floor-1/import-jobs/${cadJobId}/regions`,
+    `/api/floors/floor-1/import-jobs/${cadJobId}/candidates`,
+    "/api/floors/floor-1/assets/rendered/content", nativeScene.descriptor.statePath
+  ]);
+  for (const prefix of ["/api/floors/floor-1/map-document", `/api/floors/floor-1/import-jobs/${cadJobId}/map-document`]) {
+    for (const suffix of ["", "/manifest", "/changes", ...[0, 1, 2].map(index => `/tiles/00000000-0000-4000-8000-00000000009${index}`)]) reads.add(prefix + suffix);
+  }
+  for (const job of [cadJobId, "00000000-0000-4000-8000-000000000081"]) {
+    reads.add(nativeScene.descriptor.manifestContentPath.replace(cadJobId, job));
+    for (const { descriptor } of nativeScene.tiles) reads.add(nativeScene.descriptor.tileContentPathTemplate.replace(cadJobId, job)
+      .replace("{lod}", String(descriptor.lod)).replace("{tileX}", String(descriptor.tileX))
+      .replace("{tileY}", String(descriptor.tileY)).replace("{part}", String(descriptor.part)));
+  }
+  const mutations = new Set([
+    "POST /api/floors/floor-1/editor-lease", "DELETE /api/floors/floor-1/editor-lease",
+    "POST /api/floors/floor-2/editor-lease", "DELETE /api/floors/floor-2/editor-lease",
+    `POST /api/floors/floor-1/import-jobs/${cadJobId}/apply`, `POST /api/floors/floor-1/import-jobs/${cadJobId}/cancel`,
+    "POST /api/floors/floor-1/map-document/elements"
+  ]);
+  const requests: string[] = [], unknown: string[] = [];
+  await page.route("**/api/**", route => {
+    const request = route.request(), path = new URL(request.url()).pathname;
+    if (!path.startsWith("/api/")) return route.fallback();
+    const entry = `${request.method()} ${path}`;
+    requests.push(entry);
+    if (request.method() === "GET" ? reads.has(path) : mutations.has(entry)) return route.fallback();
+    unknown.push(entry);
+    return route.abort();
+  });
+  return { requests, unknown };
+}
+
+async function cadGeometry(page: Page, dialog: Locator, preview: Locator) {
+  await preview.scrollIntoViewIfNeeded();
+  const box = (await preview.boundingBox())!, modal = (await dialog.boundingBox())!;
+  expect(box.width).toBeGreaterThan(0); expect(box.height).toBeGreaterThanOrEqual(192);
+  expect(box.x).toBeGreaterThanOrEqual(modal.x); expect(box.x + box.width).toBeLessThanOrEqual(modal.x + modal.width + 1);
+  expect(modal.x).toBeGreaterThanOrEqual(0); expect(modal.x + modal.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect.poll(() => preview.evaluate((element, size) => {
+    const r = element.getBoundingClientRect(), zoom = Number((element as HTMLElement).dataset.zoom);
+    return zoom > 0 && size.width * zoom <= r.width - 47 && size.height * zoom <= r.height - 47;
+  }, { width: nativeScene.manifest.width, height: nativeScene.manifest.height })).toBe(true);
+}
+
+for (const width of [320, 390, 1024, 1440]) {
+  test(`CAD preservation current preview paint dirty and mock apply ${width}`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(theme => localStorage.setItem("led-control.customer-theme.v1", theme), width < 760 ? "light" : "dark");
+    await installSettingsApiRoutes(page, "admin");
+    const api = await installPreparedReview(page);
+    api.state().floor.name = "지하 주차장 연결 통로와 비상 대피 구역을 포함한 긴 층 이름";
+    const boundary = await installCadBoundary(page);
+    let releaseRegions!: () => void, releaseTiles!: () => void;
+    const regions = new Promise<void>(resolve => { releaseRegions = resolve; });
+    const tiles = new Promise<void>(resolve => { releaseTiles = resolve; });
+    await page.route(`**/api/floors/floor-1/import-jobs/${cadJobId}/regions`, async route => { await regions; await route.fallback(); });
+    await page.route(`**/api/floors/floor-1/import-jobs/${cadJobId}/map-document/tiles/*`, async route => { await tiles; await route.fallback(); });
+    try {
+      await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+      const dialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
+      const preview = dialog.getByRole("region", { name: "CAD 도면 미리보기" });
+      const apply = dialog.getByRole("button", { name: "확인 및 적용", exact: true });
+      await expect(apply).toBeVisible();
+      await expect(preview).toHaveAttribute("data-preview-ready", "false");
+      await expect(apply).toBeDisabled();
+      releaseRegions();
+      await expect(preview.getByRole("img", { name: "맵 도형" })).toBeVisible();
+      await expect(preview).toHaveAttribute("data-preview-ready", "false");
+      await expect(apply).toBeDisabled();
+      await apply.evaluate(element => (element as HTMLButtonElement).click());
+      expect(api.payloads).toEqual([]);
+      releaseTiles();
+      await expect(preview).toHaveAttribute("data-preview-ready", "true");
+      await expect(apply).toBeEnabled();
+      await cadGeometry(page, dialog, preview);
+      await page.screenshot({ path: info.outputPath(`cad-review-${width}.png`) });
+      // Use the real store's dirty transition while the read-only preview owns
+      // the modal; pointer-edit gestures are covered by the editor journeys.
+      await page.evaluate(async () => {
+        const path = "/src/features/floor-editor/editor-store.ts";
+        const { useFloorEditorStore } = await import(/* @vite-ignore */ path);
+        useFloorEditorStore.getState().updateFixture("fixture-1", { name: "저장하지 않은 조명 이름 변경" });
+      });
+      await expect(apply).toBeDisabled();
+      await apply.evaluate(element => (element as HTMLButtonElement).click());
+      expect(api.payloads).toEqual([]);
+      await page.evaluate(async () => {
+        const path = "/src/features/floor-editor/editor-store.ts";
+        const { useFloorEditorStore } = await import(/* @vite-ignore */ path);
+        useFloorEditorStore.getState().undo();
+      });
+      await expect(apply).toBeEnabled();
+      await apply.click();
+      const reset = page.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+      await expect(reset).toContainText("조명 2개가 미배치 상태로 변경");
+      await expect(reset).toContainText("수동 도형 1개가 삭제");
+      await expect(reset).toContainText("기존 CAD 슬롯 1개가 삭제");
+      await reset.getByRole("button", { name: "취소", exact: true }).click();
+      await expect(apply).toBeFocused();
+      expect(api.payloads).toEqual([]);
+      await hit(apply);
+      await apply.click();
+      await reset.getByRole("button", { name: "교체 후 적용" }).click();
+      await expect.poll(() => api.payloads.length).toBe(1);
+      expect(api.payloads[0]).toEqual({ candidateIds: [], expectedRevision: 1, confirmMapReset: true, leaseToken: "lease-floor-1", leaseFence: 1 });
+      await expect(dialog).toBeHidden();
+      expect(api.state().floor.mapRevision).toBe(2);
+      expect(api.state().objects).toEqual([]);
+      expect(api.state().lightSlots).toEqual([]);
+      expect(api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
+      expect(api.savePayloads()).toEqual([]);
+      await page.screenshot({ path: info.outputPath(`cad-applied-${width}.png`) });
+    } finally {
+      releaseRegions(); releaseTiles();
+      await info.attach("cad-api", { body: JSON.stringify({ requests: boundary.requests, unknown: boundary.unknown, unhandled: api.unhandledRequests, applies: api.payloads }), contentType: "application/json" });
+      expect(boundary.unknown).toEqual([]); expect(api.unhandledRequests).toEqual([]);
+    }
+  });
+}
+
+for (const width of [320, 1440]) for (const interruption of ["cancel", "scope"] as const) {
+  test(`CAD preservation late paint after ${interruption} ${width}`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installSettingsApiRoutes(page, "admin");
+    const api = await installPreparedReview(page);
+    const before = structuredClone(api.state());
+    let cancelled = 0;
+    await page.route(`**/api/floors/floor-1/import-jobs/${cadJobId}/cancel`, route => {
+      cancelled++; return route.fulfill({ json: { jobId: cadJobId, status: "cancelled" } });
+    });
+    await page.route("**/api/floors/floor-2/editor-state", route => route.fulfill({ status: 404, json: { message: "Unavailable fixture floor" } }));
+    await page.route("**/api/floors/floor-2/editor-lease", route => route.fulfill({ json: { editable: false } }));
+    const boundary = await installCadBoundary(page);
+    let releaseTiles!: () => void;
+    let heldTileRequests = 0, releasedTileResponses = 0;
+    const tiles = new Promise<void>(resolve => { releaseTiles = resolve; });
+    await page.route(`**/api/floors/floor-1/import-jobs/${cadJobId}/map-document/tiles/*`, async route => {
+      heldTileRequests++;
+      await tiles;
+      try { await route.fallback(); } finally { releasedTileResponses++; }
+    });
+    try {
+      await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+      const dialog = page.getByRole("dialog", { name: "CAD 가져오기", exact: true });
+      const preview = dialog.getByRole("region", { name: "CAD 도면 미리보기" });
+      await expect(preview.getByRole("img", { name: "맵 도형" })).toBeVisible();
+      await expect(preview).toHaveAttribute("data-preview-ready", "false");
+      await expect.poll(() => heldTileRequests).toBeGreaterThan(0);
+      const originalDocument = await page.locator("html").elementHandle();
+      if (interruption === "cancel") {
+        await dialog.getByRole("button", { name: "가져오기 취소", exact: true }).click();
+        await expect(preview).toHaveCount(0);
+      } else {
+        // A real router floor change owns a new editor query. Clearing only
+        // the store would legitimately rehydrate the same durable review.
+        await page.evaluate(() => {
+          window.history.pushState({}, "", "/settings/floor-plans/floor-2/edit?siteId=site-1");
+          dispatchEvent(new PopStateEvent("popstate"));
+        });
+        await expect(page).toHaveURL(/floor-2\/edit/);
+        expect(await originalDocument!.evaluate(element => element.isConnected && element === document.documentElement)).toBe(true);
+        await expect.poll(() => boundary.requests.includes("GET /api/floors/floor-2/editor-state")).toBe(true);
+        await expect(preview).toHaveCount(0);
+      }
+      releaseTiles();
+      await expect.poll(() => releasedTileResponses).toBe(heldTileRequests);
+      await expect(preview).toHaveCount(0);
+      expect(api.payloads).toEqual([]);
+      expect(api.state()).toEqual(before);
+      expect(cancelled).toBe(interruption === "cancel" ? 1 : 0);
+      await page.screenshot({ path: info.outputPath(`cad-${interruption}-${width}.png`) });
+    } finally {
+      releaseTiles();
+      await info.attach("cad-api", { body: JSON.stringify({ requests: boundary.requests, unknown: boundary.unknown, unhandled: api.unhandledRequests, applies: api.payloads, cancelled, heldTileRequests, releasedTileResponses }), contentType: "application/json" });
+      expect(boundary.unknown).toEqual([]); expect(api.unhandledRequests).toEqual([]);
     }
   });
 }

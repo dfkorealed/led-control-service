@@ -1,6 +1,8 @@
 # 통계 메뉴 기능 현황
 
-최신 공통 검증(2026-10-17 최종 보완): 단독 Web 전체 1회는 **3,928 PASS / 6 FAIL / 3 SKIP**다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD는 focused1PASS로 미재현됐지만 원인은 미확정이다. 결합212의 cleanup1실패와 후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS를 구분한다. 전체 gate는 FAIL이며 아래 Task6/Task5 수치는 해당 회차 이력이다. [최신 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+최신 공통 검증(2026-10-18 Task8): 최종 source의 단독 Web 전체 1회는 **3,938 PASS / 0 FAIL / 3 SKIP**다. 전체 안전 Chromium은 **229 expected = 실제 226 PASS + 의도된 차단 FAIL 3**, unexpected/skip/flaky 0이며 CAD8·제어9와 전체 소비자 inventory를 포함한다. 타입/E2E타입·빌드·UI정책79 PASS/위반0·landing6/public3 계약을 통과했다. Task7 h1 보완까지 포함하며 CAD는 regions 응답 뒤 교체된 DOM을 일찍 캡처한 시험 수명을 결정적 RED로 확인해 test-only로 수리했다. mock 소프트웨어 검증이며 실장비·실backend·native 인증은 아니다. [최신 공통 증거와 한계](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
+
+이전 공통 검증 이력(2026-10-17 최종 보완): 단독 Web 전체 1회는 **3,928 PASS / 6 FAIL / 3 SKIP**다. 제어5와 CAD `common=true, interruption=site`의 초기 preview-ready1이 실패했다. CAD는 focused1PASS로 미재현됐지만 원인은 미확정이다. 결합212의 cleanup1실패와 후속62expected(실제59PASS+3의도된차단FAIL), 수명helper4unitPASS를 구분한다. 당시 전체 gate는 FAIL이었으며 아래 Task6/Task5 수치는 해당 회차 이력이다. [당시 공통 증거](../assets/web-design-system-2026-10-16/coverage.md)를 따른다.
 
 ## 2026-10-17 최종 리뷰의 일반 지표 카드 정합화
 
