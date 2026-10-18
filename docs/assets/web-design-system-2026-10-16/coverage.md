@@ -213,3 +213,29 @@ foundation의 goto/준비 대기는 기존 runFoundationLifetime 안에서 body�
 이번 브라우저 회차는53actualPASS+public landing 모드상 서비스 전용6SKIP이며 unexpected/flaky0이다. 각 landing 모드3SKIP는 bootstrap·service session·service login의 원 조건부 분기이고 service 모드에서는 같은3개가 실행됐다. CAD8의 browserErrors/unknown/unhandled attachment는 모두 빈 배열이며 original paint/dirty/current-document/mock apply/API fence를 유지한다. 원 expect chain은 CAD preservation102개 전부 유지+2개 오류 관문, 공개80/정적32개는 해당 origin 단언1개씩만 교체, fixture3개·기존 lifetime11개는 유지했다.
 
 이전 Task8의 전체 안전 Chromium229 expected(실제226PASS+의도된 차단FAIL3)·Web3,938PASS/3SKIP는 이전 source의 별도 전체 회차다. 이번53과 합산한 새로운 전체229PASS나 전 소비자 재실행을 주장하지 않는다. 새3939는 setup 회귀1개 증가이며 재설계·제품 변경이 아니다. 전체 monorepo CI·실 backend/DB/장비/native/HIL·실제 DWG·전 GPU/브라우저·모든 상태/대비·후속 맵 완전 paint·legacy CAD journey 전체는 추가 인증하지 않았다. pnpm/color·main934.90kB/gzip281.38kB chunk·React act/negative Zod/Konva 진단은 남는다. 상세 명령·원로그·자가 검토는 `followup-final-fix-report.md`, 독립 검토와 통합 상태는 plan/project-status의 별도 정본을 따른다.
+
+## 2026-10-18 기존 브랜치 통합 후 새 검증
+
+**전체 브라우저 gate는 FAIL이다.** 실제 main `codex/mvp1-cloud-web`의 병합 `d87a190119d61d8b78192c654c5d1a0096573c2f`에서 새로 전체229를 실행했고 **225 actual PASS + 의도된 차단 FAIL3 + 예상 밖 foundation cleanup timeout1**, skip/flaky0,373.614705초/exit1을 기록했다. 마지막 단독 전체 Web은 **3,939PASS/0FAIL/기존3SKIP**,265PASS/1SKIP파일(총266),47.05초/exit0이다. 이전 source의 전체226PASS·집중53PASS와 합산하거나 새 전체GREEN으로 표시하지 않는다.
+
+원증거는 actual main의 `.local/web-design-system-integration-20261018/qa-3zqOCJ/`다. 원 `qa.sh`와 `browser-full.log`, 별도 `continuation.sh`, gate별 `.command/.log`·classification·trace·PNG·907source/runner SHA를 보존한다. 통합·보존 보고서는 source UI checkout의 `.superpowers/sdd/2026-10-18-web-design-system-integration/task-1-report.md`다. 미커밋 AGENTS84행과 상태판의 타작업13행·UI밖원문은 보존했고 복구stash도 남겼다. 양쪽 부모를 보존한 merge에서 Web tree는 승인source51ef40f3과 같고 대상625d8cfb의 API·기타단독14경로도 같다. 제품/시험/config/timeout/retry/skip/정책값을 새로 바꾸지 않았다.
+
+| 새 gate | 실제 결과 |
+| --- | --- |
+| workspace prepare / Web·확장 E2E5root 타입 | exit0 / 각각exit0 |
+| 전체 안전 Chromium | 229개 전부 실행,225 actual PASS·의도된3FAIL·예상밖1timeout,373.614705초 |
+| inventory / 제어·CAD | expected/registered/executed38일치 / 기존제어9·CAD8 PASS, CAD browserErrors/unknown/unhandled0 |
+| 정적 랜딩 기본15185 / QA15342 | 각6PASS,4.093739초 / 3.716794초 |
+| public landing 기본5187 / QA15342 | 각5PASS+기존서비스전용3SKIP,3.254329초 / 3.178579초 |
+| public service 기본5187 / QA15342 | 각8PASS,4.539535초 / 4.541062초 |
+| build / UI정책 / ui:check / 정적계약 | exit0 / 79PASS / 기존0·신규0 / landing6·public3PASS |
+| 마지막 단독 canonical Web1회 | 3,939PASS/0FAIL/기존3SKIP,47.05초 |
+| source·runner·보존·idle | 907파일과두runner hash전후일치·원dirty보존·소유heavy0·QA4포트listener0 |
+
+유일 예상밖 실패는 `design-system-foundation.spec.ts`의 `functional computed spacing typography and actual control size`다. 원trace에서1440px마지막 click counter6·브랜드18px단언과 page.close(93404.343ms)·boundary unroute(93404.977ms)가 끝났고, 메모리서버 `server.close`를 기다리는 동안30초timeout(120881ms)이 발생했다. context정리뒤 후속sentinel단언이120908ms에 끝났다. 화면단언 실패로 관측되지는 않았지만 cleanup실패이므로 testcase와전체gate실패를 유지한다. 살아남은연결의 정확한소유원인은 미확정이다.
+
+총괄판정으로 loopback HTTP수명만 계측하는 단일집중진단을 시도했으나 전체title에 맞지않는 `^functional…$` 선택으로 **No tests found·실행0·exit1**이었다. 메모리fixture가 실행되지않았으므로 소켓원인이나해결증거가 아니다. 두번째진단/전체브라우저재실행/소스추측수리는 하지않았다. 원실패를유지한채 독립적인나머지gate와 마지막Web1회만 이어실행했다.
+
+새 control390/1024와 CAD390light/1440dark PNG를 직접 열었다. 제어선택·밝기·결과와 CAD3도형·표시완료안내·preview containment·적용을 확인했다. control파일명은 시작theme이고 theme전환후캡처의실제픽셀은반대다. 모바일상세와 CAD아래취소는 내부스크롤대상이다. 이대표4장면을전체상태pixel·실제DWG·모든CAD색AA·적용후새맵완전paint 인증으로확대하지않는다. focus/hit/overflow/paint/API보호는개별실행원단언과attachment로구분한다.
+
+정책anchor `e841c57b11321a5ae35d15920031020089f06ee2`와 theme원문이같고 PostCSS AST는 `@theme static`1블록·738선언, baseline `files:{}`다. pnpm설정·색출력·main934.90kB/gzip281.38kB큰chunk·React act/negative Zod/Konva진단과 기존3unitSKIP는유지한다. 실제backend/DB/장비/native/HIL·monorepo전체CI·다른브라우저/실기기/확대/OS키보드·legacy CAD journey전체는미실행이다. 병합은완료됐지만브라우저cleanup문제가남아독립검토와후속판정이필요하다.
