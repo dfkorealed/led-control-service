@@ -85,6 +85,8 @@
 
 ## 2026-10-16 Web 공통 디자인 원 구현 완료·로컬 병합·브라우저 cleanup1 미해결
 
+- 후속 수리 승인: 사용자가 cleanup1 원인·수리, 원 기능/단언/타작업 보존과 전체 Web·PC/mobile 재검증·최종 메인 clean을 지시했다. [통합계획 Task2](superpowers/plans/2026-10-18-web-design-system-integration.md)의 [ ]인과/RED, [ ]한정 수리/GREEN, [ ]메인 새전체QA, [ ]독립검토/clean을 진행한다. 미커밋13행은 `제어 페이지 담당자`가 과거 기록/현재 편집없음을 확인해 `f92158ad`로 보존했고, 작성자 미확인 AGENTS84행도 원문 그대로 `b7dafc3e`로 별도 보존했다. 삭제·새 운영/장비 작업은 없다. 원 I1은 새 검증·독립 검토 전까지 열어 둔다.
+
 - 2026-10-18 통합 결과: [통합계획](superpowers/plans/2026-10-18-web-design-system-integration.md)의 [x]snapshot, [x]분리공간통합, [x]codex/mvp1-cloud-web반영·dirty2보존, [x]새QA실행, [x]독립검토·결과인계, [ ]전체브라우저수용이다. 로컬merge `d87a1901`과 QA문서 `08c5a8f2`는 양parent·승인Web/대상API변경을 보존한다. 원 AGENTS84행과 상태판 타작업13행·UI밖원문은 미커밋 상태로 유지하며 소유UI부분만 HEAD기반index에 stage한다. 새전체Web3939PASS/0FAIL/기존3SKIP(47.05초), 전체Chromium229실행225actualPASS+의도된3FAIL+foundation cleanup timeout1(skip/flaky0)로 **전체통합GREEN은아니다**. 제어/CAD·대표PC/mobile·타입/E2E5root/빌드/정책79/위반0/정적계약6+3·공개기본/QA검증은 통과했으며907source/runner동일·ownedheavy0/QA4포트idle이다. 독립Spec PARTIAL/Quality WITH FIXES/readiness NO·C0/I1/M0이며 I1의정확한연결소유원인은미확정이다. 단일진단은선택오류로실행0, 원실패/trace/오류를유지하고추측수리나재실행으로덮지않았다. 복구stash·원증거를보존한다. 새제품/운영/DB/장비/push/배포는추가하지않았다.
 
 - 사용자는 남은 간격·디자인 정합성 6건을 넘어 고객·운영자·인증·공개 랜딩/기능/요금 페이지와 공통 상태·overlay까지 포함한 통합 방향을 승인했다. 일반 기능 UI는 section20/grid18/panel20·16/page26·24/section title20/card title16px와 실제 조작 영역 최소44px를 공유하고, 공개 브랜드·인증 구성·지도/editor 작업 공간은 이름 있는 목적별 variant로 구분한다. 기존 기능·안전·권한·배포 경계와 이전8개 UI 수리를 보존한다.

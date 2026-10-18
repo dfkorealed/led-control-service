@@ -12,6 +12,8 @@
 
 상태: [x]원변경 snapshot, [x]분리공간 통합, [x]기존branch 반영·미커밋 복원, [x]새 전체 검증 실행, [x]독립 검토·결과 기록, [ ]전체 브라우저 수용 관문. 로컬 병합과 재검증 실행은 완료됐으나 foundation cleanup timeout1이 남아 **전체 통합 검증 승인은 보류**한다.
 
+후속 실행 승인: 사용자가 남은 I1의 원인 조사·수리, 기존 기능/원 단언/타작업 보존, 새 전체 Web·PC/모바일 검증과 최종 메인 clean을 명시 지시했다. Task2는 [ ]인과 재현/RED, [ ]한정 수리/GREEN, [ ]메인 반영/새 전체 검증, [ ]독립 검토/최종 clean이다. 미커밋 상태판13행은 `제어 페이지 담당자`가 자신의 과거 기록이며 현재 편집 중이 아니라고 확인했다. AGENTS84행은 조회한 두 세션 및 Git 이력에서 작성자를 확인하지 못했다. 원문을 백업·대조하고 각각 `f92158ad`/`b7dafc3e`로 보존했으며 삭제·내용 변경 없이 메인 clean을 확인했다.
+
 ## Global Constraints
 
 - 시작 source는 `2a473c424cd3bf48d96ba85925270bf5c20e5a25`, branch `codex/web-design-system-unification-20261016`, checkout `.worktrees/web-design-system-unification-20261016`이다. 새 계획·조율 문서만 추가한 source HEAD는 실행 brief에 확정한다.
@@ -22,6 +24,7 @@
 - 전체 테스트는 이전 승인과 같은 canonical 전체 Web 및 전체 안전 design-system Chromium, 관련 공개 정적 mode/default/QA 검증이다. monorepo CI·운영 DB/backend/auth·실장비/native/HIL·AWS·서비스 재시작·push/PR/배포는 실행하지 않는다.
 - 기존5173/4000/8883 및 다른worktree는 접속·재사용·중단하지 않는다. 새owned15341/15342/5187/15185만 idle확인 후 strict/reusefalse로 사용한다. SW차단·미등록API/외부write/WS/beacon차단 유지, workers1/retry/timeout/skip 불변이다.
 - 이전3939/0/3·전체226actual+3의도FAIL·집중53actual+6modeN/A는 과거 증거다. 병합 후 새 실결과를 기록하고 합산한 가상전체PASS를 만들지 않는다. 기존 경고/미실행 한계도 유지한다.
+- Task2 추가 승인만 다음 역사적 제약을 대체한다: 미커밋2파일은 원문 보존 커밋으로 정리할 수 있고, 원인 입증에 필요한 테스트 fixture/lifetime 및 회귀 테스트만 한정 수정할 수 있다. Task1의 원증거와 당시 FAIL 판정은 바꾸지 않는다. Task2 시작 제품 기준은 `54e7977d`, 정리 후 메인/재사용 worktree는 `f92158ad`이며 둘 사이 변경은 기존2문서97행 보존뿐이다. 최종 메인은 index/unmerged/미커밋·새 untracked0을 요구한다. ignored 증거/cache/다른worktree는 삭제하지 않는다.
 
 ## Review Focus
 
@@ -55,6 +58,24 @@
 - 독립 리뷰는 **Spec PARTIAL / Quality WITH FIXES / readiness NO, C0/I1/M0**이다. I1(`design-system-fixture.ts:166`)은 화면 단언·page.close·unroute 뒤 메모리 서버 정리를 기다리다 timeout한 실패이며 정확한 연결 소유 원인은 미확정이다. 한 번의 계측 진단은 bare-title 선택 오류로 실행0이었고 통과·원인 증거가 아니다. 원 전체 RED·trace·진단 오류를 보존했다. 별도 frozen continuation으로 독립 나머지 gate와 마지막 Web1회만 실행했고 원 runner/timeout/retry/skip/단언/제품 소스는 변경하지 않았다.
 - **수용 관문: [ ] I1 원인 입증·한정 수리와 새 전체 브라우저 검증.** 이 계획의 merge·재검증 실행 체크는 이 관문의 성공·결함 면제·전체 GREEN을 뜻하지 않는다. 이번 인계는 실패를 명시한 실행 결과이며 추측 수리/자동 rollback/push/배포는 하지 않는다. 후속 수리는 원 실패와 기존 단언·안전 경계를 유지하는 별도 범위로 다룬다.
 - 상세 최신 결과와 한계는 [coverage](../../assets/web-design-system-2026-10-16/coverage.md)의 ‘기존 브랜치 통합 후 새 검증’을 따른다. 원증거는 actualmain `.local/web-design-system-integration-20261018/qa-3zqOCJ/`, 통합 보고서·독립 리뷰·최종 보존 기록은 source worktree의 `.superpowers/sdd/2026-10-18-web-design-system-integration/`에 남긴다. monorepo/backend/native/실장비/HIL 검증은 아니다.
+
+## Task 2: 테스트 서버 종료 수명 수리·새 검증·최종 clean
+
+**Files:**
+- Modify: `apps/web/e2e/support/design-system-fixture.ts`, `apps/web/src/test/design-memory-lifetime.ts`, `apps/web/src/test/design-memory-lifetime.test.ts`의 test-only 소유 HTTP 서버 종료. 실제 UI/domain/API/공유패키지/기본config/lock/정책/토큰은 수정하지 않는다.
+- Modify: `docs/lesson_leared.md`, `docs/assets/web-design-system-2026-10-16/coverage.md`, `docs/ui-design-system.md`, 기존 검증 경고가 있는8메뉴의 검증 문단만 실제 새 결과로 갱신한다. 기능은 바뀌지 않는다.
+- Controller: 본계획/spec/상태판 UI부분·기존2파일 보존/최종 Git audit. 담당 구현자는 임의로 AGENTS/상태판/계획을 stage하거나 수정하지 않는다.
+- Evidence: 이 계획 workspace의 `task-2-report.md`와 실제 main `.local/web-test-server-cleanup-20261018/` 고유 하위경로. Task1/다른계획/이전 QA 원본은 읽기 전용이다.
+
+**Interfaces:** `runFoundationLifetime`의 기존3/4인자 호출·setup/body/page→server·원 Error identity/AggregateError 순서를 유지한다. 같은 test lifetime module의 `closeOwnedHttpServer(server: Pick<import("node:http").Server, "close" | "closeAllConnections">): Promise<void>`를 actual fixture와 실제 TCP 회귀가 함께 소비한다. 소유 서버만 대상으로 하며 다른 context/server는 닫지 않는다.
+
+- [ ] **Step 1: 인과 probe와 선택 확인.** `cleanup-diagnosis.md`의 관측·가설을 읽고 새 raw 위치/runtime/소유 idle을 고정한다. 기존 functional case를 `--list --reporter=json`으로 정확1개/file/title/project까지 확인한 동일 selector로만 단일 계측 실행한다. 무데이터 연결인지 request/response가 진행 중인지 socket별 accept/request수/bytes/close와 server.close 시작·완료를 실제로 기록한다. body/header/cookie/auth/실제서비스 기록은 금지한다. 재현되지 않아도 원 실패를 없애거나 until-green 반복하지 않는다.
+- [ ] **Step 2: 실제 소유 TCP RED.** 실제 loopback node:http 서버에 node:net으로 연결하고 HTTP bytes를 보내지 않은 채 기존 종료 경로가 완료되지 않음을 먼저 확인한다. 회귀는 production-fixture의 실제 helper를 호출해 소유 socket 종료·server.listening=false·getConnections0을 단언하며, 별도 서버 연결은 유지되어야 한다. ordinary keepalive도 포함하고 실패/정리 finally는 자기 자원만 종료한다. 기존5개 lifetime test와 원 foundation/coverage/CAD/control expect는 전부 보존한다. RED의 정확 원인과 원출력을 저장한 뒤 구현한다.
+- [ ] **Step 3: 최소 수리·집중 GREEN.** 위 helper는 증명된 소유권 결함만 수리한다. close callback을 등록해 accept를 멈춘 뒤 소유 연결 종료를 요청하고 callback 완료를 기다린다. 다른 서버/context 종료·전역 monkeypatch·지연sleep·timeout/retry/skip/안전경계/단언 완화는 수리가 아니다. 기존 오류 보존과 양 cleanup 시도·sentinel 검사를 유지하고 예외 이유는 주석으로 명시한다. 실제 TCP 회귀·기존 lifetime5·같은 foundation case/전체foundation을 실행해 단언 동등성과 종료 완료를 확인하고 소유 파일만 커밋한다.
+- [ ] **Step 4: 메인 반영과 새 전체 검증.** 메인 expected HEAD/clean/index/타작업 보존을 확인한 뒤 확정 source를 ff-only한다. 그 실제 메인에서 workspace:prepare 후 source/runner를 freeze하고 Web/E2E5root type·build·정책79/ui0·공개계약6+3, 전체 safe design-system Chromium을 grep없이 실행한다. 기존229에 새 browser test를 만들지 않는 경우 actual226PASS+의도된차단FAIL3·unexpected/skip/flaky0을 기대한다. 정적랜딩/public의 default15185/5187 및QA15342·landing/service 모드도 새로 실행하고 PC/mobile4폭·지원theme의 원동작과 대표PNG를 직접 확인한다. 소유heavy/4포트 종료 뒤 마지막 단독 canonical `pnpm --filter @led-control/web test`를 한 번 실행하고 source/runner 전후 동일성을 확인한다. 예상밖 실패는 원문 유지·원인 조사하며 설정을 완화하지 않는다.
+- [ ] **Step 5: 근거·독립 검토·clean.** 원본 실패와 새 회차를 분리해 위 소유 검증 문서만 커밋한다. 원 AGENTS bytes/hash, 타작업13행/상태판UI외 원문, 보존 커밋과 기존 target/API/Gateway/Mobile/packages trees, 새 source diff의 test-only 범위를 대조한다. fresh 독립 reviewer가 원 I1·원 단언·TCP RED/GREEN·새 whole raw·소유권/side-effect/문서를 검토한 뒤 총괄이 정확 승인 결과만 기록한다. 메인 `git status --porcelain=v1 --untracked-files=all`/cached/unmerged0을 최종 확인하며, 새 외부 변경은 버리거나 임의 stage하지 않는다. push/PR/운영/장비 작업은 없다.
+
+Task2 자체 검토: Step1→2는 관측과 단일 가설을 실제 TCP 계약 회귀로 연결하고, Step2→3은 동일 helper의 RED→GREEN, Step3→4는 fix commit/같은 단언을 실제main freeze로 연결한다. Step4→5는 새 raw/manifest·clean 메인/원문 backup을 독립 검토와 최종 audit가 소비한다. Task1의 실패 기록은 역사로 남기며 새 통과 전에는 I1이나 전체 수용 체크를 닫지 않는다. 단일 수리·정리·새 검증을 한 인계 단위로 묶어 하나의 fresh 최종 reviewer가 spec/quality/I1/whole 후속 gate를 함께 검토한다.
 
 ## 계획 자체 검토
 
