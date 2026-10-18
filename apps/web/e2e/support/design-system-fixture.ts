@@ -3,7 +3,7 @@ import { test as base, expect, type BrowserContext, type Page, type Route } from
 import { build } from "vite";
 import { installMockApiBoundary } from "./mock-api-boundary";
 import { installSettingsApiRoutes } from "./settings-api";
-import { runFoundationLifetime } from "../../src/test/design-memory-lifetime";
+import { closeOwnedHttpServer, runFoundationLifetime } from "../../src/test/design-memory-lifetime";
 
 export type DesignScenario = {
   principal: "admin" | "viewer" | "operator" | "anonymous";
@@ -163,7 +163,7 @@ async function createFoundationFixture(page: Page): Promise<{ setup(): Promise<v
   const removeBoundary = await scopedBoundary(page.context(), `http://127.0.0.1:${address.port}`, sentinels);
   const close = async () => {
     await removeBoundary();
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await closeOwnedHttpServer(server);
     expect(sentinels, "Memory fixture attempted an unconfigured API or external write").toEqual([]);
   };
   return { close, setup: async () => {
@@ -173,8 +173,8 @@ async function createFoundationFixture(page: Page): Promise<{ setup(): Promise<v
 }
 
 // Both foundation consumers own setup and body in the same HTTP lifetime. Close
-// the page first so server.close cannot wait on its live connection. Attempt
-// both cleanups even on assertion failure and retain every original error.
+// the page first, then end the server's remaining context-owned preconnections.
+// Attempt both cleanups even on assertion failure and retain every original error.
 export async function withFoundationFixture(page: Page, run: () => Promise<void>) {
   const fixture = await createFoundationFixture(page);
   await runFoundationLifetime(run, () => page.close(), () => fixture.close(), () => fixture.setup());
