@@ -64,6 +64,8 @@
 
 ## 2026-10-16 Web 공통 디자인 적용·후속6건 수리·검증보완·독립 검토 완료
 
+- 2026-10-18 추가 승인: 사용자가 검증된 변경의 기존branch 로컬병합·타작업보존·병합후전체Web/PC모바일 재검증을 요청했다. [통합계획](superpowers/plans/2026-10-18-web-design-system-integration.md)의 [ ]snapshot, [ ]분리공간통합, [ ]codex/mvp1-cloud-web반영·dirty2보존, [ ]새QA, [ ]독립검토·인계를 순차 실행한다. 새제품/운영/DB/장비/push/배포는 추가하지 않는다.
+
 - 사용자는 남은 간격·디자인 정합성 6건을 넘어 고객·운영자·인증·공개 랜딩/기능/요금 페이지와 공통 상태·overlay까지 포함한 통합 방향을 승인했다. 일반 기능 UI는 section20/grid18/panel20·16/page26·24/section title20/card title16px와 실제 조작 영역 최소44px를 공유하고, 공개 브랜드·인증 구성·지도/editor 작업 공간은 이름 있는 목적별 variant로 구분한다. 기존 기능·안전·권한·배포 경계와 이전8개 UI 수리를 보존한다.
 - [공통 가이드](ui-design-system.md)와 [적용 설계서](superpowers/specs/2026-10-15-web-design-system-unification-design.md)의 초안 보존 커밋은 `70b76d93`이다. 사용자 2026-10-16 요청에 따라 상세 수치표와 [6단계 구현 계획](superpowers/plans/2026-10-16-web-design-system-unification.md)을 작성하고 전체 공통 적용 실행 승인을 받았다. 일반 문서 main은 고객·운영자 공통 PC28/24·mobile14/18px이며 인증·공개·workspace 목적 frame은 구분한다. 최초 기반 작업에서 `docs/ui-spacing.md`의 현행 참조·역사 분리와 함께 규범 효력을 전환했다. 검증과 독립 검토가 완료된 단계만 실제 완료로 기록한다.
 - 계획 체크리스트: [x] 상세 수치·전체 적용·분리 작업공간 승인, [x] Task1 공통 기반·독립 재검토(306da052), [x] Task2 상태·인증·운영자·독립 재검토(a5aa9efe), [x] Task3 P3여섯·고객 설정/통계·독립 검토(ea75feb2), [x] Task4 제어4mode·workspace·독립 검토(dac68d78), [x] Task5 공개·404·bootstrap·독립 재검토(6c143f8f), [x] Task6 coverage 구현·과제별 검토(3cc284b5), [x] 이전 전체branch 리뷰·보완·재검토(ae522893), [x] 후속Control5+CAD1 수리·과제별 검토, [x] 후속 전체branch 최종 검토·인계. 분리 브랜치 `codex/web-design-system-unification-20261016`, 시작 SHA `24d2d8e4`다. 사용자 AGENTS·병행 상태·기존5173/4000 실행체를 건드리지 않았고 mock-only 소유 환경만 사용했다. 병합/push/PR/운영/API/DB/실장비/재시작/배포0이며 브랜치·worktree·원검증자료를 보존한다.
