@@ -102,6 +102,19 @@
 - L004의 실제 UUID/address/gateway/site/session/등록 원장 귀속은 맞지만 Discovery.status=discovered 및 legacy bluez_stateful로 남아 기준 후보에서 제외된다. 기존 revalidation query→검증 결과 apply→BIO 분류/센서 준비 경로를 확인했다. 일반 온라인 표시와 현재 sourceEligible는 별개다.
 - Web은 준비 API 실패와 규칙 저장 실패를 구분하고 source 차단 사유/기존 설정 복구 링크를 보완했다. 직접 6파일167/167·격리 Chromium PC/모바일2/2·타입/build/UI policy exit0이다. Gateway는 실제 공통 경로의 정상 무관 C 거부/hold 비연장·A 정상 적용/기한 복귀 3/3·type/diff0이며 독립 검토 I1(null 반환 관측 단언) 보완 후 ADDRESSED·새 C/I/M0·Ready YES다. 현재 [x]원인 조사, [x]Web최종검증, [x]Gateway회귀, [x]Web독립검토, [x]소프트웨어통합, [x]실제L004복구경계 기록이다. 소유16파일 `3f62905b`를 `codex/mvp1-cloud-web`에 로컬 ff-only 병합했고 MAIN 사용자 AGENTS/상태판 기존 내용을 보존했다. 원 테스트/리뷰/SHA와 보존 증거는 해당 worktree 및 MAIN의 `.local/event-source-create-fix-20261015`에 유지한다. Web도 Ready YES·새 C/I/M0이다. 실제 등록 재확인 query→검증 apply→분류/센서 준비는 기존 ID/기본 밝기를 유지하나 장비 모드 설정 가능성이 있어 저장소의 운영 승인 관문을 적용해 후속 구체 승인을 받는다. RF/DB쓰기/서비스재시작/배포는 실행하지 않았다.
 
+## 2026-10-15 BIO 자기 감지 제어 설계 검토
+
+- 사용자는 방습등1·2를 포함한 자기 감지 밝기/유지시간 제어 방향을 승인하고 최소1초·기존/신규 공통 지원을 요청했다. `codex/bio-self-sensing-control-20261015`의 `docs/superpowers/specs/2026-10-15-bio-self-sensing-control-design.md`에 반영했다. 기존 규칙은 자동 전환하지 않고 sensor 모드를 유지하는 자기 제어 경로를 제안한다.
+- 사용자가 설계를 확정하고 계획 작성 후 진행을 요청해 같은 브랜치에서 직접 구현했다. 계획은 해당브랜치 `docs/superpowers/plans/2026-10-15-bio-self-sensing-control.md`다. Task1 정적근거 판정·Task2 BIO 최소1초 코드/forward DB CHECK 파일·임시DB/격리UI와 Task3의읽기 전용6GET을 완료했다. 자기 설정SET·공통자기제어필드/내구복구/UI연결(Task4–6)·메인병합·운영반영은 아직이다.
+- 직접관련검증 shared57·API46·Web33·Gateway244·mock Chromium1440/390의1초저장/활성화2PASS와 API/Gateway타입·Web타입포함build exit0이다. 동일설정 제공을 전체장비의물리지원완료로표현하지않는다. APK1.1.314의정적명령/시간단위와현재장비·기존APK1.2.0캡처는구분한다. 장비의단계별복귀의미와실제응답확인이필요해읽기전용장비확인(필요시최대6~8분중단·기존운전복귀)의새승인을요청했다. 실제DB migration/장비/RF/서비스재시작0이며기존사용자변경/ID/규칙/밝기를보존한다.
+
+## 2026-10-15 수동 제어 전송 전 거절의 잘못된 잠금 수정
+
+- 별도 `codex/manual-admission-rejection-20261015`에서 직접 수정한다. 실제 화면의 전체 잠금·dimming409·당일 Command 생성0과 활성 센서 source B1-L006을 확인했다. 원 응답 body는 운영 로그에 없어 당시 세부 코드는 소급 확정하지 않는다. 서버의 source/시간제 소유권 선행 거절을 Web이 불확정 결과로 분류하는 결함을 회귀로 재현했다.
+- 정확한 dimming409 `bio_source_target_forbidden`/`operation: manual`, `temporary_control_lease_conflict`만 편집 가능·구체 안내로 바꾸며 자동 재전송은 없다. 미확정/만료/알 수 없는 코드·GET 보호는 유지한다. API·DB·Gateway·센서 규칙·밝기·인증 변경0이다.
+- 새 회귀 RED2→focused Web10PASS, 관련 Web212PASS/기존5FAIL(수정 전 메인208PASS/동일5FAIL), 서버 계약5PASS와 타입 포함 Web build exit0이다. 격리 Chromium1440/390의 reload/새UUID/unknown잠금2PASS 뒤 소유6파일 `f711be9f`를 메인에 ff-only 반영하고 메인 focused10PASS도 확인했다. 기존5건은 이력창/키보드 포커스이며 전체GREEN으로 기록하지 않는다. 다른 세션 협업 없이 직접 재검토했고 기존 사용자/병행 UI 변경은 stage하지 않았다.
+- 사용자의 정상 로그아웃·재로그인 뒤 실제 수동 화면의 기존 경고 해소·4대 온라인·선택/밝기 입력 가능과 B1-L002 선택 후 전송 가능/적용 버튼 활성화를 확인했다. 원인 없는 replayRejected 강제 이관/저장소 직접삭제/원 요청 재전송/실제 SET0이며 화면은 `/tmp/manual-control-unlocked-20261015.png`다. 체크리스트는 `docs/superpowers/plans/2026-10-08-bio-sensor-operational-enablement.md`의 같은 날짜 수동 제어 항목이다. 기존 사용자 AGENTS와 진행 중 UI 수리/상태판 변경을 보존한다.
+
 ## 2026-10-15 재현된 Web UI 문제 8개 수정 완료 — 검증 한계 인계
 
 - 사용자 승인 범위는 확정된 8개 문제(통계 2곳을 묶은 총 9곳)의 레이아웃·스크롤·읽기 폭 수리다. 기존 기능과 안전 정책은 유지하고, P3 간격/디자인 후보 6개·API/DB/장비/인증 정책·실제 서비스 재시작은 포함하지 않는다.
