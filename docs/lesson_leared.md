@@ -1,5 +1,13 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-10-18 / 페이지 종료와 HTTP 서버 연결 종료는 다른 소유 수명이다
+
+- context.newPage로 만든 page.close는 context 전체를 닫지 않는다. Node의 server.close가 일반 유휴 keep-alive를 정리하더라도 HTTP 데이터를 보내지 않은 accepted TCP 연결은 drain을 막을 수 있다. 페이지 종료만으로 모든 연결이 닫힌다고 가정하거나 timeout/retry를 늘리지 않는다.
+- 원 timeout의 실제 연결 소유자는 계측 없이 확정하지 않는다. 정확1개를 등록한 단일 브라우저 probe가 통과하면 미재현으로 기록한다. 실제 무데이터 TCP 연결에서 close-only가 pending이고 소유 client 해제 후 종료되는 인과와, 같은 actual helper를 소비한 pendingclose unit RED→GREEN을 별도로 남긴다.
+- 테스트 전용 서버는 close callback을 등록해 신규 accept를 막은 뒤 해당 서버의 closeAllConnections로 자기 연결만 끝내고 callback을 기다린다. 다른 서버 연결 유지·getConnections0·실제 close 오류와 기존 page→server/원 Error identity/cleanup 순서 회귀를 보존한다. 전역 socket 파괴나 공유 context 종료로 수리하지 않는다.
+- Playwright grep은 project/file/describe/title 경로를 포함한다. bare title의 시작 anchor를 쓰기 전에 --list JSON을 펴 file/title/project/개수1을 확인하고 같은 selector로 실행한다. launcher/관측 이벤트 등록 오류·실행0은 인과 증거로 세지 않는다.
+- 본문 단언 완료와 cleanup 완료, 과거 실패/집중 회차/새 전체 회차, 실제 PASS와 의도된 FAIL을 구분한다. 자동 screenshot이 기존 scratch 경로를 쓰면 원 PNG를 백업하고 새 결과를 별도 보관한 뒤 원바이트를 복원한다. 마지막 canonical Web1회 전에 source/runner와 소유 프로세스·QA 포트 종료를 확인한다.
+
 ## 2026-10-18 / 공유 E2E는 실행 config와 실패 수명의 경계를 함께 검증한다
 
 - 작업 전용 QA 포트를 공유 spec에 고정하면 기존 config의 정상 기본 포트까지 거부한다. 공개 테스트의 loopback·프로토콜·origin 검증은 실제 config에서 유도하고, QA 전용 포트 제한은 실행 명령과 소유 listener 검사에 둔다. 실제 HTTP 404·본문·비공개 경로 검증을 browser synthetic route로 대신하지 않는다.

@@ -1,6 +1,6 @@
 # Web 공통 디자인 시스템 적용·검증 범위
 
-승인일 2026-10-16, 최신 검증일 2026-10-18. 분리 브랜치 `codex/web-design-system-unification-20261016`의 Task1–5 제품과 Task7/8 후속 수리 뒤 test-only 최종 보완을 확인했다. 최신 단독 전체 Web은3,939PASS/0FAIL/기존3SKIP이며 이번 집중 CAD8+foundation7·공개 기본/QA 포트 검증과 이전 Task8 전체 안전 Chromium226actualPASS+의도된FAIL3은 별도 회차다. 아래 실패·중단·최종 기록을 구분하며 운영 배포·실장비 완료나 독립 최종 리뷰 승인을 뜻하지 않는다. [중앙 가이드](../../ui-design-system.md), [적용 설계](../../superpowers/specs/2026-10-15-web-design-system-unification-design.md), [적용 전 baseline](baseline.md)을 함께 읽는다.
+승인일 2026-10-16, 최신 검증일 2026-10-18. Task2의 test-only HTTP 종료 수리 `95a1cc07`를 실제 main에서 새로 검증했다. 최신 단독 전체 Web은3,941PASS/0FAIL/기존3SKIP(51.83초), 전체 안전 Chromium229는226actualPASS+의도된차단FAIL3·unexpected/skip/flaky0(383.418891초)이다. 아래 Task1의 원 timeout과 진단0, Task2의 브라우저 미재현·실제 TCP RED/GREEN 및 새 전체 결과를 별도 회차로 유지한다. 원 I1의 독립 종료 판정은 총괄의 새 검토 대상이며 운영 배포·실장비·모든 상태 시각 인증을 뜻하지 않는다. [중앙 가이드](../../ui-design-system.md), [적용 설계](../../superpowers/specs/2026-10-15-web-design-system-unification-design.md), [적용 전 baseline](baseline.md)을 함께 읽는다.
 
 ## 증거의 구분과 실행 경계
 
@@ -239,3 +239,27 @@ foundation의 goto/준비 대기는 기존 runFoundationLifetime 안에서 body�
 새 control390/1024와 CAD390light/1440dark PNG를 직접 열었다. 제어선택·밝기·결과와 CAD3도형·표시완료안내·preview containment·적용을 확인했다. control파일명은 시작theme이고 theme전환후캡처의실제픽셀은반대다. 모바일상세와 CAD아래취소는 내부스크롤대상이다. 이대표4장면을전체상태pixel·실제DWG·모든CAD색AA·적용후새맵완전paint 인증으로확대하지않는다. focus/hit/overflow/paint/API보호는개별실행원단언과attachment로구분한다.
 
 정책anchor `e841c57b11321a5ae35d15920031020089f06ee2`와 theme원문이같고 PostCSS AST는 `@theme static`1블록·738선언, baseline `files:{}`다. pnpm설정·색출력·main934.90kB/gzip281.38kB큰chunk·React act/negative Zod/Konva진단과 기존3unitSKIP는유지한다. 실제backend/DB/장비/native/HIL·monorepo전체CI·다른브라우저/실기기/확대/OS키보드·legacy CAD journey전체는미실행이다. 병합은완료됐지만브라우저cleanup문제가남아독립검토와후속판정이필요하다.
+
+## 2026-10-18 Task2 테스트 서버 종료 수리와 새 전체 검증
+
+실제 main의 source `95a1cc078a3738e5f01088c3b07f180e49bcf052`에서 전체 안전 Chromium은229개 전부 실행, **226 actual PASS+의도된 차단FAIL3**, unexpected/skip/flaky0·retry0·383.418891초/exit0이다. 원 functional foundation은 기본30초 내2632ms PASS다. 마지막 단독 canonical Web1회는 **3,941PASS/0FAIL/기존3SKIP**,265PASS/1SKIP파일(266)·51.83초/exit0이다. 기존3939에 실제 TCP/오류 회귀2개가 추가됐다. 이 새 결과는 이전 Task1의225+3+timeout1을 덮어쓰거나 집중 결과와 합산한 수치가 아니다.
+
+원증거는 actual main의 `.local/web-test-server-cleanup-20261018/qa-NxhtMA/`이며 `qa.mjs`/gate별 `.command`·`.log`/`summary.jsonl`, source907·runner5·설정5 해시와 runtime/dependency 신원을 보존한다. Node24.19.0·pnpm9.15.0·Playwright1.61.1·Vite5.4.21이다. 원 Task1 QA는 그대로 남겼다. 인과/TDD 증거는 UI checkout의 `.superpowers/sdd/2026-10-18-web-design-system-integration/cleanup-probe-utdsmS/`, 전체 보고서는 같은 상위 경로의 `task-2-report.md`다.
+
+`--list`의 file/title/chromium 정확1개를 확인한 단일 브라우저 계측은 수리 전에도 PASS했고 일반 HTTP keep-alive 두 연결이 곧바로 닫혔다. 따라서 **원 timeout의 정확한 socket 소유자는 여전히 미확정**이다. 별도 실제 TCP 재현은 HTTP 바이트0·연결1 상태에서 기존 close-only Promise가 대기하고 소유 client를 해제하면 종료됨을 입증했다. 같은 actual helper를 소비하는 unit은6PASS/1pendingFAIL에서7PASS로 전환됐다. 수리는 close로 accept를 막은 뒤 그 소유 서버의 closeAllConnections를 호출하고 callback을 기다린다. page→server, 기존3/4인자 호출과 원 오류 identity/순서·기존5unit·원 foundation/coverage/control/CAD 단언을 유지한다. 다른 서버의 연결 유지와 실제 close callback 오류도 회귀로 확인했다.
+
+| 새 gate | 실제 결과 |
+| --- | --- |
+| prepare / Web·확장 E2E5root 타입 | 모두exit0 |
+| 전체 안전 Chromium | 229실행,226 actual PASS+의도된3FAIL,unexpected/skip/flaky0 |
+| inventory / 제어·CAD | expected/registered/executed38일치 / 제어8 물리쓰기0·CAD8 browserErrors/unknown/unhandled0 |
+| 정적 랜딩 기본15185 / QA15342 | 각6PASS,4.058286초 / 3.961897초 |
+| public landing 기본5187 / QA15342 | 각5PASS+기존서비스전용3SKIP,3.298847초 / 3.468722초 |
+| public service 기본5187 / QA15342 | 각8PASS,7.272383초 / 39.189764초; QA shell40.744초도 원문 유지 |
+| build / UI정책 / ui:check / 정적계약 | exit0 / 79PASS / 기존0·신규0 / landing6·public3PASS |
+| 마지막 단독 canonical Web1회 | 3,941PASS/0FAIL/기존3SKIP,51.83초 |
+| source·runner·보존·idle | 907source·5runner/설정 전후일치·원 AGENTS/상태판UI밖 원문/다른 앱 보존·소유heavy0·QA4포트listener0 |
+
+새 PNG6개를 직접 열어 control320dark/390light/1024light/1440dark의 선택·밝기70·결과와 CAD390light/1440dark의3도형·표시완료·preview·적용을 확인했다. control 파일명은 시작theme이며 실제 캡처는 theme전환 후다. 아래 상세·취소는 내부 scroll을 포함하며 스틸만으로 접근성을 인증하지 않는다. 대표장면을 모든 상태·AA·실DWG·적용 후 새맵 전체 paint로 확대하지 않는다. 기존 main scratch PNG6개는 정확 백업 뒤 새 캡처를 이 QA에 보관하고 원바이트를 복원했다.
+
+제품·기본config·lock·정책·토큰738/anchor/빈baseline·안전경계·timeout/retry/skip 변경은0이다. 원 AGENTS84행과 타작업 status13행은 각각 원문 보존 커밋 `b7dafc3e`/`f92158ad`에 있고, 상태판UI밖 바이트와 API/Gateway/Mobile/firmware/packages tree는 그대로다. pnpm설정·색출력·main934.90kB/gzip281.38kB 경고·React act/negative Zod/Konva진단·기존3unitSKIP와 공개landing 모드상6SKIP는 유지한다. 실제backend/DB/장비/native/HIL·monorepo CI·다른브라우저·실기기·확대/OS키보드·legacy CAD journey전체는 미실행이다. 원 I1의 독립 종료/최종 수용 판정은 새 reviewer와 총괄이 담당한다.
