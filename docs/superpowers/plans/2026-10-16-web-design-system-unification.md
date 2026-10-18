@@ -10,7 +10,7 @@
 
 **Spec:** [전체 적용 설계](../specs/2026-10-15-web-design-system-unification-design.md), [정확한 값과 역할 가이드](../../ui-design-system.md).
 
-상태: 2026-10-16 사용자가 상세 기준의 공통 컴포넌트·전체 Web 적용과 분리 작업공간 실행을 승인했다. 2026-10-17 현재 공통 기반·고객/운영자/인증/공개 소비와 coverage를 분리 브랜치에 반영하고 과제별 검토·whole-branch 리뷰·단일 보완/재검토를 수행했다. 최종 보완 ae522893은 통계 카드 누락과 검증도구3건을 해소했으며 새 fix-diff 결함은 없지만, 보존 관문1건(Important)은 미해결이다. 최신 canonical 전체 Web은3928PASS/6FAIL/3SKIP(Control5+CAD 초기준비1)으로 전체GREEN·전체완료·merge-ready가 아니다. 원212브라우저는208actualPASS+3의도된FAIL+cleanup timeout1, 승인 수리 뒤 최종delta는59actualPASS+3의도된FAIL/0unexpected다. 212전체PASS로 합성하지 않는다. Task6 Step5는 미해결 관문 때문에 체크를 보류하며, Control interaction/history 방향과 CAD callback-owner 원인·수리 범위의 별도 결정을 기다린다. 과거CAD/Task3 미재현의 인과 한계와 원로그를 보존하고 병합·push·배포·운영/API/DB/장비 작업은 실행하지 않는다.
+상태: 2026-10-16 상세 기준·전체 Web 공통 적용·분리 작업공간 실행 승인 후 Tasks1–6과 전체branch 검토/단일 보완을 수행했다. 후속 승인된 Tasks7–8은 제어5건(55a6ac4d)·CAD1건(271982cc)의 원인 수리와 과제별 독립 검토를 완료했다. 2026-10-18 최종 동일 source907파일에서 전체 Web3938PASS/0FAIL/3기존SKIP, 전체 safe Chromium226actualPASS+3의도된안전FAIL/0unexpected를 확인했다. 제어·CAD 원 단언을 보존했고 CAD는 분리된 이전 preview DOM을 검사한 시험 수명을 수리했으며 제품 paint fence는 변경하지 않았다. Task6 Step5와 Task8 Step6의 전체branch 최종 검토·인계는 진행 중이다. 과거3928/6/3, 원212의208actualPASS+3의도FAIL+cleanup timeout1과최종delta59actualPASS+3의도FAIL은 각 회차로 보존한다. 병합·push·배포·운영/API/DB/장비 작업은 실행하지 않는다.
 
 ## Global Constraints
 
@@ -352,7 +352,7 @@ test("coverage names all customer surfaces and operator routes", () => {
 - [ ] **Step 5: 독립 최종 QA.** 작성자가 아닌 reviewer가 spec/guide/전체diff/coverage와 미실행환경을 대조한다. 색 대비 미달이면 승인role 대체 가능성을 확인하고 토큰변경필요는 별도 승인으로 분리한다. 성공값 반올림·무근거threshold·원본수치삭제 금지. C/I 지적을 해소하고 실제 실행된 범위를 명시한다.
 - [x] **Step 6: 문서 동기화·scoped commit.** menu8개와 guide coverage·spec·계획·상태판을 실제 결과로 맞춘다. diff check·링크/경로·보호파일 확인 후 이 Task Files의 소유 변경만 선택 stage한다. 상태판은 총괄이 자신의 구간만 반영하며 다른 owner 구간·AGENTS는 제외한다. `git commit -m "docs(web): record design system coverage and verification limits"`. 운영·메일·native·장비 검증으로 확대하지 않는다.
 
-2026-10-17 최종 기록: 과제별/전체branch 리뷰와 단일 보완 재검토는 수행했다. 통계 카드 및 검증도구4건은 해소됐으나 Step5의 보존 관문1건(Important, Control5+CAD1)은 미해결이므로 완료 체크를 보류한다. Step6 체크는 문서·scoped commit 동기화 완료이며 전체 테스트 성공/병합 승인이 아니다. [최신 coverage](../../assets/web-design-system-2026-10-16/coverage.md)의 원212실패·최종delta62·canonical3928/6/3과 미실행 범위를 따른다.
+2026-10-17 이전 최종 기록: 과제별/전체branch 리뷰와 단일 보완 재검토를 수행했지만 당시 Step5의 보존 관문1건(Important, Control5+CAD1)이 미해결이었다. 이후 승인된 Tasks7–8과 2026-10-18 전체3938/0/3·전체Chromium226actual+3의도FAIL로 원6실패를 해소했다. 현재 Step5 체크는 후속 전체branch 최종 검토까지 보류한다. Step6은 문서·scoped commit 동기화 완료이며 병합 승인이 아니다. [최신 coverage](../../assets/web-design-system-2026-10-16/coverage.md)에 최신 결과·원212실패·최종delta62·과거canonical3928/6/3과 미실행 범위를 구분한다.
 
 ## 계획 검토와 실행 인계
 
@@ -367,7 +367,8 @@ test("coverage names all customer surfaces and operator routes", () => {
 ### Task 7: 제어 이력·닫기3건과 탭 포커스2건
 
 **Files:**
-- Modify: `apps/web/src/features/control/ControlView.tsx`, `manual-workspace/ManualAuxiliaryPanel.tsx`, `automation/ControlModeTabs.tsx`
+- Modify: `apps/web/src/features/control/ControlView.tsx`, `manual-workspace/ManualAuxiliaryPanel.tsx`
+- Test/원인상 필요한 경우만 Modify: `apps/web/src/features/control/automation/ControlModeTabs.tsx` (기존 handler가 올바르면 소스 무수정)
 - 원인에 필요한 경우만 Modify: `apps/web/src/features/control/{ManualExecutionPanel,CommandHistoryPanel,TemporaryControlPanel}.tsx`
 - Test/최소 fixture 보완: `apps/web/src/features/control/ControlView.test.tsx`, `automation/ControlModeTabs.test.tsx`
 - Create/Test: `apps/web/e2e/control-cad-preservation.spec.ts`
@@ -376,11 +377,11 @@ test("coverage names all customer surfaces and operator routes", () => {
 
 **Interfaces:** 기존 control mode·수동 command owner/API·provider 외부 props를 소비한다. mode를 바꾸더라도 navigation owner/ref가 유지되고, 이력/reader의 접근 가능성·포커스 복귀가 현재 scope에 속해야 한다. 신규 공통 API는 기본적으로 생산하지 않는다. Task8은 동일 E2E 파일과 안전 fixture를 소비하므로 동시에 편집하지 않는다.
 
-- [ ] **Step 1: 원재현·원인 고정.** `pnpm workspace:prepare` 뒤 `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/automation/ControlModeTabs.test.tsx`를 실행하고 원5개 :991/:1016/:1012/:2397/:2582의 실제 실패를 저장한다. 이전 원인 보고를 가설로 취급하고 More/portal/실제 opener와 manual→group owner/ref 경계를 추적한다. mutation 없이 history를 읽는 원 보호 단언을 확인한다.
-- [ ] **Step 2: 재현 RED 보강.** 필요한 경우 실제 opener→이력 상세→단일 close/동일 ref와 desktop↔compact focus, ArrowLeft/Right/Home/End·URL/back-forward/theme·권한 tab을 다루는 독립 회귀를 먼저 추가해 RED를 확인한다. 원 expect·기대값을 삭제/완화하지 않는다. UI의 올바른 접근 경로와 잘못된 test helper 전제를 구분한다.
-- [ ] **Step 3: 원인 최소 수리.** tab owner를 mode별 다른 root에서 재생성하는 원인을 제거하고, reader 이동/닫힘과 focus owner를 현재 scope에서 일관되게 처리한다. helper 원인이 입증되면 실제 사용자 경로를 수행하도록 최소 보완한다. command·선택·타이머·자동 재전송·query·권한·지도 DOM/zoom은 그대로 두며 예외에는 설명 주석을 남긴다.
-- [ ] **Step 4: 집중·브라우저 GREEN.** 위 focused 단위와 새 spec을 실행한다. mock-only 실제 App에서320/390/1024/1440 및 고객 light/dark로 이력/단일닫기/More/Escape·resize focus와 mode keyboard/URL/DOM identity를 확인한다. 물리 POST는 명시 mock 이외0, 실제 hit·잘림/가로 overflow·단일 reader도 확인한다. 원래8수리의 map DOM/588/256 경계를 보존한다.
-- [ ] **Step 5: gate·문서·commit.** typecheck/build/UI정책·ui:check와 관련 브라우저 종료 후 최종 source를 고정하고 전체 `pnpm --filter @led-control/web test`를 단독1회 실행한다. CAD 미해결/새 실패는 모두 보고하고 전체 GREEN으로 부르지 않는다. 메뉴/교훈을 갱신해 소유 파일만 commit하고 독립 task reviewer의 spec/quality 승인을 받는다. 총괄은 plan/spec/status/progress만 갱신한다.
+- [x] **Step 1: 원재현·원인 고정.** `pnpm workspace:prepare` 뒤 `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/automation/ControlModeTabs.test.tsx`를 실행하고 원5개 :991/:1016/:1012/:2397/:2582의 실제 실패를 저장한다. 이전 원인 보고를 가설로 취급하고 More/portal/실제 opener와 manual→group owner/ref 경계를 추적한다. mutation 없이 history를 읽는 원 보호 단언을 확인한다.
+- [x] **Step 2: 재현 RED 보강.** 필요한 경우 실제 opener→이력 상세→단일 close/동일 ref와 desktop↔compact focus, ArrowLeft/Right/Home/End·URL/back-forward/theme·권한 tab을 다루는 독립 회귀를 먼저 추가해 RED를 확인한다. 원 expect·기대값을 삭제/완화하지 않는다. UI의 올바른 접근 경로와 잘못된 test helper 전제를 구분한다.
+- [x] **Step 3: 원인 최소 수리.** tab owner를 mode별 다른 root에서 재생성하는 원인을 제거하고, reader 이동/닫힘과 focus owner를 현재 scope에서 일관되게 처리한다. helper 원인이 입증되면 실제 사용자 경로를 수행하도록 최소 보완한다. command·선택·타이머·자동 재전송·query·권한·지도 DOM/zoom은 그대로 두며 예외에는 설명 주석을 남긴다.
+- [x] **Step 4: 집중·브라우저 GREEN.** 위 focused 단위와 새 spec을 실행한다. mock-only 실제 App에서320/390/1024/1440 및 고객 light/dark로 이력/단일닫기/More/Escape·resize focus와 mode keyboard/URL/DOM identity를 확인한다. 물리 POST는 명시 mock 이외0, 실제 hit·잘림/가로 overflow·단일 reader도 확인한다. 원래8수리의 map DOM/588/256 경계를 보존한다.
+- [x] **Step 5: gate·문서·commit.** typecheck/build/UI정책·ui:check와 관련 브라우저 종료 후 최종 source를 고정하고 전체 `pnpm --filter @led-control/web test`를 단독1회 실행한다. CAD 미해결/새 실패는 모두 보고하고 전체 GREEN으로 부르지 않는다. 메뉴/교훈을 갱신해 소유 파일만 commit하고 독립 task reviewer의 spec/quality 승인을 받는다. 총괄은 plan/spec/status/progress만 갱신한다. 실행:89d61b31 전체3937PASS/3SKIP,55a6ac4d h1보완185unit/9browserPASS·독립재검토해소. 원634단언 유지. h1보완 직후 추가전체0이며 이후 Task8 최종전체3938PASS/0FAIL/3SKIP에 최종 h1 source도 포함됐다.
 
 ### Task 8: CAD 표시 완료 소유권 수리와 전체 통합 검증
 
@@ -392,9 +393,11 @@ test("coverage names all customer surfaces and operator routes", () => {
 
 **Interfaces:** 기존 `MapSceneCanvas`/CAD preview의 source/generation/revision/attempt·camera/viewport viewKey 및 paint-ready 콜백을 소비한다. 현재 문서·renderer owner의 표시 완료만 적용 가능 상태를 만든다. old scope/취소/late callback·권한·dirty/적용 API·해상도 정책은 보존한다. 원 scope/interruption testcase와 expect는 유지한다.
 
-- [ ] **Step 1: 원인 증거 수집.** Task7 뒤 source에서 CAD85개 및 연관 preview/canvas 단위를 집중 실행한다. full에서 :1442가 실제site중단(:1496) 전 초기 paint에서 실패했다는 사실을 보존한다. singleton `previewPaint.props`에 쓰는 각 canvas owner와 읽는 callback의 scope/document/view key·시점을 추적하고, 필요 시 test-only 계측으로 경계를 입증한다. focused PASS를 원인 해결로 판정하지 않는다.
-- [ ] **Step 2: 결정적 RED.** 입증된 callback-owner/camera/render 경계를 통제해 실제 버그를 재현하는 회귀를 추가한다. 임의 sleep/높은 반복/전체 suite 반복으로 재현을 대신하지 않는다. 제품 결함과 부정확한 mock 수명 계약을 구분하고 mock 수정은 원 expect와 실제 소비 경계를 유지한다. 원인을 못 찾으면 추측 수리 대신 구체적 증거/가설을 총괄에 보고한다.
-- [ ] **Step 3: 최소 GREEN.** 확인된 소유권 원인을 제품 또는 원인 mock 경계에서 수리한다. stale generation/view의 완료로 ready를 강제하지 않고, 무조건true·권한/paint 관문 제거·단언 완화 금지. 원85개와 새 negative/late/scope 회귀를 집중 검증한다.
-- [ ] **Step 4: PC·모바일 통합.** 새 mock-only 실제 App CAD 진입→원본 표시 준비→검토→허용된 mock 적용/dirty 보호·취소·scope 변경을320/390/1024/1440에서 확인한다. 이전 Task7 제어와 기존 디자인 runner 전체를 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts`로 실행한다. disabled의 실제 접근·focus·긴 내용·canvas/toolbar containment를 검사하고 대표 PC/mobile PNG를 실제 확인한다. renderer mock 단위를 실제 GPU 전체 인증으로 확대하지 않는다.
-- [ ] **Step 5: 최종 전체 gate.** `pnpm --filter @led-control/web typecheck`, `build`, `test:ui-policy`, `ui:check`, `test:landing-contract`, `test:public-contract` 및 E2E TypeScript를 실행한다. 모든 owned heavy/listener 종료·source freeze 뒤 `pnpm --filter @led-control/web test`를 단독1회 실행해 원6건 포함 결과를 기록한다. 추가 실패는 원인 확인하며 설정/skip/단언을 바꾸거나 반복 until green 하지 않는다. 필요한 추가 전체 실행은 구체적 근거로 총괄이 기록·승인한다.
+- [x] **Step 1: 원인 증거 수집.** Task7 뒤 source에서 CAD85개 및 연관 preview/canvas 단위를 집중 실행한다. full에서 :1442가 실제site중단(:1496) 전 초기 paint에서 실패했다는 사실을 보존한다. singleton `previewPaint.props`에 쓰는 각 canvas owner와 읽는 callback의 scope/document/view key·시점을 추적하고, 필요 시 test-only 계측으로 경계를 입증한다. focused PASS를 원인 해결로 판정하지 않는다.
+- [x] **Step 2: 결정적 RED.** 입증된 callback-owner/camera/render 경계를 통제해 실제 버그를 재현하는 회귀를 추가한다. 임의 sleep/높은 반복/전체 suite 반복으로 재현을 대신하지 않는다. 제품 결함과 부정확한 mock 수명 계약을 구분하고 mock 수정은 원 expect와 실제 소비 경계를 유지한다. 원인을 못 찾으면 추측 수리 대신 구체적 증거/가설을 총괄에 보고한다.
+- [x] **Step 3: 최소 GREEN.** 확인된 소유권 원인을 제품 또는 원인 mock 경계에서 수리한다. stale generation/view의 완료로 ready를 강제하지 않고, 무조건true·권한/paint 관문 제거·단언 완화 금지. 원85개와 새 negative/late/scope 회귀를 집중 검증한다.
+- [x] **Step 4: PC·모바일 통합.** 새 mock-only 실제 App CAD 진입→원본 표시 준비→검토→허용된 mock 적용/dirty 보호·취소·scope 변경을320/390/1024/1440에서 확인한다. 이전 Task7 제어와 기존 디자인 runner 전체를 `pnpm --filter @led-control/web exec playwright test --config=playwright.design-system.config.ts`로 실행한다. disabled의 실제 접근·focus·긴 내용·canvas/toolbar containment를 검사하고 대표 PC/mobile PNG를 실제 확인한다. renderer mock 단위를 실제 GPU 전체 인증으로 확대하지 않는다.
+- [x] **Step 5: 최종 전체 gate.** `pnpm --filter @led-control/web typecheck`, `build`, `test:ui-policy`, `ui:check`, `test:landing-contract`, `test:public-contract` 및 E2E TypeScript를 실행한다. 모든 owned heavy/listener 종료·source freeze 뒤 `pnpm --filter @led-control/web test`를 단독1회 실행해 원6건 포함 결과를 기록한다. 추가 실패는 원인 확인하며 설정/skip/단언을 바꾸거나 반복 until green 하지 않는다. 필요한 추가 전체 실행은 구체적 근거로 총괄이 기록·승인한다.
 - [ ] **Step 6: 문서·검토·인계.** 소유 변경·메뉴와 source/원 단언 보존을 scoped commit하고 독립 task review를 받는다. 이후 전체branch 최종 검토를 수행하며 Task6 Step5의 남은 Important를 실제 증거로 닫는다. 총괄이 상태판/설계/계획을 맞추고, 전체 단위와 브라우저가 통과한 범위만 완료로 기록한다. 병합·push·PR·배포는 별도 승인 전 실행하지 않는다.
+
+2026-10-18 실행: controlled RED84PASS/1FAIL에서 capturedConnected=false/currentReady=true를 확인해 provisional preview DOM 교체 뒤 현재 DOM을 잡도록 시험만 수리했다. 관련111PASS, 제품 paint/권한 소스 변경0, 원337 complete matcher chain 유지다. 기존 CAD fixture를 support로 추출해 재사용했으며 기존200 CAD 단언도 유지했다. 최종 전체3938PASS/0FAIL/3기존SKIP(54.46초), 전체Chromium229expected=226actualPASS+안전차단 의도FAIL3(356.40초), CAD8/Control9PASS, 타입/E2E타입/빌드/정책79/위반0·0/공개계약9PASS다. 최종907source 해시 전후·commit뒤 동일. scoped commit271982cc와 독립 task spec✅/qualityApproved(C/I0)를 확인했으며 browserErrors 추가 단언 Minor와 기존 경고는 최종 검토에서 triage한다. 실제DWG변환·후속맵완전paint·모든GPU/native/HIL·모든상태시각/대비 검증으로 확대하지 않는다.
