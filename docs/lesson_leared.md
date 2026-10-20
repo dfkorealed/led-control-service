@@ -1097,3 +1097,9 @@
 - **원인**: 현재 SetupWizard 액션은 `맵 생성`이다. OFF ACL은 API가 구체적인 command/ACK topic에만 write할 수 있는데, 임의 probe 발행 실패를 Gateway read 거부와 혼동했다. lab child 환경에는 provisioning-device·monitoring-refresh journal의 일회용 경로가 빠져 있었다.
 - **예방**: E2E selector는 실제 사용자 동작과 함께 갱신하고, broker 권한 검사는 발행자에게 허용된 exact topic에서 자기 Gateway 수신·타 Gateway 미수신·금지 write를 분리 확인한다. lab Gateway의 모든 durable state는 일회용 디렉터리를 지정한다. 테스트 성공을 생산 ACL 완화나 실제 Gateway/RF HIL 증거로 해석하지 않는다.
 - **후속 확인**: first-connect 당시 DB·Gateway 로컬 snapshot은 `desiredRevision=appliedRevision=1`, pending ACK 0으로 이미 수렴했다. API 인증서 관측기는 생산 ACL상 command/ACK write-only라 snapshot 재전달·application receipt·execution ACK를 읽지 못한 것이 테스트 oracle의 원인이었다. 일회용 lab에서만 Gateway 인증서로 별도 비영속·수동 관측기를 두고 자기 Gateway의 정확한 세 토픽만 read하며, 타 Gateway read 거부를 함께 검증한다. 이후 자동화 실연동 E2E는 broker/API 재시작까지 통과했지만 소프트웨어 Gateway 경로 검증이며 실제 RF/HIL 증거는 아니다.
+
+
+## 2026-10-21 랜딩 재배포와 새 빌드 도구 advisory
+
+- 기존 운영 SEO 배포 계열과 개발 MAIN이 다를 수 있다. 운영 갱신은 최신 공개 계열의 정적 HTML·메타·소유 인증/robots/sitemap·기존 UI를 보존하고 승인된 요금 소스만 옮겼다. 일반 MAIN의 오래된 deploy 도구로 덮어쓰지 않는다.
+- pnpm9 감사 metadata12moderate/12high와 advisory10moderate/11high의 불일치를 숨기지 않는다. 원본의 새 Vite3advisory가 두 버전(5.4.21/6.4.3) findings를 함께 가지며 version별 집계가 metadata와 일치했다. 공개 빌드의 취약 Vite6.4.3을6.4.4로 갱신하자 새 보고서/기존 엄격 parser가 그대로 통과했다. 감사 정책/예외나 보안 관문을 완화하지 않았으며 전체 저장소 감사 성공과 landing scope blocked0을 구분한다.

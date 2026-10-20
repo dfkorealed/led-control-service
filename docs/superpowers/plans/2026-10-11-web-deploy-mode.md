@@ -248,3 +248,5 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 - [ ] 정확 후보를 커밋하고 Public Landing Release CI와 새 로컬 관문·source/artifact guard를 통과한다. 기존 전체 service gate는 변경하지 않는다.
 - [ ] 기존 kinda 인증/서울 이전 없는 Sydney 대상에서 새 릴리스를 게시하고 CloudFront 전파/invalidation·lock 해제를 확인한다.
 - [ ] 실제 회사/CloudFront HTTP·검색 파일·기본 구독/100원/문구/부가세·소개/Plus 제거와 상담/반응형 화면을 확인하고 상태/메뉴/실행서를 완료한다.
+
+- 2026-10-21 관문 수리: 첫9205bfbb는 감사 집계 불일치로 실패했다. 실제 원본은 새 Vite3 advisory가 두 설치 버전에 대응했다. 공개 Vite6.4.4와 해당 frozen lock만 갱신했고 감사 정책/예외는 보존했다. working candidate 로컬 unit37/Chromium12/타입/계약/빌드/scoped blocked0 통과 후 최종 후보 CI를 기다린다.
