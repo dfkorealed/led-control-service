@@ -67,12 +67,12 @@ describe("InquiryForm", () => {
 
   it("keeps selected pricing context in the payload after the customer rewrites the message", async () => {
     submitLandingInquiry.mockResolvedValue({ reference: "KI-PLAN", status: "received" });
-    render(<InquiryForm selectedPlan="Plus" initialMessage="Plus 요금제 도입 상담을 받고 싶습니다." />);
+    render(<InquiryForm selectedPlan="Basic" initialMessage="Basic 요금제 도입 상담을 받고 싶습니다." />);
     fillValidForm();
     expect(screen.getByRole("textbox", { name: "문의 내용" })).toHaveValue("  B2 조명 상담  ");
     submit();
     await waitFor(() => expect(submitLandingInquiry).toHaveBeenCalledTimes(1));
-    expect(submitLandingInquiry.mock.calls[0][0].message).toBe("선택한 요금제: Plus\nB2 조명 상담");
+    expect(submitLandingInquiry.mock.calls[0][0].message).toBe("선택한 요금제: Basic\nB2 조명 상담");
   });
 
   it("validates message length including selected pricing context", () => {

@@ -240,3 +240,11 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 - 개발 freeze:27파일 SHA 일치, Node40/40·공개unit37/37·strictChromium12/12(실패/skip/flaky0)·public typecheck/UI정책0/0과 raw/noJS·hydration 검증을 확인했다. 두 fresh build의 source95802f76/artifact14a02be5/rendererba4d1b51 동일성과 실제renderer172/raw2941·published15/audited419 결속을 확인했다. 총괄 adapter9/9·정확4파일/MIME 거부 테스트도 통과했다. 새 독립 검토가 진행 중이며 운영 게시/네이버 소유확인은 아직이다.
 
 - 독립 검토: Critical/Important0·exact CI/배포 진행 가능. Reviewer가 source95802f76/artifact14a02be5/rendererba4d1b51을 독립 재계산했고 SSR·exact route/404·legacy quartet·audit/sourceproof·기존 guard를 확인했다. ignored adapter 실패로그 안내의 파일명 오타1건만 실제r8 이름으로 정리했다. 실제 Linux CI/AWS/등록/색인/CWV는 이 코드 검토가 검증한 범위가 아니다.
+
+
+## 2026-10-21 기본 구독·추가 조명 로컬 수정 운영 배포
+
+- [x] 운영 SEO 계열/배포 대상과 로컬 승인 소스 ef668368을 대조하고 요금 UI·관련 기대·메타만 반영한다. 기존 준비중 로그인/이메일 상담/모바일 수정·SEO 인증과 정적 HTML은 보존한다.
+- [ ] 정확 후보를 커밋하고 Public Landing Release CI와 새 로컬 관문·source/artifact guard를 통과한다. 기존 전체 service gate는 변경하지 않는다.
+- [ ] 기존 kinda 인증/서울 이전 없는 Sydney 대상에서 새 릴리스를 게시하고 CloudFront 전파/invalidation·lock 해제를 확인한다.
+- [ ] 실제 회사/CloudFront HTTP·검색 파일·기본 구독/100원/문구/부가세·소개/Plus 제거와 상담/반응형 화면을 확인하고 상태/메뉴/실행서를 완료한다.

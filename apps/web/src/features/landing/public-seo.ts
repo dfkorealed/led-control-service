@@ -15,6 +15,6 @@ export const publicPageSeo = {
   pricing: {
     pathname: "/pricing",
     title: "요금제 | 킨다 조명 관제",
-    description: "킨다 조명 관제 Basic과 Plus의 기록 보존 범위와 보고서 구성을 비교하세요. 월 기준 안내와 준비 중인 요금제의 제공 조건은 이메일 도입 상담에서 확인할 수 있습니다."
+    description: "현장 1곳당 월 99,000원으로 조명 1,000개와 킨다의 기본 기능을 이용하세요. 추가 조명은 100원 / 월이며 부가세는 별도입니다. 이메일로 도입을 상담하세요."
   }
 } as const;

@@ -24,7 +24,7 @@ for(const path of ['/','/features','/pricing']) {
       await expect(staticPage).toHaveTitle(title);
       const description=staticPage.locator('meta[name="description"]');await expect(description).toHaveCount(1);
       expect((await description.getAttribute('content'))!.length).toBeGreaterThan(50);
-      expect(await description.getAttribute('content')).toContain(path === '/' ? '도면 위 조명 위치와 상태 확인부터' : path === '/features' ? '모니터링, 조명 제어, 운영 통계와 보고서, 도면 편집까지.' : 'Basic과 Plus의 기록 보존 범위와 보고서 구성을 비교');
+      expect(await description.getAttribute('content')).toContain(path === '/' ? '도면 위 조명 위치와 상태 확인부터' : path === '/features' ? '모니터링, 조명 제어, 운영 통계와 보고서, 도면 편집까지.' : '현장 1곳당 월 99,000원으로 조명 1,000개');
       expect(await description.getAttribute('content')).not.toContain('전화 또는 이메일');
       await expect(staticPage.locator('meta[property="og:description"]')).toHaveAttribute('content',(await description.getAttribute('content'))!);
       await expect(staticPage.locator('meta[property="og:title"]')).toHaveAttribute('content',title);
@@ -85,7 +85,17 @@ test('header menus navigate to the separate public feature and pricing pages',as
   await expect(page).toHaveURL(/\/pricing$/);await expect(page.getByRole('heading',{level:1})).toBeVisible();
 });
 test('pricing consultation preserves the selected plan in the direct-contact popup',async({page})=>{
-  await page.goto('/pricing');await page.getByRole('button',{name:'Plus 도입 상담'}).click();
+  await page.goto('/pricing');
+  const pricing=page.locator('#pricing');
+  await expect(pricing.getByRole('article')).toHaveCount(1);
+  await expect(pricing.getByRole('article',{name:'Basic'})).toContainText('조명 1,000개 포함');
+  const option=pricing.getByRole('region',{name:'옵션 상품'});
+  await expect(option.getByText('100원',{exact:true})).toBeVisible();
+  await expect(option.getByText('/ 월',{exact:true})).toBeVisible();
+  await expect(option.getByText('필요한 만큼 조명을 추가하여 대규모 운영을 간편하게 관리하세요')).toBeVisible();
+  await expect(pricing.getByText('부가세는 별도입니다.',{exact:true})).toBeVisible();
+  await expect(pricing.getByText(/Plus|기본 포함 수량 1,000개 초과분|현장 1곳당 기본 구독으로 시작/)).toHaveCount(0);
+  await page.getByRole('button',{name:'Basic 도입 상담'}).click();
   const dialog=page.getByRole('dialog',{name:'도입 상담'});
-  await expect(dialog).toContainText('선택한 요금제: Plus');await expect(dialog.getByRole('button',{name:'상담 문의 보내기'})).toHaveCount(0);
+  await expect(dialog).toContainText('선택한 요금제: Basic');await expect(dialog.getByRole('button',{name:'상담 문의 보내기'})).toHaveCount(0);
 });

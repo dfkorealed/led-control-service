@@ -84,27 +84,31 @@ describe("public field-day landing narrative", () => {
     }
   });
 
-  it("shows Basic pricing and the upcoming Plus plan without claiming active limits", () => {
+  it("shows the site subscription and only the approved extra-light option", () => {
     render(<PricingPage />);
     const section = document.getElementById("pricing");
     expect(section).not.toBeNull();
-    if (!section) return;
-    const pricing = within(section);
+    const pricing = within(section!);
     const basic = within(pricing.getByRole("article", { name: "Basic" }));
+    expect(basic.getByText("기본 구독")).toBeVisible();
     expect(basic.getByText("99,000원")).toBeVisible();
-    expect(basic.getByText("모든 기본 기능")).toBeVisible();
-    expect(basic.getByText("로그 3개월 보존")).toBeVisible();
-    expect(basic.getByText("보고서 월 10회 생성")).toBeVisible();
-    const plus = within(pricing.getByRole("article", { name: "Plus" }));
-    expect(plus.getByText("준비중")).toBeVisible();
-    expect(plus.queryByText("/ 월")).toBeNull();
-    expect(plus.getByText("모든 기본 기능")).toBeVisible();
-    expect(plus.getByText("로그 1년 보존")).toBeVisible();
-    expect(plus.getByText("보고서 무제한 생성")).toBeVisible();
-    expect(plus.getByText(/AI 기능.*도입 상담 시 안내/)).toBeVisible();
-    expect(pricing.getByText(/상품별 적용 범위와 제공 일정은 상담에서 확인/)).toBeVisible();
+    expect(basic.getByText("현장 1곳당")).toBeVisible();
+    for (const item of ["조명 1,000개 포함", "모든 기본 기능", "로그 3개월 보존", "보고서 월 10회 생성"]) {
+      expect(basic.getByText(item)).toBeVisible();
+    }
+    const options = within(pricing.getByRole("region", { name: "옵션 상품" }));
+    expect(options.getByText("추가 조명", { exact: true })).toBeVisible();
+    expect(options.getByText("100원", { exact: true })).toBeVisible();
+    expect(options.getByText("/ 월", { exact: true })).toBeVisible();
+    expect(options.getByText("필요한 만큼 조명을 추가하여 대규모 운영을 간편하게 관리하세요")).toBeVisible();
+    expect(pricing.queryByText(/기본 포함 수량 1,000개 초과분|현장 1곳당 기본 구독으로 시작/)).not.toBeInTheDocument();
+    expect(options.getAllByRole("term")).toHaveLength(1);
+    expect(pricing.getAllByRole("article")).toHaveLength(1);
+    expect(pricing.queryByText(/Plus|두 가지 구성|무제한|AI 기능|보고서 자동화|추가 계정|5,000원/)).not.toBeInTheDocument();
+    expect(pricing.getByText("부가세는 별도입니다.", { exact: true })).toBeVisible();
     expect(basic.getByRole("button", { name: "Basic 도입 상담" })).toBeVisible();
-    expect(plus.getByRole("button", { name: "Plus 도입 상담" })).toBeVisible();
+    expect(pricing.getByRole("heading", { level: 1, name: "현장에 맞는 운영 방식을 선택하세요." })).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
   it("uses the company homepage's verified footer contact details", () => {

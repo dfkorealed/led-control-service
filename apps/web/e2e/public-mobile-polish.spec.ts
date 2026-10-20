@@ -92,7 +92,7 @@ test.describe("touch", () => {
     await expect(page.getByRole("contentinfo").getByRole("navigation", { name: "회사 페이지" })).toHaveCount(0);
     expect(api).toEqual([]);
     await page.goto("/pricing");
-    for (const plan of ["Basic", "Plus"]) {
+    for (const plan of ["Basic"]) {
       const planTrigger = page.getByRole("button", { name: `${plan} 도입 상담` });
       await planTrigger.tap();
       await expect(dialog.getByLabel("이메일 도입 상담").getByText(`선택한 요금제: ${plan}`)).toBeVisible();

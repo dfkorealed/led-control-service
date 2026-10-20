@@ -33,9 +33,9 @@ describe("public contact without backend", () => {
   });
   it("keeps the selected plan as context for direct contact", async () => {
     render(<PricingPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Plus 도입 상담" }));
+    fireEvent.click(screen.getByRole("button", { name: "Basic 도입 상담" }));
     const card = await screen.findByLabelText("이메일 도입 상담");
-    expect(within(card).getByText(/선택한 요금제:/)).toHaveTextContent("선택한 요금제: Plus");
+    expect(within(card).getByText(/선택한 요금제:/)).toHaveTextContent("선택한 요금제: Basic");
     expect(screen.queryByRole("button", { name: "상담 문의 보내기" })).not.toBeInTheDocument();
   });
 });
