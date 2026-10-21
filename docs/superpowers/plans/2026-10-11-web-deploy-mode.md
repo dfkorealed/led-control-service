@@ -245,8 +245,14 @@ Ruling: 사용자의 구체적 주석과 직접 구현·배포 지시가 승인 
 ## 2026-10-21 기본 구독·추가 조명 로컬 수정 운영 배포
 
 - [x] 운영 SEO 계열/배포 대상과 로컬 승인 소스 ef668368을 대조하고 요금 UI·관련 기대·메타만 반영한다. 기존 준비중 로그인/이메일 상담/모바일 수정·SEO 인증과 정적 HTML은 보존한다.
-- [ ] 정확 후보를 커밋하고 Public Landing Release CI와 새 로컬 관문·source/artifact guard를 통과한다. 기존 전체 service gate는 변경하지 않는다.
-- [ ] 기존 kinda 인증/서울 이전 없는 Sydney 대상에서 새 릴리스를 게시하고 CloudFront 전파/invalidation·lock 해제를 확인한다.
-- [ ] 실제 회사/CloudFront HTTP·검색 파일·기본 구독/100원/문구/부가세·소개/Plus 제거와 상담/반응형 화면을 확인하고 상태/메뉴/실행서를 완료한다.
+- [x] 정확 후보를 커밋하고 Public Landing Release CI와 새 로컬 관문·source/artifact guard를 통과한다. 기존 전체 service gate는 변경하지 않는다.
+- [x] 기존 kinda 인증/서울 이전 없는 Sydney 대상에서 새 릴리스를 게시하고 CloudFront 전파/invalidation·lock 해제를 확인한다.
+- [x] 실제 회사/CloudFront HTTP·검색 파일·기본 구독/100원/문구/부가세·소개/Plus 제거와 상담/반응형 화면을 확인하고 상태/메뉴/실행서를 완료한다.
 
 - 2026-10-21 관문 수리: 첫9205bfbb는 감사 집계 불일치로 실패했다. 실제 원본은 새 Vite3 advisory가 두 설치 버전에 대응했다. 공개 Vite6.4.4와 해당 frozen lock만 갱신했고 감사 정책/예외는 보존했다. working candidate 로컬 unit37/Chromium12/타입/계약/빌드/scoped blocked0 통과 후 최종 후보 CI를 기다린다.
+
+- 최종 후보17c4ff77의 CI39517916239 SUCCESS, 로컬37unit/12Chromium·scoped blocked0, 내려받은 CI proof와 새 빌드 source/artifact 일치 및 verifyLandingRelease 통과. 당시에는 AWS 인증 만료로 게시0인 대기 상태였고 아래 인증 갱신 후 완료했다.
+
+- 연결 도구도 만료된 같은 kinda 프로필을 사용함을 확인했고, Chrome 기존 세션의 cross-device 로그인으로 동일 계정456721863474 인증을 갱신했다. 기존 대상 check와 직전r8/landing을 확인한 뒤20261021-pricing-r9 게시를 시작했으며 아래 완료 검증으로 마무리했다.
+
+- 완료:20261021-pricing-r9/14files, source17c4ff77, stackUPDATE_COMPLETE/CloudFrontDeployed·invalidation I3RUP4OI77GURJZOF8S22ETZOS Completed·lock404. 회사/CloudFront smoke0와 공개13파일 SHA/size 일치, 운영480/1440px·상담/이메일/Escape/초점 복귀·Basic/일반 초기화 및 SEO 파일/404 확인. [검증 기록](../../assets/pricing-release-2026-10-21/verification.json). 로그인 완료 창을 닫고 viewport를 원래 크기로 복구했다.

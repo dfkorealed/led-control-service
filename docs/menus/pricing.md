@@ -1,6 +1,6 @@
 # 요금제 페이지 기능 현황
 
-## 2026-10-21 기본 구독/추가 조명 운영 배포 후보
+## 2026-10-21 기본 구독/추가 조명 운영 배포 완료
 
 ### 구현 완료
 
@@ -12,7 +12,7 @@
 
 ### 부족하거나 개선이 필요한 기능
 
-- 정확 후보의 landing CI/로컬 관문 및 실제 운영 배포·화면 확인은 진행 중이다. 아래 이전 요금/배포 기록은 당시 이력이다.
+- 정확 후보17c4ff77의 landing CI39517916239·로컬37unit/12Chromium·scoped blocked0과 CI proof/source/artifact guard를 통과했다. 기존 AWS 연결을 갱신해20261021-pricing-r9를 실제 게시했다.14파일·UPDATE_COMPLETE/Deployed·캐시 갱신Completed·lock404, 회사/CloudFront smoke0와 공개13파일 바이트 일치를 확인했다. 실제480/1440px 가격/지정 문구·Plus/소개 제거·VAT·넘침0·Basic/일반 상담과 Escape/초점 복귀를 확인했다. [검증](../assets/pricing-release-2026-10-21/verification.json), [모바일](../assets/pricing-release-2026-10-21/pricing-480.png), [PC](../assets/pricing-release-2026-10-21/pricing-1440.png). 아래 이전 요금/배포 기록은 당시 이력이다.
 
 ### 관련 파일
 

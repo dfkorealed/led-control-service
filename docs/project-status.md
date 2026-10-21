@@ -1,13 +1,15 @@
-## 2026-10-21 요금제 로컬 수정 운영 배포 — 진행 중
+## 2026-10-21 요금제 로컬 수정 운영 배포 — 운영 배포 완료
 
-- 첫 후보9205bfbb의 로컬/CI 관문은 감사 집계 불일치로 실패했다. 원본 pnpm 보고서에서 새 Vite advisory3건이5.4.21/6.4.3 두 버전에 걸쳐 metadata가 version별로 집계되는 것을 확인했다. 공개 web Vite만6.4.4로 갱신하고 frozen lock을 재생성했다(정책/감사 예외는 변경0). 갱신 working candidate의 로컬 landing 관문은 타입/공개 unit37/계약/빌드/Chromium12·실패skipflaky0·scoped blocked0으로 통과했다. 이 결과를 최종 커밋 CI 성공으로 대체하지 않으며 새 exact 후보 CI를 실행한다.
+- 최종 후보 `17c4ff77f219ab428aa81be0c1cd1de615ba3d92`의 [Public Landing Release SUCCESS](https://github.com/dfkorealed/led-control-service/actions/runs/39517916239)와 로컬 전체 landing 관문37unit/12Chromium·blocked0을 확인했다. CI ZIP/proof를 내려받아 새 로컬 source/artifact 동일성과 verifyLandingRelease 성공을 확인했다(artifact `fbe61d710dcd9d7ff870f1f71d0dd7501e9c7b844a5b660d15ae234e34b9aecf`). AWS 연결 도구도 같은 프로필 만료를 반환했다. 사용자가 연결 도구 사용을 요청하여 공식 MCP 연결을 직접 확인했고, Chrome의 기존 로그인 세션과 cross-device 흐름으로 kinda 동일 계정456721863474 인증을 갱신했다. 대상 check 통과·직전20261016-landing-seo-r8/landing을 확인하고20261021-pricing-r9 게시를 완료했다. 실제 공개 source는17c4ff77이며 이후 완료 커밋은 문서/증거만 정리한다.
+
+- 첫 후보9205bfbb의 로컬/CI 관문은 감사 집계 불일치로 실패했다. 원본 pnpm 보고서에서 새 Vite advisory3건이5.4.21/6.4.3 두 버전에 걸쳐 metadata가 version별로 집계되는 것을 확인했다. 공개 web Vite만6.4.4로 갱신하고 frozen lock을 재생성했다(정책/감사 예외는 변경0). 갱신 working candidate의 로컬 landing 관문은 타입/공개 unit37/계약/빌드/Chromium12·실패skipflaky0·scoped blocked0으로 통과했다. 이 working 결과와 별개로 최종17c4ff77의 exact CI/소스·산출물 guard도 성공했다.
 
 - 사용자가 로컬 확인한 기본 구독/추가 조명과 주석3개를 운영에 배포하도록 승인했다. 로컬 main `ef668368`의 PricingSection/MonthlyPrice를 기존 운영/SEO 배포 계열 `5f43c406`에 한정 반영한다. 검색용 정적 HTML·페이지별 메타·네이버 태그·robots/sitemap, 상담과 기존 모바일 수정은 보존한다. 요금 메타의 과거 Plus 비교 문장만 현재 기본 구독/옵션으로 일치시킨다.
-- [x] 후보/대상 조사·요금 소스 반영, [ ] 정확 후보 landing CI/로컬 관문, [ ] AWS 인증/실제 게시·HTTPS/운영 UI/문서 완료. 활성 체크리스트는 기존 `2026-10-11-web-deploy-mode.md`의2026-10-21 항목이다. AWS 로그인 갱신은 사용자 입력 대기이며 원격 게시 쓰기는 아직0이다.
+- [x] 후보/대상 조사·요금 소스 반영, [x] 정확 후보 landing CI/로컬 관문, [x] AWS 인증/실제 게시·HTTPS/운영 UI/문서 완료. 활성 체크리스트는 기존 `2026-10-11-web-deploy-mode.md`의2026-10-21 항목이다. 기존 Sydney/private S3/CloudFront에14파일을 게시했고 UPDATE_COMPLETE/Deployed·invalidation I3RUP4OI77GURJZOF8S22ETZOS Completed·lock404를 확인했다. 회사/CloudFront HTTPS smoke0, 공개13파일 바이트 일치, 운영480/1440px 요금 문구·가격 동일크기·넘침0·Basic/일반 상담 초기화와 Escape/초점 복귀·이메일 href를 확인했다. 검색3경로/정적 HTML/메타/네이버 태그/robots/sitemap을 유지했다. DNS/무료플랜/리전·MAIN 제품·API/DB/장비·실제 메일 발송은 변경/실행0이다.
 
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-10-16
+기준일: 2026-10-21
 
 ## 2026-10-16 공개 사이트 SEO·검색 도구 등록 — 진행 중
 

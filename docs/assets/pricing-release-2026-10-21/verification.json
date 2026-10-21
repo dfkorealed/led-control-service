@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-21",
+  "sourceCommit": "17c4ff77f219ab428aa81be0c1cd1de615ba3d92",
+  "release": "20261021-pricing-r9",
+  "previousRelease": "20261016-landing-seo-r8",
+  "mode": "landing",
+  "region": "ap-southeast-2",
+  "ci": {
+    "url": "https://github.com/dfkorealed/led-control-service/actions/runs/39517916239",
+    "conclusion": "success"
+  },
+  "artifactSha256": "fbe61d710dcd9d7ff870f1f71d0dd7501e9c7b844a5b660d15ae234e34b9aecf",
+  "unitPassed": 37,
+  "browser": {
+    "startTime": "2026-10-20T23:55:02.016Z",
+    "duration": 12476.116,
+    "expected": 12,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "scopedAuditBlocked": 0,
+  "publishedFiles": 14,
+  "publicBytesVerified": [
+    "404.html",
+    "assets/landing/public-DspmAg6j.js",
+    "assets/landing/public-Prfw1g3p.css",
+    "brand/favicon-32.png",
+    "brand/kinda-mark-512.png",
+    "brand/kinda-mark-monochrome.svg",
+    "brand/kinda-mark-reversed.svg",
+    "brand/kinda-mark.svg",
+    "features.html",
+    "index.html",
+    "pricing.html",
+    "robots.txt",
+    "sitemap.xml"
+  ],
+  "stackStatus": "UPDATE_COMPLETE",
+  "distributionStatus": "Deployed",
+  "invalidation": {
+    "id": "I3RUP4OI77GURJZOF8S22ETZOS",
+    "status": "Completed"
+  },
+  "deploymentLock": "absent (404)",
+  "smoke": {
+    "company": 0,
+    "cloudfront": 0
+  },
+  "liveUI": {
+    "widths": [
+      480,
+      1440
+    ],
+    "basicPrice": "99,000원 / 월",
+    "includedLights": 1000,
+    "extraLightPrice": "100원 / 월",
+    "introRemoved": true,
+    "vat": "부가세는 별도입니다.",
+    "plusRemoved": true,
+    "overflow": false,
+    "priceFontSizesMatch": true,
+    "basicContactContext": true,
+    "generalContactReset": true,
+    "emailHrefPreserved": true,
+    "escapeAndFocusReturn": true
+  },
+  "awsConnectedToolRead": {
+    "apiCalls": [
+      "sts.GetCallerIdentity",
+      "cloudformation.DescribeStacks",
+      "cloudfront.GetDistribution"
+    ],
+    "status": "success"
+  },
+  "limits": [
+    "Landing only; internal service/API/DB/hardware were not deployed.",
+    "No change to DNS, free plan or application region.",
+    "Email links verified; actual email sending and receipt not tested.",
+    "Whole-service CI success is not claimed."
+  ]
+}
